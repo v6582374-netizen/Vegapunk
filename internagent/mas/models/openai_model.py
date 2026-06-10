@@ -23,36 +23,53 @@ class OpenAIModel(BaseModel):
     
     def __init__(self, 
                 api_key: Optional[str] = None, 
+                base_url: Optional[str] = None,
                 model_name: str = "gpt-4o", 
                 max_tokens: int = 4096,
                 temperature: float = 0.7,
-                timeout: int = 600):
+                timeout: int = 600,
+                default_headers: Optional[Dict[str, str]] = None,
+                api_key_env_var: str = "OPENAI_API_KEY",
+                provider_name: str = "OpenAI"):
         """
         Initialize the OpenAI model adapter.
         
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY environment variable)
+            base_url: Optional OpenAI-compatible API base URL
             model_name: Model identifier to use (e.g., "gpt-4o")
             max_tokens: Maximum tokens to generate by default
             temperature: Default temperature setting (0 to 1)
             timeout: Timeout in seconds for API calls
+            default_headers: Optional headers to send with every request
+            api_key_env_var: Environment variable to read when api_key is unset
+            provider_name: Provider name used in log messages
         """
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        self.base_url = os.environ.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
+        self.api_key = api_key or os.environ.get(api_key_env_var)
+        self.base_url = base_url or os.environ.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
         if not self.api_key:
-            logger.warning("OpenAI API key not provided. Please set OPENAI_API_KEY environment variable.")
+            logger.warning(f"{provider_name} API key not provided. Please set {api_key_env_var} environment variable.")
             
         self.model_name = model_name
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout = timeout
+        self.default_headers = default_headers
+        self.provider_name = provider_name
         
         try:
+            client_kwargs = {
+                "api_key": self.api_key,
+                "base_url": self.base_url,
+                "timeout": self.timeout,
+            }
+            if self.default_headers:
+                client_kwargs["default_headers"] = self.default_headers
 
-            self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url, timeout=self.timeout)
-            logger.info(f"OpenAI client initialized with model: {self.model_name} via {self.base_url}")
+            self.client = AsyncOpenAI(**client_kwargs)
+            logger.info(f"{self.provider_name} client initialized with model: {self.model_name} via {self.base_url}")
         except TypeError as e:
-            logger.warning(f"Error initializing OpenAI client: {e}")
+            logger.warning(f"Error initializing {self.provider_name} client: {e}")
             self.client = None
     
     async def generate(self, 
@@ -98,7 +115,7 @@ class OpenAIModel(BaseModel):
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"Error generating response from OpenAI: {e}")
+            logger.error(f"Error generating response from {self.provider_name}: {e}")
             raise
     
     async def generate_with_json_output(self, 
@@ -160,7 +177,7 @@ class OpenAIModel(BaseModel):
             logger.error(f"Failed to decode JSON response: {e}")
             raise ValueError(f"Model did not return valid JSON: {e}")
         except Exception as e:
-            logger.error(f"Error generating JSON response from OpenAI: {e}")
+            logger.error(f"Error generating JSON response from {self.provider_name}: {e}")
             raise RuntimeError(f"Error generating JSON response: {e}")
     
     async def generate_json(self, 
@@ -264,7 +281,7 @@ class OpenAIModel(BaseModel):
             return response.model_dump()
             
         except Exception as e:
-            logger.error(f"Error generating response with messages from OpenAI: {e}")
+            logger.error(f"Error generating response with messages from {self.provider_name}: {e}")
             raise
 
     async def embed(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
@@ -289,7 +306,7 @@ class OpenAIModel(BaseModel):
             
             return embeddings[0] if isinstance(text, str) else embeddings
         except Exception as e:
-            logger.error(f"Error generating embeddings: {e}")
+            logger.error(f"Error generating embeddings from {self.provider_name}: {e}")
             raise
     
     @classmethod
@@ -308,8 +325,10 @@ class OpenAIModel(BaseModel):
         """
         return cls(
             api_key=config.get("api_key"),
+            base_url=config.get("base_url"),
             model_name=config.get("model_name", "gpt-4o"),
             max_tokens=config.get("max_tokens", None),
             temperature=config.get("temperature", 0.7),
-            timeout=config.get("timeout", 200)
+            timeout=config.get("timeout", 200),
+            default_headers=config.get("default_headers")
         ) 

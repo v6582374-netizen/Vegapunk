@@ -49,8 +49,13 @@ Key fields in `.env`:
 ```
 OPENAI_API_KEY=        # OpenAI or compatible API key (used for embeddings and memory)
 OPENAI_API_BASE_URL=   # Base URL for OpenAI-compatible endpoints
+OPENROUTER_API_KEY=    # OpenRouter API key (when using the openrouter provider)
 ANTHROPIC_API_KEY=     # Anthropic API key (for Claude-based experiment backends)
 ```
+
+To use OpenRouter as the model gateway, set `OPENROUTER_API_KEY` and run with
+`config/openrouter_config.yaml`. See [docs/openrouter.md](docs/openrouter.md)
+for setup details.
 
 ### Run a Discovery Experiment
 

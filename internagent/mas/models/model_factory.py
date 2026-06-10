@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 # Available model provider implementations
 MODEL_PROVIDER_MAP = {
     "openai": "internagent.mas.models.openai_model.OpenAIModel",
+    "openrouter": "internagent.mas.models.openrouter_model.OpenRouterModel",
     "interns1": "internagent.mas.models.s1_model.S1Model",
     "dsr1": "internagent.mas.models.r1_model.R1Model",
 }
@@ -246,7 +247,8 @@ class ModelFactory:
         separate instances to ensure correct behavior.
         """
         provider_config = config.get(provider, {})
-        model_name = provider_config.get("model_name", "default")
+        model_name = config.get("model_name") or provider_config.get("model_name", "default")
+        base_url = config.get("base_url") or provider_config.get("base_url", "")
         
         if provider == "local":
             model_path = provider_config.get("model_path", "")
@@ -255,5 +257,8 @@ class ModelFactory:
         if provider == "ollama":
             api_base = provider_config.get("api_base", "http://localhost:11434")
             return f"{provider}:{model_name}:{api_base}"
+
+        if provider in {"openai", "openrouter", "interns1", "dsr1"} and base_url:
+            return f"{provider}:{model_name}:{base_url}"
             
         return f"{provider}:{model_name}"
