@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from internagent.mas.agents.dr_agent import DRAgent
 
 
+# 问答模式是一条短路径：把问题交给调研工作流，拿到一次性回答后打印或写文件。
+# 它不会创建多轮实验目录，也不会进入发现流程里的想法筛选和实验执行。
 def main():
     parser = argparse.ArgumentParser(description='InternAgent QA — one-shot question answering')
     parser.add_argument('--question', '-q', required=True, help='Research question to answer')
@@ -22,6 +24,8 @@ def main():
     parser.add_argument('--output', '-o', default=None, help='Write answer to this file path')
     args = parser.parse_args()
 
+    # 这里使用调研适配器，是因为问答同样需要“查背景、组织证据、合成答案”的能力；
+    # 只是输出直接回到终端，而不是进入后续实验阶段。
     agent = DRAgent(model='o4-mini', config={'mode': 'qa'})
     answer = str(asyncio.run(
         agent.execute({'task': args.question, 'file_path': args.file}, {})

@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
     "agents": {
         "exp_analyze": {
             "model_provider": "openai",
-            "model_name": "gpt-4o-mini",
+            "model_name": "gpt-5.5",
             "api_key": "",
             "temperature": 0.7,
             "max_tokens": 4096,

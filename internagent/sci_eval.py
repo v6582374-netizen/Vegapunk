@@ -38,7 +38,7 @@ def _get_env(name: str, *fallbacks: str) -> str:
 def score_run(
     workspace_dir: str,
     checklist_path: str,
-    model: str = "gpt-5.1",
+    model: str = "gpt-5.5",
 ) -> Dict[str, Any]:
     """Score all checklist items using the official ResearchClawBench scorer."""
     if not osp.exists(checklist_path):

@@ -60,7 +60,7 @@ def get_default_config() -> Dict[str, Any]:
     """
     return {
         'model': {
-            'default_model': 'o4-mini',
+            'default_model': 'gpt-5.5',
             'global_planner_model': None,
             'global_execution_model': None,
             'coordinator_model': None,
@@ -290,4 +290,3 @@ if __name__ == "__main__":
     print(f"默认模型: {config['model']['default_model']}")
     print(f"Planner最大迭代次数: {config['global_planner']['max_iter']}")
     print(f"Execution最大工作线程: {config['global_execution']['max_workers']}")
-

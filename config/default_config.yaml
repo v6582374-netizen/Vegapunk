@@ -12,7 +12,7 @@ models:
   default_provider: "openai"
 
   openai:
-    model_name: "gpt-4o"
+    model_name: "gpt-5.5"
     api_key: ""  # Set via environment variable OPENAI_API_KEY
     temperature: 0.7
 
@@ -172,7 +172,7 @@ workflow:
 
 # Sci Task Configuration (paper reproduction tasks)
 sci_task:
-  scorer_model: "gpt-5.1"          # LLM-as-judge model for checklist scoring (aligned with ResearchClawBench default)
+  scorer_model: "gpt-5.5"          # LLM-as-judge model for checklist scoring
   evaluation_mode: "llm_judge"    # Evaluation mode (llm_judge or none)
   default_launcher: "python code/experiment.py"  # Default launcher.sh command
 

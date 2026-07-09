@@ -29,6 +29,8 @@ from .experience_agent import ExperienceAgent
 logger = logging.getLogger(__name__)
 
 
+# 这里集中维护“角色名 -> 代理类”的映射。上层状态机只说要哪个角色，
+# 不直接 import 具体实现，因此新增角色时主要改这一处注册表。
 class AgentFactory:
     """
     Factory for creating agent instances based on configuration.
@@ -52,7 +54,7 @@ class AgentFactory:
         'experience':ExperienceAgent
     }
     
-    # Cache of created agent instances
+    # 同一类角色和同一模型配置通常可以复用，缓存能减少重复初始化模型客户端。
     _agent_cache: Dict[str, BaseAgent] = {}
     
     @classmethod
@@ -93,7 +95,7 @@ class AgentFactory:
         if agent_type not in cls._agent_registry:
             raise ValueError(f"Agent type not registered: {agent_type}")
         
-        # Create a cache key
+        # 缓存粒度按角色和模型提供方划分；这能复用连接，又避免不同模型配置混在一起。
         cache_key = cls._create_cache_key(agent_type, config)
         
         # Check if we have a cached instance
@@ -145,7 +147,7 @@ class AgentFactory:
                     # Create a merged config with agent-specific settings
                     merged_config = agent_config.copy()
 
-                    # Add reference to global config sections that might be needed
+                    # 单个角色配置会带上全局上下文，这样代理可以读取记忆、工具和模型等公共设置。
                     merged_config["_global_config"] = config
 
                     # Add global memory configuration for agents that use task memory

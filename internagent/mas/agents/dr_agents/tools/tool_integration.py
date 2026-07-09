@@ -1516,7 +1516,7 @@ def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
     # Step 3: Ask LLM to answer query based on content
     try:
         from models import get_model
-        model = get_model("gpt-4o-mini")
+        model = get_model("gpt-5.5")
 
         prompt = f"""Based on the following content extracted from a webpage, answer the question comprehensively.
 
@@ -1620,4 +1620,3 @@ if __name__ == "__main__":
 
     res = search_wiki("Yangtze River Flood")
     print("res: ", res)
-

@@ -15,6 +15,8 @@ from .base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
+# 模型提供方在这里被抽象成同一种接口；上层代理只关心“能生成文本或结构化结果”，
+# 不需要知道背后走的是哪个服务商、base URL 或本地实现。
 # Available model provider implementations
 MODEL_PROVIDER_MAP = {
     "openai": "internagent.mas.models.openai_model.OpenAIModel",
@@ -49,6 +51,8 @@ class ModelFactory:
         if provider == "default" or provider is None:
             provider = config.get("default_provider", "openai")
 
+        # 配置可以有全局默认值，也可以给某个服务商单独覆盖；
+        # 创建实例前先合并成真正要传给模型类的一份配置。
         if "models" in config and provider in config["models"]:
             provider_config = config["models"][provider].copy()
             logger.info(f"Using provider-specific config for {provider}: {provider_config}")
@@ -65,6 +69,7 @@ class ModelFactory:
         
         cache_key = ModelFactory._create_cache_key(provider, config_to_use)
         
+        # 同一个服务商、模型名和地址只初始化一次，避免每个代理都重复创建客户端。
         if cache_key in ModelFactory._model_cache:
             logger.debug(f"Reusing cached model for provider: {provider}")
             return ModelFactory._model_cache[cache_key]
@@ -114,7 +119,7 @@ class ModelFactory:
         global_config = config.get("_global_config", {})
         model_config = {}
         
-        # Apply provider configuration
+        # 每个代理可以选择自己的模型提供方；没写时就沿用全局默认模型。
         if model_provider != "default" and model_provider in global_config.get("models", {}):
             model_config.update(global_config.get("models", {}).get(model_provider, {}))
         
@@ -126,7 +131,7 @@ class ModelFactory:
         model_config["provider"] = model_provider
         model_config["default_provider"] = global_config.get("models", {}).get("default_provider", "openai")
         
-        # Apply agent-specific overrides
+        # 温度和输出长度这类行为参数允许按角色微调。
         for key in ["temperature", "max_tokens"]:
             if key in config:
                 model_config[key] = config[key]

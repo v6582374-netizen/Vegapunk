@@ -28,6 +28,8 @@ logger = logging.getLogger(__name__)
 MAX_CONCURRENT_LLM_TASKS = 10
 MAX_CONCURRENT_SEARCH_TASKS = 10
 
+# 这个类是多代理流程的“交通调度员”：它不亲自生成想法或写方法，
+# 而是按状态把任务交给对应角色，并在每个阶段后保存会话。
 class OrchestrationAgent:
     """
     Central coordinator for multi-agent research workflow.
@@ -74,7 +76,7 @@ class OrchestrationAgent:
         self.model_factory = model_factory or ModelFactory()
         self.agent_registry = agent_registry or {}
 
-        # Load workflow configuration
+        # 这些配置决定研究会走几轮、每轮保留多少候选，以及同时调用多少外部服务。
         workflow_config = config.get("workflow", {})
         self.max_iterations = workflow_config.get("max_iterations", 2)
         self.top_ideas_count = workflow_config.get("top_ideas_count", 3)
@@ -115,7 +117,8 @@ class OrchestrationAgent:
         """
         task_id = f"task_{int(time.time())}"
 
-        # Check if DR agent is enabled in config
+        # 如果启用背景调研，会先让专门的调研角色补齐上下文；
+        # 失败时不阻断主流程，因为用户给的原始任务仍然可以继续使用。
         dr_config = self.config.get("agents", {}).get("dr", {})
         dr_enabled = dr_config.get("enabled", True)
         
@@ -188,6 +191,7 @@ class OrchestrationAgent:
             await self._update_session_state(session, WorkflowState.GENERATING)
 
         try:
+            # 主循环只做三件事：执行当前阶段、保存阶段结果、在需要人工反馈时停住。
             while session.state not in [WorkflowState.COMPLETED, WorkflowState.ERROR]:
                 await self._execute_current_phase(session)
                 await self.memory_manager.store_session(session)
@@ -430,6 +434,7 @@ class OrchestrationAgent:
         Args:
             session (WorkflowSession): Session to execute
         """
+        # 状态到处理函数的映射就是这条研究流水线的目录。
         phase_handlers = {
             WorkflowState.GENERATING: self._run_generation_phase,
             WorkflowState.REFLECTING: self._run_reflection_phase,
@@ -465,6 +470,7 @@ class OrchestrationAgent:
         if not generation_agent:
             raise ValueError("Generation agent initialization failed")
 
+        # 生成阶段可以先做文献调查，把已有研究作为候选想法的背景材料。
         paper_lst = None
         if generation_agent.config.get("do_survey", False):
             logger.info(f"Survey Agent: Conduct in-depth literature research on task {session.id}")
@@ -524,6 +530,7 @@ class OrchestrationAgent:
 
         feedback_content = self._extract_feedback_content(session, ideas)
 
+        # 每个想法可以独立被批评；并发能加速，但用信号量保护模型服务不过载。
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_TASKS)
 
         async def reflect_one_idea(idea):
@@ -584,6 +591,7 @@ class OrchestrationAgent:
         current_iter = session.iterations_completed
         ideas = self._get_current_ideas(session, current_iter)
 
+        # 文献检索通常受外部服务限流，和模型调用使用不同的并发上限。
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SEARCH_TASKS)
 
         async def execute_with_semaphore(idx, idea):
@@ -647,6 +655,7 @@ class OrchestrationAgent:
         current_iter = session.iterations_completed
         ideas = self._get_current_ideas(session, current_iter)
 
+        # 演化阶段会把每个父想法扩展成新候选，失败的单个分支不会拖垮整轮。
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLM_TASKS)
 
         async def evolve_one_idea(idea):
@@ -745,6 +754,7 @@ class OrchestrationAgent:
                         idea.score = ranked.get("overall_score", 0.0)
                         idea.scores = ranked.get("criteria_scores", {})
 
+            # 排序结果决定下一步处理哪些候选；没有入选的想法仍保留在会话里用于复盘。
             session.top_ideas = response.get("top_hypotheses", [])
             session.iterations_completed += 1
 
@@ -784,7 +794,7 @@ class OrchestrationAgent:
         current_iter = session.iterations_completed
         ideas = self._get_current_ideas(session, current_iter)
 
-        # Filter to only process top ideas (after ranking)
+        # 到方法阶段时只处理排名靠前的候选，避免把实验设计精力花在低分方向上。
         if session.top_ideas:
             ideas = [i for i in ideas if i.id in session.top_ideas]
             logger.info(f"Method Development Agent: Processing {len(ideas)} top ideas for session {session.id}")
@@ -876,7 +886,7 @@ class OrchestrationAgent:
         current_iter = session.iterations_completed
         ideas = self._get_current_ideas(session, current_iter)
 
-        # Filter to only process top ideas
+        # 精炼阶段继续只看入选候选，把批评和文献证据转成更可执行的方法描述。
         if session.top_ideas:
             ideas = [i for i in ideas if i.id in session.top_ideas]
             logger.info(f"Method Development Agent: Processing {len(ideas)} top ideas for refinement in session {session.id}")
@@ -977,9 +987,7 @@ class OrchestrationAgent:
         """
         logger.info(f"System: Session {session.id} is awaiting external feedback")
 
-        # This phase doesn't do anything - it just waits for external feedback
-        # The external IdeaGenerator (stage.py) will detect this state and provide feedback
-        # Once feedback is added via add_feedback(), the session will transition to REFLECTING
+        # 这个状态本身不做计算，只给外部程序或人一个插入反馈的停靠点。
 
         # For safety, if we've been waiting too long or something goes wrong,
         # we should have a timeout or fallback mechanism

@@ -198,7 +198,7 @@ def extract_url_content(url: str, timeout: int = 120, retry_times: int = 3) -> O
 def extract_and_answer_query(
     url: str, 
     query: str, 
-    model_name: str = "gpt-4o-mini",
+    model_name: str = "gpt-5.5",
     chunk_size: int = 16000,
     max_workers: int = 8,
     timeout: int = 120
@@ -215,7 +215,7 @@ def extract_and_answer_query(
     Args:
         url (str): The URL to extract content from
         query (str): The question to answer
-        model_name (str): LLM model name (default: "gpt-4o-mini")
+        model_name (str): LLM model name (default: "gpt-5.5")
         chunk_size (int): Size of each chunk in characters (default: 16000)
         max_workers (int): Maximum parallel workers (default: 8)
         timeout (int): Request timeout in seconds (default: 120)
@@ -1181,7 +1181,7 @@ def extract_paper_content_to_summary(paper_path: str) -> str:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-4o-mini")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
     model = get_model(model_name)
     
     # Read paper content based on file type
@@ -1437,7 +1437,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-4o-mini")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
     model = get_model(model_name)
     
     # Define chunk size (16k characters)
@@ -1960,7 +1960,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     from models import get_model
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-4o-mini")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
     model = get_model(model_name)
     
     # Define chunk size (16k characters)
@@ -2594,4 +2594,3 @@ if __name__ == "__main__":
     # query = "AI scientist"
     # result = search_and_summarize_papers(query)
     # print(result)
-

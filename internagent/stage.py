@@ -19,6 +19,8 @@ from internagent.mcts_experiments_utils_iflow import perform_experiments_mcts as
 from internagent.vis_tree import vis_tree
 
 
+# 这一层把“研究想法”变成真实可运行的工作目录：先生成候选想法，
+# 再为每个想法复制基线、分配资源、调用实验后端，最后收集结果和指标。
 
 # Optional long memory imports
 LONG_MEMORY_AVAILABLE = False
@@ -80,7 +82,8 @@ class IdeaGenerator:
         self.session_id = None
         self.status = None
 
-        # Initialize IdeaGraph (if long memory is available)
+        # 图记忆是跨轮次的“想法地图”：它不决定主流程能否运行，
+        # 但能帮助后续轮次知道哪些方向已经探索过。
         self.idea_graph = None
         if LONG_MEMORY_AVAILABLE and IdeaGraph is not None:
             # Use base_output_dir for IdeaGraph (task-level, shared across launches)
@@ -187,19 +190,15 @@ class IdeaGenerator:
             raise FileNotFoundError(f"Task description not found: {task_desc_path}")
         self.logger.info(f"Using prompt file: {task_desc_path}")
 
-        # Check if experience library exists and evolve prompt if it does
-        # Use base_output_dir if available (set by launch_discovery.py), otherwise use default
+        # 经验库存在时，新的轮次可以先微调任务提示，让系统少重复过去无效的方向。
+        # 第一次运行没有经验，直接使用原始任务说明。
         base_output_dir = getattr(self.args, 'base_output_dir', None) or osp.join("results", self.args.task_name)
         library_path = osp.join(base_output_dir, "experience_library.json")
 
         # Get evolution_interval from config (default: 1, meaning evolve every round)
         evolution_interval = self.config.get('memory', {}).get('long_memory', {}).get('prompt_evolver', {}).get('evolution_interval', 1)
 
-        # Only evolve prompt when:
-        # 1. round_num > 1 (first round has no experience yet)
-        # 2. round_num % evolution_interval == 0 (respects the configured interval)
-        # Note: With interval=1, evolves at rounds 2, 3, 4, ...
-        # With interval=2, evolves at rounds 2, 4, 6, ...
+        # 提示演化按轮次节流，避免每轮都因为少量新经验就重写任务描述。
         should_evolve = (self.round_num > 1) and ((self.round_num - 1) % evolution_interval == 0)
 
         if should_evolve:
@@ -289,6 +288,8 @@ class IdeaGenerator:
             # Agent transition logging is handled by OrchestrationAgent
             pass
         
+        # 会话内部是状态机；这里像一个外部驾驶员，反复推进它，
+        # 遇到需要反馈的状态就把离线反馈送进去。
         while self.status != "completed":
             try:
                 full_status = await self.interface.get_session_status(self.session_id)
@@ -322,7 +323,7 @@ class IdeaGenerator:
         top_ideas = await self.interface.get_top_ideas(self.session_id)
         self.logger.info(f"Generated {len(top_ideas)} top ideas")
 
-        # Add ideas to IdeaGraph (Long Memory)
+        # 想法生成完成后再更新图记忆，确保图里只有已经产出的候选，而不是半路状态。
         if self.idea_graph is not None:
             try:
                 # First, load all historical ideas to build the complete graph
@@ -344,9 +345,7 @@ class IdeaGenerator:
             except Exception as e:
                 self.logger.warning(f"Failed to add ideas to graph: {e}")
 
-        # Save and visualize ideas
-        # Create session-specific directory under output_dir (launch directory)
-        # Use output_dir if available (set by launch_discovery.py), otherwise use default
+        # 每次会话都有自己的目录，方便把轨迹、想法和可视化结果放在一起复盘。
         output_dir = getattr(self.args, 'output_dir', None) or osp.join("results", self.args.task_name)
         session_dir = osp.join(output_dir, self.session_id)
         os.makedirs(session_dir, exist_ok=True)
@@ -408,7 +407,7 @@ class GPUAllocator:
         else:
             self.max_parallel = 1
 
-        # Semaphore to control concurrent access
+        # 并发上限在这里统一控制，实验代码本身不需要知道还有多少任务在排队。
         self.semaphore = Semaphore(self.max_parallel)
 
         # GPU assignment strategy
@@ -476,7 +475,8 @@ class ExperimentRunner:
         # Initialize GPU allocator for parallel execution
         self._init_gpu_allocator()
 
-        # Initialize online memory saver if enabled
+        # 在线记忆是实验完成后的旁路记录：保存成功案例和轨迹，
+        # 不参与是否执行实验的核心判断。
         self.memory_saver = None
         if config:
             online_memory_config = config.get("memory", {}).get("online_memory", {})
@@ -504,7 +504,7 @@ class ExperimentRunner:
         # Detect available GPUs from environment or auto-detection
         available_gpus = []
 
-        # First check CUDA_VISIBLE_DEVICES environment variable
+        # 先尊重外部环境变量，便于在集群或手动调度时限制可见设备。
         cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
         if cuda_visible:
             try:
@@ -544,6 +544,7 @@ class ExperimentRunner:
 
     def _extract_idea_info(self, idea):
         """Extract idea information from different formats"""
+        # 上游不同阶段会给出不同形状的想法对象；这里压成实验目录和报告都能使用的最小信息。
         # Try refined_method_details first (from full MAS pipeline)
         if 'refined_method_details' in idea and idea['refined_method_details']:
             details = idea['refined_method_details']
@@ -583,7 +584,7 @@ class ExperimentRunner:
         """Calculate experiment performance by comparing with baseline."""
         performance = {}
 
-        # Load baseline metrics
+        # 指标比较只看“当前实验结果相对基线变化多少”，不要求每个任务使用同一套指标名。
         baseline_path = osp.join(base_dir, "run_0", "final_info.json")
         baseline_metrics = self._extract_metrics_from_final_info(baseline_path)
         if not baseline_metrics:
@@ -655,6 +656,7 @@ class ExperimentRunner:
         if osp.exists(folder_name):
             raise FileExistsError(f"Folder already exists: {folder_name}")
 
+        # 每个想法都拿到一份独立工作区，外部实验后端可以随意改代码而不污染原始任务。
         shutil.copytree(base_dir, folder_name, dirs_exist_ok=True)
 
         # Ensure experiment.py exists in the experiment folder
@@ -724,7 +726,7 @@ class ExperimentRunner:
         # Always use args.task_dir as the source of scientific assets
         original_task_dir = self.args.task_dir
 
-        # Symlink scientific assets from original task dir (avoid copying large datasets)
+        # 数据和论文材料通常很大且只读，用软链接能让每个实验目录看到同一份资料。
         for dir_name in ['data', 'related_work', 'target_study']:
             src = osp.join(original_task_dir, dir_name)
             dst = osp.join(folder_name, dir_name)
@@ -736,7 +738,7 @@ class ExperimentRunner:
         os.makedirs(osp.join(folder_name, "outputs"), exist_ok=True)
         os.makedirs(osp.join(folder_name, "report", "images"), exist_ok=True)
 
-        # In incremental mode, overlay best code/outputs/report from base_dir
+        # 增量模式不是从空白目录开始，而是把上一轮最佳状态覆盖进新的实验工作区。
         if osp.abspath(base_dir) != osp.abspath(original_task_dir):
             for dir_name in ['code', 'outputs', 'report']:
                 src = osp.join(base_dir, dir_name)
@@ -891,6 +893,7 @@ class ExperimentRunner:
             idea: The idea to experiment with
             gpu_ids: Comma-separated GPU IDs to use (e.g., "0,1")
         """
+        # 普通代码任务和论文复现任务的目录结构不同，进入后端前先准备成各自能运行的形态。
         task_type = getattr(self.args, 'task_type', 'auto')
 
         if task_type == 'sci':
@@ -909,6 +912,8 @@ class ExperimentRunner:
             # Check if MCTS mode is enabled
             use_mcts = self.config.get("experiment", {}).get("use_mcts", False)
 
+            # 这里是和外部代码修改器的边界：前面只准备工作区，
+            # 后面由选定后端实际编辑、运行并写出指标。
             if use_mcts:
                 self.logger.info(f"Starting Claude Code MCTS experiment: {idea_name}")
             else:
@@ -947,7 +952,7 @@ class ExperimentRunner:
                         with open(checklist_path) as _f:
                             checklist = json.load(_f)
 
-                sci_scorer_model = self.config.get('sci_task', {}).get('scorer_model', 'gpt-5.1')
+                sci_scorer_model = self.config.get('sci_task', {}).get('scorer_model', 'gpt-5.5')
                 run_timeout = self.config.get('experiment', {}).get('run_timeout', None)
 
                 success = perform_experiments_claudecode(
@@ -1057,7 +1062,7 @@ class ExperimentRunner:
         idea_info = self._extract_idea_info(idea)
         idea_name = idea_info['name']
 
-        # Acquire semaphore to control parallelism
+        # 单个想法在这里独占一个并发名额，避免多个实验同时抢同一批 GPU。
         with self.gpu_allocator.semaphore:
             # Allocate GPUs for this experiment
             gpu_ids = self.gpu_allocator.get_gpu_env()
@@ -1081,7 +1086,8 @@ class ExperimentRunner:
                 if success:
                     performance = self._calculate_experiment_performance(folder_name, base_dir)
 
-                # Save to online memory if enabled and experiment succeeded
+                # 只把成功实验写入在线记忆，失败案例仍会在结果列表里保留，
+                # 但不会污染后续用于学习成功模式的存储。
                 if success and self.memory_saver:
                     try:
                         self.logger.info(f"Saving experiment result to online memory for {idea_name}")
@@ -1174,7 +1180,7 @@ class ExperimentRunner:
         self.logger.info(f"Starting experiments for {total_ideas} ideas")
         self.logger.info(f"Parallel execution mode: {self.max_parallel_experiments} experiments in parallel")
 
-        # Check if we should use sequential execution (backward compatible)
+        # 默认保持串行，只有配置明确允许并行时才同时启动多个外部实验进程。
         exp_config = self.config.get("experiment", {})
         max_parallel = exp_config.get("max_parallel_experiments", 1)
         gpu_per_experiment = exp_config.get("gpu_per_experiment", 1.0)
@@ -1218,6 +1224,7 @@ class ExperimentRunner:
         self.logger.info(f"Experiments completed: {successful}/{total_ideas} successful")
 
         return results
+
 
 # ============================================================================
 # Report Writing Module
@@ -1324,6 +1331,7 @@ class ReportWriter:
         results = []
         
         for idx, idea in enumerate(ideas, 1):
+            # 报告模式复用同一种想法格式，但只生成可读材料，不调用实验后端。
             idea_info = self._extract_idea_info(idea)
             idea_name = idea_info['name']
             self.logger.info(f"Processing idea {idx}/{len(ideas)}: {idea_name}")
@@ -1353,4 +1361,3 @@ class ReportWriter:
                 })
         
         return results
-

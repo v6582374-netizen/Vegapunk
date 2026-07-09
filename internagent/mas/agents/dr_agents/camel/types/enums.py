@@ -27,8 +27,9 @@ class RoleType(Enum):
 
 
 class ModelType(UnifiedModelType, Enum):
-    DEFAULT = os.getenv("DEFAULT_MODEL_TYPE", "gpt-4o-mini")
+    DEFAULT = os.getenv("DEFAULT_MODEL_TYPE", "gpt-5.5")
 
+    GPT_5_5 = "gpt-5.5"
     GPT_3_5_TURBO = "gpt-3.5-turbo"
     GPT_4 = "gpt-4"
     GPT_4_TURBO = "gpt-4-turbo"
@@ -353,6 +354,7 @@ class ModelType(UnifiedModelType, Enum):
             ModelType.GPT_4_1,
             ModelType.GPT_4_1_MINI,
             ModelType.GPT_4_1_NANO,
+            ModelType.GPT_5_5,
             ModelType.O4_MINI,
             ModelType.O3,
         }
@@ -924,6 +926,7 @@ class ModelType(UnifiedModelType, Enum):
             ModelType.GPT_4_1,
             ModelType.GPT_4_1_MINI,
             ModelType.GPT_4_1_NANO,
+            ModelType.GPT_5_5,
         }:
             return 1_048_576
         elif self in {

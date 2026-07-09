@@ -227,12 +227,12 @@ def generate_docstring(
 
     This function leverages a language model to generate a
     PEP 8/PEP 257-compliant docstring for a provided Python function.
-    If no model is supplied, a default gpt-4o-mini is used.
+    If no model is supplied, the default ChatAgent model is used.
 
     Args:
         code (str): The source code of the function.
         model (Optional[BaseModelBackend]): An optional language model backend
-            instance. If not provided, a default gpt-4o-mini is used.
+            instance. If not provided, the default ChatAgent model is used.
 
     Returns:
         str: The generated docstring.

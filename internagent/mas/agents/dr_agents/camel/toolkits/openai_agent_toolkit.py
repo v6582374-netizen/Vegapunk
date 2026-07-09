@@ -51,7 +51,8 @@ class OpenAIAgentToolkit(BaseToolkit):
 
         Args:
             model (BaseModelBackend): The OpenAI model to use for responses.
-                If None, defaults to gpt-4o-mini. (default: :obj:`None`)
+                If None, defaults to the ChatAgent default model.
+                (default: :obj:`None`)
             api_key (str): OpenAI API key. If not provided, will attempt to
                 use OPENAI_API_KEY environment variable. (default: :obj:`None`)
             timeout (Optional[float]): The timeout value for API requests

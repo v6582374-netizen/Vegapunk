@@ -12,6 +12,8 @@ from enum import Enum
 from typing import Dict, List, Optional, Any
 
 
+# 这些状态就是发现流程的路线图：先产生想法，再批评、查证、改进、排序，
+# 最后把最好的想法发展成可执行方法。
 class WorkflowState(Enum):
     """Enumeration of workflow states."""
     INITIAL = "initial"
@@ -30,6 +32,8 @@ class WorkflowState(Enum):
 @dataclass
 class Idea:
     """Data class for research ideas (formerly hypotheses)."""
+    # 一个想法会在流程里逐步长出评分、证据、方法细节和父子关系；
+    # 所以这里看起来字段很多，本质上是在保存它一路被加工过的痕迹。
     id: str
     text: str
     score: float = 0.0
@@ -83,6 +87,8 @@ class Idea:
 @dataclass
 class Task:
     """Data class for research tasks (formerly research goals)."""
+    # 任务对象把人的目标、领域、约束和参考代码放在一起，
+    # 让每个代理拿到的是同一份上下文，而不是各自解析命令行。
     id: str
     description: str
     domain: str
@@ -114,6 +120,8 @@ class Task:
 @dataclass
 class WorkflowSession:
     """Data class for workflow sessions."""
+    # 会话是一次研究运行的账本：当前走到哪个状态、产生了哪些想法、
+    # 哪些想法被选中、用户反馈了什么，都在这里汇总。
     id: str
     task: Task
     ideas: List[Idea] = field(default_factory=list)

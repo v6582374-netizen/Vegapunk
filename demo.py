@@ -107,7 +107,7 @@ async def main():
     # 1. 初始化
     model = OpenAIModel(
         api_key=os.getenv("OPENAI_API_KEY"),
-        model_name="gpt-4o",
+        model_name="gpt-5.5",
         temperature=0.7
     )
     

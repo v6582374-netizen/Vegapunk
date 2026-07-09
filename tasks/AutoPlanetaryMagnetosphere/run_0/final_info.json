@@ -1,0 +1,44 @@
+{
+  "combined_score": 0.08734593616644429,
+  "boundary_location_mae": 0.03369936206578293,
+  "escape_log_mae": 0.05319405493703513,
+  "acceleration_rmse": 0.06763387908747681,
+  "mean_r2": 0.9396260830162133,
+  "target_r2": {
+    "bow_shock_standoff_rp": 0.9408027368727128,
+    "magnetic_pileup_boundary_rp": 0.9360337167497365,
+    "ion_escape_log10_s": 0.9413249664894471,
+    "acceleration_index": 0.9403429119529567
+  },
+  "training_time": 0.035552978515625,
+  "config": {
+    "seed": 20260708,
+    "n_samples": 960,
+    "test_ratio": 0.2,
+    "ridge": 0.35,
+    "features": [
+      "planet_venus_flag",
+      "solar_wind_speed_kms",
+      "proton_density_cm3",
+      "dynamic_pressure_npa",
+      "imf_bx_nt",
+      "imf_by_nt",
+      "imf_bz_nt",
+      "imf_strength_nt",
+      "clock_angle_sin",
+      "clock_angle_cos",
+      "f107_proxy",
+      "solar_cycle_sin",
+      "solar_cycle_cos",
+      "convective_e_mvm",
+      "ion_gyroradius_proxy",
+      "pickup_source_proxy"
+    ],
+    "targets": [
+      "bow_shock_standoff_rp",
+      "magnetic_pileup_boundary_rp",
+      "ion_escape_log10_s",
+      "acceleration_index"
+    ]
+  }
+}

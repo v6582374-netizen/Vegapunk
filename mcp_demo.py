@@ -47,7 +47,7 @@ CONFIG = {
     "agents": [
         {
             "name": "full_access_agent",
-            "model": "gpt-4o",
+            "model": "gpt-5.5",
             "temperature": 0.7
             # No allowed_tools means all tools available
         },
@@ -69,7 +69,7 @@ CONFIG_NO_LOCAL = {
     "agents": [
         {
             "name": "mcp_only_agent",
-            "model": "gpt-4o",
+            "model": "gpt-5.5",
             "temperature": 0.7
         },
     ]
@@ -84,7 +84,7 @@ CONFIG_LOCAL_ONLY = {
     "agents": [
         {
             "name": "local_only_agent",
-            "model": "gpt-4o",
+            "model": "gpt-5.5",
             "temperature": 0.7
         },
     ]
@@ -224,7 +224,7 @@ async def main():
         print("\nInitializing model...")
         model = OpenAIModel(
             api_key=os.getenv("OPENAI_API_KEY"),
-            model_name="gpt-4o",
+            model_name="gpt-5.5",
             temperature=0.7
         )
 

@@ -14,7 +14,8 @@ from .base_agent import BaseAgent, AgentExecutionError
 
 logger = logging.getLogger(__name__)
 
-# We'll use lazy/dynamic imports to avoid import errors at module load time
+# 这一层只是适配器：外部把它当作普通代理使用，内部再去调更重的调研工作流。
+# 延迟导入能避免普通多代理启动时被调研子系统的路径和依赖问题卡住。
 _workflow_class = None
 _load_config_func = None
 _get_config_func = None
@@ -75,13 +76,13 @@ class DRAgent(BaseAgent):
         """
         super().__init__(model, config)
         
-        # Set mode before loading DR workflow configuration
+        # 不同使用场景读取不同配置；问答、简单调研和复杂调研共享同一层适配逻辑。
         self.mode = config.get("mode", "simple")
         
         # Load DR workflow configuration from config.yaml
         self.workflow_config = self._load_dr_config(config)
         
-        # Initialize the DR workflow (using lazy import)
+        # 工作流初始化失败时保留一个可创建的代理对象，调用方仍能拿到降级提示。
         self.workflow = None
         try:
             Workflow = _get_workflow_class()
@@ -132,7 +133,7 @@ class DRAgent(BaseAgent):
             workflow_config = {}
             logger.warning("Using empty DR workflow config")
         
-        # Merge with agent-specific config overrides
+        # 外部配置可以只覆盖少量字段，不必复制整份调研工作流配置。
         if "workflow_config" in agent_config:
             workflow_config.update(agent_config["workflow_config"])
             logger.info("Applied agent config overrides to DR workflow config")
@@ -166,7 +167,7 @@ class DRAgent(BaseAgent):
         # Extract optional file path
         file_path = context.get("file_path", None)
         
-        # Check if workflow is initialized
+        # 如果调研子系统不可用，返回可读的降级结果，而不是让整个问答或发现流程崩掉。
         if self.workflow is None:
             logger.error("DR workflow is not initialized - cannot execute task")
             # Return a simple fallback response
@@ -175,7 +176,7 @@ class DRAgent(BaseAgent):
         try:
             logger.info(f"DR Agent executing task: {task}")
             
-            # Execute the DR workflow
+            # 这里跨过了多代理主流程，直接让调研工作流完成背景搜索和答案合成。
             result = self.workflow.execute(task=task, file_path=file_path)
             
             logger.info("DR workflow execution completed successfully")
@@ -187,4 +188,3 @@ class DRAgent(BaseAgent):
             logger.error(f"Error during DR workflow execution: {str(e)}")
             # Return a fallback response instead of raising error
             return f"Background research for: {task}\n\nNote: DR workflow execution failed. Please provide background context manually."
-

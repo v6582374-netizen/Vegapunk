@@ -57,12 +57,12 @@ class OpenAIModel(BaseModel):
     OpenAI模型调用类
     """
     
-    def __init__(self, model_name: str = "gpt-4o", api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, model_name: str = "gpt-5.5", api_key: Optional[str] = None, base_url: Optional[str] = None):
         """
         初始化 OpenAI 模型
         
         Args:
-            model_name: 模型名称，默认为 gpt-4o
+            model_name: 模型名称，默认为 gpt-5.5
             api_key: API 密钥，如果为 None 则从环境变量获取
             base_url: API 基础 URL，如果为 None 则使用默认的 OpenAI API
         """

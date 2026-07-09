@@ -31,6 +31,8 @@ except ImportError:
 load_dotenv()
 
 
+# 这个脚本是完整发现流程的编排层：把任务说明整理成统一格式，
+# 再按“生成想法 -> 跑实验或写报告 -> 总结结果”的顺序推进。
 # ============================================================================
 # Task Type Detection & Normalization
 # ============================================================================
@@ -90,7 +92,8 @@ def normalize_sci_task(task_dir: str, output_path: str) -> dict:
         preview = item.get('content', '')[:200]
         constraints.append(f"Item {i} (type={t}, weight={w:.2f}): {preview}")
 
-    # Build composite task description
+    # 论文复现任务没有普通实验任务的提示文件，所以这里把论文信息、数据清单
+    # 和评分清单折叠成同一种任务说明，后面的多代理流程就不用关心来源差异。
     task_description = (
         f"Reproduce the findings from a scientific paper in the {domain} domain.\n\n"
         f"## Research Task\n{task_info.get('task', '')}\n\n"
@@ -139,7 +142,7 @@ def _find_best_experiment_result(results: List[Dict[str, Any]], logger) -> Optio
     if not successful_results:
         return None
 
-    # Find the result with highest overall_improvement_rate
+    # 多轮增量运行只需要一个接力点：挑出当前轮最有希望的结果作为下一轮基线。
     best_result = None
     best_performance = float('-inf')
 
@@ -173,7 +176,8 @@ def _update_baseline_for_incremental(best_code_path: str, logger, task_type: str
         logger.warning(f"No run directories found in {best_code_path}")
         return False
 
-    # Find the last valid run (assumed to be the best after iterations)
+    # 实验后端会把一次尝试拆成多个 run；这里取最后一个有指标的 run，
+    # 作为“已经被后端整理过”的当前最佳状态。
     best_run_dir = None
     best_final_info = None
 
@@ -191,7 +195,7 @@ def _update_baseline_for_incremental(best_code_path: str, logger, task_type: str
         logger.warning(f"No valid final_info.json found in run directories")
         return False
 
-    # Update run_0/final_info.json
+    # 后续比较都从 run_0 读取基线指标；更新这里等于把下一轮的起跑线前移。
     run0_dir = osp.join(best_code_path, "run_0")
     os.makedirs(run0_dir, exist_ok=True)
     run0_final_info = osp.join(run0_dir, "final_info.json")
@@ -218,7 +222,7 @@ def _update_baseline_for_incremental(best_code_path: str, logger, task_type: str
             logger.error(f"Failed to update main code: {e}")
             return False
 
-        # Also update run_0/code/ to keep baseline backup in sync
+        # 代码和指标必须一起前移，否则下一轮会用新指标对旧代码，结论会失真。
         run0_code_dir = osp.join(run0_dir, "code")
         try:
             if osp.exists(run0_code_dir):
@@ -229,7 +233,8 @@ def _update_baseline_for_incremental(best_code_path: str, logger, task_type: str
             logger.warning(f"Failed to update baseline code backup: {e}")
             # Non-fatal, continue
 
-    # For sci tasks: also propagate outputs/ and report/ from the best run
+    # 论文复现任务的中间产物和报告也是状态的一部分；只复制代码会丢掉图表、
+    # 分析输出和后续报告生成需要的上下文。
     if task_type == 'sci':
         for dir_name in ['outputs', 'report']:
             best_run_dir_src = osp.join(best_run_dir, dir_name)
@@ -279,7 +284,7 @@ def _generate_experiences_for_round(args, memory, session_id, logger) -> bool:
         except Exception as e:
             logger.warning(f"Failed to load domain from prompt.json: {e}, using default")
 
-    # Load ideas and notes from the current session
+    # 经验库只从已经落盘的想法和实验记录里学习，避免把未完成的中间状态写进记忆。
     session_dir = osp.join(args.output_dir, session_id)
     if osp.exists(session_dir):
         # Load ideas from this session
@@ -568,6 +573,8 @@ def main():
     logger = setup_logging()
     args = parse_arguments()
 
+    # 断点续跑只恢复“已经完成的轮次”和共享目录位置；实际跑几轮仍以当前配置为准，
+    # 这样可以在恢复时顺手把总轮数延长。
     # ========================================
     # Resume Mode Handling
     # ========================================
@@ -591,7 +598,7 @@ def main():
     # ========================================
     # Setup Task Directory
     # ========================================
-    # If task is a path (contains / or \), use it directly; otherwise use tasks/{task}
+    # 命令行既支持传任务名，也支持直接传目录；统一整理成后续流程只需使用的任务目录。
     if '/' in args.task or '\\' in args.task or osp.isdir(args.task):
         args.task_dir = args.task
         args.task_name = osp.basename(args.task.rstrip('/\\'))
@@ -602,7 +609,7 @@ def main():
     if not osp.exists(args.task_dir):
         raise FileNotFoundError(f"Task directory not found: {args.task_dir}")
 
-    # Detect task type: 'sci' (has task_info.json) or 'auto' (has prompt.json)
+    # 后续目录准备和评分方式会按任务来源分支，但想法生成阶段看到的是统一提示。
     args.task_type = detect_task_type(args.task_dir)
 
     # Setup reference code path
@@ -637,8 +644,8 @@ def main():
 
         logger.info(f"Resuming with existing launch folder: {launch_id}")
     else:
-        # Fresh start: create new launch folder
-        # Structure: results/{task_name}/{launch_id}/session_xxx/...
+        # 新启动会创建一次独立的 launch 目录；每轮会再建 session 子目录，
+        # 这样同一个任务的历史经验可以共享，单次运行的产物又不会互相覆盖。
         launch_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         launch_id = f"{launch_time}_launch"
 
@@ -687,9 +694,8 @@ def main():
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
 
-    # Get loop_rounds and loop_mode from config
-    # Note: Always use config for loop_rounds/loop_mode, resume_state only provides completed round info
-    # This allows users to change loop_rounds when resuming (e.g., extend from 5 to 10 rounds)
+    # 轮数和模式来自当前配置；恢复信息只告诉我们已经走到哪里。
+    # 这样恢复运行时可以继续追加更多轮，而不是被旧摘要锁死。
     loop_rounds = config.get('workflow', {}).get('loop_rounds', 1)
     loop_mode = config.get('workflow', {}).get('loop_mode', 'fresh')
 
@@ -747,7 +753,8 @@ def main():
         logger.info("  → Each round starts fresh from the original baseline")
     logger.info("=" * 80)
 
-    # Initialize Long Memory Module (for IdeaGraph and experience tracking)
+    # 长期记忆是增强项：有它就把过去的想法和实验结果喂给后续轮次，
+    # 没有它时主流程仍然可以按普通多轮实验继续跑。
     memory = None
     if LONG_MEMORY_AVAILABLE:
         try:
@@ -793,7 +800,8 @@ def main():
         best_code_path = original_task_dir
         best_overall_performance = None  # Will store (improvement_rate, code_path)
 
-    # Multi-round discovery loop (start from start_round for resume)
+    # 外层循环按轮推进；每一轮都独立生成想法并测试，增量模式会把上一轮最好结果
+    # 作为下一轮的起点。
     base_code_dir = None  # Track the code directory for incremental mode
     for round_num in range(start_round, loop_rounds + 1):
         # In incremental mode, use code from best result, but keep original task_dir for prompt.json
@@ -815,7 +823,7 @@ def main():
         logger.info(f"STARTING DISCOVERY ROUND {round_num}/{loop_rounds}")
         logger.info("=" * 80)
 
-        # Step 1: Idea Generation
+        # 第一阶段产出待验证的研究想法；如果用户已经给了想法文件，这里只做格式对齐。
         session_id = None  # Initialize session_id
         if args.skip_idea_generation and round_num == 1:
             logger.info("Skipping idea generation, loading existing ideas...")
@@ -877,7 +885,7 @@ def main():
             except Exception as e:
                 logger.warning(f"Failed to clear memory cache: {e}")
 
-        # Step 2: Experiment Execution or Report Generation
+        # 第二阶段决定“验证方式”：要么真的运行实验，要么只把想法整理成报告。
         logger.info("=" * 80)
 
         if args.mode == "report":
@@ -922,7 +930,7 @@ def main():
                     logger.info(f"OpenHands mount paths: {mount_paths}")
                 logger.info(f"OpenHands URI prefix: {uri_prefix}")
 
-            # Run experiments
+            # 实验执行器负责复制基线目录、分配资源、调用外部后端，并把每个想法的结果收回来。
             experiment_runner = ExperimentRunner(args, logger, config, session_id=session_id, base_code_dir=base_code_dir)
 
             # Use session_dir if session_id exists, otherwise use args.output_dir
@@ -965,12 +973,12 @@ def main():
         logger.info(f"Failed: {round_result['failed']}/{len(results)}")
         logger.info("=" * 80)
 
-        # Generate experiences after each round (for prompt evolution in subsequent rounds)
+        # 每轮结束后立刻沉淀经验，下一轮提示演化就能看到刚刚发生的成功和失败。
         if LONG_MEMORY_AVAILABLE and memory is not None:
             logger.info(f"Generating experiences from Round {round_num}...")
             _generate_experiences_for_round(args, memory, session_id, logger)
 
-        # If not the last round, update for next round
+        # 只有还有下一轮时才需要挑最佳结果；最后一轮只做汇总，不再改基线。
         if round_num < loop_rounds:
             logger.info(f"Preparing for Round {round_num + 1}...")
 
@@ -1044,7 +1052,7 @@ def main():
             elif 'report_path' in result:
                 logger.info(f"       Report: {result['report_path']}")
 
-    # Save comprehensive summary
+    # 这个摘要是断点续跑和人工复盘的共同入口，所以保存目录、轮次、会话和结果概览。
     summary = {
         'timestamp': datetime.now().isoformat(),
         'launch_id': launch_id,

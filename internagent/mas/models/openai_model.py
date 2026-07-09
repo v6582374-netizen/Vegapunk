@@ -24,7 +24,7 @@ class OpenAIModel(BaseModel):
     def __init__(self, 
                 api_key: Optional[str] = None, 
                 base_url: Optional[str] = None,
-                model_name: str = "gpt-4o", 
+                model_name: str = "gpt-5.5", 
                 max_tokens: int = 4096,
                 temperature: float = 0.7,
                 timeout: int = 600,
@@ -37,7 +37,7 @@ class OpenAIModel(BaseModel):
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY environment variable)
             base_url: Optional OpenAI-compatible API base URL
-            model_name: Model identifier to use (e.g., "gpt-4o")
+            model_name: Model identifier to use (e.g., "gpt-5.5")
             max_tokens: Maximum tokens to generate by default
             temperature: Default temperature setting (0 to 1)
             timeout: Timeout in seconds for API calls
@@ -326,7 +326,7 @@ class OpenAIModel(BaseModel):
         return cls(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
-            model_name=config.get("model_name", "gpt-4o"),
+            model_name=config.get("model_name", "gpt-5.5"),
             max_tokens=config.get("max_tokens", None),
             temperature=config.get("temperature", 0.7),
             timeout=config.get("timeout", 200),

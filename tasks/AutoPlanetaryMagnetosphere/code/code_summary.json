@@ -1,0 +1,29 @@
+{
+  "summary": "A dependency-free baseline benchmark for induced magnetosphere response modeling. The experiment synthesizes Mars-like and Venus-like cases under varied solar wind, IMF, solar-cycle, and pickup-ion conditions, then trains a ridge-regression surrogate on standardized raw driver features.",
+  "key_files": [
+    {
+      "path": "experiment.py",
+      "description": "Main experiment script containing deterministic synthetic data generation, standardization, a pure-Python ridge regression solver, evaluation metrics, and the main() entry point that writes final_info.json."
+    }
+  ],
+  "model_architecture": {
+    "type": "Ridge regression surrogate",
+    "inputs": 16,
+    "outputs": 4,
+    "targets": [
+      "bow_shock_standoff_rp",
+      "magnetic_pileup_boundary_rp",
+      "ion_escape_log10_s",
+      "acceleration_index"
+    ]
+  },
+  "training_config": {
+    "optimizer": "Closed-form ridge solve by Gaussian elimination",
+    "ridge": 0.35,
+    "n_samples": 960,
+    "test_split": 0.2,
+    "random_seed": 20260708
+  },
+  "entry_point": "python experiment.py",
+  "expected_runtime": "Under 1 second on CPU with standard-library Python"
+}

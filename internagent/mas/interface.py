@@ -22,6 +22,8 @@ from .tools import get_registry, init_mcp_tools, cleanup_mcp, init_tools
 logger = logging.getLogger(__name__)
 
 
+# 这一层是外部脚本和内部多代理系统之间的门面：外部只需要创建会话、推进会话、
+# 查询结果；模型、记忆、工具和状态机都在这里组装好。
 class InternAgentInterface:
     """
     Main interface for the InternAgent system.
@@ -52,7 +54,7 @@ class InternAgentInterface:
         if exp_backend:
             self.config['exp_backend'] = exp_backend
 
-        # Core components
+        # 这三个组件分别负责“怎么调用模型”“怎么保存过程”“有哪些专业角色可用”。
         self.model_factory = ModelFactory()
         self.memory_manager = self._init_memory_manager()
         self.agent_factory = AgentFactory()
@@ -60,7 +62,7 @@ class InternAgentInterface:
         # Store tools configuration for later initialization
         self.sci_tools = self.config.get("sci_tools", {})
 
-        # Initialize local function-based tools if enabled (synchronous)
+        # 本地工具是普通函数，启动时直接注册；远程工具需要异步连接，留到 startup 里做。
         if self.sci_tools.get("local", True):  # Default to True for backward compatibility
             logger.info("Loading local function-based tools...")
             init_tools()
@@ -88,7 +90,7 @@ class InternAgentInterface:
     async def startup(self) -> None:
         """Initialize system components and mark as ready."""
         try:
-            # Initialize remote MCP tools if configured (asynchronous)
+            # 远程工具连接成功后才把系统标记为可用，避免会话跑到一半才发现工具不可达。
             if self.sci_tools.get("remote", None):
                 logger.info(f"Found {len(self.sci_tools['remote'])} remote MCP server(s) in config:")
                 for tool in self.sci_tools['remote']:
@@ -148,6 +150,7 @@ class InternAgentInterface:
         """
         self._ensure_system_ready()
 
+        # 会话创建会把人的研究目标变成内部任务对象，并交给状态机保存初始状态。
         session_id = await self.orchestration_agent.create_session(
             goal_description=goal_description,
             domain=domain,
@@ -156,7 +159,7 @@ class InternAgentInterface:
             constraints=constraints or []
         )
 
-        # Track session
+        # 这里的跟踪信息面向外部调用者，真正完整状态仍由工作流和记忆管理器保存。
         self._track_session(session_id, goal_description, domain, ref_code_path)
 
         logger.info(f"Created session {session_id}: {goal_description}")
@@ -181,7 +184,7 @@ class InternAgentInterface:
         """
         self._ensure_system_ready()
 
-        # Create state change handler
+        # 状态回调把内部推进过程同步给调用者；即使回调失败，也不让它中断主流程。
         async def on_state_change(session, old_state, new_state):
             self._update_session_tracking(session_id, new_state.value)
 
@@ -229,7 +232,7 @@ class InternAgentInterface:
 
         self._update_session_tracking(session_id)
 
-        # Auto-resume if requested and session is waiting for feedback
+        # 反馈通常是为了让暂停的研究继续走下去，所以默认在可继续时自动推进。
         if auto_resume:
             status = await self.get_session_status(session_id)
             if status.get("state") == WorkflowState.REFLECTING.value:
@@ -432,4 +435,3 @@ class InternAgentInterface:
         except Exception as e:
             logger.error(f"Failed to load default config from {default_config_path}: {str(e)}")
             raise RuntimeError(f"Could not load default configuration: {str(e)}")
-

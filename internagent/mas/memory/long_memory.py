@@ -25,6 +25,8 @@ from internagent.mas.models.model_factory import ModelFactory
 logger = logging.getLogger(__name__)
 CHROMA_AVAILABLE = True
 
+# 长期记忆分三层：把想法连成图、把实验记录整理成经验、再用经验改写下一轮提示。
+# 它增强多轮发现质量，但主实验流程不依赖它才能启动。
 @dataclass
 class IdeaGraph:
     """
@@ -47,7 +49,7 @@ class IdeaGraph:
     def __post_init__(self):
         """Initialize the idea graph and load existing data if available."""
         
-        # Initialize ChromaDB
+        # 向量库负责“像不像”，图结构负责“这些想法之间怎么连在一起”。
         os.makedirs(self.working_dir, exist_ok=True)
         chroma_db_path = osp.join(self.working_dir, "chroma_db")
         
@@ -76,7 +78,7 @@ class IdeaGraph:
         self._node_match_save_path = osp.join(self.working_dir, 'match_nodes.txt')
         self._graph_save_path = osp.join(self.working_dir, f'{self.namespace}_graph.pkl')
         
-        # Load or create graph
+        # 图会落盘保存；下一轮运行时可以接着已有探索历史继续扩展。
         if osp.exists(self._graph_save_path):
             try:
                 with open(self._graph_save_path, 'rb') as f:
@@ -109,7 +111,7 @@ class IdeaGraph:
         idea_name = idea.get('name', '')
         idea_description = idea.get('description', '')
 
-        # Create a searchable text representation
+        # 检索只需要一段紧凑文本，完整想法仍保存在图节点元数据里。
         idea_text = f"{idea_name}: {idea_description}"
 
         # Check if node already exists
@@ -135,7 +137,7 @@ class IdeaGraph:
         # Add node to graph
         self.graph.add_node(idea_id, **idea)
 
-        # Find similar ideas and create edges
+        # 新想法会和相似旧想法连边；后续提示演化就能判断某个方向是否已经被反复尝试。
         try:
             results = self.collection.query(
                 query_texts=[idea_text],
@@ -217,7 +219,7 @@ class IdeaGraph:
 
             top_nodes = results['ids'][0]
 
-            # Expand neighborhood
+            # 先按语义找到近邻，再沿图扩展一小圈，能拿到“相似方向的一组想法”。
             related_nodes = set(top_nodes)
             for node_id in top_nodes:
                 if node_id in self.graph:
@@ -245,6 +247,7 @@ class IdeaGraph:
                 - "spectral": Spectral clustering
                 - "embedding": Clustering based on embeddings (requires FINCH)
         """
+        # 聚类不是为了改变实验结果，而是给提示演化一个“哪些方向已经拥挤”的信号。
         nodes = list(self.graph.nodes)
 
         if len(nodes) == 0:
@@ -448,6 +451,7 @@ class PromptEvolver:
             Dict containing the generated prompt and metadata
         """
         try:
+            # 每个候选都是“下一轮该怎么描述任务”的一个版本，后面会用探索分数挑一个。
             result = await self.prompt_agent.execute(
                 context={
                     "experience_library": library_formatted,
@@ -498,7 +502,7 @@ class PromptEvolver:
             return (1.0, {"reason": "empty_task"})
 
         try:
-            # Retrieve related ideas from graph
+            # 越像历史想法，探索分数越高；分数低说明它更可能开辟新方向。
             related_idea_ids = self.idea_graph.retrieve_related_ideas(
                 query_idea=new_task,
                 node_num=10,
@@ -582,7 +586,7 @@ class PromptEvolver:
         """
         self._initialize_agent()
 
-        # Load experience library
+        # 经验库来自已经完成的实验，里面记录哪些做法有效、哪些做法该避免。
         try:
             with open(library_path, "r", encoding="utf-8") as f:
                 library_data = json.load(f)
@@ -596,7 +600,7 @@ class PromptEvolver:
             self.logger.error("No experiences found in library")
             raise ValueError("Experience library is empty")
 
-        # Load current prompt
+        # 当前提示是被改写的底稿；改写失败时外层会继续使用旧提示。
         try:
             with open(current_prompt_path, "r", encoding="utf-8") as f:
                 current_prompt = json.load(f)
@@ -609,7 +613,7 @@ class PromptEvolver:
             current_background = ""
             current_prompt = {}
 
-        # Format experience library for agent
+        # 给代理看的经验库保持简单：经验列表和数量即可，筛选细节交给代理判断。
         library_formatted = {
             "experiences": experiences,  # Pass all experiences, agent will filter
             "count": len(experiences),
@@ -652,7 +656,7 @@ class PromptEvolver:
 
             self.logger.info(f"Valid candidates with non-empty tasks: {len(valid_candidates)}/{len(successful_candidates)}")
 
-            # Calculate exploration scores for each candidate
+            # 多个候选先并行生成，再用历史想法图挑更少重复的方向。
             self.logger.info("Calculating exploration scores based on IdeaGraph...")
             scored_candidates = []
             for candidate in valid_candidates:
@@ -685,7 +689,7 @@ class PromptEvolver:
             new_prompt["task_description"] = best_candidate["new_task"]
 
 
-            # Add metadata about generation
+            # 元数据让人复盘时知道为什么这版提示被选中，而不只是看到最终文件。
             new_prompt["_generation_metadata"] = {
                 "generated_at": datetime.now().isoformat(),
                 "num_candidates_generated": len(successful_candidates),
@@ -769,7 +773,7 @@ class MemoryModule:
                 self.logger.warning(f"Idea file not found: {idea_file_path}")
                 return {}
 
-            # Check for duplicates - skip if already loaded
+            # 同一文件可能在恢复或多轮结束后被重复扫描；按绝对路径去重即可。
             abs_path = osp.abspath(idea_file_path)
             for existing in self.memory_data['ideas']:
                 if osp.abspath(existing.get('file_path', '')) == abs_path:
@@ -781,7 +785,7 @@ class MemoryModule:
 
             self.logger.info(f"Loaded ideas from: {idea_file_path}")
 
-            # Store in memory
+            # 这里暂存在进程内，后续经验生成会一次性读取这些想法。
             idea_entry = {
                 'file_path': idea_file_path,
                 'timestamp': datetime.now().isoformat(),
@@ -817,7 +821,7 @@ class MemoryModule:
                 self.logger.warning(f"Notes file not found: {notes_file_path}")
                 return {}
 
-            # Check for duplicates - skip if already loaded
+            # 实验记录同样按文件去重，避免同一轮结果被重复计入经验库。
             abs_path = osp.abspath(notes_file_path)
             for existing in self.memory_data['experiments']:
                 if osp.abspath(existing.get('file_path', '')) == abs_path:
@@ -833,7 +837,7 @@ class MemoryModule:
                 with open(summary_path, 'r', encoding='utf-8') as f:
                     summary_content = f.read()
 
-            # Parse notes content
+            # notes 文件提供想法的可读信息，报告文件提供实验过程和结果正文。
             notes_data = self._parse_notes_content(notes_content, summary_content)
             notes_data['file_path'] = notes_file_path
 
@@ -904,7 +908,7 @@ class MemoryModule:
             self.logger.warning(f"Results directory not found: {search_dir}")
             return all_ideas
 
-        # Search for all ideas_*.json files
+        # 旧版输出和新版 session 目录可能混在一起，目录扫描让历史数据尽量都能被吸收。
         for root, dirs, files in os.walk(search_dir):
             for file in files:
                 if file.startswith('ideas_') and file.endswith('.json'):
@@ -936,7 +940,7 @@ class MemoryModule:
             self.logger.warning(f"Results directory not found: {search_dir}")
             return all_notes
 
-        # Search for all notes.txt files
+        # 每个实验目录只需要一个 notes 文件作为索引，再把更详细的报告一起读入。
         for root, dirs, files in os.walk(search_dir):
             for file in files:
                 if file == 'notes.txt':
@@ -1168,7 +1172,7 @@ class ExperienceGenerator:
 
         self.logger.info(f"Generating experiences from {len(all_ideas)} idea files and {len(all_experiments)} experiment notes")
 
-        # Collect all matched idea-experiment pairs
+        # 经验生成需要把“想法”和“它对应的实验记录”配对，否则无法判断做法是否有效。
         ideas_data = []
         notes_data_list = []
 
@@ -1191,7 +1195,7 @@ class ExperienceGenerator:
                     self.logger.warning(f"No matching experiment found for idea: {idea_name}")
                     continue
 
-                # Use the first matching experiment
+                # 同名实验可能有多个版本；这里先用第一个匹配项，保持生成逻辑简单可预测。
                 notes_data = matching_experiments[0]['data']
 
                 ideas_data.append(idea_data)
@@ -1204,7 +1208,7 @@ class ExperienceGenerator:
         self.logger.info(f"Found {len(ideas_data)} matched idea-experiment pairs")
 
         try:
-            # Step 1: Generate new experiences through contrastive learning
+            # 第一步让代理比较成功/失败案例，提炼出可复用的实验经验。
             self.logger.info("=" * 60)
             self.logger.info("Step 1: Generating experiences through contrastive learning")
             self.logger.info("=" * 60)
@@ -1226,7 +1230,7 @@ class ExperienceGenerator:
             comparisons = result.get("comparisons", [])
 
             self.logger.info(f"Generated {len(new_experiences)} new experiences from {len(comparisons)} pairwise comparisons")
-            # Step 2: Load existing experience library
+            # 第二步读取旧经验库，后面会合并而不是每轮从零开始。
             self.logger.info("=" * 60)
             self.logger.info("Step 2: Loading existing experience library")
             self.logger.info("=" * 60)
@@ -1248,7 +1252,7 @@ class ExperienceGenerator:
                 else:
                     self.logger.info("No existing library found, creating new one")
 
-            # Step 3: Update experience library using LLM
+            # 第三步让代理判断哪些经验该新增、合并、更新或丢弃。
             self.logger.info("=" * 60)
             self.logger.info("Step 3: Updating experience library with new experiences")
             self.logger.info("=" * 60)
@@ -1264,7 +1268,7 @@ class ExperienceGenerator:
             operations = update_result.get("operations", [])
             update_metadata = update_result.get("metadata", {})
 
-            # Step 4: Save all results
+            # 最后同时保存精简经验库和完整分析，前者给下一轮使用，后者给人复盘。
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
 

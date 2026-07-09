@@ -185,6 +185,7 @@ tasks/AutoScale_DL/*
 tasks/AutoScale2/*
 IA15_traj/
 mem_store/
+.codebase-memory/
 
 # Large data files
 tasks/AutoEAP/code/data/Sequences_activity_all.txt

@@ -18,6 +18,8 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+# 会话记忆只负责保存工作流状态，不负责决定下一步该做什么。
+# 具体实现可以是内存或文件，外层状态机通过同一组方法读写它。
 class MemoryManager(ABC):
     """
     Abstract base class for memory management.
@@ -171,8 +173,7 @@ class InMemoryMemoryManager(MemoryManager):
         if not session_data:
             raise ValueError(f"Session {session_id} not found")
         
-        # Here you would typically reconstruct a session object from the data
-        # For now, we'll just return the session data dictionary
+        # 这版实现主要用于临时运行和测试，返回字典即可；重启后数据不会保留。
         return session_data
     
     async def store_session(self, session: Any) -> None:
@@ -300,7 +301,7 @@ class FileSystemMemoryManager(MemoryManager):
         self.data_dir = data_dir
         self.task_name = task_name or "DefaultTask"
 
-        # Ensure base directory exists
+        # 文件实现把轨迹放到任务目录下，方便和实验产物一起查看、复制和恢复。
         os.makedirs(data_dir, exist_ok=True)
     
     def _get_task_dir(self, session_data: Dict[str, Any] = None) -> str:
@@ -339,7 +340,7 @@ class FileSystemMemoryManager(MemoryManager):
         if not session_data:
             raise ValueError(f"Session {session_id} not found")
         
-        # Import here to avoid circular imports
+        # 读取时把 JSON 重新组装成工作流对象，状态机才能从中断处继续跑。
         from ..workflow.data_type import WorkflowSession, Task, WorkflowState, Idea
         
         # Reconstruct the task object
@@ -396,13 +397,13 @@ class FileSystemMemoryManager(MemoryManager):
             session_id: Unique session identifier
             session_data: Session data to store
         """
-        # Add update timestamp
+        # 每次阶段推进后都会覆盖轨迹文件，因此这个时间可以反映最近一次保存点。
         session_data["update_time"] = time.time()
 
         # Get dynamic task directory based on session data
         task_dir = self._get_task_dir(session_data)
 
-        # Save to file using new path structure: results/{task_name}/traj_{session_id}.json
+        # 轨迹文件是会话恢复和可视化的共同来源。
         file_path = os.path.join(task_dir, f"traj_{session_id}.json")
         await self._write_json_file(file_path, session_data)
     
@@ -532,7 +533,7 @@ class FileSystemMemoryManager(MemoryManager):
         Returns:
             Hypothesis data or empty dict if not found
         """
-        # Since ideas are now stored per session, we need to search through all idea files
+        # 旧接口按单个想法读取；当前文件布局按会话存储，所以需要在任务目录内查找。
         idea_files = [f for f in os.listdir(self.task_dir) if f.startswith("idea_") and f.endswith(".json")]
 
         for file_name in idea_files:
@@ -632,7 +633,7 @@ def create_memory_manager(config: Dict[str, Any]) -> MemoryManager:
     Returns:
         Configured MemoryManager instance
     """
-    # Read from memory.context_memory configuration
+    # 默认使用文件存储，让一次发现流程的状态可以随结果目录一起保留下来。
     memory_config = config.get("memory", {})
     context_memory_config = memory_config.get("context_memory", {})
 

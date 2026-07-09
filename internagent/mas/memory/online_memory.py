@@ -10,6 +10,8 @@ from typing import Dict, Any, Optional
 from .task_memory import TaskMemoryLayer
 
 
+# 在线记忆是在实验完成当下写入的旁路记录；它不参与实验是否成功的判定，
+# 只负责把成功结果整理到任务级记忆里，供后续检索或分析使用。
 class OnlineMemorySaver:
     """
     Online memory saver for real-time experiment result storage
@@ -34,11 +36,11 @@ class OnlineMemorySaver:
         self.enabled = online_memory_config.get("enabled", False)
 
         if self.enabled:
-            # Create task-specific memory directory
+            # 每个任务写入自己的记忆目录，避免不同数据集或目标的经验互相混在一起。
             base_dir = memory_config.get("task_memory", {}).get("memory_dir", "./config/mem_store")
             task_memory_dir = f"{base_dir}/{task_name}"
 
-            # Build config for TaskMemoryLayer (expects top-level task_memory and agents keys)
+            # 这里把全局配置重排成底层记忆组件认识的形状。
             task_config = {
                 "task_memory": memory_config.get("task_memory", {}).copy(),
                 "agents": config.get("agents", {})
@@ -81,10 +83,10 @@ class OnlineMemorySaver:
             print(f"\n[OnlineMemory] Saving result for idea: {idea.get('name', 'unknown')}")
             print(f"[OnlineMemory] Results directory: {results_dir}")
 
-            # Get aggregation method from config
+            # 一个实验目录可能有多次 run；聚合策略决定保存最好一次还是汇总结果。
             aggregation = self.config.get("memory", {}).get("online_memory", {}).get("aggregation", "best")
 
-            # Save to memory
+            # 底层会读取结果目录、轨迹和想法信息，整理成可检索的任务记忆记录。
             record = self.memory.save_experiment_result(
                 idea=idea,
                 results_dir=results_dir,
