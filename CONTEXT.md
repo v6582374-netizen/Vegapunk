@@ -4,42 +4,50 @@ InternAgent coordinates LLM-backed agents for research, discovery, memory, and e
 
 ## Language
 
-**Default LLM**:
-The chat or reasoning model selected when callers do not provide an explicit model for an OpenAI-compatible text workflow. It does not include embedding models, local/HuggingFace models, provider-specific presets, or modality-specific audio/realtime models.
-_Avoid_: default model, base model
+**Discovery Launch**:
+A bounded research effort that may contain multiple Discovery Rounds and Candidate Experiments. It is the aggregation boundary for at most one Research Dossier.
+_Avoid_: session, round, candidate experiment
 
 **Discovery Round**:
-One launch-level iteration in which InternAgent proposes research ideas and processes them through the selected workflow mode. It is a sequential evolution step, not a tree-search node.
-_Avoid_: evolution node, tree node, search node
+One iteration within a Discovery Launch in which research ideas are proposed and evaluated through the configured workflow.
+_Avoid_: launch, session, experiment run
 
 **Candidate Experiment**:
-A single research idea selected for execution or evaluation within a Discovery Round. Multiple Candidate Experiments may exist in the same round.
-_Avoid_: round, node, final report
+One research idea and its associated Experiment Runs within a Discovery Round.
+_Avoid_: discovery round, experiment run, final paper
 
 **Experiment Run**:
-One numbered attempt inside a Candidate Experiment to implement, execute, and collect results. Experiment Runs are lower-level than Discovery Rounds.
-_Avoid_: discovery round, candidate
+One independently reproducible attempt within a Candidate Experiment, with the exact inputs, implementation, execution record, outputs, and outcome used for that attempt.
+_Avoid_: candidate experiment, discovery round, launch
 
-**Experiment Report**:
-A concise factual account of the runs and results for one Candidate Experiment. It is not the launch-level final paper.
-_Avoid_: final report, final paper, paper artifact
+**Paper Candidate Round**:
+The most recent completed Discovery Round containing at least one successful Candidate Experiment. Paper candidate comparison is confined to this round.
+_Avoid_: last round, globally best round, all rounds
 
-**Launch Summary**:
-The launch-level completion record that aggregates Discovery Rounds, Candidate Experiments, and their success status. It is an index of what happened, not a scientific narrative.
-_Avoid_: final report, paper
+**Terminal Candidate Selection**:
+The single post-discovery decision that reduces the Paper Candidate Round to one Selected Research Candidate after every Discovery Round has finished.
+_Avoid_: round-to-round baseline selection, continuous reranking, writing-stage selection
 
-**Final Paper Artifact**:
-A polished launch-level paper output generated after discovery has selected a final successful result. It should be distinct from intermediate Experiment Reports.
-_Avoid_: experiment report, discovery summary, sci report
+**Selected Research Candidate**:
+The Candidate Experiment chosen from the Paper Candidate Round whose existing artifacts form the primary scientific subject of a Research Dossier.
+_Avoid_: latest candidate, last successful result, all candidates
 
-**Best Successful Candidate**:
-The successful Candidate Experiment selected across an entire launch as the source for the Final Paper Artifact. When comparable performance data exists, it is the successful candidate with the highest score.
-_Avoid_: final best code path, latest successful result, last candidate
+**Candidate Selection Provenance**:
+The auditable record of how the Paper Candidate Round and Selected Research Candidate were determined, including any backward round fallback, model-inferred comparison criterion, or randomized fallback.
+_Avoid_: hidden ranking, unexplained best result, selection guess
 
-**Launch Model**:
-The single provider and text-generation model selected for all InternAgent-managed LLM calls within one discovery launch. It does not include embedding models, rerankers, LaTeX compilation, shell execution, or external non-text-generation tools.
-_Avoid_: paper model, scorer model, experiment model
+**Research Dossier**:
+The canonical final product for one Discovery Launch, combining authoritative research evidence with a self-explaining Research Narrative centered on its Selected Research Candidate.
+_Avoid_: final paper, manuscript, launch summary
 
-**Paper Artifact Status**:
-The user-facing outcome of Final Paper Artifact generation. The allowed statuses are `success`, `partial`, `skipped`, and `failed`.
-_Avoid_: boolean success, report status
+**Research Narrative**:
+The human-readable LaTeX/PDF view of a Research Dossier that explains the method, results, research process, and reproduction path while remaining traceable to the authoritative evidence.
+_Avoid_: research dossier, canonical evidence, raw artifact dump
+
+**Research Narrative Template**:
+A selectable presentation form for a Research Narrative. Every template implements the same top-level content contract and may change appearance or localized labels but not the semantic responsibilities of those sections.
+_Avoid_: research narrative, dossier schema, template-specific content model
+
+**Dossier Run**:
+One independently executable and resumable attempt to assemble the Research Dossier and render its Research Narrative for a Discovery Launch. Its outcome does not change the outcome of the Discovery Launch.
+_Avoid_: discovery round, experiment run, report generation
