@@ -1,6 +1,6 @@
 <div align="center">
   <img src="./assets/ia_logo.png" alt="InternAgent Logo" width="180" />
-  <h1>InternAgent-1.5</h1>
+  <h1>Vegapunk V1.0</h1>
   <p><strong>从科研问题、假设生成和实验验证，到可审查中文论文的端到端闭环系统</strong></p>
   <p>
     <a href="https://arxiv.org/abs/2505.16938">InternAgent 1.0 论文</a> ·
@@ -12,7 +12,7 @@
 
 ## 项目概览
 
-InternAgent 是一个面向长程自主科学发现的多智能体框架。系统能够围绕一个研究任务完成背景调研、假设生成、反思与演化、方法设计、实验执行、结果评估和跨轮次记忆。
+Vegapunk 是一个面向长程自主科学发现的多智能体框架。系统能够围绕一个研究任务完成背景调研、假设生成、反思与演化、方法设计、实验执行、结果评估和跨轮次记忆。
 
 本仓库进一步将 [PaperOrchestra](https://github.com/declare-lab/paper-orchestra) 迁移为 InternAgent 内部模块：一次实验模式的 Discovery Launch 完成后，系统会从已有实验产物中确定论文候选，整理可追溯的 Research Dossier，并通过中文友好的 [ElegantPaper](https://github.com/ElegantLaTeX/ElegantPaper) 模板生成经过内容审查和多模态版式审查的 LaTeX 与 PDF。
 
