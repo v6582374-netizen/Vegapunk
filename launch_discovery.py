@@ -1093,6 +1093,35 @@ def main():
         json.dump(summary, f, indent=4)
 
     logger.info(f"\nSummary saved to {summary_path}")
+
+    # The paper stage runs once per completed experiment Launch. Its outcome is
+    # intentionally independent from the already-completed Discovery outcome.
+    if args.mode == "experiment":
+        try:
+            from pathlib import Path
+            from internagent.paper_orchestra import run_dossier
+
+            dossier_result = asyncio.run(
+                run_dossier(
+                    launch_dir=Path(args.output_dir),
+                    internagent_config=config,
+                    paper_config_path=Path("config/paper_orchestra.yaml"),
+                    dossier_run_id="primary",
+                )
+            )
+            if dossier_result.status == "succeeded":
+                logger.info(f"Research Dossier completed: {dossier_result.run_dir}")
+            else:
+                logger.error(
+                    "Research Dossier failed without changing Discovery status: "
+                    f"{dossier_result.error}"
+                )
+        except Exception as error:
+            logger.exception(
+                "Research Dossier failed without changing Discovery status: %s",
+                error,
+            )
+
     logger.info("=" * 80)
     logger.info("All done!")
 

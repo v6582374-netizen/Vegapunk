@@ -1,0 +1,5 @@
+enabled: true
+template_dir: tex_templates/elegantpaper
+layout_review_enabled: true
+max_content_refinement_iterations: 3
+max_format_correction_iterations: 1
