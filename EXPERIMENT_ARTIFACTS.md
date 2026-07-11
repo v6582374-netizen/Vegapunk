@@ -30,6 +30,8 @@ results/<task_name>/<launch_id>_launch/
 
 ## 2. Launch 级产物
 
+通俗说明：Launch 级就是“一次完整启动”的总账本。它在启动 discovery 时创建，并在流程结束后补齐汇总信息，用来回答“这次任务是什么、跑了几轮、有哪些候选实验、总体结果索引在哪里”。
+
 ### `prompt.json`
 
 位置：
@@ -71,6 +73,8 @@ results/<task_name>/<launch_id>_launch/discovery_summary.json
 
 ## 3. Session 级产物
 
+通俗说明：Session 级就是“一轮想点子”的记录。它在 idea generation / refinement 阶段产生，用来回答“这一轮系统提出了哪些候选方案，以及这些方案是怎么被讨论和筛选出来的”。
+
 ### `ideas.json`
 
 位置：
@@ -108,6 +112,8 @@ results/<task_name>/<launch_id>_launch/session_<id>/traj.json
 - 不应作为论文结果的事实源。
 
 ## 4. 候选实验工作区产物
+
+通俗说明：候选实验工作区就是“某一个 idea 被拿去做实验”的独立工作台。它在某个候选 idea 开始执行实验时创建，用来回答“这个方案打算怎么做、实际代码放在哪里、执行过程发生了什么”。
 
 每个 candidate experiment folder 代表一个 idea 的完整实验尝试：
 
@@ -177,6 +183,8 @@ results/<task_name>/<launch_id>_launch/session_<id>/<timestamp>_<idea_name>/
 - 可用于生成论文初稿的“实验过程摘要”，但每个数字都要回查 `final_info.json`。
 
 ## 5. Run 级产物
+
+通俗说明：Run 级就是“同一个候选方案的一次具体运行或一次尝试”。它在候选实验工作区内部产生，用来回答“第 0 次基线是什么、第 N 次改动跑出了什么指标、这一轮对应的代码快照是什么”。
 
 每个候选实验下会有：
 
@@ -259,6 +267,8 @@ run_2/
 
 ## 6. Sci task 特有产物
 
+通俗说明：Sci task 特有产物就是“论文复现任务额外要求交付的材料”。它们只在 sci task 这类复现任务中稳定出现，用来回答“复现用到了哪些数据和论文、产出了哪些中间结果、最终复现报告在哪里”。
+
 Sci task 是论文复现任务，和普通 auto discovery 不同。其工作区通常额外包含：
 
 ```text
@@ -286,6 +296,8 @@ report/
 - 普通 auto discovery 当前不稳定生成 `report/report.md`，不能把 sci task 的报告契约直接套到 auto task。
 
 ## 7. Report mode 产物
+
+通俗说明：Report mode 产物就是“只根据 idea 写出来的草稿报告”。它在 `--mode report` 下生成，不经过真实实验验证，用来回答“这个 idea 如果写成报告，大概会怎么描述”，但不能回答“实验实际证明了什么”。
 
 `--mode report` 会调用当前 `ReportWriter`，它生成的是 idea-only markdown：
 
