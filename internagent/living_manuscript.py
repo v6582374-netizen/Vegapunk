@@ -294,7 +294,7 @@ def attach_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
                 agent_name=agent_name,
                 input={"args": args, "kwargs": kwargs},
                 output=output,
-                error=None,
+                error=_structured_terminal_error(output),
                 model_interactions=tuple(interactions),
             )
             await asyncio.to_thread(manuscript.consider_agent_task, task)
@@ -343,7 +343,7 @@ def attach_sync_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
                     agent_name=agent_name,
                     input={"args": args, "kwargs": kwargs},
                     output=output,
-                    error=None,
+                    error=_structured_terminal_error(output),
                     model_interactions=tuple(interactions),
                 )
             )
@@ -354,6 +354,22 @@ def attach_sync_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
     agent.execute = execute_with_sculptor
     agent._living_manuscript_hook_attached = True
     return agent
+
+
+def _structured_terminal_error(output: Any) -> str | None:
+    if not isinstance(output, dict):
+        return None
+    if output.get("success") is not False and output.get("completed") is not False:
+        return None
+    return (
+        "Agent returned a structured terminal failure:\n"
+        + json.dumps(
+            output,
+            ensure_ascii=False,
+            indent=2,
+            default=_observable_json_default,
+        )
+    )
 
 
 def preflight_living_manuscript_runtime(

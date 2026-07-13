@@ -663,6 +663,42 @@ class AgentTaskHookTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(task.input["args"][0], source)
         self.assertIs(task.output, output)
 
+    def test_structured_agent_failure_is_not_announced_as_success(self) -> None:
+        class StructuredFailureAgent:
+            def execute(self) -> dict[str, object]:
+                return {
+                    "success": False,
+                    "completed": False,
+                    "error": "tool retries exhausted",
+                }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            template_dir = root / "elegantpaper"
+            template_dir.mkdir()
+            (template_dir / "elegantpaper.cls").write_text("class", encoding="utf-8")
+            sculptor = RepairingSculptor()
+            manuscript = LivingManuscript.initialize(
+                launch_dir=root / "launch",
+                template_dir=template_dir,
+                sculptor=sculptor,
+                validator=DraftValidator(),
+            )
+            set_active_living_manuscript(manuscript)
+            try:
+                agent = attach_sync_living_manuscript_hook(
+                    StructuredFailureAgent(),
+                    agent_name="ExecutionAgent",
+                )
+                output = agent.execute()
+            finally:
+                clear_active_living_manuscript(manuscript)
+
+        task = sculptor.started_with
+        self.assertIs(task.output, output)
+        self.assertIn("structured terminal failure", task.error)
+        self.assertIn("tool retries exhausted", task.error)
+
 
 class LivingManuscriptPreflightTest(unittest.TestCase):
     def test_preflight_rejects_a_backend_without_native_context_fork(self) -> None:
