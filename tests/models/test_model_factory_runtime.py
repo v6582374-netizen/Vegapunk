@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+
+import yaml
 
 from internagent.mas.models.model_factory import ModelFactory
 from internagent.mas.models.openai_model import OpenAIModel
@@ -56,6 +59,19 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertEqual(model.prompt_cache_ttl, "30m")
         self.assertEqual(model.background_poll_interval, 2)
         self.assertEqual(model.background_timeout, 3600)
+
+    def test_builtin_openai_gateway_uses_declared_compatibility_modes(self) -> None:
+        config_path = Path(__file__).parents[2] / "config" / "default_config.yaml"
+        with config_path.open(encoding="utf-8") as file:
+            config = yaml.safe_load(file)["models"]["openai"]
+
+        model = OpenAIModel.from_config({**config, "api_key": "test-key"})
+
+        self.assertEqual(model.base_url, "https://ai.cloudyz.top/v1")
+        self.assertEqual(model.prompt_cache_mode, "implicit")
+        self.assertEqual(model.prompt_cache_ttl, "30m")
+        self.assertEqual(model.response_state_mode, "replay")
+        self.assertEqual(model.response_state_max_entries, 128)
 
     def test_models_with_different_runtime_policies_are_not_cache_collapsed(self) -> None:
         project_config = {

@@ -15,6 +15,7 @@ models:
     model_name: "gpt-5.6-sol"
     api_mode: "responses"
     api_key: ""  # Set via environment variable OPENAI_API_KEY
+    base_url: "https://ai.cloudyz.top/v1"
     temperature: 0.7
     max_output_tokens: 128000
     timeout: 600
@@ -24,11 +25,14 @@ models:
       mode: "standard"
     store: true
     prompt_cache:
-      mode: "explicit"
+      mode: "implicit"  # ai.cloudyz.top rejects explicit cache breakpoints
       ttl: "30m"
     background:
       poll_interval_seconds: 2
       timeout_seconds: 3600
+    response_state:
+      mode: "replay"  # ai.cloudyz.top does not implement response retrieval
+      max_entries: 128
 
   openrouter:
     model_name: "moonshotai/kimi-k2.6:free"

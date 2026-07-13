@@ -37,7 +37,7 @@ agents:
 
 Disabling DR (`enabled: false`) skips background literature grounding during idea generation — useful when running offline or when API rate limits are a concern.
 
-DR inherits `models.openai` from the project config. Every active DR role uses `gpt-5.6-sol` through the Responses API with the global `reasoning.effort: xhigh` policy. Planning stays in standard mode; execution and coordination preserve all-turn reasoning; final synthesis uses Pro mode and background execution. Tool loops continue with `previous_response_id` and return results under the original `call_id`.
+DR inherits `models.openai` from the project config. Every active DR role uses `gpt-5.6-sol` through the Responses API with the global `reasoning.effort: xhigh` policy. Planning stays in standard mode; execution and coordination preserve all-turn reasoning; final synthesis uses Pro mode and background execution. Tool loops always return results under the original `call_id`: server-state endpoints continue with `previous_response_id`, while the built-in gateway uses configured stateless replay because it does not expose response retrieval.
 
 ---
 

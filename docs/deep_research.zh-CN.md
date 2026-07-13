@@ -37,7 +37,7 @@ agents:
 
 禁用 DR（`enabled: false`）会跳过想法生成阶段的后台文献依据构建，适合离线运行或 API 速率限制较紧的场景。
 
-DR 直接继承项目配置中的 `models.openai`。所有活跃 DR 角色统一使用 `gpt-5.6-sol` 和 Responses API，并继承全局 `reasoning.effort: xhigh`。规划保持 standard；执行与协调保留 all-turn reasoning；最终综合使用 Pro 与 background。工具循环通过 `previous_response_id` 续接，并始终用模型返回的原始 `call_id` 回传工具结果。
+DR 直接继承项目配置中的 `models.openai`。所有活跃 DR 角色统一使用 `gpt-5.6-sol` 和 Responses API，并继承全局 `reasoning.effort: xhigh`。规划保持 standard；执行与协调保留 all-turn reasoning；最终综合使用 Pro 与 background。工具循环始终用模型返回的原始 `call_id` 回传结果：支持服务端状态的端点通过 `previous_response_id` 续接；内置网关没有 response retrieve，因此按显式配置重放完整 Responses items。
 
 ---
 

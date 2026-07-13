@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Union
 
 from openai import AsyncOpenAI
@@ -46,6 +48,7 @@ class OpenAIModel(BaseModel):
         "store",
         "prompt_cache",
         "background",
+        "response_state",
     }
     _OBSOLETE_CONFIG_KEYS = {
         "max_tokens": "max_output_tokens",
@@ -75,6 +78,8 @@ class OpenAIModel(BaseModel):
         prompt_cache_ttl: str = "30m",
         background_poll_interval: float = 2.0,
         background_timeout: float = 3600.0,
+        response_state_mode: str = "server",
+        response_state_max_entries: int = 128,
         client: Optional[Any] = None,
     ) -> None:
         super().__init__()
@@ -103,6 +108,13 @@ class OpenAIModel(BaseModel):
         self.prompt_cache_ttl = prompt_cache_ttl
         self.background_poll_interval = background_poll_interval
         self.background_timeout = background_timeout
+        if response_state_mode not in {"server", "replay"}:
+            raise ValueError("OpenAI response state mode must be server or replay")
+        if response_state_max_entries < 1:
+            raise ValueError("OpenAI replay state max_entries must be positive")
+        self.response_state_mode = response_state_mode
+        self.response_state_max_entries = response_state_max_entries
+        self._replay_states: OrderedDict[str, list[Dict[str, Any]]] = OrderedDict()
 
         if not self.api_key:
             logger.warning(
@@ -220,6 +232,19 @@ class OpenAIModel(BaseModel):
         input_items.extend(
             self._input_to_response_item(item) for item in request.input
         )
+        replay_input_items: list[Dict[str, Any]] | None = None
+        if request.previous_response_id and self.response_state_mode == "replay":
+            previous_items = self._replay_states.get(request.previous_response_id)
+            if previous_items is None:
+                raise ModelRunTerminalError(
+                    "Unknown replay response state: "
+                    f"{request.previous_response_id}"
+                )
+            self._replay_states.move_to_end(request.previous_response_id)
+            input_items = copy.deepcopy(previous_items) + input_items
+            replay_input_items = input_items
+        elif self.response_state_mode == "replay":
+            replay_input_items = input_items
         request_params["input"] = input_items
 
         temperature = (
@@ -229,7 +254,7 @@ class OpenAIModel(BaseModel):
         )
         if temperature is not None:
             request_params["temperature"] = temperature
-        if request.previous_response_id:
+        if request.previous_response_id and self.response_state_mode == "server":
             request_params["previous_response_id"] = request.previous_response_id
         if request.prompt_cache_key:
             request_params["prompt_cache_key"] = request.prompt_cache_key
@@ -243,7 +268,11 @@ class OpenAIModel(BaseModel):
         if not response_id:
             raise ModelRunTerminalError("OpenAI returned a response without an ID")
 
-        return self._handle_for_response(initial_response, response_id)
+        return self._handle_for_response(
+            initial_response,
+            response_id,
+            replay_input_items=replay_input_items,
+        )
 
     async def resume(self, response_id: str) -> ModelRunHandle:
         """Resume polling a previously checkpointed background Response."""
@@ -251,7 +280,11 @@ class OpenAIModel(BaseModel):
         return self._handle_for_response(initial_response, response_id)
 
     def _handle_for_response(
-        self, initial_response: Any, response_id: str
+        self,
+        initial_response: Any,
+        response_id: str,
+        *,
+        replay_input_items: list[Dict[str, Any]] | None = None,
     ) -> ModelRunHandle:
         """Build wait/cancel controls for a new or recovered Response."""
 
@@ -263,6 +296,12 @@ class OpenAIModel(BaseModel):
                 response = await self.client.responses.retrieve(response_id)
             result = self._response_to_run_result(response)
             self._raise_for_terminal_status(response, result)
+            if replay_input_items is not None:
+                self._store_replay_state(
+                    response_id=response_id,
+                    input_items=replay_input_items,
+                    response=response,
+                )
             return result
 
         async def wait_with_timeout() -> ModelRunResult:
@@ -293,6 +332,45 @@ class OpenAIModel(BaseModel):
             _wait=wait_with_timeout,
             _cancel=cancel_result,
         )
+
+    def _store_replay_state(
+        self,
+        *,
+        response_id: str,
+        input_items: list[Dict[str, Any]],
+        response: Any,
+    ) -> None:
+        output_items = [
+            self._to_plain_item(item)
+            for item in (self._field(response, "output", []) or [])
+        ]
+        self._replay_states[response_id] = (
+            copy.deepcopy(input_items) + output_items
+        )
+        self._replay_states.move_to_end(response_id)
+        while len(self._replay_states) > self.response_state_max_entries:
+            self._replay_states.popitem(last=False)
+
+    @classmethod
+    def _to_plain_item(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: cls._to_plain_item(item)
+                for key, item in value.items()
+                if item is not None
+            }
+        if isinstance(value, (list, tuple)):
+            return [cls._to_plain_item(item) for item in value]
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return cls._to_plain_item(model_dump(exclude_none=True))
+        if hasattr(value, "__dict__"):
+            return {
+                key: cls._to_plain_item(item)
+                for key, item in vars(value).items()
+                if not key.startswith("_") and item is not None
+            }
+        return value
 
     @staticmethod
     def _input_to_response_item(item: Any) -> Dict[str, Any]:
@@ -388,16 +466,18 @@ class OpenAIModel(BaseModel):
             model=cls._field(response, "model", ""),
             items=tuple(items),
             usage=ModelUsage(
-                input_tokens=cls._field(usage, "input_tokens", 0),
-                output_tokens=cls._field(usage, "output_tokens", 0),
-                total_tokens=cls._field(usage, "total_tokens", 0),
-                cached_tokens=cls._field(input_details, "cached_tokens", 0),
-                cache_write_tokens=cls._field(
+                input_tokens=cls._field(usage, "input_tokens", 0) or 0,
+                output_tokens=cls._field(usage, "output_tokens", 0) or 0,
+                total_tokens=cls._field(usage, "total_tokens", 0) or 0,
+                cached_tokens=(
+                    cls._field(input_details, "cached_tokens", 0) or 0
+                ),
+                cache_write_tokens=(cls._field(
                     input_details, "cache_write_tokens", 0
-                ),
-                reasoning_tokens=cls._field(
+                ) or 0),
+                reasoning_tokens=(cls._field(
                     output_details, "reasoning_tokens", 0
-                ),
+                ) or 0),
             ),
             reasoning_context=cls._field(reasoning, "context"),
             raw_response=response,
@@ -442,6 +522,7 @@ class OpenAIModel(BaseModel):
         reasoning = config.get("reasoning", {})
         prompt_cache = config.get("prompt_cache", {})
         background = config.get("background", {})
+        response_state = config.get("response_state", {})
         return cls(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
@@ -459,6 +540,8 @@ class OpenAIModel(BaseModel):
             prompt_cache_ttl=prompt_cache.get("ttl", "30m"),
             background_poll_interval=background.get("poll_interval_seconds", 2),
             background_timeout=background.get("timeout_seconds", 3600),
+            response_state_mode=response_state.get("mode", "server"),
+            response_state_max_entries=response_state.get("max_entries", 128),
         )
 
     @classmethod
@@ -524,3 +607,16 @@ class OpenAIModel(BaseModel):
             {"poll_interval_seconds", "timeout_seconds"}
         ):
             raise ValueError("Unknown OpenAI background configuration")
+
+        response_state = config.get("response_state", {})
+        if not isinstance(response_state, dict):
+            raise ValueError("OpenAI response_state must be a mapping")
+        if set(response_state).difference({"mode", "max_entries"}):
+            raise ValueError("Unknown OpenAI response_state configuration")
+        if response_state.get("mode", "server") not in {"server", "replay"}:
+            raise ValueError("Unsupported OpenAI response_state.mode")
+        max_entries = response_state.get("max_entries", 128)
+        if isinstance(max_entries, bool) or not isinstance(max_entries, int):
+            raise ValueError("OpenAI response_state.max_entries must be an integer")
+        if max_entries < 1:
+            raise ValueError("OpenAI response_state.max_entries must be positive")

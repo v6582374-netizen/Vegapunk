@@ -124,11 +124,14 @@ models:
       mode: "standard"
     store: true
     prompt_cache:
-      mode: "explicit"
+      mode: "implicit"
       ttl: "30m"
+    response_state:
+      mode: "replay"
+      max_entries: 128
 ```
 
-所有原生 OpenAI 调用都走 Responses API，不会静默回退到 Chat Completions。Deep Research 与 PaperOrchestra 显式使用 OpenAI；主发现流程中的其他 provider 则走独立的 Chat-compatible Runtime，只实现其实际支持的能力。最终论文合成、内容精炼和关键审查会选择性启用 Pro/background，普通规划与执行保持 standard，并统一继承全局 `xhigh`。
+所有原生 OpenAI 调用都走 Responses API，不会静默回退到 Chat Completions。当前内置 `ai.cloudyz.top` 端点不支持 GPT-5.6 的显式内容断点，也不提供 response retrieve API，因此部署配置使用 implicit cache，并在本地重放完整 Responses input/output items 来续接工具状态；原始 `call_id` 保持不变。Runtime 本身仍支持官方 explicit cache 与 server-side state。Deep Research 与 PaperOrchestra 显式使用 OpenAI；主发现流程中的其他 provider 则走独立的 Chat-compatible Runtime，只实现其实际支持的能力。最终论文合成、内容精炼和关键审查会选择性启用 Pro/background，普通规划与执行保持 standard，并统一继承全局 `xhigh`。
 
 > [!WARNING]
 > 默认配置面向完整研究运行，包含多候选、多轮 Discovery 和多次内容精炼，可能产生较长运行时间与较高模型费用。首次使用前请重点检查 `generation_count`、`top_ideas_count`、`loop_rounds`、`max_runs` 和并发设置。

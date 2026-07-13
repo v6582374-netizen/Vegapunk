@@ -140,6 +140,46 @@ class _FailedOpenAIClient:
         self.responses = _FailedResponses()
 
 
+class _ReplayResponses:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    async def create(self, **request: object) -> SimpleNamespace:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            output = [
+                SimpleNamespace(
+                    type="function_call",
+                    call_id="call_replay",
+                    name="lookup_constant",
+                    arguments='{"code":"alpha"}',
+                    status="completed",
+                )
+            ]
+        else:
+            output = [
+                SimpleNamespace(
+                    type="message",
+                    content=[
+                        SimpleNamespace(type="output_text", text="VALUE=42")
+                    ],
+                )
+            ]
+        return SimpleNamespace(
+            id=f"resp_replay_{len(self.requests)}",
+            status="completed",
+            model="gpt-5.6-sol",
+            output=output,
+            usage=None,
+            reasoning=SimpleNamespace(context="all_turns"),
+        )
+
+
+class _ReplayOpenAIClient:
+    def __init__(self) -> None:
+        self.responses = _ReplayResponses()
+
+
 class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
     async def test_run_returns_typed_items_and_usage(self) -> None:
         model = OpenAIModel(
@@ -290,6 +330,72 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             sent["previous_response_id"], "resp_with_tool_call"
         )
+
+    async def test_replay_state_resends_response_items_without_previous_id(self) -> None:
+        client = _ReplayOpenAIClient()
+        model = OpenAIModel(
+            api_key="test-key",
+            response_state_mode="replay",
+            client=client,
+        )
+        tool = FunctionTool(
+            name="lookup_constant",
+            description="Look up a test constant.",
+            parameters={
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            },
+        )
+
+        first = await model.run(
+            ModelRunRequest(
+                input=(Message.user("Use the tool."),),
+                tools=(tool,),
+            )
+        )
+        second = await model.run(
+            ModelRunRequest(
+                input=(
+                    FunctionCallOutput(
+                        call_id=first.tool_calls[0].call_id,
+                        output={"value": 42},
+                    ),
+                ),
+                tools=(tool,),
+                previous_response_id=first.response_id,
+            )
+        )
+
+        self.assertEqual(second.text, "VALUE=42")
+        continuation = client.responses.requests[1]
+        self.assertNotIn("previous_response_id", continuation)
+        self.assertEqual(
+            [item["type"] for item in continuation["input"]],
+            ["message", "function_call", "function_call_output"],
+        )
+        self.assertEqual(continuation["input"][1]["call_id"], "call_replay")
+        self.assertEqual(continuation["input"][2]["call_id"], "call_replay")
+
+    async def test_replay_state_rejects_an_unknown_local_response(self) -> None:
+        model = OpenAIModel(
+            api_key="test-key",
+            response_state_mode="replay",
+            client=_ReplayOpenAIClient(),
+        )
+
+        with self.assertRaisesRegex(Exception, "Unknown replay response state"):
+            await model.run(
+                ModelRunRequest(
+                    input=(
+                        FunctionCallOutput(
+                            call_id="call_missing",
+                            output="missing",
+                        ),
+                    ),
+                    previous_response_id="resp_missing",
+                )
+            )
 
     async def test_generate_json_uses_json_object_responses_mode(self) -> None:
         client = _FakeOpenAIClient(text='{"paper_id":"paper-1"}')
@@ -459,6 +565,17 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0]["reasoning_tokens"], 30)
         self.assertEqual(events[0]["cached_tokens"], 40)
         self.assertEqual(events[0]["cache_write_tokens"], 20)
+
+    async def test_null_usage_details_are_normalized_to_zero(self) -> None:
+        client = _FakeOpenAIClient()
+        response = await client.responses.create()
+        response.usage.input_tokens_details.cache_write_tokens = None
+        response.usage.output_tokens_details.reasoning_tokens = None
+
+        result = OpenAIModel._response_to_run_result(response)
+
+        self.assertEqual(result.usage.cache_write_tokens, 0)
+        self.assertEqual(result.usage.reasoning_tokens, 0)
 
 
 if __name__ == "__main__":
