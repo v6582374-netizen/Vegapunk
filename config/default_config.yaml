@@ -164,7 +164,7 @@ agents:
 
   # DR Agent
   dr:
-    model_provider: "default"
+    model_provider: "openai"
     enabled: true  # Set to false to skip background generation
     mode: "simple"
 

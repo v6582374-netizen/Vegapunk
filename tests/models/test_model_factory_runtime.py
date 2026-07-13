@@ -91,6 +91,37 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertEqual(inherited.reasoning_context, "auto")
         self.assertEqual(isolated.reasoning_context, "current_turn")
 
+    def test_responses_only_role_can_select_openai_over_default_provider(self) -> None:
+        project_config = {
+            "models": {
+                "default_provider": "openrouter",
+                "openrouter": {
+                    "api_key": "openrouter-key",
+                    "model_name": "vendor/chat-model",
+                    "api_mode": "chat_completions",
+                },
+                "openai": {
+                    "api_key": "openai-key",
+                    "model_name": "gpt-5.6-sol",
+                    "api_mode": "responses",
+                    "reasoning": {"effort": "xhigh"},
+                    "store": True,
+                },
+            }
+        }
+
+        model = ModelFactory.create_model_for_agent(
+            "paper_orchestra",
+            {
+                "model_provider": "openai",
+                "_global_config": project_config,
+            },
+        )
+
+        self.assertIsInstance(model, OpenAIModel)
+        self.assertEqual(model.model_name, "gpt-5.6-sol")
+        self.assertEqual(model.api_mode, "responses")
+
     def test_obsolete_openai_runtime_key_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "max_tokens->max_output_tokens"):
             ModelFactory.create_model(

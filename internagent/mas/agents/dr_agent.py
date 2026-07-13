@@ -144,25 +144,23 @@ class DRAgent(BaseAgent):
         # provider policy instead of maintaining a second OpenAI configuration.
         global_config = agent_config.get("_global_config", {})
         models_config = global_config.get("models", {})
-        provider = models_config.get("default_provider", "openai")
-        provider_config = copy.deepcopy(models_config.get(provider, {}))
-        provider_config["provider"] = provider
+        provider_config = copy.deepcopy(models_config.get("openai", {}))
+        provider_config["provider"] = "openai"
         workflow_config["runtime_model"] = provider_config
 
-        if provider == "openai":
-            model_config = workflow_config.setdefault("model", {})
-            model_config.update(
-                {
-                    "default_model": "gpt-5.6-sol",
-                    "global_planner_model": "gpt-5.6-sol",
-                    "global_execution_model": {
-                        "execution_model": "gpt-5.6-sol",
-                        "summarizer_model": "gpt-5.6-sol",
-                    },
-                    "coordinator_model": "gpt-5.6-sol",
-                    "synthesizer_model": "gpt-5.6-sol",
-                }
-            )
+        model_config = workflow_config.setdefault("model", {})
+        model_config.update(
+            {
+                "default_model": "gpt-5.6-sol",
+                "global_planner_model": "gpt-5.6-sol",
+                "global_execution_model": {
+                    "execution_model": "gpt-5.6-sol",
+                    "summarizer_model": "gpt-5.6-sol",
+                },
+                "coordinator_model": "gpt-5.6-sol",
+                "synthesizer_model": "gpt-5.6-sol",
+            }
+        )
         
         return workflow_config
     

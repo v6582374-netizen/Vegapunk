@@ -120,7 +120,7 @@ async def run_dossier(
                     model = ModelFactory.create_model_for_agent(
                         "paper_orchestra",
                         {
-                            "model_provider": "default",
+                            "model_provider": "openai",
                             "temperature": 0,
                             "_global_config": internagent_config,
                         },

@@ -63,7 +63,7 @@ class QwenModel(BaseModel):
         初始化 OpenAI 模型
         
         Args:
-            model_name: 模型名称，默认为 gpt-4o
+            model_name: 模型名称，默认为 Qwen3-8B
             api_key: API 密钥，如果为 None 则从环境变量获取
             base_url: API 基础 URL，如果为 None 则使用默认的 OpenAI API
         """

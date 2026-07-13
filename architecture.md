@@ -236,7 +236,7 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    QA["launch_qa.py::main<br/>--question / --file / --output"] --> DRA["DRAgent(model='o4-mini', config={'mode':'qa'})"]
+    QA["launch_qa.py::main<br/>--question / --file / --output / --config"] --> DRA["DRAgent(model='gpt-5.6-sol'<br/>inherits models.openai)"]
     DRA --> WF["dr_agents.workflow.main.Workflow.execute()"]
 
     WF --> GP["GlobalPlannerAgent.execute()<br/>自然语言任务 -> nodes/edges 有向图"]

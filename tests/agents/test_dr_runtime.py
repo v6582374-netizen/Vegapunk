@@ -156,6 +156,37 @@ class DeepResearchRuntimeTest(unittest.TestCase):
             },
         )
 
+    def test_dr_uses_openai_policy_when_another_provider_is_default(self) -> None:
+        agent = object.__new__(DRAgent)
+        agent.mode = "qa"
+        openai_config = {
+            "model_name": "gpt-5.6-sol",
+            "api_mode": "responses",
+            "reasoning": {"effort": "xhigh"},
+        }
+
+        with patch(
+            "internagent.mas.agents.dr_agent._get_config_loaders",
+            return_value=(lambda _path: {"model": {}}, None),
+        ):
+            config = agent._load_dr_config(
+                {
+                    "_global_config": {
+                        "models": {
+                            "default_provider": "openrouter",
+                            "openrouter": {"model_name": "vendor/model"},
+                            "openai": openai_config,
+                        }
+                    }
+                }
+            )
+
+        self.assertEqual(
+            config["runtime_model"],
+            {**openai_config, "provider": "openai"},
+        )
+        self.assertEqual(config["model"]["default_model"], "gpt-5.6-sol")
+
     def test_workflow_assigns_responses_policies_by_role(self) -> None:
         workflow_class = _get_workflow_class()
         self.assertIsNotNone(workflow_class)

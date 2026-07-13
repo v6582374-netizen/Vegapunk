@@ -28,7 +28,7 @@ When running a discovery experiment, DR is controlled by the `agents.dr` block i
 ```yaml
 agents:
   dr:
-    model_provider: "default"  # Model to use (inherits from models.default_provider)
+    model_provider: "openai"   # DR is a Responses-native OpenAI path
     enabled: true              # Set to false to disable DR background research entirely
     mode: "simple"             # Which DR config to use: "simple" or "complex"
                                #   simple  → config_simple.yaml (faster, no coordinator)
@@ -36,6 +36,8 @@ agents:
 ```
 
 Disabling DR (`enabled: false`) skips background literature grounding during idea generation — useful when running offline or when API rate limits are a concern.
+
+DR inherits `models.openai` from the project config. Every active DR role uses `gpt-5.6-sol` through the Responses API with the global `reasoning.effort: xhigh` policy. Planning stays in standard mode; execution and coordination preserve all-turn reasoning; final synthesis uses Pro mode and background execution. Tool loops continue with `previous_response_id` and return results under the original `call_id`.
 
 ---
 
@@ -71,10 +73,23 @@ synthesizer:
   polish: false            # Set true to refine each section (report mode only)
 ```
 
-To use a custom config, pass it via `DRAgent`:
+To override a DR workflow setting programmatically, keep the shared project config and pass only the workflow override:
 
 ```python
-agent = DRAgent(model='o4-mini', config_path='path/to/my_config.yaml')
+import yaml
+from internagent.mas.agents.dr_agent import DRAgent
+
+with open("config/default_config.yaml", encoding="utf-8") as file:
+    project_config = yaml.safe_load(file)
+
+agent = DRAgent(
+    model="gpt-5.6-sol",
+    config={
+        "mode": "qa",
+        "workflow_config": {"main": {"max_iter": 3}},
+        "_global_config": project_config,
+    },
+)
 ```
 
 ---
@@ -126,6 +141,7 @@ QA mode is the primary standalone entry point. Report mode is used internally by
 
 ```bash
 python launch_qa.py --question "What are recent advances in memory-augmented LLMs?" \
+                    --config config/default_config.yaml \
                     --output answer.md
 ```
 
@@ -142,8 +158,15 @@ To invoke `DRAgent` directly (e.g. with a custom config):
 ```python
 from internagent.mas.agents.dr_agent import DRAgent
 import asyncio
+import yaml
 
-agent = DRAgent(model='o4-mini', config_path='path/to/my_config.yaml')
+with open("config/default_config.yaml", encoding="utf-8") as file:
+    project_config = yaml.safe_load(file)
+
+agent = DRAgent(
+    model="gpt-5.6-sol",
+    config={"mode": "qa", "_global_config": project_config},
+)
 answer = asyncio.run(agent.execute({'task': 'Your research question'}, {}))
 print(answer)
 ```

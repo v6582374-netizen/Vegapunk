@@ -47,14 +47,16 @@ mv .env.example .env
 `.env` 中的关键字段：
 
 ```
-OPENAI_API_KEY=        # OpenAI 或兼容 API 密钥（用于嵌入和记忆）
-OPENAI_API_BASE_URL=   # OpenAI 兼容端点的基础 URL
+OPENAI_API_KEY=        # OpenAI Responses API 密钥
+OPENAI_API_BASE_URL=   # OpenAI API 基础 URL（通常无需修改）
 OPENROUTER_API_KEY=    # OpenRouter API 密钥（使用 openrouter provider 时）
 ANTHROPIC_API_KEY=     # Anthropic API 密钥（用于基于 Claude 的实验后端）
 ```
 
 如需使用 OpenRouter 作为模型网关，请设置 `OPENROUTER_API_KEY`，并使用
 `config/openrouter_config.yaml` 运行。更多设置细节见 [docs/openrouter.md](docs/openrouter.md)。
+
+原生 OpenAI 推理统一使用 `gpt-5.6-sol` 和 Responses API；默认 reasoning effort 为 `xhigh`，最大输出为 128000 tokens，并启用 `store: true` 与 30 分钟显式 prompt cache。Deep Research 与 PaperOrchestra 始终读取独立的 `models.openai` 配置；OpenRouter 只作为其他主发现角色的 Chat-compatible provider。
 
 ### 运行发现实验
 

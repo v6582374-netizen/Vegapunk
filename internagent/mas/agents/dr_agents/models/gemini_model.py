@@ -62,7 +62,7 @@ class GeminiModel(BaseModel):
         初始化 Gemini 模型
         
         Args:
-            model_name: 模型名称，默认为 gpt-4o
+            model_name: 模型名称，默认为 gemini-3-pro-preview
             api_key: API 密钥，如果为 None 则从环境变量获取
             base_url: API 基础 URL，如果为 None 则使用默认的 Gemini API
         """
@@ -222,4 +222,4 @@ class GeminiModel(BaseModel):
             }
             
         except Exception as e:
-            raise Exception(f"Gemini API call failed: {str(e)}") 
+            raise Exception(f"Gemini API call failed: {str(e)}")

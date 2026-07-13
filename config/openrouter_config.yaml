@@ -10,6 +10,26 @@ system:
 models:
   default_provider: "openrouter"
 
+  # Responses-native roles (Deep Research and PaperOrchestra) stay on OpenAI.
+  openai:
+    model_name: "gpt-5.6-sol"
+    api_mode: "responses"
+    api_key: ""      # Prefer OPENAI_API_KEY from the environment
+    temperature: 0.7
+    max_output_tokens: 128000
+    timeout: 600
+    reasoning:
+      effort: "xhigh"
+      context: "auto"
+      mode: "standard"
+    store: true
+    prompt_cache:
+      mode: "explicit"
+      ttl: "30m"
+    background:
+      poll_interval_seconds: 2
+      timeout_seconds: 3600
+
   openrouter:
     model_name: "moonshotai/kimi-k2.6:free"
     api_mode: "chat_completions"
@@ -116,7 +136,7 @@ agents:
     sources: ["arxiv", "crossref", "web_search"]
 
   dr:
-    model_provider: "default"
+    model_provider: "openai"
     enabled: true
     mode: "simple"
 

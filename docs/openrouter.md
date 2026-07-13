@@ -36,6 +36,9 @@ It sets:
 ```yaml
 models:
   default_provider: "openrouter"
+  openai:
+    model_name: "gpt-5.6-sol"
+    api_mode: "responses"
   openrouter:
     model_name: "moonshotai/kimi-k2.6:free"
 ```
@@ -70,22 +73,30 @@ models:
 
 The `openrouter` provider block is already included in the default config.
 
-## 5. Deep Research QA mode
+## 5. Responses-native roles
 
-`launch_qa.py` currently uses the Deep Research workflow's OpenAI-compatible
-client directly. To route QA calls through OpenRouter, set the OpenAI-compatible
-environment variables to OpenRouter:
+OpenRouter remains the default provider for the main multi-agent discovery
+roles in this config. Deep Research and PaperOrchestra are explicitly assigned
+to the separate `models.openai` block because they depend on Responses-only
+features such as persisted reasoning, Pro mode, background execution, and
+resumable response IDs.
 
 ```bash
-OPENAI_API_KEY=$OPENROUTER_API_KEY
-OPENAI_API_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=sk-or-...
+OPENAI_API_KEY=sk-...
 ```
 
-Then run:
+Do not point the OpenAI block at an OpenRouter Chat Completions endpoint. To run
+without the OpenAI-native Deep Research stage, set `agents.dr.enabled: false`.
+PaperOrchestra likewise requires the OpenAI block when dossier generation is
+enabled.
+
+QA always uses the OpenAI block:
 
 ```bash
-python launch_qa.py --question "What are recent advances in memory-augmented LLMs?"
+python launch_qa.py \
+  --config config/openrouter_config.yaml \
+  --question "What are recent advances in memory-augmented LLMs?"
 ```
 
 ## Troubleshooting
