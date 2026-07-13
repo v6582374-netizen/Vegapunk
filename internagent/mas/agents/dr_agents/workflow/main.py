@@ -27,7 +27,7 @@ logger = get_logger("main")
 
 
 # 导入配置加载器
-from utils.config_loader import load_config, get_config
+from utils.config_loader import get_config, load_config, resolve_dr_model_roles
 
 # 导入模型
 from models import get_model
@@ -51,7 +51,9 @@ class Workflow(BaseAgent):
         
         # 获取模型配置
         model_config = self.config.get('model', {})
-        default_model = model_config.get('default_model', 'gpt-5.6-sol')
+        role_models = resolve_dr_model_roles(model_config)
+        default_model = role_models['default']
+        extraction_model = role_models['extraction']
         runtime_config = self.config.get('runtime_model', {})
 
         def runtime_policy(role, context="current_turn", mode="standard", background=False):
@@ -61,38 +63,28 @@ class Workflow(BaseAgent):
                 "reasoning_context": context,
                 "reasoning_mode": mode,
                 "background": background,
+                "extraction_model": extraction_model,
             }
-        
-        # 处理 global_execution_model 配置（可能是字典或字符串）
-        execution_model_config = model_config.get('global_execution_model')
-        if isinstance(execution_model_config, dict):
-            # 新的细分配置
-            execution_model = execution_model_config.get('execution_model') or default_model
-            summarizer_model = execution_model_config.get('summarizer_model') or default_model
-        else:
-            # 旧的简单配置（向后兼容）
-            execution_model = execution_model_config or default_model
-            summarizer_model = None
         
         # 使用配置初始化各个Agent，只传递各自需要的配置部分
         self.global_planner = GlobalPlannerAgent(
-            model=model_config.get('global_planner_model') or default_model,
+            model=role_models['global_planner'],
             config=self.config.get('global_planner', {}),
             **runtime_policy("dr_global_planner")
         )
         self.global_execution_agent = GlobalExecutionAgent(
-            model=execution_model,
-            summarizer_model=summarizer_model,
+            model=role_models['execution'],
+            summarizer_model=role_models['summarizer'],
             config=self.config.get('global_execution', {}),
             **runtime_policy("dr_execution", context="all_turns")
         )
         self.coordinator_agent = CoordinatorAgent(
-            model=model_config.get('coordinator_model') or default_model,
+            model=role_models['coordinator'],
             config=self.config.get('coordinator', {}),
             **runtime_policy("dr_coordinator", context="all_turns")
         )
         self.synthesizer_agent = SynthesizerAgent(
-            model=model_config.get('synthesizer_model') or default_model,
+            model=role_models['synthesizer'],
             config=self.config.get('synthesizer', {}),
             **runtime_policy(
                 "dr_synthesizer",

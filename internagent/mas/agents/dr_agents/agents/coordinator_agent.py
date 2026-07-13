@@ -46,6 +46,7 @@ class CoordinatorAgent(BaseAgent):
             config=with_runtime_config(
                 config,
                 model_kwargs.get("runtime_config"),
+                model_kwargs.get("extraction_model"),
             )
         )
         

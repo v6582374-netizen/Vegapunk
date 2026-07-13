@@ -131,13 +131,10 @@ class ToolManager:
                 
             # 导入本地工具模块
             import tool_integration
-            import our_tools
             
             # 获取本地工具列表
             if hasattr(tool_integration, 'construct_agent_list'):
                 local_tools_list = tool_integration.construct_agent_list(config=self.config)
-                # our_tools_list = our_tools.construct_our_tools()
-                # local_tools_list.extend(our_tools_list)
                 
                 # 将本地工具转换为OpenAI格式
                 for i, tool in enumerate(local_tools_list):
@@ -402,12 +399,15 @@ tool_manager = None
 def with_runtime_config(
     config: Dict[str, Any] = None,
     runtime_config: Dict[str, Any] = None,
+    extraction_model: str = None,
 ) -> Dict[str, Any]:
     """Attach an explicitly selected model deployment to a tool config."""
 
     merged = dict(config or {})
     if runtime_config is not None:
         merged["runtime_model"] = dict(runtime_config)
+    if extraction_model is not None:
+        merged["extraction_model"] = extraction_model
     return merged
 
 
@@ -436,6 +436,8 @@ def get_tool_manager(mode: str = "local", config: Dict[str, Any] = None) -> Tool
         new_tools = config.get('tools', {}).get('enabled_tools')
         current_runtime = current_config.get('runtime_model')
         new_runtime = config.get('runtime_model')
+        current_extraction_model = current_config.get('extraction_model')
+        new_extraction_model = config.get('extraction_model')
         # None 和 [] 都视为空配置
         current_tools = current_tools if current_tools is not None else []
         new_tools = new_tools if new_tools is not None else []
@@ -443,7 +445,8 @@ def get_tool_manager(mode: str = "local", config: Dict[str, Any] = None) -> Tool
         config_changed = (
             tool_manager.mode != mode or 
             current_tools != new_tools or
-            current_runtime != new_runtime
+            current_runtime != new_runtime or
+            current_extraction_model != new_extraction_model
         )
     
         # 如果模式或配置改变，重新创建工具管理器

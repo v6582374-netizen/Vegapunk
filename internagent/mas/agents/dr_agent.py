@@ -10,7 +10,7 @@ import asyncio
 import sys
 import os
 import copy
-from typing import Dict, Any
+from typing import Any, Dict, Tuple
 
 from .base_agent import BaseAgent, AgentExecutionError
 
@@ -21,6 +21,58 @@ logger = logging.getLogger(__name__)
 _workflow_class = None
 _load_config_func = None
 _get_config_func = None
+
+
+def _merge_workflow_config(
+    base: Dict[str, Any], override: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Recursively merge DR mappings while replacing all other values."""
+
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_workflow_config(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
+def _effective_dr_model_names(model_config: Dict[str, Any]) -> Tuple[str, ...]:
+    """Resolve the model names that the DR workflow will actually use."""
+
+    from .dr_agents.utils.config_loader import resolve_dr_model_roles
+
+    resolved = resolve_dr_model_roles(model_config)
+    return tuple(dict.fromkeys(resolved.values()))
+
+
+def _probe_dr_model(
+    model_name: str, runtime_config: Dict[str, Any]
+) -> None:
+    """Make one small real request through the selected DR provider."""
+
+    from .dr_agents.models import get_model
+
+    model = get_model(
+        model_name,
+        runtime_config=runtime_config,
+        agent_role="dr_availability_probe",
+        reasoning_context="current_turn",
+        reasoning_mode="standard",
+        background=False,
+    )
+    try:
+        probe = getattr(model, "probe", None)
+        if not callable(probe):
+            raise ValueError(
+                f"DeepResearch model {model_name!r} does not support "
+                "availability probing"
+            )
+        probe()
+    finally:
+        close = getattr(model, "close", None)
+        if callable(close):
+            close()
 
 
 def _get_workflow_class():
@@ -77,6 +129,12 @@ class DRAgent(BaseAgent):
             config: Configuration dictionary containing DR-specific settings
         """
         super().__init__(model, config)
+
+        self.workflow = None
+        if not config.get("enabled", True):
+            self.workflow_config = {}
+            logger.info("DR workflow is disabled")
+            return
         
         # 不同使用场景读取不同配置；问答、简单调研和复杂调研共享同一层适配逻辑。
         self.mode = config.get("mode", "simple")
@@ -85,19 +143,26 @@ class DRAgent(BaseAgent):
         self.workflow_config = self._load_dr_config(config)
         
         # 工作流初始化失败时保留一个可创建的代理对象，调用方仍能拿到降级提示。
-        self.workflow = None
-        try:
-            Workflow = _get_workflow_class()
-            if Workflow is not None:
+        Workflow = _get_workflow_class()
+        if Workflow is not None:
+            for model_name in _effective_dr_model_names(
+                self.workflow_config["model"]
+            ):
+                _probe_dr_model(
+                    model_name,
+                    self.workflow_config.get("runtime_model", {}),
+                )
+                logger.info("DR model availability confirmed: %s", model_name)
+            try:
                 self.workflow = Workflow(config=self.workflow_config)
                 logger.info("DR workflow initialized successfully")
-            else:
-                logger.warning("Workflow class not available - import failed, DR agent will work in limited mode")
-                # Create a placeholder to avoid failures
-                # The agent can still be initialized but won't be able to execute
-        except Exception as e:
-            logger.warning(f"Failed to initialize DR workflow: {str(e)}, DR agent will work in limited mode")
-            # Don't raise the exception, allow the agent to be created
+            except Exception as e:
+                logger.warning(f"Failed to initialize DR workflow: {str(e)}, DR agent will work in limited mode")
+                # Don't raise the exception, allow the agent to be created
+        else:
+            logger.warning("Workflow class not available - import failed, DR agent will work in limited mode")
+            # Create a placeholder to avoid failures
+            # The agent can still be initialized but won't be able to execute
     
     def _load_dr_config(self, agent_config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -137,8 +202,13 @@ class DRAgent(BaseAgent):
         
         # 外部配置可以只覆盖少量字段，不必复制整份调研工作流配置。
         if "workflow_config" in agent_config:
-            workflow_config.update(agent_config["workflow_config"])
+            workflow_config = _merge_workflow_config(
+                workflow_config,
+                agent_config["workflow_config"],
+            )
             logger.info("Applied agent config overrides to DR workflow config")
+
+        _effective_dr_model_names(workflow_config.get("model", {}))
 
         # DR is a synchronous orchestration layer, but it inherits the exact root
         # provider policy instead of maintaining a second OpenAI configuration.
@@ -148,20 +218,6 @@ class DRAgent(BaseAgent):
         provider_config["provider"] = "openai"
         workflow_config["runtime_model"] = provider_config
 
-        model_config = workflow_config.setdefault("model", {})
-        model_config.update(
-            {
-                "default_model": "gpt-5.6-sol",
-                "global_planner_model": "gpt-5.6-sol",
-                "global_execution_model": {
-                    "execution_model": "gpt-5.6-sol",
-                    "summarizer_model": "gpt-5.6-sol",
-                },
-                "coordinator_model": "gpt-5.6-sol",
-                "synthesizer_model": "gpt-5.6-sol",
-            }
-        )
-        
         return workflow_config
     
     async def execute(self, context: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:

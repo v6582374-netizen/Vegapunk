@@ -4,7 +4,6 @@ import os
 # 添加camel模块路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from camel.toolkits import FunctionTool
 from camel.models import ModelFactory
 from agents.task.execution_agent import ExecutionAgent
 from utils.reference_manager import ReferenceManager
@@ -17,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 import json
-from typing import List, Dict, Any
+from typing import Dict, Any
 from utils.logger import get_logger
 import requests
 import re
@@ -671,96 +670,3 @@ def ocr2text(image_path: str) -> str:
     """
 
     return _ocr_singleton.predict_safe(image_path)
-
-
-# ---------- 文献搜索工具 ----------
-def construct_our_tools() -> List[FunctionTool]:
-    """
-    构建我们的工具列表
-    
-    Returns:
-        工具列表
-    """
-    
-    # 定义工具列表
-    tools = [
-        FunctionTool(download_media_from_url),  # 现在包含高分辨率下载功能
-        FunctionTool(search_wiki_revision),
-        FunctionTool(ocr2text),
-        FunctionTool(search_academic_papers),  # 多源学术论文搜索
-        FunctionTool(summarize_paper),  # 对指定论文进行内容提取和摘要（本地文件或URL）
-        FunctionTool(summarize_webpage),  # 对指定网页进行内容提取和摘要
-        FunctionTool(search_and_summarize_papers),  # 集成搜索、下载、提取功能
-        FunctionTool(search_and_summarize_webpages),  # 集成搜索、提取、分析功能
-    ]
-    
-    return tools
-
-
-if __name__ == "__main__":
-    # 测试工具
-    tools = construct_our_tools()
-    print(f"成功创建 {len(tools)} 个工具:")
-    for i, tool in enumerate(tools):
-        print(f"{i+1}. {tool.func.__name__}")
-    
-    print("\n" + "="*80)
-    print("测试新增的 summarize_paper 函数")
-    print("="*80)
-    
-    # 测试1: 论文名称（会自动搜索）
-    # print("\n[测试1] 使用论文名称:")
-    # paper_result = summarize_paper("Attention Is All You Need")
-    # print("paper_result: ", paper_result)
-
-    # 测试2: 论文URL（如果需要的话）
-    print("\n[测试2] 使用论文URL:")
-    paper_result = summarize_paper("https://arxiv.org/pdf/2510.08521")
-    print("paper_result: ", paper_result)
-    
-    # 测试3: 本地文件（如果有的话）
-    # print("\n[测试3] 使用本地文件:")
-    # paper_result = summarize_paper("path/to/paper")
-    # print("paper_result: ", paper_result)
-    
-    # print("\n" + "="*80)
-    # print("测试新增的 summarize_webpage 函数")
-    # print("="*80)
-    
-    # # 测试网页URL
-    # webpage_result = summarize_webpage("https://www.ajc.com/education/2026/01/atlanta-demonstrators-join-ice-protests-breaking-out-across-the-nation/")
-    # print("webpage_result: ", webpage_result)
-    
-    # # 之前的测试代码
-    # print("\n" + "="*80)
-    # print("测试 search_and_summarize_papers 集成函数")
-    # print("="*80)
-    
-    # # 测试集成函数
-    # results = search_and_summarize_papers("Yangtze River Flood", max_number=1)
-    
-    # print(f"\n搜索结果: {len(results)} 篇论文")
-    # print("="*80)
-    
-    # for i, paper in enumerate(results):
-    #     print(f"\n论文 {i+1}:")
-    #     print(f"  标题: {paper.get('title', 'N/A')[:80]}")
-    #     print(f"  作者: {', '.join(paper.get('authors', [])[:3])}")
-    #     print(f"  年份: {paper.get('year', 'N/A')}")
-    #     print(f"  来源: {paper.get('source', 'N/A')}")
-    #     print(f"  已下载: {'✓' if paper.get('downloaded') else '✗'}")
-        
-    #     if paper.get('downloaded'):
-    #         print(f"  本地路径: {paper.get('local_path', 'N/A')}")
-            
-    #         if paper.get('summary'):
-    #             summary = paper['summary']
-    #             print(f"  摘要提取:")
-    #             for key in ['problem_and_background', 'method_and_approach', 'experiments_and_results', 
-    #                        'conclusions_and_insights', 'limitations_and_future_work']:
-    #                 value = summary.get(key)
-    #                 status = '✓' if value else '✗'
-    #                 print(f"    {status} {key}: {(value if value is not None else 'None')}")
-    #     print("-"*80)
-
-    # print("results: ", results)

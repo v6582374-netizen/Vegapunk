@@ -29,7 +29,13 @@ def __getattr__(name: str) -> Any:
 
 def get_model(model_name: str, **kwargs: Any) -> BaseModel:
     """Create the DR provider selected by its existing model-name convention."""
-    if "deepseek" in model_name:
+    runtime_config = kwargs.get("runtime_config") or {}
+    provider = runtime_config.get("provider")
+    if provider == "openai":
+        model_class = __getattr__("OpenAIModel")
+    elif provider is not None:
+        raise ValueError(f"Unsupported DeepResearch provider: {provider}")
+    elif "deepseek" in model_name:
         model_class = __getattr__("DeepSeekModel")
     elif model_name.startswith(("gpt", "o")):
         model_class = __getattr__("OpenAIModel")

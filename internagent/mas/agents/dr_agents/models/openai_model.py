@@ -84,10 +84,6 @@ class OpenAIModel(BaseModel):
         background: bool = False,
         **_: Any,
     ) -> None:
-        if model_name != "gpt-5.6-sol":
-            raise ValueError(
-                "DeepResearch OpenAI calls require model='gpt-5.6-sol'"
-            )
         self.model_name = model_name
         self.agent_role = agent_role
         self.reasoning_context = reasoning_context
@@ -171,6 +167,21 @@ class OpenAIModel(BaseModel):
         )
         return self._await(runtime.run(effective_request))
 
+    def probe(self) -> None:
+        """Verify that the configured deployment can run this model."""
+
+        self.run(
+            ModelRunRequest(
+                input=(Message.user("Reply with OK."),),
+                reasoning=ReasoningConfig(
+                    effort="low",
+                    context="current_turn",
+                    mode="standard",
+                ),
+                max_output_tokens=16,
+            )
+        )
+
     def generate(
         self,
         prompt: str,
@@ -186,6 +197,7 @@ class OpenAIModel(BaseModel):
             "reasoning_context",
             "reasoning_mode",
             "background",
+            "extraction_model",
             "stream",
             "model",
         ):

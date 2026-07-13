@@ -1446,6 +1446,7 @@ def extract_and_answer_query_from_url(
     url: str,
     query: str,
     *,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str]:
     r"""Extract the content of a given url and answer the query according to the content.
@@ -1526,7 +1527,7 @@ def extract_and_answer_query_from_url(
                 "URL processor requires explicit OpenAI runtime_config"
             )
         model = get_model(
-            "gpt-5.6-sol",
+            model_name,
             agent_role="dr_tool_integration",
             runtime_config=runtime_config,
         )
@@ -1553,7 +1554,7 @@ Please provide a detailed and accurate answer based on the content above. If the
         return False, f"Content extracted ({len(content)} chars) but LLM answer failed: {e}"
 
 
-def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+def construct_agent_list(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     构建工具列表，支持根据配置过滤工具
     
@@ -1565,11 +1566,17 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """
 
     runtime_config = dict((config or {}).get("runtime_model", {}) or {})
+    extraction_model = (config or {}).get("extraction_model")
+    if not isinstance(extraction_model, str) or not extraction_model.strip():
+        raise ValueError(
+            "DeepResearch tools require an explicit extraction_model"
+        )
 
     def configured_url_processor(url: str, query: str) -> Tuple[bool, str]:
         return extract_and_answer_query_from_url(
             url,
             query,
+            model_name=extraction_model,
             runtime_config=runtime_config,
         )
 
@@ -1579,6 +1586,7 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     def configured_paper_processor(paper_source: str) -> Dict[str, Any]:
         return summarize_paper(
             paper_source,
+            model_name=extraction_model,
             runtime_config=runtime_config,
         )
 
@@ -1592,6 +1600,7 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         return search_and_summarize_papers(
             query,
             max_number=max_number,
+            model_name=extraction_model,
             runtime_config=runtime_config,
         )
 
@@ -1609,6 +1618,7 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
             max_number=max_number,
             time_range=time_range,
             region=region,
+            model_name=extraction_model,
             runtime_config=runtime_config,
         )
 
@@ -1646,10 +1656,6 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
 
     ]
     
-    # 如果没有配置，返回所有工具    
-    if config is None:
-        return [tool for _, tool in all_tools]
-    
     # 获取启用的工具列表
     enabled_tools = config.get('tools', {}).get('enabled_tools', [])
     
@@ -1666,26 +1672,3 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     logger.info(f"根据配置过滤工具: 启用工具类别 {enabled_tools}, 过滤后工具列表: {filtered_tools}, 过滤后工具数量: {len(filtered_tools)}")
     
     return filtered_tools
-
-
-if __name__ == "__main__":
-    # Test the tools
-    tools = construct_agent_list()
-    print(f"Successfully created {len(tools)} tools:")
-    for i, tool in enumerate(tools):
-        print(f"{i+1}. {tool.func.__name__}")
-
-    # _, result = extract_document_content("/path/to/local/pdf")
-    # print(len(result))
-
-    # result = search_google("AI科学家的最新研究")
-    # print(result)
-    # print(len(result))
-
-
-    # _, result = extract_url_content("https://www.secrss.com/articles/75214")
-    # print(result)
-    # print(len(result))
-
-    res = search_wiki("Yangtze River Flood")
-    print("res: ", res)

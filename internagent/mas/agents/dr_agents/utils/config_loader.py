@@ -15,6 +15,40 @@ logger = get_logger("ConfigLoader")
 _config_cache: Optional[Dict[str, Any]] = None
 
 
+def resolve_dr_model_roles(model_config: Dict[str, Any]) -> Dict[str, str]:
+    """Resolve every active DR role using the configured default model."""
+
+    default_model = model_config.get("default_model")
+    if not isinstance(default_model, str) or not default_model.strip():
+        raise ValueError(
+            "DeepResearch configuration requires model.default_model"
+        )
+
+    execution_config = model_config.get("global_execution_model")
+    if isinstance(execution_config, dict):
+        execution_model = (
+            execution_config.get("execution_model") or default_model
+        )
+        summarizer_model = (
+            execution_config.get("summarizer_model") or default_model
+        )
+    else:
+        execution_model = execution_config or default_model
+        summarizer_model = execution_model
+
+    return {
+        "default": default_model,
+        "global_planner": (
+            model_config.get("global_planner_model") or default_model
+        ),
+        "execution": execution_model,
+        "summarizer": summarizer_model,
+        "coordinator": model_config.get("coordinator_model") or default_model,
+        "synthesizer": model_config.get("synthesizer_model") or default_model,
+        "extraction": model_config.get("extraction_model") or default_model,
+    }
+
+
 def load_config(config_path: str = None) -> Dict[str, Any]:
     """
     从YAML文件加载配置
@@ -65,7 +99,7 @@ def get_default_config() -> Dict[str, Any]:
             'global_execution_model': None,
             'coordinator_model': None,
             'synthesizer_model': None,
-            'task_agent_model': None,
+            'extraction_model': None,
         },
         'main': {
             'max_iter': 10,

@@ -198,7 +198,7 @@ def extract_url_content(url: str, timeout: int = 120, retry_times: int = 3) -> O
 def extract_and_answer_query(
     url: str, 
     query: str, 
-    model_name: str = "gpt-5.6-sol",
+    model_name: str,
     chunk_size: int = 16000,
     max_workers: int = 8,
     timeout: int = 120,
@@ -216,7 +216,7 @@ def extract_and_answer_query(
     Args:
         url (str): The URL to extract content from
         query (str): The question to answer
-        model_name (str): LLM model name (default: "gpt-5.6-sol")
+        model_name (str): Explicit DR model used for content extraction
         chunk_size (int): Size of each chunk in characters (default: 16000)
         max_workers (int): Maximum parallel workers (default: 8)
         timeout (int): Request timeout in seconds (default: 120)
@@ -353,6 +353,7 @@ Please provide a comprehensive and complete answer that integrates all relevant 
 def extract_and_answer_query_from_url(
     url: str,
     query: str,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str]:
     r"""Extract the content of a given url and answer the query according to the content.
@@ -368,6 +369,7 @@ def extract_and_answer_query_from_url(
         result = extract_and_answer_query(
             url,
             query,
+            model_name=model_name,
             runtime_config=runtime_config,
         )
         return result
@@ -1179,6 +1181,7 @@ def search_academic_papers(
 
 def extract_paper_content_to_summary(
     paper_path: str,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
@@ -1203,7 +1206,6 @@ def extract_paper_content_to_summary(
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
     model = get_model(model_name, runtime_config=runtime_config)
     
     # Read paper content based on file type
@@ -1435,227 +1437,14 @@ Return ONLY the JSON object, no additional text."""
         
         return json.dumps(final_result, ensure_ascii=False, indent=2)
 
-def extract_webpage_content_to_summary(
-    webpage_content: str,
+
+
+def summarize_webpage(
+    webpage_url: str,
+    *,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
-) -> str:
-    """
-    Extract key content from webpage text.
-    If the content is too long, it will be split into 16k character chunks,
-    each chunk will be processed in parallel to extract 6 key aspects,
-    and then all chunks will be summarized into final 6 aspects.
-    
-    Args:
-        webpage_content: The text content of the webpage
-        
-    Returns:
-        JSON string with 6 key aspects:
-        {
-            "page_overview": str,
-            "main_points": str,
-            "evidence_and_details": str,
-            "conclusions_or_recommendations": str,
-            "limitations_and_bias": str,
-            "relevance_to_research_question": str
-        }
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    
-    # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
-    model = get_model(model_name, runtime_config=runtime_config)
-    
-    # Define chunk size (16k characters)
-    CHUNK_SIZE = 16000
-    
-    # Split text into chunks if needed
-    chunks = []
-    if len(webpage_content) <= CHUNK_SIZE:
-        chunks = [webpage_content]
-    else:
-        # Split into chunks of CHUNK_SIZE
-        for i in range(0, len(webpage_content), CHUNK_SIZE):
-            chunks.append(webpage_content[i:i + CHUNK_SIZE])
-    
-    logger.info(f"Webpage content split into {len(chunks)} chunks")
-    
-    # Extraction prompt template for each chunk
-    EXTRACTION_PROMPT = """You are a research assistant analyzing webpage content. Extract detailed information from this webpage chunk.
-
-Webpage chunk:
-{chunk}
-
-Please carefully extract and return in JSON format:
-{{
-    "page_overview": "Provide a comprehensive overview (3-5 sentences) of what this page discusses, including the main topic, purpose, and context. If not found, return None.",
-    "main_points": "List all key points, arguments, or findings in detail. Include specific claims, statements, and important information. Be thorough and comprehensive. If not found, return None.",
-    "evidence_and_details": "Extract all supporting evidence, data, statistics, examples, case studies, experimental results, or specific details mentioned. Include numbers, dates, names, and concrete information. If not found, return None.",
-    "conclusions_or_recommendations": "Identify any conclusions, recommendations, suggestions, implications, or actionable insights provided. Include any future directions or practical applications mentioned. If not found, return None.",
-    "limitations_and_bias": "Note any limitations, caveats, disclaimers, potential biases, conflicting information, or uncertainties mentioned or apparent in the content. If not found, return None.",
-    "relevance_to_research_question": "Analyze how this content could be relevant to research questions, what insights it provides, and what aspects might be useful for further investigation. If not found, return None."
-}}
-
-Important guidelines:
-- Be detailed and comprehensive in your extraction
-- Preserve specific facts, numbers, names, and dates
-- Extract complete information, not just summaries
-- If information exists, provide it in full detail
-- Only return None if the aspect is truly not present in the chunk
-
-Return ONLY the JSON object, no additional text."""
-    
-    # Function to extract from a single chunk
-    def extract_from_chunk(chunk_idx: int, chunk_text: str) -> Dict[str, Any]:
-        try:
-            prompt = EXTRACTION_PROMPT.format(chunk=chunk_text)
-            response = model.generate(prompt)
-            
-            # Check if response is None or empty
-            if response is None or not response:
-                logger.error(f"Failed to extract from chunk {chunk_idx + 1}: Empty or None response from model")
-                return {
-                    "page_overview": None,
-                    "main_points": None,
-                    "evidence_and_details": None,
-                    "conclusions_or_recommendations": None,
-                    "limitations_and_bias": None,
-                    "relevance_to_research_question": None
-                }
-            
-            # Try to parse JSON from response
-            # Sometimes models wrap JSON in markdown code blocks
-            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
-            if json_match:
-                response = json_match.group(1)
-            
-            # Clean up response to extract JSON
-            response = response.strip()
-            if response.startswith('```'):
-                response = response.split('```')[1]
-                if response.startswith('json'):
-                    response = response[4:]
-            
-            result = json.loads(response)
-            logger.info(f"Successfully extracted from chunk {chunk_idx + 1}/{len(chunks)}")
-            return result
-        except Exception as e:
-            logger.error(f"Failed to extract from chunk {chunk_idx + 1}: {e}")
-            return {
-                "page_overview": None,
-                "main_points": None,
-                "evidence_and_details": None,
-                "conclusions_or_recommendations": None,
-                "limitations_and_bias": None,
-                "relevance_to_research_question": None
-            }
-    
-    # Process chunks in parallel
-    chunk_results = []
-    with ThreadPoolExecutor(max_workers=min(10, len(chunks))) as executor:
-        futures = {executor.submit(extract_from_chunk, idx, chunk): idx 
-                   for idx, chunk in enumerate(chunks)}
-        
-        for future in as_completed(futures):
-            chunk_idx = futures[future]
-            try:
-                result = future.result()
-                chunk_results.append((chunk_idx, result))
-            except Exception as e:
-                logger.error(f"Chunk {chunk_idx + 1} processing failed: {e}")
-                chunk_results.append((chunk_idx, {
-                    "page_overview": None,
-                    "main_points": None,
-                    "evidence_and_details": None,
-                    "conclusions_or_recommendations": None,
-                    "limitations_and_bias": None,
-                    "relevance_to_research_question": None
-                }))
-    
-    # Sort results by chunk index
-    chunk_results.sort(key=lambda x: x[0])
-    chunk_extractions = [result for _, result in chunk_results]
-    
-    # If only one chunk, return directly
-    if len(chunk_extractions) == 1:
-        return json.dumps(chunk_extractions[0], ensure_ascii=False, indent=2)
-    
-    # Otherwise, summarize all chunks
-    SUMMARY_PROMPT = """You are given multiple extractions from different chunks of the same webpage. Please synthesize them into a single comprehensive and detailed summary.
-
-Chunk extractions:
-{chunk_extractions}
-
-Please synthesize these into a final summary in JSON format:
-{{
-    "page_overview": "Comprehensive overview synthesizing information from all chunks. Include the main topic, purpose, context, and scope (3-5 sentences minimum).",
-    "main_points": "Complete synthesis of all main points, arguments, and findings from all chunks. Preserve all important information, organize logically, and maintain detail. Be thorough.",
-    "evidence_and_details": "Comprehensive compilation of all evidence, data, statistics, examples, and specific details from all chunks. Preserve all concrete information including numbers, dates, and names.",
-    "conclusions_or_recommendations": "Complete synthesis of all conclusions, recommendations, suggestions, and implications from all chunks. Include all actionable insights and future directions.",
-    "limitations_and_bias": "Comprehensive summary of all limitations, caveats, disclaimers, and potential biases from all chunks.",
-    "relevance_to_research_question": "Detailed analysis of how the entire page content is relevant to research questions, what insights it provides, and what aspects are useful for investigation."
-}}
-
-Guidelines:
-- Combine ALL information from all chunks - be comprehensive and detailed
-- Organize information logically and coherently
-- Remove redundancy but preserve all unique information
-- Maintain specific facts, numbers, names, and dates
-- If an aspect is None in all chunks, keep it as None in the final summary
-- Prioritize completeness and detail over brevity
-
-Return ONLY the JSON object, no additional text."""
-    
-    try:
-        # Format chunk extractions for summary
-        chunk_extractions_str = json.dumps(chunk_extractions, ensure_ascii=False, indent=2)
-        summary_prompt = SUMMARY_PROMPT.format(chunk_extractions=chunk_extractions_str)
-        
-        # Generate summary
-        summary_response = model.generate(summary_prompt)
-        
-        # Check if response is None or empty
-        if summary_response is None or not summary_response:
-            logger.error("Failed to synthesize final summary: Empty or None response from model")
-            raise ValueError("Empty or None response from model")
-        
-        # Parse JSON from response
-        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', summary_response, re.DOTALL)
-        if json_match:
-            summary_response = json_match.group(1)
-        
-        # Clean up response
-        summary_response = summary_response.strip()
-        if summary_response.startswith('```'):
-            summary_response = summary_response.split('```')[1]
-            if summary_response.startswith('json'):
-                summary_response = summary_response[4:]
-        
-        final_result = json.loads(summary_response)
-        logger.info("Successfully synthesized final summary from all chunks")
-        
-        return json.dumps(final_result, ensure_ascii=False, indent=2)
-        
-    except Exception as e:
-        logger.error(f"Failed to synthesize final summary: {e}")
-        # Fallback: merge all non-None values manually
-        final_result = {
-            "page_overview": None,
-            "main_points": None,
-            "evidence_and_details": None,
-            "conclusions_or_recommendations": None,
-            "limitations_and_bias": None,
-            "relevance_to_research_question": None
-        }
-        
-        for key in final_result.keys():
-            values = [chunk.get(key) for chunk in chunk_extractions if chunk.get(key) is not None]
-            if values:
-                final_result[key] = " ".join(values)
-        
-        return json.dumps(final_result, ensure_ascii=False, indent=2)
-
-
-def summarize_webpage(webpage_url: str) -> Dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Extract and summarize content from a specified webpage URL.
     
@@ -1685,7 +1474,11 @@ def summarize_webpage(webpage_url: str) -> Dict[str, Any]:
         }
     
     Example:
-        result = summarize_webpage("https://example.com/article")
+        result = summarize_webpage(
+            "https://example.com/article",
+            model_name=selected_model,
+            runtime_config=runtime_config,
+        )
     """
     # Content length limit (160k characters)
     MAX_CONTENT_LENGTH = 160000
@@ -1729,7 +1522,11 @@ def summarize_webpage(webpage_url: str) -> Dict[str, Any]:
         
         # Analyze webpage content
         logger.info(f"Analyzing webpage content...")
-        summary_json = extract_webpage_content_to_summary(content)
+        summary_json = extract_webpage_content_to_summary(
+            content,
+            model_name=model_name,
+            runtime_config=runtime_config,
+        )
         summary = json.loads(summary_json)
         
         result["success"] = True
@@ -1746,6 +1543,8 @@ def summarize_webpage(webpage_url: str) -> Dict[str, Any]:
 def search_and_summarize_papers(
     query: str,
     max_number: int = 3,
+    *,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
@@ -1866,6 +1665,7 @@ def search_and_summarize_papers(
                 try:
                     summary_json = extract_paper_content_to_summary(
                         local_path,
+                        model_name=model_name,
                         runtime_config=runtime_config,
                     )
                     summary = json.loads(summary_json)
@@ -1969,6 +1769,7 @@ def search_and_summarize_papers(
 
 def extract_webpage_content_to_summary(
     webpage_content: str,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
@@ -1995,7 +1796,6 @@ def extract_webpage_content_to_summary(
     from models import get_model
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
     model = get_model(model_name, runtime_config=runtime_config)
     
     # Define chunk size (16k characters)
@@ -2190,6 +1990,8 @@ Return ONLY the JSON object, no additional text."""
 
 def summarize_paper(
     paper_source: str,
+    *,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
@@ -2223,13 +2025,25 @@ def summarize_paper(
     
     Example:
         # Local file
-        result = summarize_paper("/path/to/paper.pdf")
+        result = summarize_paper(
+            "/path/to/paper.pdf",
+            model_name=selected_model,
+            runtime_config=runtime_config,
+        )
         
         # URL
-        result = summarize_paper("https://arxiv.org/pdf/2301.12345.pdf")
+        result = summarize_paper(
+            "https://arxiv.org/pdf/2301.12345.pdf",
+            model_name=selected_model,
+            runtime_config=runtime_config,
+        )
         
         # Paper name/title
-        result = summarize_paper("Attention Is All You Need")
+        result = summarize_paper(
+            "Attention Is All You Need",
+            model_name=selected_model,
+            runtime_config=runtime_config,
+        )
     """
     # Import from our_tools to avoid circular imports
     from tools.our_tools import download_media_from_url, search_academic_papers
@@ -2376,6 +2190,7 @@ def summarize_paper(
         logger.info(f"Extracting content from paper: {local_path}")
         summary_json = extract_paper_content_to_summary(
             local_path,
+            model_name=model_name,
             runtime_config=runtime_config,
         )
         summary = json.loads(summary_json)
@@ -2399,6 +2214,8 @@ def search_and_summarize_webpages(
     max_number: int = 3,
     time_range: str = "d3",
     region: str = "None",
+    *,
+    model_name: str,
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
@@ -2535,6 +2352,7 @@ def search_and_summarize_webpages(
                 try:
                     summary_json = extract_webpage_content_to_summary(
                         content,
+                        model_name=model_name,
                         runtime_config=runtime_config,
                     )
                     summary = json.loads(summary_json)
@@ -2622,24 +2440,3 @@ def search_and_summarize_webpages(
     
     logger.info(f"完成！共搜索 {len(webpages)} 个网页（跳过 {len(skipped_webpages)} 个Wikipedia/YouTube），成功提取并分析 {extracted_count} 个")
     return results
-
-
-
-
-if __name__ == "__main__":
-
-    # ## 1. extract and answer query from url
-    # url = "https://export.shobserver.com/baijiahao/html/1050377.html"
-    # query = "受害者姓名和年龄"
-    # result = extract_and_answer_query_from_url(url, query)
-    # print(result)
-
-    ## 2. search and summarize webpages
-    query = "明尼苏达ICE事件"
-    result = search_and_summarize_webpages("uncertainties in historical tropical cyclone records review")
-    print(result)
-
-    # ## 3. search and summarize papers
-    # query = "AI scientist"
-    # result = search_and_summarize_papers(query)
-    # print(result)

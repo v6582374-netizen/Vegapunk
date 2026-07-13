@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -8,6 +9,7 @@ from internagent.mas.agents.dr_agent import DRAgent, _get_workflow_class
 from internagent.mas.agents.dr_agents.models.openai_model import (
     OpenAIModel as DROpenAIModel,
 )
+from internagent.mas.agents.dr_agents.models import get_model as get_dr_model
 from internagent.mas.agents.dr_agents.agents.task.execution_agent import (
     ExecutionAgent,
 )
@@ -125,6 +127,71 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "explicit runtime_config"):
             DROpenAIModel(agent_role="dr_tool_helper")
 
+    def test_sync_facade_accepts_the_model_selected_by_dr(self) -> None:
+        model = DROpenAIModel(
+            "gpt-5.5",
+            runtime_config={
+                "api_key": "test",
+                "base_url": "https://ai.cloudyz.top/v1",
+            },
+        )
+
+        self.assertEqual(model.model_name, "gpt-5.5")
+        self.assertEqual(model.runtime_config["model_name"], "gpt-5.5")
+
+    def test_sync_facade_availability_probe_is_lightweight(self) -> None:
+        with patch(
+            "internagent.mas.agents.dr_agents.models.openai_model.RuntimeOpenAIModel",
+            _FakeRuntimeOpenAI,
+        ):
+            model = DROpenAIModel(
+                runtime_config={
+                    "api_key": "test",
+                    "base_url": "https://ai.cloudyz.top/v1",
+                }
+            )
+            model.probe()
+            model.close()
+
+        request = _FakeRuntimeOpenAI.instances[0].requests[0]
+        self.assertEqual(request.input[0].content[0].text, "Reply with OK.")
+        self.assertEqual(request.reasoning.effort, "low")
+        self.assertEqual(request.max_output_tokens, 16)
+
+    def test_explicit_openai_deployment_routes_any_dr_model_name(self) -> None:
+        model = get_dr_model(
+            "gateway-specific-model",
+            runtime_config={
+                "provider": "openai",
+                "api_key": "test",
+                "base_url": "https://ai.cloudyz.top/v1",
+            },
+        )
+
+        self.assertIsInstance(model, DROpenAIModel)
+        self.assertEqual(model.model_name, "gateway-specific-model")
+
+    def test_sync_facade_ignores_extraction_routing_at_generation_time(
+        self,
+    ) -> None:
+        with patch(
+            "internagent.mas.agents.dr_agents.models.openai_model.RuntimeOpenAIModel",
+            _FakeRuntimeOpenAI,
+        ):
+            model = DROpenAIModel(
+                runtime_config={
+                    "api_key": "test",
+                    "base_url": "https://ai.cloudyz.top/v1",
+                }
+            )
+            result = model.generate(
+                "Generate a coordinator response.",
+                extraction_model="gpt-5.6-sol",
+            )
+            model.close()
+
+        self.assertEqual(result, "final synthesis")
+
     def test_dr_config_inherits_root_openai_runtime(self) -> None:
         agent = object.__new__(DRAgent)
         agent.mode = "simple"
@@ -143,7 +210,16 @@ class DeepResearchRuntimeTest(unittest.TestCase):
 
         with patch(
             "internagent.mas.agents.dr_agent._get_config_loaders",
-            return_value=(lambda _path: {"model": {}}, None),
+            return_value=(
+                lambda _path: {
+                    "model": {
+                        "default_model": "gpt-5.6-sol",
+                        "global_planner_model": None,
+                        "global_execution_model": None,
+                    }
+                },
+                None,
+            ),
         ):
             config = agent._load_dr_config(
                 {
@@ -160,13 +236,239 @@ class DeepResearchRuntimeTest(unittest.TestCase):
             config["runtime_model"], {**root_openai, "provider": "openai"}
         )
         self.assertEqual(config["model"]["default_model"], "gpt-5.6-sol")
+        self.assertIsNone(config["model"]["global_execution_model"])
+
+    def test_dr_keeps_the_selected_workflow_default_model(self) -> None:
+        agent = object.__new__(DRAgent)
+        agent.mode = "simple"
+        workflow_config = {
+            "model": {
+                "default_model": "dr-config-model",
+                "global_planner_model": None,
+            }
+        }
+
+        with patch(
+            "internagent.mas.agents.dr_agent._get_config_loaders",
+            return_value=(lambda _path: workflow_config, None),
+        ):
+            config = agent._load_dr_config(
+                {
+                    "_global_config": {
+                        "models": {
+                            "openai": {
+                                "model_name": "gpt-5.6-sol",
+                                "base_url": "https://ai.cloudyz.top/v1",
+                                "api_mode": "responses",
+                            }
+                        }
+                    }
+                }
+            )
+
+        self.assertEqual(config["model"]["default_model"], "dr-config-model")
+
+    def test_dr_workflow_override_recursively_preserves_sibling_settings(self) -> None:
+        agent = object.__new__(DRAgent)
+        agent.mode = "simple"
+        workflow_config = {
+            "model": {"default_model": "gpt-5.6-sol"},
+            "global_execution": {
+                "max_workers": 10,
+                "execution": {
+                    "max_tool_calls": 5,
+                    "timeout": 120,
+                },
+            },
+        }
+
+        with patch(
+            "internagent.mas.agents.dr_agent._get_config_loaders",
+            return_value=(lambda _path: workflow_config, None),
+        ):
+            config = agent._load_dr_config(
+                {
+                    "workflow_config": {
+                        "global_execution": {"max_workers": 3}
+                    },
+                    "_global_config": {
+                        "models": {
+                            "openai": {
+                                "model_name": "gpt-5.6-sol",
+                                "base_url": "https://ai.cloudyz.top/v1",
+                            }
+                        }
+                    },
+                }
+            )
+
         self.assertEqual(
-            config["model"]["global_execution_model"],
+            config["global_execution"],
             {
-                "execution_model": "gpt-5.6-sol",
-                "summarizer_model": "gpt-5.6-sol",
+                "max_workers": 3,
+                "execution": {
+                    "max_tool_calls": 5,
+                    "timeout": 120,
+                },
             },
         )
+
+    def test_dr_rejects_a_missing_default_model_before_workflow_start(self) -> None:
+        agent = object.__new__(DRAgent)
+        agent.mode = "simple"
+
+        with patch(
+            "internagent.mas.agents.dr_agent._get_config_loaders",
+            return_value=(lambda _path: {"model": {}}, None),
+        ):
+            with self.assertRaisesRegex(ValueError, "default_model"):
+                agent._load_dr_config(
+                    {
+                        "_global_config": {
+                            "models": {
+                                "openai": {
+                                    "model_name": "gpt-5.6-sol",
+                                    "base_url": "https://ai.cloudyz.top/v1",
+                                }
+                            }
+                        }
+                    }
+                )
+
+    def test_explicit_dr_default_model_override_wins(self) -> None:
+        agent = object.__new__(DRAgent)
+        agent.mode = "simple"
+
+        with patch(
+            "internagent.mas.agents.dr_agent._get_config_loaders",
+            return_value=(
+                lambda _path: {
+                    "model": {"default_model": "base-dr-model"}
+                },
+                None,
+            ),
+        ):
+            config = agent._load_dr_config(
+                {
+                    "workflow_config": {
+                        "model": {"default_model": "override-dr-model"}
+                    },
+                    "_global_config": {
+                        "models": {
+                            "openai": {
+                                "model_name": "gpt-5.6-sol",
+                                "base_url": "https://ai.cloudyz.top/v1",
+                            }
+                        }
+                    },
+                }
+            )
+
+        self.assertEqual(
+            config["model"]["default_model"], "override-dr-model"
+        )
+
+    def test_dr_probes_each_effective_model_once_before_workflow_creation(
+        self,
+    ) -> None:
+        events = []
+        workflow_config = {
+            "model": {
+                "default_model": "default-model",
+                "global_planner_model": "planner-model",
+                "global_execution_model": {
+                    "execution_model": "execution-model",
+                    "summarizer_model": "default-model",
+                },
+                "coordinator_model": "planner-model",
+                "synthesizer_model": None,
+                "extraction_model": "extraction-model",
+            },
+            "runtime_model": {"provider": "openai"},
+        }
+
+        class FakeWorkflow:
+            def __init__(self, *, config):
+                events.append(("workflow", config))
+
+        def record_probe(model_name, runtime_config):
+            events.append(("probe", model_name, runtime_config))
+
+        with (
+            patch.object(
+                DRAgent,
+                "_load_dr_config",
+                return_value=workflow_config,
+            ),
+            patch(
+                "internagent.mas.agents.dr_agent._get_workflow_class",
+                return_value=FakeWorkflow,
+            ),
+            patch(
+                "internagent.mas.agents.dr_agent._probe_dr_model",
+                side_effect=record_probe,
+                create=True,
+            ),
+        ):
+            DRAgent(SimpleNamespace(), {})
+
+        self.assertEqual(
+            [event[1] for event in events if event[0] == "probe"],
+            [
+                "default-model",
+                "planner-model",
+                "execution-model",
+                "extraction-model",
+            ],
+        )
+        self.assertEqual(events[-1], ("workflow", workflow_config))
+
+    def test_dr_propagates_model_probe_failure_before_workflow_creation(
+        self,
+    ) -> None:
+        workflow_config = {
+            "model": {"default_model": "forbidden-model"},
+            "runtime_model": {"provider": "openai"},
+        }
+
+        with (
+            patch.object(
+                DRAgent,
+                "_load_dr_config",
+                return_value=workflow_config,
+            ),
+            patch(
+                "internagent.mas.agents.dr_agent._get_workflow_class",
+                return_value=SimpleNamespace,
+            ) as get_workflow,
+            patch(
+                "internagent.mas.agents.dr_agent._probe_dr_model",
+                side_effect=PermissionError("403 Forbidden"),
+                create=True,
+            ),
+        ):
+            with self.assertRaisesRegex(PermissionError, "403 Forbidden"):
+                DRAgent(SimpleNamespace(), {})
+
+        get_workflow.assert_called_once_with()
+
+    def test_disabled_dr_does_not_load_or_probe_the_workflow(self) -> None:
+        with (
+            patch.object(DRAgent, "_load_dr_config") as load_config,
+            patch(
+                "internagent.mas.agents.dr_agent._get_workflow_class"
+            ) as get_workflow,
+            patch(
+                "internagent.mas.agents.dr_agent._probe_dr_model",
+                create=True,
+            ) as probe,
+        ):
+            agent = DRAgent(SimpleNamespace(), {"enabled": False})
+
+        self.assertIsNone(agent.workflow)
+        load_config.assert_not_called()
+        get_workflow.assert_not_called()
+        probe.assert_not_called()
 
     def test_dr_uses_openai_policy_when_another_provider_is_default(self) -> None:
         agent = object.__new__(DRAgent)
@@ -179,7 +481,12 @@ class DeepResearchRuntimeTest(unittest.TestCase):
 
         with patch(
             "internagent.mas.agents.dr_agent._get_config_loaders",
-            return_value=(lambda _path: {"model": {}}, None),
+            return_value=(
+                lambda _path: {
+                    "model": {"default_model": "gpt-5.6-sol"}
+                },
+                None,
+            ),
         ):
             config = agent._load_dr_config(
                 {
@@ -199,7 +506,9 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(config["model"]["default_model"], "gpt-5.6-sol")
 
-    def test_workflow_assigns_responses_policies_by_role(self) -> None:
+    def test_workflow_assigns_responses_policies_and_inherits_extraction_model(
+        self,
+    ) -> None:
         workflow_class = _get_workflow_class()
         self.assertIsNotNone(workflow_class)
         workflow_module = __import__(workflow_class.__module__, fromlist=["Workflow"])
@@ -224,6 +533,7 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         config = {
             "model": {
                 "default_model": "gpt-5.6-sol",
+                "extraction_model": None,
                 "global_execution_model": {
                     "execution_model": "gpt-5.6-sol",
                     "summarizer_model": "gpt-5.6-sol",
@@ -252,12 +562,40 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         for role in ("planner", "execution", "coordinator", "synthesizer"):
             self.assertEqual(created[role]["model"], "gpt-5.6-sol")
             self.assertEqual(created[role]["runtime_config"], runtime_config)
+            self.assertEqual(created[role]["extraction_model"], "gpt-5.6-sol")
         self.assertEqual(created["execution"]["reasoning_context"], "all_turns")
         self.assertEqual(created["coordinator"]["reasoning_context"], "all_turns")
         self.assertEqual(created["synthesizer"]["reasoning_context"], "all_turns")
         self.assertEqual(created["synthesizer"]["reasoning_mode"], "pro")
         self.assertTrue(created["synthesizer"]["background"])
         self.assertEqual(created["analysis"]["agent_role"], "dr_query_analysis")
+
+    def test_extraction_uses_the_explicit_dr_model_not_environment(self) -> None:
+        _get_workflow_class()
+        from tools import info_processing_tools
+
+        runtime_config = {
+            "provider": "openai",
+            "base_url": "https://ai.cloudyz.top/v1",
+        }
+        with (
+            patch.dict(os.environ, {"EXTRACTION_MODEL": "gpt-5.5"}),
+            patch.object(
+                info_processing_tools,
+                "get_model",
+                return_value=SimpleNamespace(),
+            ) as get_model,
+        ):
+            info_processing_tools.extract_paper_content_to_summary(
+                "/missing/paper.txt",
+                model_name="gpt-5.6-sol",
+                runtime_config=runtime_config,
+            )
+
+        get_model.assert_called_once_with(
+            "gpt-5.6-sol",
+            runtime_config=runtime_config,
+        )
 
     def test_execution_loop_preserves_response_and_call_ids(self) -> None:
         model = _ScriptedSyncRuntime()
