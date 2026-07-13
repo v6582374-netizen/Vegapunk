@@ -19,7 +19,6 @@ from typing import Dict, Any, Optional, List, Iterable, Tuple
 from chromadb import PersistentClient as ChromaClient
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
-from pyclustering.cluster.bang import bang
 from internagent.mas.agents.agent_factory import AgentFactory
 from internagent.mas.models.model_factory import ModelFactory
 logger = logging.getLogger(__name__)
