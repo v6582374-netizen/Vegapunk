@@ -7,6 +7,8 @@ configuration, caching, and fallback strategies.
 """
 
 import importlib
+import hashlib
+import json
 import logging
 import time
 from typing import Dict, Any, List, Tuple
@@ -131,16 +133,27 @@ class ModelFactory:
         model_config["provider"] = model_provider
         model_config["default_provider"] = global_config.get("models", {}).get("default_provider", "openai")
         
-        # 温度和输出长度这类行为参数允许按角色微调。
-        for key in ["temperature", "max_tokens"]:
+        # 运行时行为参数允许按角色覆盖；嵌套策略必须逐字段合并，避免只改
+        # reasoning.context 时意外丢掉全局 effort 和 mode。
+        for key in [
+            "temperature",
+            "max_output_tokens",
+            "api_mode",
+            "store",
+            "timeout",
+        ]:
             if key in config:
                 model_config[key] = config[key]
+
+        for key in ["reasoning", "prompt_cache", "background"]:
+            if key in config:
+                inherited = model_config.get(key, {})
+                override = config[key]
+                if isinstance(inherited, dict) and isinstance(override, dict):
+                    model_config[key] = {**inherited, **override}
+                else:
+                    model_config[key] = override
         
-        # Include remaining agent settings
-        for k, v in config.items():
-            if k not in ["_global_config", "count"] and k not in model_config:
-                model_config[k] = v
-                
         return ModelFactory.create_model(model_config)
     
     @classmethod
@@ -263,7 +276,26 @@ class ModelFactory:
             api_base = provider_config.get("api_base", "http://localhost:11434")
             return f"{provider}:{model_name}:{api_base}"
 
-        if provider in {"openai", "openrouter", "interns1", "dsr1"} and base_url:
-            return f"{provider}:{model_name}:{base_url}"
-            
-        return f"{provider}:{model_name}"
+        runtime_keys = (
+            "api_mode",
+            "temperature",
+            "max_output_tokens",
+            "max_tokens",
+            "timeout",
+            "default_headers",
+            "reasoning",
+            "store",
+            "prompt_cache",
+            "background",
+        )
+        identity = {key: config.get(key) for key in runtime_keys if key in config}
+        api_key = config.get("api_key")
+        if api_key:
+            identity["api_key_hash"] = hashlib.sha256(
+                str(api_key).encode("utf-8")
+            ).hexdigest()
+        digest = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:16]
+
+        return f"{provider}:{model_name}:{base_url}:{digest}"

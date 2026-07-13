@@ -7,6 +7,7 @@ from numbers import Real
 from typing import Any
 
 from internagent.mas.models.base_model import BaseModel
+from internagent.mas.models.runtime import ReasoningConfig
 
 from ..data_types import DossierStageError
 
@@ -60,6 +61,8 @@ async def review_paper(
             "Do not request or assume unrecorded experiments, facts, or citations."
         ),
         temperature=0,
+        agent_role="paper_orchestra_peer_review",
+        reasoning=ReasoningConfig(mode="pro"),
     )
     if not isinstance(review, dict) or any(
         isinstance(review.get(axis), bool)

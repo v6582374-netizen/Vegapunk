@@ -263,7 +263,7 @@ max_format_correction_iterations: 1
             self.assertEqual(result.status, "succeeded", result.error)
             self.assertEqual(create_model.call_count, 3)
             self.assertEqual(result.warnings, ())
-            self.assertEqual(len(model.message_calls), 2)
+            self.assertEqual(len(model.run_calls), 2)
             self.assertTrue(result.final_pdf.is_file())
             self.assertTrue(result.final_tex.is_file())
             self.assertEqual(resumed_result.status, "succeeded")

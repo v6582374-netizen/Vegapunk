@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from internagent.mas.models.base_model import BaseModel
+from internagent.mas.models.runtime import ReasoningConfig
 
 from ...data_types import DossierStageError
 from ...utils.common_utils import validate_citation_keys
@@ -44,6 +45,9 @@ class LiteratureReviewAgent:
             prompt=json.dumps(payload, ensure_ascii=False, sort_keys=True),
             system_prompt=LITERATURE_SYSTEM_PROMPT,
             temperature=0,
+            agent_role="paper_orchestra_literature_writer",
+            reasoning=ReasoningConfig(mode="pro"),
+            background=True,
         )
         try:
             latex = extract_fenced_content(response, "latex")

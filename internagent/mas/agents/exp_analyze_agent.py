@@ -207,7 +207,8 @@ Example format: {{"val_rmse": 0.123, "accuracy": 0.95}}
                     "additionalProperties": {"type": "number"}
                 },
                 system_prompt="You are a helpful assistant that extracts metrics from experimental results.",
-                temperature=0.0
+                temperature=0.0,
+                agent_role=self.name,
             )
             return result
 
@@ -283,7 +284,8 @@ If you cannot determine with confidence, return "unknown".
                 prompt=prompt,
                 system_prompt="You are a helpful assistant that analyzes ML metrics.",
                 temperature=0.0,
-                max_tokens=10
+                max_output_tokens=10,
+                agent_role=self.name,
             )
 
             result = result.strip().lower()
@@ -394,7 +396,8 @@ Example: "val/PQ_Vm_rmse"
                 prompt=prompt,
                 system_prompt="You are a helpful assistant that analyzes ML experiments.",
                 temperature=0.0,
-                max_tokens=50
+                max_output_tokens=50,
+                agent_role=self.name,
             )
 
             selected_metric = response.strip()

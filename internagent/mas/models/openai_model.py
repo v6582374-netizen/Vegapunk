@@ -1,334 +1,466 @@
-"""
-OpenAI Model Adapter for InternAgent
+"""Responses-native OpenAI adapter for the InternAgent Model Runtime."""
 
-Implements the BaseModel interface for OpenAI models.
-"""
+from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
-from typing import Dict, List, Optional, Any, Union
-from json_repair import repair_json
+from typing import Any, Dict, List, Optional, Union
 
-import openai
 from openai import AsyncOpenAI
 
-from .base_model import BaseModel
+from .base_model import BaseModel, ModelRunTerminalError
+from .runtime import (
+    FunctionCall,
+    FunctionCallOutput,
+    FunctionTool,
+    ImageContent,
+    Message,
+    ModelRunHandle,
+    ModelRunRequest,
+    ModelRunResult,
+    ModelUsage,
+    OutputText,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class OpenAIModel(BaseModel):
-    """OpenAI implementation of the BaseModel interface."""
-    
-    def __init__(self, 
-                api_key: Optional[str] = None, 
-                base_url: Optional[str] = None,
-                model_name: str = "gpt-5.5", 
-                max_tokens: int = 4096,
-                temperature: float = 0.7,
-                timeout: int = 600,
-                default_headers: Optional[Dict[str, str]] = None,
-                api_key_env_var: str = "OPENAI_API_KEY",
-                provider_name: str = "OpenAI"):
-        """
-        Initialize the OpenAI model adapter.
-        
-        Args:
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY environment variable)
-            base_url: Optional OpenAI-compatible API base URL
-            model_name: Model identifier to use (e.g., "gpt-5.5")
-            max_tokens: Maximum tokens to generate by default
-            temperature: Default temperature setting (0 to 1)
-            timeout: Timeout in seconds for API calls
-            default_headers: Optional headers to send with every request
-            api_key_env_var: Environment variable to read when api_key is unset
-            provider_name: Provider name used in log messages
-        """
+    """OpenAI Responses implementation with GPT-5.6 runtime policy."""
+
+    supports_prompt_cache = True
+    _ALLOWED_CONFIG_KEYS = {
+        "provider",
+        "default_provider",
+        "api_key",
+        "base_url",
+        "model_name",
+        "max_output_tokens",
+        "temperature",
+        "timeout",
+        "default_headers",
+        "api_mode",
+        "reasoning",
+        "store",
+        "prompt_cache",
+        "background",
+    }
+    _OBSOLETE_CONFIG_KEYS = {
+        "max_tokens": "max_output_tokens",
+        "prompt_cache_retention": "prompt_cache.ttl",
+        "reasoning_effort": "reasoning.effort",
+        "reasoning_context": "reasoning.context",
+        "reasoning_mode": "reasoning.mode",
+    }
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model_name: str = "gpt-5.6-sol",
+        max_output_tokens: int = 128000,
+        temperature: float = 0.7,
+        timeout: int = 600,
+        default_headers: Optional[Dict[str, str]] = None,
+        api_key_env_var: str = "OPENAI_API_KEY",
+        provider_name: str = "OpenAI",
+        api_mode: str = "responses",
+        reasoning_effort: str = "xhigh",
+        reasoning_context: str = "auto",
+        reasoning_mode: str = "standard",
+        store: bool = True,
+        prompt_cache_mode: str = "explicit",
+        prompt_cache_ttl: str = "30m",
+        background_poll_interval: float = 2.0,
+        background_timeout: float = 3600.0,
+        client: Optional[Any] = None,
+    ) -> None:
+        super().__init__()
+        if api_mode != "responses":
+            raise ValueError(
+                "Native OpenAI requires api_mode='responses'; Chat-compatible "
+                "gateways must use their dedicated adapter"
+            )
+
         self.api_key = api_key or os.environ.get(api_key_env_var)
-        self.base_url = base_url or os.environ.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1")
-        if not self.api_key:
-            logger.warning(f"{provider_name} API key not provided. Please set {api_key_env_var} environment variable.")
-            
+        self.base_url = base_url or os.environ.get(
+            "OPENAI_API_BASE_URL", "https://api.openai.com/v1"
+        )
         self.model_name = model_name
-        self.max_tokens = max_tokens
+        self.max_output_tokens = max_output_tokens
         self.temperature = temperature
         self.timeout = timeout
         self.default_headers = default_headers
         self.provider_name = provider_name
-        
-        try:
-            client_kwargs = {
+        self.api_mode = api_mode
+        self.reasoning_effort = reasoning_effort
+        self.reasoning_context = reasoning_context
+        self.reasoning_mode = reasoning_mode
+        self.store = store
+        self.prompt_cache_mode = prompt_cache_mode
+        self.prompt_cache_ttl = prompt_cache_ttl
+        self.background_poll_interval = background_poll_interval
+        self.background_timeout = background_timeout
+
+        if not self.api_key:
+            logger.warning(
+                "%s API key not provided; set %s",
+                self.provider_name,
+                api_key_env_var,
+            )
+
+        if client is not None:
+            self.client = client
+        else:
+            client_kwargs: Dict[str, Any] = {
                 "api_key": self.api_key,
                 "base_url": self.base_url,
                 "timeout": self.timeout,
             }
             if self.default_headers:
                 client_kwargs["default_headers"] = self.default_headers
-
             self.client = AsyncOpenAI(**client_kwargs)
-            logger.info(f"{self.provider_name} client initialized with model: {self.model_name} via {self.base_url}")
-        except TypeError as e:
-            logger.warning(f"Error initializing {self.provider_name} client: {e}")
-            self.client = None
-    
-    async def generate(self, 
-                      prompt: str, 
-                      system_prompt: Optional[str] = None,
-                      temperature: Optional[float] = None,
-                      max_tokens: Optional[int] = None,
-                      stop_sequences: Optional[List[str]] = None,
-                      **kwargs) -> str:
-        """
-        Generate text based on the provided prompt using OpenAI API.
-        
-        Args:
-            prompt: The user prompt to send to the model
-            system_prompt: Optional system prompt to guide the model
-            temperature: Controls randomness (0 to 1)
-            max_tokens: Maximum number of tokens to generate
-            stop_sequences: List of sequences at which to stop generation
-            **kwargs: Additional model-specific parameters
-            
-        Returns:
-            Generated text response from the model
-        """
 
-        messages = []
-        
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        
-        messages.append({"role": "user", "content": prompt})
+    async def _run(self, request: ModelRunRequest) -> ModelRunResult:
+        handle = await self.submit(request)
+        return await handle.wait()
 
-        temperature = temperature if temperature is not None else self.temperature
-        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
-        
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stop=stop_sequences,
-                **kwargs
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            logger.error(f"Error generating response from {self.provider_name}: {e}")
-            raise
-    
-    async def generate_with_json_output(self, 
-                                       prompt: str, 
-                                       json_schema: Dict[str, Any],
-                                       system_prompt: Optional[str] = None,
-                                       temperature: Optional[float] = None,
-                                       **kwargs) -> Dict[str, Any]:
-        """
-        Generate a response formatted as JSON according to the provided schema.
-        
-        Args:
-            prompt: The user prompt to send to the model
-            json_schema: JSON schema defining the expected response structure
-            system_prompt: Optional system prompt to guide the model
-            temperature: Controls randomness (0 to 1)
-            **kwargs: Additional model-specific parameters
-            
-        Returns:
-            JSON response matching the provided schema
-        """
+    async def submit(self, request: ModelRunRequest) -> ModelRunHandle:
+        """Submit a Responses run and expose wait/cancel controls."""
 
-        if system_prompt:
-            enhanced_system_prompt = f"{system_prompt}\n\nRespond with JSON that matches this schema: {json.dumps(json_schema)}"
-        else:
-            enhanced_system_prompt = f"Respond with JSON that matches this schema: {json.dumps(json_schema)}"
+        reasoning = {
+            "effort": self.reasoning_effort,
+            "context": self.reasoning_context,
+            "mode": self.reasoning_mode,
+        }
+        if request.reasoning is not None:
+            for key in ("effort", "context", "mode"):
+                value = getattr(request.reasoning, key)
+                if value is not None:
+                    reasoning[key] = value
 
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": enhanced_system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=temperature if temperature is not None else self.temperature,
-                response_format={"type": "json_object"},
-                timeout=self.timeout,
-                **kwargs
-            )
-            
-            result_text = response.choices[0].message.content
+        input_items: list[Dict[str, Any]] = []
+        request_params: Dict[str, Any] = {
+            "model": self.model_name,
+            "max_output_tokens": (
+                request.max_output_tokens
+                if request.max_output_tokens is not None
+                else self.max_output_tokens
+            ),
+            "reasoning": reasoning,
+            "store": self.store,
+            "background": request.background,
+            "prompt_cache_options": {
+                "mode": self.prompt_cache_mode,
+                "ttl": self.prompt_cache_ttl,
+            },
+            "text": {"format": {"type": request.response_format}},
+        }
+
+        if request.instructions:
+            if self.prompt_cache_mode == "explicit":
+                input_items.append(
+                    self._message_to_response_input(
+                        Message.developer(request.instructions),
+                        cache_breakpoint=True,
+                    )
+                )
+            else:
+                request_params["instructions"] = request.instructions
+        input_items.extend(
+            self._input_to_response_item(item) for item in request.input
+        )
+        request_params["input"] = input_items
+
+        temperature = (
+            request.temperature
+            if request.temperature is not None
+            else self.temperature
+        )
+        if temperature is not None:
+            request_params["temperature"] = temperature
+        if request.previous_response_id:
+            request_params["previous_response_id"] = request.previous_response_id
+        if request.prompt_cache_key:
+            request_params["prompt_cache_key"] = request.prompt_cache_key
+        if request.tools:
+            request_params["tools"] = [
+                self._function_tool_to_response(tool) for tool in request.tools
+            ]
+
+        initial_response = await self.client.responses.create(**request_params)
+        response_id = self._field(initial_response, "id", "")
+        if not response_id:
+            raise ModelRunTerminalError("OpenAI returned a response without an ID")
+
+        async def wait_for_result() -> ModelRunResult:
+            response = initial_response
+            while self._field(response, "status") in {"queued", "in_progress"}:
+                if self.background_poll_interval:
+                    await asyncio.sleep(self.background_poll_interval)
+                response = await self.client.responses.retrieve(response_id)
+            result = self._response_to_run_result(response)
+            self._raise_for_terminal_status(response, result)
+            return result
+
+        async def wait_with_timeout() -> ModelRunResult:
             try:
-                result_dict = json.loads(result_text)
-            except json.JSONDecodeError:
-                logger.error(f"Model returned invalid JSON: {result_text}")
-                result_text_repair = repair_json(result_text)
-                if result_text_repair:
-                    try:
-                        result_dict = json.loads(result_text_repair)
-                    except json.JSONDecodeError:
-                        logger.error(f"Repaired JSON still invalid: {result_text_repair}")
-                        raise ValueError("Model did not return valid JSON after repair")
-                else:
-                    logger.error("Failed to repair JSON response")
-                raise ValueError("Model did not return valid JSON")
-            return result_dict
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON response: {e}")
-            raise ValueError(f"Model did not return valid JSON: {e}")
-        except Exception as e:
-            logger.error(f"Error generating JSON response from {self.provider_name}: {e}")
-            raise RuntimeError(f"Error generating JSON response: {e}")
-    
-    async def generate_json(self, 
-                          prompt: str, 
-                          schema: Dict[str, Any],
-                          system_prompt: Optional[str] = None,
-                          temperature: Optional[float] = None,
-                          default: Optional[Dict[str, Any]] = None,
-                          **kwargs) -> Dict[str, Any]:
-        """
-        Generate JSON output from the model.
-        
-        Args:
-            prompt: User prompt to generate from
-            schema: JSON schema that the output should conform to
-            system_prompt: System prompt (instructions for the model)
-            temperature: Sampling temperature (0.0 to 1.0)
-            default: Default JSON to return if generation fails
-            **kwargs: Additional model-specific parameters
-            
-        Returns:
-            JSON output as a Python dictionary
-            
-        Raises:
-            ModelError: If generation fails and no default is provided
-        """
-        try:
-            return await self.generate_with_json_output(
-                prompt=prompt,
-                json_schema=schema,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                **kwargs
-            )
-        except Exception as e:
-            logger.error(f"Error in generate_json: {e}")
-            if default is not None:
-                logger.warning(f"Returning default JSON due to error: {e}")
-                return default
-            raise
+                return await asyncio.wait_for(
+                    wait_for_result(), timeout=self.background_timeout
+                )
+            except asyncio.TimeoutError as error:
+                try:
+                    await self.client.responses.cancel(response_id)
+                except Exception as cancel_error:
+                    logger.warning(
+                        "Unable to cancel timed-out response %s: %s",
+                        response_id,
+                        cancel_error,
+                    )
+                raise ModelRunTerminalError(
+                    f"OpenAI response {response_id} exceeded background timeout "
+                    f"of {self.background_timeout} seconds"
+                ) from error
 
-    async def generate_with_messages(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Generate response using full message history.
-        
-        This method supports multi-turn conversations with tool calling by accepting
-        a complete message history rather than a single prompt string.
-        
-        Args:
-            messages: Full conversation history with roles (user/assistant/tool)
-            tools: List of tool definitions in OpenAI function calling format
-            temperature: Controls randomness (0 to 1)
-            max_tokens: Maximum number of tokens to generate
-            tool_choice: Controls which tool to call
-            **kwargs: Additional model-specific parameters
-            
-        Returns:
-            Full OpenAI API response as dictionary with structure:
-                {
-                    "choices": [{
-                        "message": {
-                            "role": "assistant",
-                            "content": str or None,
-                            "tool_calls": [...] or None
-                        },
-                        "finish_reason": "stop" or "tool_calls"
-                    }],
-                    ...
-                }
-        """
-        temperature = temperature if temperature is not None else self.temperature
-        max_tokens = max_tokens if max_tokens is not None else self.max_tokens
-        
-        try:
-            request_params = {
-                "model": self.model_name,
-                "messages": messages,
-                "temperature": temperature,
+        async def cancel_result() -> ModelRunResult:
+            response = await self.client.responses.cancel(response_id)
+            return self._response_to_run_result(response)
+
+        return ModelRunHandle(
+            response_id=response_id,
+            _wait=wait_with_timeout,
+            _cancel=cancel_result,
+        )
+
+    @staticmethod
+    def _input_to_response_item(item: Any) -> Dict[str, Any]:
+        if isinstance(item, Message):
+            return OpenAIModel._message_to_response_input(item)
+        if isinstance(item, FunctionCallOutput):
+            output = item.output
+            if not isinstance(output, str):
+                output = json.dumps(output, ensure_ascii=False)
+            return {
+                "type": "function_call_output",
+                "call_id": item.call_id,
+                "output": output,
             }
-            
-            if max_tokens:
-                request_params["max_tokens"] = max_tokens
-            
-            if tools:
-                request_params["tools"] = tools
-                request_params["tool_choice"] = tool_choice or "auto"
+        raise TypeError(f"Unsupported Runtime input item: {type(item).__name__}")
 
-            request_params.update(kwargs)
-            
-            response = await self.client.chat.completions.create(**request_params)
-            
-            # Convert to dictionary format
-            return response.model_dump()
-            
-        except Exception as e:
-            logger.error(f"Error generating response with messages from {self.provider_name}: {e}")
-            raise
+    @staticmethod
+    def _message_to_response_input(
+        message: Message, *, cache_breakpoint: bool = False
+    ) -> Dict[str, Any]:
+        content: list[Dict[str, Any]] = []
+        for item in message.content:
+            if isinstance(item, ImageContent):
+                content_item: Dict[str, Any] = {
+                    "type": "input_image",
+                    "image_url": item.image_url,
+                    "detail": item.detail,
+                }
+            else:
+                content_item = {"type": "input_text", "text": item.text}
+                if cache_breakpoint:
+                    content_item["prompt_cache_breakpoint"] = {
+                        "mode": "explicit"
+                    }
+            content.append(content_item)
+        return {
+            "type": "message",
+            "role": message.role,
+            "content": content,
+        }
 
-    async def embed(self, text: Union[str, List[str]]) -> Union[List[float], List[List[float]]]:
-        """
-        Generate embeddings for the given text(s).
-        
-        Args:
-            text: Text string or list of strings to embed
-            
-        Returns:
-            Embedding vector or list of embedding vectors
-        """
-        try:
-            text_list = [text] if isinstance(text, str) else text
-            
-            response = await self.client.embeddings.create(
-                model="text-embedding-ada-002",
-                input=text_list
-            )
-            
-            embeddings = [item.embedding for item in response.data]
-            
-            return embeddings[0] if isinstance(text, str) else embeddings
-        except Exception as e:
-            logger.error(f"Error generating embeddings from {self.provider_name}: {e}")
-            raise
-    
+    @staticmethod
+    def _function_tool_to_response(tool: FunctionTool) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": dict(tool.parameters),
+            "strict": tool.strict,
+        }
+
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'OpenAIModel':
-        """
-        Create an OpenAI model instance from a configuration dictionary.
+    def _response_to_run_result(cls, response: Any) -> ModelRunResult:
+        items: list[OutputText | FunctionCall] = []
+        for output_item in cls._field(response, "output", []) or []:
+            item_type = cls._field(output_item, "type")
+            if item_type == "function_call":
+                raw_arguments = cls._field(output_item, "arguments", "{}")
+                try:
+                    arguments = json.loads(raw_arguments) if raw_arguments else {}
+                except json.JSONDecodeError as error:
+                    raise ModelRunTerminalError(
+                        "OpenAI returned invalid function-call arguments for "
+                        f"{cls._field(output_item, 'name', '<unknown>')}"
+                    ) from error
+                if not isinstance(arguments, dict):
+                    raise ModelRunTerminalError(
+                        "OpenAI function-call arguments must be a JSON object"
+                    )
+                items.append(
+                    FunctionCall(
+                        call_id=cls._field(output_item, "call_id", ""),
+                        name=cls._field(output_item, "name", ""),
+                        arguments=arguments,
+                        status=cls._field(output_item, "status"),
+                    )
+                )
+                continue
 
-        This factory method enables consistent model instantiation across the system
-        based on configuration settings.
-        
-        Args:
-            config: Configuration dictionary with model settings
-            
-        Returns:
-            Configured OpenAIModel instance
-        """
+            if item_type != "message":
+                continue
+            for content in cls._field(output_item, "content", []) or []:
+                if cls._field(content, "type") == "output_text":
+                    items.append(OutputText(text=cls._field(content, "text", "")))
+
+        usage = cls._field(response, "usage")
+        input_details = cls._field(usage, "input_tokens_details")
+        output_details = cls._field(usage, "output_tokens_details")
+        reasoning = cls._field(response, "reasoning")
+        return ModelRunResult(
+            response_id=cls._field(response, "id", ""),
+            status=cls._field(response, "status", "unknown"),
+            model=cls._field(response, "model", ""),
+            items=tuple(items),
+            usage=ModelUsage(
+                input_tokens=cls._field(usage, "input_tokens", 0),
+                output_tokens=cls._field(usage, "output_tokens", 0),
+                total_tokens=cls._field(usage, "total_tokens", 0),
+                cached_tokens=cls._field(input_details, "cached_tokens", 0),
+                cache_write_tokens=cls._field(
+                    input_details, "cache_write_tokens", 0
+                ),
+                reasoning_tokens=cls._field(
+                    output_details, "reasoning_tokens", 0
+                ),
+            ),
+            reasoning_context=cls._field(reasoning, "context"),
+            raw_response=response,
+        )
+
+    @classmethod
+    def _raise_for_terminal_status(
+        cls, response: Any, result: ModelRunResult
+    ) -> None:
+        if result.status == "completed":
+            return
+        detail = cls._field(response, "error") or cls._field(
+            response, "incomplete_details"
+        )
+        raise ModelRunTerminalError(
+            f"OpenAI response {result.response_id} ended with status "
+            f"{result.status}: {detail}"
+        )
+
+    @staticmethod
+    def _field(value: Any, name: str, default: Any = None) -> Any:
+        if value is None:
+            return default
+        if isinstance(value, dict):
+            return value.get(name, default)
+        return getattr(value, name, default)
+
+    async def embed(
+        self, text: Union[str, List[str]]
+    ) -> Union[List[float], List[List[float]]]:
+        text_list = [text] if isinstance(text, str) else text
+        response = await self.client.embeddings.create(
+            model="text-embedding-ada-002",
+            input=text_list,
+        )
+        embeddings = [item.embedding for item in response.data]
+        return embeddings[0] if isinstance(text, str) else embeddings
+
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "OpenAIModel":
+        cls._validate_config(config)
+        reasoning = config.get("reasoning", {})
+        prompt_cache = config.get("prompt_cache", {})
+        background = config.get("background", {})
         return cls(
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
-            model_name=config.get("model_name", "gpt-5.5"),
-            max_tokens=config.get("max_tokens", None),
+            model_name=config.get("model_name", "gpt-5.6-sol"),
+            max_output_tokens=config.get("max_output_tokens", 128000),
             temperature=config.get("temperature", 0.7),
-            timeout=config.get("timeout", 200),
-            default_headers=config.get("default_headers")
-        ) 
+            timeout=config.get("timeout", 600),
+            default_headers=config.get("default_headers"),
+            api_mode=config.get("api_mode", "responses"),
+            reasoning_effort=reasoning.get("effort", "xhigh"),
+            reasoning_context=reasoning.get("context", "auto"),
+            reasoning_mode=reasoning.get("mode", "standard"),
+            store=config.get("store", True),
+            prompt_cache_mode=prompt_cache.get("mode", "explicit"),
+            prompt_cache_ttl=prompt_cache.get("ttl", "30m"),
+            background_poll_interval=background.get("poll_interval_seconds", 2),
+            background_timeout=background.get("timeout_seconds", 3600),
+        )
+
+    @classmethod
+    def _validate_config(cls, config: Dict[str, Any]) -> None:
+        obsolete = sorted(set(config).intersection(cls._OBSOLETE_CONFIG_KEYS))
+        if obsolete:
+            replacements = ", ".join(
+                f"{key}->{cls._OBSOLETE_CONFIG_KEYS[key]}" for key in obsolete
+            )
+            raise ValueError(f"Obsolete OpenAI configuration keys: {replacements}")
+
+        unknown = sorted(set(config).difference(cls._ALLOWED_CONFIG_KEYS))
+        if unknown:
+            raise ValueError(
+                "Unknown OpenAI configuration keys: " + ", ".join(unknown)
+            )
+        if config.get("api_mode", "responses") != "responses":
+            raise ValueError("OpenAI api_mode must be 'responses'")
+
+        reasoning = config.get("reasoning", {})
+        if not isinstance(reasoning, dict):
+            raise ValueError("OpenAI reasoning must be a mapping")
+        unknown_reasoning = sorted(
+            set(reasoning).difference({"effort", "context", "mode"})
+        )
+        if unknown_reasoning:
+            raise ValueError(
+                "Unknown OpenAI reasoning keys: "
+                + ", ".join(unknown_reasoning)
+            )
+        if reasoning.get("effort", "xhigh") not in {
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        }:
+            raise ValueError("Unsupported OpenAI reasoning.effort")
+        if reasoning.get("context", "auto") not in {
+            "auto",
+            "current_turn",
+            "all_turns",
+        }:
+            raise ValueError("Unsupported OpenAI reasoning.context")
+        if reasoning.get("mode", "standard") not in {"standard", "pro"}:
+            raise ValueError("Unsupported OpenAI reasoning.mode")
+
+        prompt_cache = config.get("prompt_cache", {})
+        if not isinstance(prompt_cache, dict):
+            raise ValueError("OpenAI prompt_cache must be a mapping")
+        if set(prompt_cache).difference({"mode", "ttl"}):
+            raise ValueError("Unknown OpenAI prompt_cache configuration")
+        if prompt_cache.get("mode", "explicit") not in {"implicit", "explicit"}:
+            raise ValueError("Unsupported OpenAI prompt_cache.mode")
+        if prompt_cache.get("ttl", "30m") != "30m":
+            raise ValueError("OpenAI prompt_cache.ttl currently supports only '30m'")
+
+        background = config.get("background", {})
+        if not isinstance(background, dict):
+            raise ValueError("OpenAI background must be a mapping")
+        if set(background).difference(
+            {"poll_interval_seconds", "timeout_seconds"}
+        ):
+            raise ValueError("Unknown OpenAI background configuration")

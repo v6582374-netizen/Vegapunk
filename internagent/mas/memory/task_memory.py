@@ -106,10 +106,10 @@ class TaskMemoryLayer:
             llm_config: Configuration for AnalyzeAgent (follows InternAgent model config pattern)
                 {
                     "provider": "openai",  # Model provider (openai/azure/custom)
-                    "model_name": "gpt-4",  # Model name
+                    "model_name": "gpt-5.6-sol",  # Model name
                     "api_key": "...",  # API key
                     "temperature": 0.7,  # Optional: sampling temperature
-                    "max_tokens": 4096,  # Optional: max tokens
+                    "max_output_tokens": 128000,  # Optional: output cap
                     "timeout": 600,  # Optional: timeout in seconds
 
                     # Agent-specific configuration
@@ -141,7 +141,25 @@ class TaskMemoryLayer:
 
             # Create model from config
             try:
-                model = ModelFactory.create_model(llm_config)
+                model_keys = {
+                    "provider",
+                    "default_provider",
+                    "api_key",
+                    "base_url",
+                    "model_name",
+                    "max_output_tokens",
+                    "temperature",
+                    "timeout",
+                    "default_headers",
+                    "api_mode",
+                    "reasoning",
+                    "store",
+                    "prompt_cache",
+                    "background",
+                }
+                model = ModelFactory.create_model(
+                    {key: value for key, value in llm_config.items() if key in model_keys}
+                )
                 self.analyze_agent = ExpAnalyzeAgent(model, llm_config)
             except Exception as e:
                 print(f"Warning: Failed to initialize ExpAnalyzeAgent: {e}")
@@ -177,7 +195,7 @@ class TaskMemoryLayer:
                     },
                     "exp_analyze": {  # Set to None to disable
                         "provider": "openai",
-                        "model_name": "gpt-4",
+                        "model_name": "gpt-5.6-sol",
                         "api_key": "...",
                         "primary_metric": "val/rmse",
                         "use_llm_for_primary_metric": True,

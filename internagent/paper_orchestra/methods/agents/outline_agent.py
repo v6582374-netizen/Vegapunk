@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from internagent.mas.models.base_model import BaseModel
+from internagent.mas.models.runtime import ReasoningConfig
 
 from ...data_types import DossierStageError
 from ..prompts.outline_agent import OUTLINE_SYSTEM_PROMPT
@@ -47,6 +48,9 @@ class OutlineAgent:
             schema=schema,
             system_prompt=OUTLINE_SYSTEM_PROMPT,
             temperature=0,
+            agent_role="paper_orchestra_outline",
+            reasoning=ReasoningConfig(mode="pro"),
+            background=True,
         )
         if (
             not isinstance(outline, dict)

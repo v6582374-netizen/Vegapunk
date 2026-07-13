@@ -8,19 +8,135 @@ This module only adapts the interface for InternAgent's experiment loop:
   score_run(workspace_dir, checklist_path, model) -> scores dict
   write_final_info(run_dir, scores) -> path to final_info.json
 """
+import asyncio
+import base64
 import os
 import os.path as osp
 import json
 import logging
+import mimetypes
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Any
 
+from json_repair import repair_json
+
+from internagent.mas.models.openai_model import OpenAIModel
+from internagent.mas.models.runtime import (
+    ImageContent,
+    Message,
+    ModelRunRequest,
+    ReasoningConfig,
+    TextContent,
+)
 from internagent.rcb_evaluation.score import (
     _read_report, _find_generated_images, _score_single_item,
 )
 from internagent.rcb_evaluation.utils import safe_resolve
 
 logger = logging.getLogger(__name__)
+
+
+SCORER_SYSTEM_PROMPT = (
+    "You are a strict scientific peer reviewer evaluating AI-generated "
+    "research. Score the report against the criterion only — do not "
+    "attempt to solve the research task yourself."
+)
+
+
+class RuntimeScoringAgent:
+    """Synchronous callable expected by ResearchClawBench, backed by Responses."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model_name: str,
+        max_output_tokens: int = 500,
+        timeout: int = 120,
+    ) -> None:
+        if model_name != "gpt-5.6-sol":
+            raise ValueError(
+                "ResearchClawBench scoring requires model='gpt-5.6-sol'"
+            )
+        self.api_key = api_key
+        self.base_url = base_url
+        self.model_name = model_name
+        self.max_output_tokens = max_output_tokens
+        self.timeout = timeout
+
+    def __call__(
+        self,
+        prompt: str,
+        *,
+        image_paths: list[str] | None = None,
+        return_example: dict[str, object] | None = None,
+        max_try: int = 2,
+    ) -> dict[str, object] | None:
+        del return_example
+        last_error: Exception | None = None
+        for _ in range(max_try):
+            try:
+                return asyncio.run(self._run(prompt, image_paths or []))
+            except Exception as error:
+                last_error = error
+        logger.error("Responses scorer failed after %d attempts: %s", max_try, last_error)
+        return None
+
+    async def _run(
+        self, prompt: str, image_paths: list[str]
+    ) -> dict[str, object]:
+        model = OpenAIModel(
+            api_key=self.api_key,
+            base_url=self.base_url or None,
+            model_name=self.model_name,
+            max_output_tokens=self.max_output_tokens,
+            temperature=0,
+            timeout=self.timeout,
+            reasoning_context="current_turn",
+            reasoning_mode="pro",
+        )
+        content: list[TextContent | ImageContent] = [TextContent(text=prompt)]
+        for raw_path in image_paths:
+            path = Path(raw_path)
+            mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            content.append(
+                ImageContent(
+                    image_url=f"data:{mime_type};base64,{encoded}",
+                    detail="original",
+                )
+            )
+        result = await model.run(
+            ModelRunRequest(
+                instructions=SCORER_SYSTEM_PROMPT,
+                input=(Message(role="user", content=tuple(content)),),
+                response_format="json_object",
+                reasoning=ReasoningConfig(context="current_turn", mode="pro"),
+                temperature=0,
+                max_output_tokens=self.max_output_tokens,
+                prompt_cache_key=model.make_prompt_cache_key(
+                    agent_role="researchclawbench_scorer",
+                    stable_prefix=SCORER_SYSTEM_PROMPT,
+                ),
+            )
+        )
+        try:
+            parsed = json.loads(result.text)
+        except json.JSONDecodeError:
+            parsed = json.loads(repair_json(result.text))
+        if not isinstance(parsed, dict):
+            raise ValueError("scorer response must be a JSON object")
+        return parsed
+
+
+def _parallel_score(inputs, function, max_workers: int):
+    def invoke(item):
+        return function(**item)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        return list(executor.map(invoke, inputs))
 
 
 def _get_env(name: str, *fallbacks: str) -> str:
@@ -38,7 +154,7 @@ def _get_env(name: str, *fallbacks: str) -> str:
 def score_run(
     workspace_dir: str,
     checklist_path: str,
-    model: str = "gpt-5.5",
+    model: str = "gpt-5.6-sol",
 ) -> Dict[str, Any]:
     """Score all checklist items using the official ResearchClawBench scorer."""
     if not osp.exists(checklist_path):
@@ -65,21 +181,12 @@ def score_run(
 
     generated_images = _find_generated_images(workspace)
 
-    from structai import LLMAgent, multi_thread
-
-    agent = LLMAgent(
+    agent = RuntimeScoringAgent(
         api_key=_get_env("OPENAI_API_KEY"),
-        api_base=_get_env("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
-        model_version=model,
-        system_prompt=(
-            "You are a strict scientific peer reviewer evaluating AI-generated "
-            "research. Score the report against the criterion only — do not "
-            "attempt to solve the research task yourself."
-        ),
-        temperature=0,
-        max_tokens=500,
-        time_limit=120,
-        max_try=2,
+        base_url=_get_env("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
+        model_name=model,
+        max_output_tokens=500,
+        timeout=120,
     )
 
     target_base = workspace / "target_study"
@@ -97,9 +204,7 @@ def score_run(
     inputs = [{"index": i, "item_data": item} for i, item in enumerate(checklist)]
     n = len(checklist)
     logger.info(f"Scoring {n} checklist items in parallel (model={model})")
-    raw_results = multi_thread(
-        inputs, score_item, max_workers=min(n, 16), use_tqdm=False
-    )
+    raw_results = _parallel_score(inputs, score_item, max_workers=min(n, 16))
 
     scores: Dict[str, Any] = {}
     total_weight = 0.0

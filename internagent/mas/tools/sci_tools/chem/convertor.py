@@ -2,6 +2,7 @@
 
 import logging
 import requests
+from internagent.mas.models.runtime import FunctionTool
 from typing import Dict, Any
 from urllib.parse import quote
 
@@ -115,17 +116,15 @@ async def query2smiles(query: str) -> Dict[str, Any]:
 
 
 # Tool definition for agent
-QUERY2SMILES_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "query2smiles",
-        "description": (
+QUERY2SMILES_TOOL = FunctionTool(
+        name="query2smiles",
+        description=(
             "Convert a molecule name to its SMILES (Simplified Molecular Input Line Entry System) representation. "
             "This tool queries PubChem database to find the SMILES string for a given molecule name. "
             "Only query with one specific molecule name at a time. "
             "Examples: 'aspirin', 'caffeine', 'ethanol', 'benzene', 'glucose'"
         ),
-        "parameters": {
+        parameters={
             "type": "object",
             "properties": {
                 "query": {
@@ -138,6 +137,5 @@ QUERY2SMILES_TOOL = {
                 }
             },
             "required": ["query"]
-        }
-    }
-}
+        },
+)

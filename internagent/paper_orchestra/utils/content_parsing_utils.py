@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+
+from internagent.mas.models.runtime import ModelRunResult
 
 
 def extract_fenced_content(response: str, language: str) -> str:
@@ -18,17 +19,11 @@ def extract_fenced_content(response: str, language: str) -> str:
     return (match.group(1) if match else response).strip()
 
 
-def extract_json_response(response: dict[str, Any]) -> dict[str, Any]:
-    parsed = response.get("parsed_response")
-    if isinstance(parsed, dict):
-        return parsed
-    content: Any = response.get("content")
-    if content is None:
-        try:
-            content = response["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError):
-            content = None
-    if not isinstance(content, str):
+def extract_json_response(response: ModelRunResult) -> dict[str, object]:
+    if not isinstance(response, ModelRunResult):
+        raise TypeError("expected an InternAgent ModelRunResult")
+    content = response.text
+    if not content:
         raise ValueError("multimodal model response has no text content")
     fenced = extract_fenced_content(content, "json")
     parsed = json.loads(fenced)

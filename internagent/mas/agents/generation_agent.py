@@ -537,7 +537,10 @@ class GenerationAgent(BaseAgent):
         )
         
         if self.related_tools:
-            logger.info(f"Related tools for GenerationAgent: {[tool['function']['name'] for tool in self.related_tools]}")
+            logger.info(
+                "Related tools for GenerationAgent: %s",
+                [tool.name for tool in self.related_tools],
+            )
             tool_prompt = self._build_tool_prompt()
             try:
                 response = await self._call_model_with_tools(

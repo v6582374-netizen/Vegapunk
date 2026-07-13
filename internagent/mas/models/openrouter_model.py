@@ -9,10 +9,10 @@ implementation.
 import os
 from typing import Any, Dict, Optional
 
-from .openai_model import OpenAIModel
+from .chat_compatible_model import ChatCompatibleModel
 
 
-class OpenRouterModel(OpenAIModel):
+class OpenRouterModel(ChatCompatibleModel):
     """OpenRouter implementation backed by the OpenAI-compatible API."""
 
     def __init__(
@@ -20,13 +20,15 @@ class OpenRouterModel(OpenAIModel):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: str = "moonshotai/kimi-k2.6:free",
-        max_tokens: int = 4096,
+        max_output_tokens: int = 4096,
         temperature: float = 0.7,
         timeout: int = 600,
         default_headers: Optional[Dict[str, str]] = None,
         site_url: Optional[str] = None,
         app_name: Optional[str] = None,
-    ):
+        api_mode: str = "chat_completions",
+        client: Optional[Any] = None,
+    ) -> None:
         api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         base_url = (
             base_url
@@ -48,12 +50,15 @@ class OpenRouterModel(OpenAIModel):
             api_key=api_key,
             base_url=base_url,
             model_name=model_name,
-            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             temperature=temperature,
             timeout=timeout,
             default_headers=headers or None,
+            api_mode=api_mode,
             api_key_env_var="OPENROUTER_API_KEY",
+            base_url_env_var="OPENROUTER_API_BASE_URL",
             provider_name="OpenRouter",
+            client=client,
         )
 
     @classmethod
@@ -63,10 +68,11 @@ class OpenRouterModel(OpenAIModel):
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             model_name=config.get("model_name", "moonshotai/kimi-k2.6:free"),
-            max_tokens=config.get("max_tokens", 4096),
+            max_output_tokens=config.get("max_output_tokens", 4096),
             temperature=config.get("temperature", 0.7),
             timeout=config.get("timeout", 600),
             default_headers=config.get("default_headers"),
             site_url=config.get("site_url"),
             app_name=config.get("app_name"),
+            api_mode=config.get("api_mode", "chat_completions"),
         )

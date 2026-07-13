@@ -315,7 +315,7 @@ def perform_experiments(
     task_type='auto',
     task_info=None,
     checklist=None,
-    sci_scorer_model='gpt-5.5',
+    sci_scorer_model='gpt-5.6-sol',
     run_timeout=None,
 ) -> bool:
     """

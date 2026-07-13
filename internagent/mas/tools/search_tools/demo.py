@@ -7,16 +7,15 @@ import math
 import logging
 import molbloom
 from typing import Dict, Any, List
+from internagent.mas.models.runtime import FunctionTool
 
 logger = logging.getLogger(__name__)
 
 # 工具的元数据定义
-CALCULATOR_TOOL_DEFINITION = {
-    "type": "function",
-    "function": {
-        "name": "calculate",
-        "description": "Perform mathematical calculations. Supports +, -, *, /, **, sqrt, sin, cos, etc.",
-        "parameters": {
+CALCULATOR_TOOL_DEFINITION = FunctionTool(
+        name="calculate",
+        description="Perform mathematical calculations. Supports +, -, *, /, **, sqrt, sin, cos, etc.",
+        parameters={
             "type": "object",
             "properties": {
                 "expression": {
@@ -25,22 +24,19 @@ CALCULATOR_TOOL_DEFINITION = {
                 }
             },
             "required": ["expression"]
-        }
-    }
-}
+        },
+)
 
 # Tool definition for agent
-PATENT_CHECK_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "patent_check",
-        "description": (
+PATENT_CHECK_TOOL = FunctionTool(
+        name="patent_check",
+        description=(
             "Check if a molecule is patented by querying the SureChEMBL patent database. "
             "This tool determines whether a compound has been patented or is novel. "
             "You can input a single SMILES string or multiple SMILES strings separated by periods. "
             "Returns 'Patented' if the molecule is found in patents, or 'Novel' if not found."
         ),
-        "parameters": {
+        parameters={
             "type": "object",
             "properties": {
                 "smiles": {
@@ -54,9 +50,8 @@ PATENT_CHECK_TOOL = {
                 }
             },
             "required": ["smiles"]
-        }
-    }
-}
+        },
+)
 
 async def calculate(expression: str) -> Dict[str, Any]:
     """
@@ -212,4 +207,3 @@ async def patent_check(smiles: str) -> Dict[str, Any]:
             "success": False,
             "error": error_msg
         }
-

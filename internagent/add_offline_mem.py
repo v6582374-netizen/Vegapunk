@@ -27,10 +27,17 @@ DEFAULT_CONFIG = {
     "agents": {
         "exp_analyze": {
             "model_provider": "openai",
-            "model_name": "gpt-5.5",
+            "provider": "openai",
+            "model_name": "gpt-5.6-sol",
+            "api_mode": "responses",
             "api_key": "",
             "temperature": 0.7,
-            "max_tokens": 4096,
+            "max_output_tokens": 128000,
+            "reasoning": {
+                "effort": "xhigh",
+                "context": "current_turn",
+                "mode": "standard",
+            },
             "timeout": 600,
             "use_llm_for_metric_direction": True,
             "use_llm_for_primary_metric": True,

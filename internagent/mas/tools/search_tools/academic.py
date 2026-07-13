@@ -15,22 +15,21 @@ from ..literature_search import (
     CitationManager,
     PaperMetadata
 )
+from internagent.mas.models.runtime import FunctionTool
 
 logger = logging.getLogger(__name__)
 
 
-# Tool definition for LLM agents (OpenAI function calling format)
-ACADEMIC_SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "academic_search",
-        "description": (
+# Tool definition for LLM agents
+ACADEMIC_SEARCH_TOOL = FunctionTool(
+        name="academic_search",
+        description=(
             "Search for academic papers across multiple sources including arXiv, "
             "Semantic Scholar, CrossRef, and CORE. Returns comprehensive paper metadata "
             "including title, authors, abstract, citations, and PDF links. "
             "Ideal for literature reviews, research surveys, and finding relevant papers."
         ),
-        "parameters": {
+        parameters={
             "type": "object",
             "properties": {
                 "query": {
@@ -73,9 +72,8 @@ ACADEMIC_SEARCH_TOOL = {
                 }
             },
             "required": ["query"]
-        }
-    }
-}
+        },
+)
 
 
 async def academic_search(

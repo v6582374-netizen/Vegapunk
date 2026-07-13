@@ -6,6 +6,8 @@ from typing import Dict, Callable, Any, List, Optional
 import logging
 import asyncio
 
+from ..models.runtime import FunctionTool
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,11 +18,11 @@ class ToolRegistry:
         # Store tool functions: {tool_name: function}
         self._functions: Dict[str, Callable] = {}
         # Store tool definitions: {tool_name: definition}
-        self._definitions: Dict[str, Dict[str, Any]] = {}
+        self._definitions: Dict[str, FunctionTool] = {}
         # MCP manager (lazy injection)
         self._mcp_manager: Optional['MCPManager'] = None
     
-    def register(self, definition: Dict[str, Any], function: Callable) -> None:
+    def register(self, definition: FunctionTool, function: Callable) -> None:
         """
         Register a functional tool
         
@@ -28,7 +30,7 @@ class ToolRegistry:
             definition: Tool definition in OpenAI format
             function: Implementation function of the tool
         """
-        tool_name = definition["function"]["name"]
+        tool_name = definition.name
         
         if tool_name in self._functions:
             logger.warning(f"Tool '{tool_name}' already registered, overwriting")
@@ -54,7 +56,7 @@ class ToolRegistry:
             raise ValueError(f"Function tool '{tool_name}' not found")
         return self._functions[tool_name]
     
-    async def get_all_definitions(self, allowed_tools: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    async def get_all_definitions(self, allowed_tools: Optional[List[str]] = None) -> List[FunctionTool]:
         """
         Get all tool definitions in OpenAI format (functional + MCP)
         
@@ -76,7 +78,7 @@ class ToolRegistry:
             try:
                 mcp_tools = await self._mcp_manager.list_all_tools()
                 for tool in mcp_tools:
-                    tool_name = tool['function']['name']
+                    tool_name = tool.name
                     if allowed_tools is None or tool_name in allowed_tools:
                         all_definitions.append(tool)
             except Exception as e:
@@ -84,7 +86,7 @@ class ToolRegistry:
         
         return all_definitions
     
-    def get_all_definitions_sync(self) -> List[Dict[str, Any]]:
+    def get_all_definitions_sync(self) -> List[FunctionTool]:
         """
         Synchronously get all functional tool definitions (for backward compatibility)
         
@@ -156,7 +158,7 @@ def get_registry() -> ToolRegistry:
     return _global_registry
 
 
-def register_tool(definition: Dict[str, Any], function: Callable) -> None:
+def register_tool(definition: FunctionTool, function: Callable) -> None:
     """
     Register tool to global registry
     

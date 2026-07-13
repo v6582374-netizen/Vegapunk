@@ -13,6 +13,8 @@ from pathlib import Path
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport, SSETransport
 
+from ..models.runtime import FunctionTool
+
 logger = logging.getLogger(__name__)
 
 # Suppress SSE ping warnings from the underlying MCP SDK
@@ -254,7 +256,7 @@ class MCPManagerFastMCP:
             logger.error(f"Failed to register tools from {server_id}: {e}")
             raise
 
-    async def list_all_tools(self) -> List[Dict[str, Any]]:
+    async def list_all_tools(self) -> List[FunctionTool]:
         """
         Get tool definitions from all connected servers in OpenAI format.
 
@@ -271,16 +273,13 @@ class MCPManagerFastMCP:
                     # Convert MCP tool to OpenAI format
                     tool_name = f"mcp_{tool.name}"
 
-                    openai_tool = {
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "description": tool.description or "",
-                            "parameters": tool.inputSchema
-                        }
-                    }
-
-                    all_tools.append(openai_tool)
+                    all_tools.append(
+                        FunctionTool(
+                            name=tool_name,
+                            description=tool.description or "",
+                            parameters=tool.inputSchema,
+                        )
+                    )
 
             except Exception as e:
                 logger.error(f"Error listing tools from server {server_id}: {e}")

@@ -35,6 +35,8 @@ from .literature_search import PaperMetadata
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from ..models.runtime import FunctionTool
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ rec_url = "https://api.semanticscholar.org/recommendations/v1/papers/forpaper/"
 
 # Similarity threshold for tool relevance
 def get_related_tools(query: Union[str, List[str]], 
-                        tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                        tools: List[FunctionTool]) -> List[FunctionTool]:
     """
     根据查询（query）从工具列表（tools）中筛选相关的工具。
 
@@ -85,13 +87,12 @@ def get_related_tools(query: Union[str, List[str]],
     valid_tools = []
     for tool in tools:
         try:
-            func_data = tool['function']
-            name = func_data.get('name', '')
-            description = func_data.get('description', '')
+            name = tool.name
+            description = tool.description
             searchable_text = f"{name} {description}"
             corpus.append(searchable_text)
             valid_tools.append(tool)
-        except (AttributeError, TypeError, KeyError):
+        except (AttributeError, TypeError):
             continue
             
     if not valid_tools:

@@ -1,7 +1,7 @@
 # OpenRouter configuration for InternAgent.
 # Copy this file or pass it with --config to use OpenRouter as the LLM gateway.
 
-version: "1.0.0"
+version: "2.0.0"
 
 system:
   debug: false
@@ -12,9 +12,11 @@ models:
 
   openrouter:
     model_name: "moonshotai/kimi-k2.6:free"
+    api_mode: "chat_completions"
     api_key: ""      # Prefer OPENROUTER_API_KEY from the environment
     base_url: ""     # Defaults to https://openrouter.ai/api/v1
     temperature: 0.7
+    max_output_tokens: 4096
     timeout: 600
     app_name: "InternAgent"
     site_url: "https://discovery.intern-ai.org.cn"
@@ -121,7 +123,7 @@ agents:
   exp_analyze:
     model_provider: "default"
     temperature: 0.7
-    max_tokens: 4096
+    max_output_tokens: 4096
     timeout: 120
     use_llm_for_metric_direction: true
     use_llm_for_primary_metric: true
@@ -135,7 +137,7 @@ workflow:
   loop_mode: "incremental"
 
 sci_task:
-  scorer_model: "moonshotai/kimi-k2.6:free"
+  scorer_model: "gpt-5.6-sol"
   evaluation_mode: "llm_judge"
   default_launcher: "python code/experiment.py"
 

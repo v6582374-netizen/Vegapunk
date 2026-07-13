@@ -7,6 +7,12 @@ import unittest
 from pathlib import Path
 
 from internagent.paper_orchestra.data_types import DossierStageError
+from internagent.mas.models.runtime import (
+    ImageContent,
+    ModelRunRequest,
+    ModelRunResult,
+    OutputText,
+)
 from internagent.paper_orchestra.autoraters.agent_review import review_paper
 from internagent.paper_orchestra.methods.agents.literature_review_agent import (
     LiteratureReviewAgent,
@@ -30,7 +36,7 @@ class RecordingModel:
     ) -> None:
         self.json_calls: list[dict[str, object]] = []
         self.text_calls: list[dict[str, object]] = []
-        self.message_calls: list[dict[str, object]] = []
+        self.run_calls: list[ModelRunRequest] = []
         self.json_responses = list(json_responses or [])
         self.text_responses = list(text_responses or [])
         self.text_response = text_response or (
@@ -58,11 +64,23 @@ class RecordingModel:
             return self.text_responses.pop(0)
         return self.text_response
 
-    async def generate_with_messages(self, **kwargs: object) -> dict[str, object]:
-        self.message_calls.append(kwargs)
-        return {
-            "parsed_response": {"figure_and_tables": {}, "other_issues": []}
-        }
+    async def run(self, request: ModelRunRequest) -> ModelRunResult:
+        self.run_calls.append(request)
+        return ModelRunResult(
+            response_id="resp_layout",
+            status="completed",
+            model="recording-model",
+            items=(
+                OutputText(
+                    text='{"figure_and_tables": {}, "other_issues": []}'
+                ),
+            ),
+        )
+
+    def make_prompt_cache_key(
+        self, *, agent_role: str, stable_prefix: str
+    ) -> str:
+        return f"test:{agent_role}:{len(stable_prefix)}"
 
 
 class AgentTest(unittest.TestCase):
@@ -287,12 +305,12 @@ class AgentTest(unittest.TestCase):
                 review, {"figure_and_tables": {}, "other_issues": []}
             )
             self.assertIs(agent.model, model)
-            self.assertEqual(len(model.message_calls), 1)
-            messages = model.message_calls[0]["messages"]
-            image_part = messages[0]["content"][1]
-            self.assertEqual(image_part["type"], "image_url")
+            self.assertEqual(len(model.run_calls), 1)
+            request = model.run_calls[0]
+            image_part = request.input[0].content[1]
+            self.assertIsInstance(image_part, ImageContent)
             self.assertTrue(
-                image_part["image_url"]["url"].startswith("data:image/png;base64,")
+                image_part.image_url.startswith("data:image/png;base64,")
             )
 
     def test_content_refinement_accepts_only_non_degrading_revision(self) -> None:

@@ -1,6 +1,7 @@
 # tools/modify_mol.py
 
 import logging
+from internagent.mas.models.runtime import FunctionTool
 from typing import Dict, Any, List, Optional
 from rdkit import Chem
 from rdkit.Chem import AllChem, Descriptors
@@ -335,18 +336,16 @@ async def modify_mol(
 
 
 # Tool definition for agent
-MODIFY_MOL_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "modify_mol",
-        "description": (
+MODIFY_MOL_TOOL = FunctionTool(
+        name="modify_mol",
+        description=(
             "Generate modified variants of a molecule from its SMILES string. "
             "This tool performs structural modifications including: "
             "adding/removing functional groups, growing carbon chains, adding rings, and substituting atoms. "
             "Useful for exploring chemical space and generating novel molecular structures. "
             "Returns chemically valid SMILES strings that differ from the input."
         ),
-        "parameters": {
+        parameters={
             "type": "object",
             "properties": {
                 "smiles": {
@@ -376,6 +375,5 @@ MODIFY_MOL_TOOL = {
                 }
             },
             "required": ["smiles"]
-        }
-    }
-}
+        },
+)

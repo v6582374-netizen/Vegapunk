@@ -952,7 +952,7 @@ class ExperimentRunner:
                         with open(checklist_path) as _f:
                             checklist = json.load(_f)
 
-                sci_scorer_model = self.config.get('sci_task', {}).get('scorer_model', 'gpt-5.5')
+                sci_scorer_model = self.config.get('sci_task', {}).get('scorer_model', 'gpt-5.6-sol')
                 run_timeout = self.config.get('experiment', {}).get('run_timeout', None)
 
                 success = perform_experiments_claudecode(

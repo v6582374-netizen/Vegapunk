@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from internagent.mas.models.base_model import BaseModel
+from internagent.mas.models.runtime import (
+    ImageContent,
+    Message,
+    ModelRunRequest,
+    ReasoningConfig,
+    TextContent,
+)
 
 from ...autoraters.agent_review import REVIEW_AXES, review_paper
 from ...data_types import DossierStageError, RefinementResult
@@ -83,6 +90,9 @@ class ContentRefinementAgent:
                 prompt=json.dumps(payload, ensure_ascii=False, sort_keys=True),
                 system_prompt=CONTENT_REFINEMENT_PROMPT,
                 temperature=0,
+                agent_role="paper_orchestra_content_refiner",
+                reasoning=ReasoningConfig(mode="pro"),
+                background=True,
             )
             try:
                 candidate_latex = extract_fenced_content(response, "latex")
@@ -142,23 +152,27 @@ class ContentRefinementAgent:
     async def review_layout(
         self, *, image_paths: list[Path], guidelines: str
     ) -> dict[str, Any]:
-        content: list[dict[str, Any]] = [
-            {
-                "type": "text",
-                "text": f"{LAYOUT_REVIEW_PROMPT}\n\nGuidelines:\n{guidelines}",
-            }
-        ]
+        content = [TextContent(text=f"Guidelines:\n{guidelines}")]
         for image_path in image_paths:
             encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
             content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encoded}"},
-                }
+                ImageContent(
+                    image_url=f"data:image/png;base64,{encoded}",
+                    detail="original",
+                )
             )
-        response = await self.model.generate_with_messages(
-            messages=[{"role": "user", "content": content}],
-            temperature=0,
+        response = await self.model.run(
+            ModelRunRequest(
+                instructions=LAYOUT_REVIEW_PROMPT,
+                input=(Message(role="user", content=tuple(content)),),
+                response_format="json_object",
+                temperature=0,
+                reasoning=ReasoningConfig(mode="pro"),
+                prompt_cache_key=self.model.make_prompt_cache_key(
+                    agent_role="paper_orchestra_layout_review",
+                    stable_prefix=LAYOUT_REVIEW_PROMPT,
+                ),
+            )
         )
         try:
             review = extract_json_response(response)
@@ -201,6 +215,7 @@ class ContentRefinementAgent:
                 "Return the complete LaTeX in a latex code block."
             ),
             temperature=0,
+            agent_role="paper_orchestra_layout_corrector",
         )
         try:
             corrected = extract_fenced_content(response, "latex")

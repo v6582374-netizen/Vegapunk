@@ -1,7 +1,7 @@
 # Default configuration for InternAgent
 # This file is loaded when no specific config path is provided
 
-version: "1.0.0"
+version: "2.0.0"
 
 system:
   debug: false
@@ -12,15 +12,31 @@ models:
   default_provider: "openai"
 
   openai:
-    model_name: "gpt-5.5"
+    model_name: "gpt-5.6-sol"
+    api_mode: "responses"
     api_key: ""  # Set via environment variable OPENAI_API_KEY
     temperature: 0.7
+    max_output_tokens: 128000
+    timeout: 600
+    reasoning:
+      effort: "xhigh"
+      context: "auto"
+      mode: "standard"
+    store: true
+    prompt_cache:
+      mode: "explicit"
+      ttl: "30m"
+    background:
+      poll_interval_seconds: 2
+      timeout_seconds: 3600
 
   openrouter:
     model_name: "moonshotai/kimi-k2.6:free"
+    api_mode: "chat_completions"
     api_key: ""  # Set via environment variable OPENROUTER_API_KEY
     base_url: ""  # Defaults to https://openrouter.ai/api/v1
     temperature: 0.7
+    max_output_tokens: 4096
     app_name: "InternAgent"
     site_url: "https://discovery.intern-ai.org.cn"
 
@@ -156,7 +172,8 @@ agents:
   exp_analyze:
     model_provider: "default"
     temperature: 0.7
-    max_tokens: 4096
+    reasoning:
+      context: "current_turn"
     timeout: 120
     use_llm_for_metric_direction: true
     use_llm_for_primary_metric: true
@@ -172,7 +189,7 @@ workflow:
 
 # Sci Task Configuration (paper reproduction tasks)
 sci_task:
-  scorer_model: "gpt-5.5"          # LLM-as-judge model for checklist scoring
+  scorer_model: "gpt-5.6-sol"      # LLM-as-judge model for checklist scoring
   evaluation_mode: "llm_judge"    # Evaluation mode (llm_judge or none)
   default_launcher: "python code/experiment.py"  # Default launcher.sh command
 

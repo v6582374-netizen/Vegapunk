@@ -1,8 +1,10 @@
+import asyncio
 import json
 import os
 import re
 import sys
 import ast
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tqdm import tqdm
 from easydict import EasyDict
@@ -20,7 +22,7 @@ class SettingManager():
         self.chat_settings = EasyDict(
             model = model, 
             temperature = 0.6,
-            max_tokens = 3000,
+            max_output_tokens = 3000,
             num_proc = 8
         )
 
@@ -237,6 +239,53 @@ The detail analysis of class and function in this file
 </detailed_analysis>
 """
 
+
+def _wait_for_runtime(coroutine):
+    """Run an async Runtime call from this legacy synchronous worker boundary."""
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coroutine)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(asyncio.run, coroutine).result()
+
+
+def _generate_runtime_text(client_model, system_prompt, prompt, llm_settings):
+    """Route OpenAI-compatible code analysis through the project Model Runtime."""
+
+    model_name = client_model.lower()
+    if model_name.startswith("gpt"):
+        from ..models.openai_model import OpenAIModel
+
+        model = OpenAIModel(model_name="gpt-5.6-sol")
+    elif model_name.startswith("deepseek"):
+        from ..models.r1_model import R1Model
+
+        model = R1Model(
+            api_key=os.environ.get("DS_API_KEY")
+            or os.environ.get("DEEPSEEK_API_KEY"),
+            base_url=os.environ.get("DS_API_BASE_URL")
+            or os.environ.get("API_BASE"),
+            model_name=client_model,
+        )
+    elif model_name.startswith("intern"):
+        from ..models.s1_model import S1Model
+
+        model = S1Model(model_name=client_model)
+    else:
+        raise ValueError(f"No InternAgent Runtime adapter for {client_model}")
+
+    return _wait_for_runtime(
+        model.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=llm_settings.temperature,
+            max_output_tokens=llm_settings.max_output_tokens,
+            agent_role="codeview",
+        )
+    )
+
 class RepoViewer():
     def __init__(self, setting_manager, repo_structure):
         self.project_settings = setting_manager.project_settings
@@ -293,21 +342,15 @@ class RepoViewer():
         print(f"-- Generating document for file {file_path}")
         with open(file_path, 'r') as f:
             code = f.read()
-        if client_model.lower().startswith('gpt'):
-            try: 
-                import openai
-                print(f"Using OpenAI API with model {client_model}")
-                client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-                response = client.chat.completions.create(
-                    model=client_model,
-                    messages=[
-                        {"role": "system", "content": CODE_VIEW_SYS_PROMPT},
-                        {"role": "user", "content": CODE_VIEW_PROMPT.format(code=code)}
-                    ],
-                    temperature=llm_settings.temperature,
-                    max_tokens=llm_settings.max_tokens
+        if client_model.lower().startswith(('gpt', 'deepseek', 'intern')):
+            try:
+                print(f"Using InternAgent Model Runtime with {client_model}")
+                results = _generate_runtime_text(
+                    client_model,
+                    CODE_VIEW_SYS_PROMPT,
+                    CODE_VIEW_PROMPT.format(code=code),
+                    llm_settings,
                 )
-                results = response.choices[0].message.content
             except Exception as e:
                 print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
 
@@ -323,47 +366,9 @@ class RepoViewer():
                         {"role": "user", "content": CODE_VIEW_PROMPT.format(code=code)}
                     ],
                     temperature=llm_settings.temperature,
-                    max_tokens_to_sample=llm_settings.max_tokens
+                    max_tokens_to_sample=llm_settings.max_output_tokens
                 )
                 results = response.completions[0].text
-            except Exception as e:
-                print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
-
-        elif client_model.lower().startswith('deepseek'):
-            try:
-                import openai
-                print(f"Using DeepSeek model: {llm_settings.model}")
-                client_model = llm_settings.model
-                client = openai.OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url=os.environ.get("API_BASE"))
-                response = client.chat.completions.create(
-                    model=client_model,
-                    messages=[
-                        {"role": "system", "content": CODE_VIEW_SYS_PROMPT},
-                        {"role": "user", "content": CODE_VIEW_PROMPT.format(code=code)}
-                    ],
-                    temperature=llm_settings.temperature,
-                    max_tokens=llm_settings.max_tokens
-                )
-                results = response.choices[0].message.content
-            except Exception as e:
-                print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
-        
-        elif client_model.lower().startswith('deepseek'):
-            try:
-                import openai
-                print(f"Using InternS1 model: {llm_settings.model}")
-                client_model = llm_settings.model
-                client = openai.OpenAI(api_key=os.environ.get("INS1_API_KEY"), base_url=os.environ.get("INS1_API_BASE_URL"))
-                response = client.chat.completions.create(
-                    model=client_model,
-                    messages=[
-                        {"role": "system", "content": CODE_VIEW_SYS_PROMPT},
-                        {"role": "user", "content": CODE_VIEW_PROMPT.format(code=code)}
-                    ],
-                    temperature=llm_settings.temperature,
-                    max_tokens=llm_settings.max_tokens
-                )
-                results = response.choices[0].message.content
             except Exception as e:
                 print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
         try:
@@ -437,21 +442,15 @@ A list of key files that are critical to understanding or implementing the funct
 """
 
 def get_repo_summary(client_model, repo_file_tree, llm_settings):
-    if client_model.lower().startswith('gpt'):
-        try: 
-            import openai
-            print(f"Using OpenAI API with model {client_model}")
-            client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-            response = client.chat.completions.create(
-                model=client_model,
-                messages=[
-                    {"role": "system", "content": REPO_SUMMARY_SYS_PROMPT},
-                    {"role": "user", "content": REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree)}
-                ],
-                temperature=llm_settings.temperature,
-                max_tokens=llm_settings.max_tokens
+    if client_model.lower().startswith(('gpt', 'deepseek', 'intern')):
+        try:
+            print(f"Using InternAgent Model Runtime with {client_model}")
+            return _generate_runtime_text(
+                client_model,
+                REPO_SUMMARY_SYS_PROMPT,
+                REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree),
+                llm_settings,
             )
-            return response.choices[0].message.content
         except Exception as e:
             print(f"Error during generate summary for repo using {client_model}.\n{e}")
 
@@ -467,47 +466,9 @@ def get_repo_summary(client_model, repo_file_tree, llm_settings):
                     {"role": "user", "content": REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree)}
                 ],
                 temperature=llm_settings.temperature,
-                max_tokens_to_sample=llm_settings.max_tokens
+                max_tokens_to_sample=llm_settings.max_output_tokens
             )
             return response.completions[0].text
-        except Exception as e:
-            print(f"Error during generate summary for repo using {client_model}.\n{e}")
-
-    elif client_model.lower().startswith('deepseek'):
-        try:
-            import openai
-            print(f"Using DeepSeek model: {llm_settings.model}")
-            client_model = llm_settings.model
-            client = openai.OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url=os.environ.get("API_BASE"))
-            response = client.chat.completions.create(
-                model=client_model,
-                messages=[
-                    {"role": "system", "content": REPO_SUMMARY_SYS_PROMPT},
-                    {"role": "user", "content": REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree)}
-                ],
-                temperature=llm_settings.temperature,
-                max_tokens=llm_settings.max_tokens
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"Error during generate summary for repo using {client_model}.\n{e}")
-
-    elif client_model.lower().startswith('intern'):
-        try:
-            import openai
-            print(f"Using InternS1 model: {llm_settings.model}")
-            client_model = llm_settings.model
-            client = openai.OpenAI(api_key=os.environ.get("INS1_API_KEY"), base_url=os.environ.get("INS1_API_BASE_URL"))
-            response = client.chat.completions.create(
-                model=client_model,
-                messages=[
-                    {"role": "system", "content": REPO_SUMMARY_SYS_PROMPT},
-                    {"role": "user", "content": REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree)}
-                ],
-                temperature=llm_settings.temperature,
-                max_tokens=llm_settings.max_tokens
-            )
-            return response.choices[0].message.content
         except Exception as e:
             print(f"Error during generate summary for repo using {client_model}.\n{e}")
 
@@ -643,4 +604,3 @@ def get_repo_structure_claudecode(project_path, output_dir, output_name, proxy_s
 
 
     
-

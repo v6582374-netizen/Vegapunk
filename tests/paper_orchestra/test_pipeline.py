@@ -158,7 +158,7 @@ method\_b 与 method\_c 形成并列集合，因 exact\_primary\_metric\_tie 随
 
             self.assertEqual(len(model.json_calls), 2)
             self.assertEqual(len(model.text_calls), 2)
-            self.assertEqual(len(model.message_calls), 1)
+            self.assertEqual(len(model.run_calls), 1)
             self.assertEqual(compile_calls, ["compile_initial_draft", "compile_final"])
             self.assertEqual(result.final_tex.name, "final_refined_paper.tex")
             self.assertEqual(result.final_pdf.name, "final_paper.pdf")
@@ -279,4 +279,4 @@ method\_b 与 method\_c 形成并列集合，因 exact\_primary\_metric\_tie 随
 
             self.assertEqual(len(second_model.text_calls), 0)
             self.assertEqual(len(second_model.json_calls), 0)
-            self.assertEqual(len(second_model.message_calls), 1)
+            self.assertEqual(len(second_model.run_calls), 1)

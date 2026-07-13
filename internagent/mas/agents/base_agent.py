@@ -20,6 +20,8 @@ import json
 from typing import Dict, Any, Optional, List, Union, Callable
 import asyncio
 from ..models.base_model import BaseModel
+from ..models.runtime import FunctionTool
+from .tool_loop import ModelToolLoop
 
 logger = logging.getLogger(__name__)
 
@@ -309,13 +311,15 @@ class BaseAgent(abc.ABC):
                         prompt=prompt,
                         schema=schema,
                         system_prompt=system_prompt,
-                        temperature=temperature
+                        temperature=temperature,
+                        agent_role=self.name,
                     )
                 else:
                     return await self.model.generate(
                         prompt=prompt,
                         system_prompt=system_prompt,
-                        temperature=temperature
+                        temperature=temperature,
+                        agent_role=self.name,
                     )
                     
             except Exception as e:
@@ -332,7 +336,7 @@ class BaseAgent(abc.ABC):
             self,
             system_prompt: str,
             prompt: str,
-            tools: List[Dict[str, Any]],
+            tools: List[FunctionTool],
             temperature: float = 0.7,
             max_iterations: int = 10,
             max_tool_calls: int = 20
@@ -363,120 +367,35 @@ class BaseAgent(abc.ABC):
                 - total_tool_calls: Total number of tool calls made
                 - messages: Complete message history
         """
-        # Initialize conversation with sys_prompt and user message
-        # messages = [{"role": "user", "content": prompt}]
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
-        tool_calls_made = []
-        iteration = 0
-        total_tool_calls = 0
-        
-        while iteration < max_iterations:
-            iteration += 1
-            logger.info(f"Iteration {iteration}/{max_iterations}, tool calls so far: {total_tool_calls}/{max_tool_calls}")
-            
-            # Call model with current message history
-            response = await self.model.generate_with_messages(
-                messages=messages,
-                tools=tools,
-                temperature=temperature
-            )
-            
-            assistant_message = response["choices"][0]["message"]
-            
-            # Add assistant response to message history
-            messages.append(assistant_message)
-            
-            # Check if model made any tool calls
-            tool_calls = assistant_message.get("tool_calls")
-            
-            if not tool_calls:
-                # No tool calls - model provided final answer
-                final_content = assistant_message.get("content", "")
-                logger.info(f"Final answer received")
-                
-                return {
-                    "content": final_content,
-                    "tool_calls_made": tool_calls_made,
-                    "iterations": iteration,
-                    "total_tool_calls": total_tool_calls,
-                    "messages": messages
-                }
-            
-            # Check if we would exceed tool call limit
-            if total_tool_calls + len(tool_calls) > max_tool_calls:
-                logger.warning(
-                    f"Would exceed max tool calls limit. "
-                    f"Current: {total_tool_calls}, Requested: {len(tool_calls)}, "
-                    f"Max: {max_tool_calls}"
-                )
-                break
-            
-            # Execute all tool calls requested by the model
-            for tool_call in tool_calls:
-                tool_call_id = tool_call["id"]
-                function_name = tool_call["function"]["name"]
-                function_args = json.loads(tool_call["function"]["arguments"])
-                logger.info(f"Executing tool '{function_name}' with args: {function_args}")
-                # Record tool call for history
-                tool_calls_made.append({
-                    "id": tool_call_id,
-                    "function": {
-                        "name": function_name,
-                        "arguments": function_args
-                    }
-                })
-                
-                total_tool_calls += 1
-                
-                try:
-                    # Execute the tool
-                    tool_result = await self._execute_tool(function_name, function_args)
-                    
-                    # Add tool result to message history so model can use it
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "name": function_name,
-                        "content": json.dumps(tool_result, ensure_ascii=False)
-                    })
-                    
-                    logger.info(f"Tool '{function_name}' executed successfully (call {total_tool_calls}/{max_tool_calls})")
-                    
-                except Exception as e:
-                    logger.error(f"Tool execution failed: {e}")
-                    # Send error back to model so it knows the tool failed
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "name": function_name,
-                        "content": json.dumps({"error": str(e)}, ensure_ascii=False)
-                    })
-            
-            # Continue loop to let model process tool results
-            logger.info(f"Sending {len(tool_calls)} tool result(s) back to model...")
-        
-        # Reached limit without final answer
-        if iteration >= max_iterations:
-            logger.warning(f"Reached max iterations ({max_iterations})")
-        if total_tool_calls >= max_tool_calls:
-            logger.warning(f"Reached max tool calls ({max_tool_calls})")
-        
-        # Find last assistant message with content
-        last_assistant_message = None
-        for msg in reversed(messages):
-            if msg["role"] == "assistant" and msg.get("content"):
-                last_assistant_message = msg["content"]
-                break
-        
+        result = await ModelToolLoop(
+            model=self.model,
+            execute_tool=self._execute_tool,
+        ).run(
+            instructions=system_prompt,
+            prompt=prompt,
+            tools=tuple(tools),
+            temperature=temperature,
+            max_iterations=max_iterations,
+            max_tool_calls=max_tool_calls,
+            prompt_cache_key=self.model.make_prompt_cache_key(
+                agent_role=self.name,
+                stable_prefix=system_prompt,
+            ),
+        )
         return {
-            "content": last_assistant_message or "Reached limits without final answer.",
-            "tool_calls_made": tool_calls_made,
-            "iterations": iteration,
-            "total_tool_calls": total_tool_calls,
-            "messages": messages
+            "content": result.content,
+            "tool_calls_made": [
+                {
+                    "call_id": call.call_id,
+                    "name": call.name,
+                    "arguments": dict(call.arguments),
+                    "output": call.output,
+                    "error": call.error,
+                }
+                for call in result.tool_calls
+            ],
+            "iterations": result.iterations,
+            "total_tool_calls": result.total_tool_calls,
         }
 
     async def _execute_tool(self, function_name: str, function_args: Dict[str, Any]) -> Any:
@@ -501,7 +420,7 @@ class BaseAgent(abc.ABC):
             f"Override _execute_tool() in your agent subclass to handle tool calls."
         )
 
-    def register_tool(self, tool_definition: Dict[str, Any]):
+    def register_tool(self, tool_definition: FunctionTool):
         """
         Register a tool for this agent to use.
         
@@ -511,9 +430,11 @@ class BaseAgent(abc.ABC):
         if not hasattr(self, '_tools'):
             self._tools = []
         self._tools.append(tool_definition)
-        logger.info(f"Registered tool: {tool_definition['function']['name']} for agent {self.name}")
+        logger.info(
+            "Registered tool: %s for agent %s", tool_definition.name, self.name
+        )
 
-    def get_registered_tools(self) -> List[Dict[str, Any]]:
+    def get_registered_tools(self) -> List[FunctionTool]:
         """
         Get all registered tools for this agent.
         

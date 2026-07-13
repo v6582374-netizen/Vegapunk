@@ -10,6 +10,8 @@ from numbers import Real
 from pathlib import Path
 from typing import Any, NoReturn
 
+from internagent.mas.models.runtime import ReasoningConfig
+
 from .data_types import DossierStageError
 from .utils.experiment_runs import find_current_valid_run
 from .utils.path_utils import resolve_launch_directory
@@ -718,6 +720,8 @@ async def _resolve_criterion(
                 "the supplied task prompt and reported metric names."
             ),
             temperature=0,
+            agent_role="paper_orchestra_criterion_inference",
+            reasoning=ReasoningConfig(context="current_turn"),
         )
     except Exception as cause:
         error = DossierStageError(
