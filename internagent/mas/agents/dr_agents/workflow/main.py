@@ -51,7 +51,17 @@ class Workflow(BaseAgent):
         
         # 获取模型配置
         model_config = self.config.get('model', {})
-        default_model = model_config.get('default_model', 'gpt-5.5')
+        default_model = model_config.get('default_model', 'gpt-5.6-sol')
+        runtime_config = self.config.get('runtime_model', {})
+
+        def runtime_policy(role, context="current_turn", mode="standard", background=False):
+            return {
+                "runtime_config": runtime_config,
+                "agent_role": role,
+                "reasoning_context": context,
+                "reasoning_mode": mode,
+                "background": background,
+            }
         
         # 处理 global_execution_model 配置（可能是字典或字符串）
         execution_model_config = model_config.get('global_execution_model')
@@ -67,24 +77,36 @@ class Workflow(BaseAgent):
         # 使用配置初始化各个Agent，只传递各自需要的配置部分
         self.global_planner = GlobalPlannerAgent(
             model=model_config.get('global_planner_model') or default_model,
-            config=self.config.get('global_planner', {})
+            config=self.config.get('global_planner', {}),
+            **runtime_policy("dr_global_planner")
         )
         self.global_execution_agent = GlobalExecutionAgent(
             model=execution_model,
             summarizer_model=summarizer_model,
-            config=self.config.get('global_execution', {})
+            config=self.config.get('global_execution', {}),
+            **runtime_policy("dr_execution", context="all_turns")
         )
         self.coordinator_agent = CoordinatorAgent(
             model=model_config.get('coordinator_model') or default_model,
-            config=self.config.get('coordinator', {})
+            config=self.config.get('coordinator', {}),
+            **runtime_policy("dr_coordinator", context="all_turns")
         )
         self.synthesizer_agent = SynthesizerAgent(
             model=model_config.get('synthesizer_model') or default_model,
-            config=self.config.get('synthesizer', {})
+            config=self.config.get('synthesizer', {}),
+            **runtime_policy(
+                "dr_synthesizer",
+                context="all_turns",
+                mode="pro",
+                background=True,
+            )
         )
         
         # 初始化用于查询分析的模型实例
-        self.analysis_model = get_model(default_model)
+        self.analysis_model = get_model(
+            default_model,
+            **runtime_policy("dr_query_analysis"),
+        )
     
     def _save_synthesizer_input(self, task: str, synthesizer_input: dict, task_id: str = None, timestamp: str = None):
         """

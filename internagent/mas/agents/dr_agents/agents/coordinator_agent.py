@@ -277,7 +277,7 @@ def main():
     """
     主函数
     """
-    test_agent = CoordinatorAgent(model="gpt-5.5")
+    test_agent = CoordinatorAgent(model="gpt-5.6-sol")
 
     graph_dict = {'nodes': [{'node_id': 'n1', 'status': 'executed', 'task': 'Find the first place mentioned by name in the Book of Esther (NIV)', 'type': 'search', 'final_response': 'In Esther 1:1 (NIV), India is the first place mentioned by name in the Book of Esther; the original question was specialized to: "In April 1977, who was the Prime Minister of India?"', 'success': True, 'reasoning': ''}, {'node_id': 'n2a', 'status': 'pending', 'task': 'Search for the historical region corresponding to the place identified in n1', 'type': 'search', 'final_response': '', 'success': False, 'reasoning': ''}, {'node_id': 'n2b', 'status': 'pending', 'task': 'Determine the modern country of the historical region found in n2a', 'type': 'solve', 'final_response': '', 'success': False, 'reasoning': ''}, {'node_id': 'n3', 'status': 'pending', 'task': 'Find who was the Prime Minister of the determined country in April 1977', 'type': 'search', 'final_response': '', 'success': False, 'reasoning': ''}, {'node_id': 'task', 'status': 'pending', 'task': 'In April of 1977, who was the Prime Minister of the first place mentioned by name in the Book of Esther (in the New International Version)?', 'type': 'answer', 'final_response': '', 'success': False, 'reasoning': ''}], 'edges': [{'from': 'n1', 'to': 'n2a', 'relationship': 'provides place name'}, {'from': 'n2a', 'to': 'n2b', 'relationship': 'provides historical region'}, {'from': 'n2b', 'to': 'n3', 'relationship': 'provides country for PM search'}, {'from': 'n3', 'to': 'task', 'relationship': 'supplies answer'}]}
     graph = DirectedGraph.from_dict(graph_dict) 

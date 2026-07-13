@@ -13,6 +13,14 @@ from tools import get_tool_manager
 from utils.reference_manager import ReferenceManager
 from utils.logger import get_logger
 from utils.prompt_loader import load_prompt
+from internagent.mas.models.runtime import (
+    FunctionCallOutput,
+    FunctionTool,
+    Message,
+    ModelRunRequest,
+    ModelRunResult,
+    ReasoningConfig,
+)
 
 
 class ExecutionAgent(BaseAgent):
@@ -116,57 +124,29 @@ class ExecutionAgent(BaseAgent):
         Returns:
             执行结果字典
         """
-        messages = input_data.get("messages", [])
-        
-        # 从tool_map获取工具并转换为OpenAI格式
-        openai_tools = self._convert_tool_map_to_openai_format()
-        
         try:
-            
-            # 清理和验证消息格式
-            cleaned_messages = []
-            for msg in messages:
-                cleaned_msg = self._validate_and_clean_message(msg)
-                cleaned_messages.append(cleaned_msg)
-                # self._logger.info(f"清理后消息: {cleaned_msg}")
-            
-            # 调用模型进行工具选择
-            response = self.model_instance.generate_with_tools(
-                messages=cleaned_messages,
-                tools=openai_tools,
-            )
-            # self._logger.debug("模型返回结果: ", response)
-            # 解析响应
-            choice = response["choices"][0]
-            message = choice["message"]
-            
-            # 检查是否有工具调用
-            if "tool_calls" in message and message["tool_calls"]:
-                self._logger.info(f"检测到 {len(message['tool_calls'])} 个工具调用")
-                # 执行工具调用
-                tool_results = []
-                for i, tool_call in enumerate(message["tool_calls"]):
-                    # 安全地获取工具名称
-                    tool_name = self._get_tool_name_from_call(tool_call)
-                    self._logger.info(f"执行工具调用 {i+1}/{len(message['tool_calls'])}: {tool_name}")
-                    result = self._execute_tool_call_from_model(tool_call)
-                    tool_results.append(result)
-                
-                # 不在这里修改messages，让调用方处理
-                # 工具调用结果已经包含在tool_results中
-                
-                # 如果需要，可以继续对话
-                return {
-                    "tool_calls": tool_results,
-                    "assistant_message": message  # 添加完整的助手消息
-                }
-            else:
-                # 没有工具调用，直接返回文本响应
-                self._logger.info("没有检测到工具调用，返回文本响应")
-                return {
-                    "tool_calls": [],
-                    "assistant_message": message
-                }
+            request = input_data.get("request")
+            if not isinstance(request, ModelRunRequest):
+                raise TypeError("execute_one_step requires a ModelRunRequest")
+            response = self.model_instance.run(request)
+            tool_results = []
+            for index, tool_call in enumerate(response.tool_calls):
+                self._logger.info(
+                    f"执行工具调用 {index + 1}/{len(response.tool_calls)}: "
+                    f"{tool_call.name}"
+                )
+                result = self._execute_single_tool_call(
+                    {
+                        "name": tool_call.name,
+                        "arguments": dict(tool_call.arguments),
+                    }
+                )
+                result["call_id"] = tool_call.call_id
+                tool_results.append(result)
+            return {
+                "tool_calls": tool_results,
+                "model_result": response,
+            }
                 
         except Exception as e:
             self._logger.error(f"Model execution failed: {e}")
@@ -214,7 +194,13 @@ class ExecutionAgent(BaseAgent):
                 knowledge_info=json.dumps(knowledge_info, ensure_ascii=False, indent=2) if knowledge_info else "{}",
                 file_path=file_path
             )
-            messages = [{"role": "user", "content": formatted_prompt}]
+            tools = self._convert_tool_map_to_runtime_tools()
+            request = ModelRunRequest(
+                input=(Message.user(formatted_prompt),),
+                tools=tools,
+                reasoning=ReasoningConfig(context="all_turns"),
+            )
+            execution_trace = []
             tool_call_count = 0
             max_tool_calls = self.max_tool_calls  # 防止无限循环
             
@@ -222,64 +208,53 @@ class ExecutionAgent(BaseAgent):
                 self._logger.info(f"执行工具调用循环 {tool_call_count + 1}/{max_tool_calls}")
                 
                 # 调用执行代理
-                execution_input = {
-                    "messages": messages
-                }
+                execution_input = {"request": request}
                 
                 result = self.execute_one_step(execution_input)
                 
                 
-                # 检查是否有工具调用
-                if result.get("tool_calls") and len(result["tool_calls"]) > 0:
-                    # self._logger.info(f"执行代理返回结果: {result.get('tool_calls', [])}")
-                    
-                    # 添加助手消息到历史（包含工具调用）
-                    if "assistant_message" in result:
-                        assistant_msg = result["assistant_message"]
-                        # 将助手消息转换为可序列化的格式
-                        serializable_assistant_msg = self._convert_assistant_message_to_serializable(assistant_msg)
-                        self._logger.info(f"添加助手消息: {serializable_assistant_msg}")
-                        messages.append(serializable_assistant_msg)
-                    else:
-                        assistant_message = {
-                            "role": "assistant",
-                            "content": result.get("final_response", "")
-                        }
-                        messages.append(assistant_message)
-                    
-                    # 添加工具调用结果到消息历史
-                    if "tool_calls" in result and result["tool_calls"]:
-                        # 获取助手消息中的工具调用ID
-                        assistant_tool_call_ids = []
-                        if "assistant_message" in result and "tool_calls" in result["assistant_message"]:
-                            for tool_call in result["assistant_message"]["tool_calls"]:
-                                tool_call_id = self._get_tool_call_id(tool_call)
-                                assistant_tool_call_ids.append(tool_call_id)
-                        
-                        # 使用工具调用结果中的ID
-                        for i, tool_result in enumerate(result["tool_calls"]):
-                            content = str(tool_result.get("result", "")) if tool_result.get("success") else f"Error: {tool_result.get('error', 'Unknown error')}"
-                            
-                            # 使用助手消息中的工具调用ID，如果没有则生成一个
-                            if i < len(assistant_tool_call_ids):
-                                tool_call_id = assistant_tool_call_ids[i]
-                            else:
-                                tool_name = tool_result.get("tool_name", f"tool_{i}")
-                                tool_call_id = f"call_{tool_call_count}_{i}_{tool_name}"
-                            
-                            tool_message = {
-                                "role": "tool",
-                                "tool_call_id": tool_call_id,
-                                "content": content
+                response = result.get("model_result")
+                if not isinstance(response, ModelRunResult):
+                    break
+                tool_results = result.get("tool_calls", [])
+                execution_trace.append(
+                    {
+                        "response_id": response.response_id,
+                        "content": response.text,
+                        "tool_calls": [
+                            {
+                                "call_id": call.call_id,
+                                "name": call.name,
+                                "arguments": dict(call.arguments),
                             }
-                            messages.append(tool_message)
-                            self._logger.info(f"添加工具消息: {tool_message}")
-                    # 注意：这里不需要else分支，因为如果result["tool_calls"]为空，就不会进入上面的if分支
-                    
-                    tool_call_count += 1
+                            for call in response.tool_calls
+                        ],
+                        "tool_results": tool_results,
+                    }
+                )
+
+                if tool_results:
+                    tool_call_count += len(tool_results)
+                    outputs = tuple(
+                        FunctionCallOutput(
+                            call_id=tool_result["call_id"],
+                            output=(
+                                tool_result.get("result")
+                                if tool_result.get("success")
+                                else {"error": tool_result.get("error", "Unknown error")}
+                            ),
+                        )
+                        for tool_result in tool_results
+                    )
+                    request = ModelRunRequest(
+                        input=outputs,
+                        tools=tools,
+                        previous_response_id=response.response_id,
+                        reasoning=ReasoningConfig(context="all_turns"),
+                    )
                     
                     # 如果工具调用成功，继续循环
-                    if any(tc.get("success", False) for tc in result["tool_calls"]):
+                    if any(tc.get("success", False) for tc in tool_results):
                         # self._logger.info("工具调用成功，继续循环")    
                         continue
                     else:
@@ -293,7 +268,9 @@ class ExecutionAgent(BaseAgent):
                     break
             
             # 生成最终响应
-            final_result = self._generate_subtask_response(subtask, messages, context)
+            final_result = self._generate_subtask_response(
+                subtask, execution_trace, context
+            )
             try:
                 # 尝试提取JSON（可能在文本中间或有额外内容）
                 parsed_result = self._extract_and_parse_json(final_result)
@@ -315,7 +292,7 @@ class ExecutionAgent(BaseAgent):
                 "completed": True,
                 "tool_calls": tool_call_count,
                 "success": success,
-                "messages": messages,
+                "execution_trace": execution_trace,
                 "summary": summary
             }
             
@@ -605,276 +582,20 @@ class ExecutionAgent(BaseAgent):
         """
         return self.tool_map.get(tool_name)
     
-    def _convert_tool_map_to_openai_format(self) -> List[Dict[str, Any]]:
-        """
-        将tool_map中的工具转换为OpenAI格式
-        
-        Returns:
-            OpenAI格式的工具列表
-        """
-        openai_tools = []
-        for tool_name, tool_config in self.tool_map.items():
-            openai_tool = {
-                "type": "function",
-                "function": {
-                    "name": tool_config["name"],
-                    "description": tool_config.get("description", ""),
-                    "parameters": {
-                        "type": "object",
-                        "properties": tool_config.get("parameters", {}),
-                        "required": tool_config.get("required_parameters", [])
-                    }
-                }
-            }
-            openai_tools.append(openai_tool)
-        
-        return openai_tools
-    
-    def _convert_tools_to_openai_format(self) -> List[Dict[str, Any]]:
-        """
-        将工具转换为OpenAI格式（保留原方法以兼容）
-        
-        Returns:
-            OpenAI格式的工具列表
-        """
-        openai_tools = []
-        for tool in self.tools:
-            if isinstance(tool, dict) and 'name' in tool:
-                openai_tool = {
-                    "type": "function",
-                    "function": {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "required": tool.get("required_parameters", [])
-                        }
-                    }
-                }
-                
-                # 添加参数属性
-                if "parameters" in tool:
-                    openai_tool["function"]["parameters"]["properties"] = tool["parameters"]
-                
-                openai_tools.append(openai_tool)
-        
-        return openai_tools
-    
-    def _get_tool_name_from_call(self, tool_call: Any) -> str:
-        """
-        从工具调用对象中安全地获取工具名称
-        
-        Args:
-            tool_call: 工具调用对象（可能是字典或ChatCompletionMessageToolCall对象）
-            
-        Returns:
-            工具名称
-        """
-        try:
-            if hasattr(tool_call, 'function') and hasattr(tool_call.function, 'name'):
-                return tool_call.function.name
-            elif isinstance(tool_call, dict) and 'function' in tool_call:
-                return tool_call['function'].get('name', 'unknown')
-            else:
-                return 'unknown'
-        except Exception:
-            return 'unknown'
-    
-    def _get_tool_call_id(self, tool_call: Any) -> str:
-        """
-        从工具调用对象中安全地获取工具调用ID
-        
-        Args:
-            tool_call: 工具调用对象（可能是字典或ChatCompletionMessageToolCall对象）
-            
-        Returns:
-            工具调用ID
-        """
-        try:
-            if hasattr(tool_call, 'id'):
-                return tool_call.id
-            elif isinstance(tool_call, dict) and 'id' in tool_call:
-                return tool_call['id']
-            else:
-                return f"call_{id(tool_call)}"  # 生成一个唯一的ID
-        except Exception:
-            return f"call_{id(tool_call)}"  # 生成一个唯一的ID
-    
-    def _validate_and_clean_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        验证和清理消息格式，确保符合OpenAI API要求
-        
-        Args:
-            message: 消息字典
-            
-        Returns:
-            清理后的消息字典
-        """
-        cleaned_message = {}
-        
-        # 必需的字段
-        if 'role' not in message:
-            self._logger.warning("消息缺少role字段，设置为assistant")
-            cleaned_message['role'] = 'assistant'
-        else:
-            cleaned_message['role'] = message['role']
-        
-        # content字段（可选，但如果有tool_calls则不应该有content）
-        if 'content' in message and message['content'] is not None:
-            # 确保content是字符串
-            if not isinstance(message['content'], str):
-                cleaned_message['content'] = str(message['content'])
-            else:
-                cleaned_message['content'] = message['content']
-        elif 'tool_calls' not in message:
-            # 如果没有tool_calls，确保有content
-            cleaned_message['content'] = message.get('content', '')
-        
-        # tool_calls字段
-        if 'tool_calls' in message and message['tool_calls']:
-            cleaned_message['tool_calls'] = []
-            for tool_call in message['tool_calls']:
-                if isinstance(tool_call, dict):
-                    cleaned_tool_call = {
-                        'id': tool_call.get('id', f"call_{id(tool_call)}"),
-                        'type': tool_call.get('type', 'function'),
-                        'function': {
-                            'name': tool_call.get('function', {}).get('name', 'unknown'),
-                            'arguments': tool_call.get('function', {}).get('arguments', '{}')
-                        }
-                    }
-                    cleaned_message['tool_calls'].append(cleaned_tool_call)
-        
-        # tool_call_id字段（用于tool角色消息）
-        if 'tool_call_id' in message:
-            cleaned_message['tool_call_id'] = str(message['tool_call_id'])
-        
-        return cleaned_message
-    
-    def _convert_assistant_message_to_serializable(self, assistant_msg: Any) -> Dict[str, Any]:
-        """
-        将助手消息转换为可序列化的格式
-        
-        Args:
-            assistant_msg: 助手消息（可能包含ChatCompletionMessageToolCall对象）
-            
-        Returns:
-            可序列化的助手消息字典
-        """
-        try:
-            if isinstance(assistant_msg, dict):
-                # 如果已经是字典，直接复制，但确保有role字段
-                serializable_msg = assistant_msg.copy()
-                if 'role' not in serializable_msg:
-                    serializable_msg['role'] = 'assistant'
-            else:
-                # 如果是对象，转换为字典
-                serializable_msg = {
-                    "role": getattr(assistant_msg, 'role', 'assistant'),
-                    "content": getattr(assistant_msg, 'content', '')
-                }
-            
-            # 处理工具调用
-            if hasattr(assistant_msg, 'tool_calls') and assistant_msg.tool_calls:
-                serializable_msg["tool_calls"] = []
-                for tool_call in assistant_msg.tool_calls:
-                    serializable_tool_call = {
-                        "id": self._get_tool_call_id(tool_call),
-                        "type": "function",
-                        "function": {
-                            "name": self._get_tool_name_from_call(tool_call),
-                            "arguments": getattr(tool_call.function, 'arguments', '{}')
-                        }
-                    }
-                    serializable_msg["tool_calls"].append(serializable_tool_call)
-            elif isinstance(assistant_msg, dict) and "tool_calls" in assistant_msg:
-                # 如果tool_calls已经是字典格式，确保它们是可序列化的
-                serializable_msg["tool_calls"] = []
-                for tool_call in assistant_msg["tool_calls"]:
-                    if hasattr(tool_call, 'function'):
-                        # 对象格式
-                        serializable_tool_call = {
-                            "id": self._get_tool_call_id(tool_call),
-                            "type": "function",
-                            "function": {
-                                "name": self._get_tool_name_from_call(tool_call),
-                                "arguments": getattr(tool_call.function, 'arguments', '{}')
-                            }
-                        }
-                    else:
-                        # 字典格式
-                        serializable_tool_call = tool_call.copy()
-                    serializable_msg["tool_calls"].append(serializable_tool_call)
-            
-            return serializable_msg
-            
-        except Exception as e:
-            self._logger.error(f"转换助手消息失败: {e}")
-            # 返回一个基本的可序列化消息
-            return {
-                "role": "assistant",
-                "content": str(assistant_msg) if assistant_msg else ""
-            }
-    
-    def _execute_tool_call_from_model(self, tool_call: Any) -> Dict[str, Any]:
-        """
-        执行来自模型的工具调用
-        
-        Args:
-            tool_call: 模型返回的工具调用（可能是字典或ChatCompletionMessageToolCall对象）
-            context: 上下文信息
-            
-        Returns:
-            工具调用结果
-        """
-        try:
-            # 处理不同类型的工具调用对象
-            if hasattr(tool_call, 'function'):
-                # ChatCompletionMessageToolCall对象
-                function = tool_call.function
-                tool_name = function.name
-                arguments = function.arguments
-            elif isinstance(tool_call, dict) and 'function' in tool_call:
-                # 字典格式
-                function = tool_call["function"]
-                tool_name = function["name"]
-                arguments = function["arguments"]
-            else:
-                return {
-                    "tool_name": "unknown",
-                    "success": False,
-                    "error": f"Unsupported tool_call format: {type(tool_call)}",
-                    "result": None
-                }
-            
-            # 解析参数
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except json.JSONDecodeError as e:
-                    return {
-                        "tool_name": tool_name,
-                        "success": False,
-                        "error": f"Invalid JSON arguments: {e}",
-                        "result": None
-                    }
-            
-            # 构建工具调用格式
-            tool_call_data = {
-                "name": tool_name,
-                "arguments": arguments
-            }
-            
-            return self._execute_single_tool_call(tool_call_data)
-            
-        except Exception as e:
-            return {
-                "tool_name": "unknown",
-                "success": False,
-                "error": f"Error processing tool_call: {str(e)}",
-                "result": None
-            }
+    def _convert_tool_map_to_runtime_tools(self) -> tuple[FunctionTool, ...]:
+        """Convert DR tool metadata once at the Runtime boundary."""
+        return tuple(
+            FunctionTool(
+                name=tool_config["name"],
+                description=tool_config.get("description", ""),
+                parameters={
+                    "type": "object",
+                    "properties": tool_config.get("parameters", {}),
+                    "required": tool_config.get("required_parameters", []),
+                },
+            )
+            for tool_config in self.tool_map.values()
+        )
     
     def _is_search_tool(self, tool_name: str) -> bool:
         """

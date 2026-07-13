@@ -6,8 +6,10 @@ the DR workflow system to execute complex discovery research tasks.
 """
 
 import logging
+import asyncio
 import sys
 import os
+import copy
 from typing import Dict, Any
 
 from .base_agent import BaseAgent, AgentExecutionError
@@ -137,6 +139,30 @@ class DRAgent(BaseAgent):
         if "workflow_config" in agent_config:
             workflow_config.update(agent_config["workflow_config"])
             logger.info("Applied agent config overrides to DR workflow config")
+
+        # DR is a synchronous orchestration layer, but it inherits the exact root
+        # provider policy instead of maintaining a second OpenAI configuration.
+        global_config = agent_config.get("_global_config", {})
+        models_config = global_config.get("models", {})
+        provider = models_config.get("default_provider", "openai")
+        provider_config = copy.deepcopy(models_config.get(provider, {}))
+        provider_config["provider"] = provider
+        workflow_config["runtime_model"] = provider_config
+
+        if provider == "openai":
+            model_config = workflow_config.setdefault("model", {})
+            model_config.update(
+                {
+                    "default_model": "gpt-5.6-sol",
+                    "global_planner_model": "gpt-5.6-sol",
+                    "global_execution_model": {
+                        "execution_model": "gpt-5.6-sol",
+                        "summarizer_model": "gpt-5.6-sol",
+                    },
+                    "coordinator_model": "gpt-5.6-sol",
+                    "synthesizer_model": "gpt-5.6-sol",
+                }
+            )
         
         return workflow_config
     
@@ -177,7 +203,11 @@ class DRAgent(BaseAgent):
             logger.info(f"DR Agent executing task: {task}")
             
             # 这里跨过了多代理主流程，直接让调研工作流完成背景搜索和答案合成。
-            result = self.workflow.execute(task=task, file_path=file_path)
+            result = await asyncio.to_thread(
+                self.workflow.execute,
+                task=task,
+                file_path=file_path,
+            )
             
             logger.info("DR workflow execution completed successfully")
             

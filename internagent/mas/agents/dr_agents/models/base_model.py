@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 
+from internagent.mas.models.runtime import ModelRunRequest, ModelRunResult
+
 
 class BaseModel(ABC):
     """
@@ -21,7 +23,12 @@ class BaseModel(ABC):
         """
         pass
     
-    @abstractmethod
+    def run(self, request: ModelRunRequest) -> ModelRunResult:
+        """Execute a project-native Runtime request when the provider supports it."""
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement the InternAgent Runtime"
+        )
+
     def generate_with_tools(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], **kwargs) -> Dict[str, Any]:
         """
         使用工具调用生成响应
@@ -34,4 +41,6 @@ class BaseModel(ABC):
         Returns:
             包含工具调用的响应
         """
-        pass 
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support legacy Chat tool calls"
+        )

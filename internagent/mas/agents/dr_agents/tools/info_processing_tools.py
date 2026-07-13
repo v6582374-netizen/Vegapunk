@@ -198,7 +198,7 @@ def extract_url_content(url: str, timeout: int = 120, retry_times: int = 3) -> O
 def extract_and_answer_query(
     url: str, 
     query: str, 
-    model_name: str = "gpt-5.5",
+    model_name: str = "gpt-5.6-sol",
     chunk_size: int = 16000,
     max_workers: int = 8,
     timeout: int = 120
@@ -215,7 +215,7 @@ def extract_and_answer_query(
     Args:
         url (str): The URL to extract content from
         query (str): The question to answer
-        model_name (str): LLM model name (default: "gpt-5.5")
+        model_name (str): LLM model name (default: "gpt-5.6-sol")
         chunk_size (int): Size of each chunk in characters (default: 16000)
         max_workers (int): Maximum parallel workers (default: 8)
         timeout (int): Request timeout in seconds (default: 120)
@@ -276,7 +276,12 @@ or
 Please only return JSON, no other content."""
         
         try:
-            response = model.generate(prompt, auto_fix_json=True, temperature=0.3, max_tokens=2000)
+            response = model.generate(
+                prompt,
+                auto_fix_json=True,
+                temperature=0.3,
+                max_output_tokens=2000,
+            )
             
             # 解析JSON响应
             import json
@@ -330,7 +335,12 @@ Answer Fragments:
 Please provide a comprehensive and complete answer that integrates all relevant information."""
         
         try:
-            final_answer = model.generate(final_prompt, auto_fix_json=False, temperature=0.3, max_tokens=4000)
+            final_answer = model.generate(
+                final_prompt,
+                auto_fix_json=False,
+                temperature=0.3,
+                max_output_tokens=4000,
+            )
             print(f"✓ 最终答案生成完成")
             
             return True, final_answer
@@ -1181,7 +1191,7 @@ def extract_paper_content_to_summary(paper_path: str) -> str:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
     model = get_model(model_name)
     
     # Read paper content based on file type
@@ -1437,7 +1447,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
     model = get_model(model_name)
     
     # Define chunk size (16k characters)
@@ -1960,7 +1970,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     from models import get_model
     
     # Initialize model for extraction
-    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.5")
+    model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
     model = get_model(model_name)
     
     # Define chunk size (16k characters)

@@ -60,7 +60,7 @@ def get_default_config() -> Dict[str, Any]:
     """
     return {
         'model': {
-            'default_model': 'gpt-5.5',
+            'default_model': 'gpt-5.6-sol',
             'global_planner_model': None,
             'global_execution_model': None,
             'coordinator_model': None,

@@ -1516,7 +1516,7 @@ def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
     # Step 3: Ask LLM to answer query based on content
     try:
         from models import get_model
-        model = get_model("gpt-5.5")
+        model = get_model("gpt-5.6-sol", agent_role="dr_tool_integration")
 
         prompt = f"""Based on the following content extracted from a webpage, answer the question comprehensively.
 
@@ -1527,7 +1527,12 @@ Webpage Content:
 
 Please provide a detailed and accurate answer based on the content above. If the content does not contain enough information to answer the question, state what information is available and what is missing."""
 
-        answer = model.generate(prompt, auto_fix_json=False, temperature=0.3, max_tokens=4000)
+        answer = model.generate(
+            prompt,
+            auto_fix_json=False,
+            temperature=0.3,
+            max_output_tokens=4000,
+        )
         return True, answer
 
     except Exception as e:
