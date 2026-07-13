@@ -6,7 +6,10 @@ from pathlib import Path
 import yaml
 
 from internagent.mas.models.model_factory import ModelFactory
-from internagent.mas.models.openai_model import OpenAIModel
+from internagent.mas.models.openai_model import (
+    OpenAIModel,
+    get_builtin_openai_config,
+)
 
 
 class ModelFactoryRuntimeTest(unittest.TestCase):
@@ -73,6 +76,11 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertEqual(model.response_state_mode, "replay")
         self.assertEqual(model.response_state_max_entries, 128)
 
+        fallback = get_builtin_openai_config()
+        self.assertEqual(fallback["base_url"], config["base_url"])
+        self.assertEqual(fallback["prompt_cache"], config["prompt_cache"])
+        self.assertEqual(fallback["response_state"], config["response_state"])
+
     def test_models_with_different_runtime_policies_are_not_cache_collapsed(self) -> None:
         project_config = {
             "models": {
@@ -106,6 +114,25 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertIsNot(inherited, isolated)
         self.assertEqual(inherited.reasoning_context, "auto")
         self.assertEqual(isolated.reasoning_context, "current_turn")
+
+    def test_response_state_modes_are_not_cache_collapsed(self) -> None:
+        base_config = {
+            "provider": "openai",
+            "api_key": "test-key",
+            "model_name": "gpt-5.6-sol",
+            "api_mode": "responses",
+        }
+
+        server = ModelFactory.create_model(
+            {**base_config, "response_state": {"mode": "server"}}
+        )
+        replay = ModelFactory.create_model(
+            {**base_config, "response_state": {"mode": "replay"}}
+        )
+
+        self.assertIsNot(server, replay)
+        self.assertEqual(server.response_state_mode, "server")
+        self.assertEqual(replay.response_state_mode, "replay")
 
     def test_responses_only_role_can_select_openai_over_default_provider(self) -> None:
         project_config = {

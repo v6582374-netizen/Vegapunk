@@ -256,9 +256,12 @@ def _generate_runtime_text(client_model, system_prompt, prompt, llm_settings):
 
     model_name = client_model.lower()
     if model_name.startswith("gpt"):
-        from ..models.openai_model import OpenAIModel
+        from ..models.openai_model import (
+            OpenAIModel,
+            get_builtin_openai_config,
+        )
 
-        model = OpenAIModel(model_name="gpt-5.6-sol")
+        model = OpenAIModel.from_config(get_builtin_openai_config())
     elif model_name.startswith("deepseek"):
         from ..models.r1_model import R1Model
 

@@ -11,6 +11,7 @@ from ..models.runtime import (
     Message,
     ModelRunRequest,
     ModelRunResult,
+    ReasoningConfig,
 )
 
 
@@ -65,6 +66,7 @@ class ModelToolLoop:
             tools=tools,
             temperature=temperature,
             prompt_cache_key=prompt_cache_key,
+            reasoning=ReasoningConfig(context="all_turns"),
         )
         executed: list[ExecutedToolCall] = []
         last_content = ""
@@ -111,6 +113,7 @@ class ModelToolLoop:
                 temperature=temperature,
                 prompt_cache_key=prompt_cache_key,
                 previous_response_id=response.response_id,
+                reasoning=ReasoningConfig(context="all_turns"),
             )
 
         return ToolLoopResult(

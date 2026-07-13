@@ -145,7 +145,12 @@ class ModelFactory:
             if key in config:
                 model_config[key] = config[key]
 
-        for key in ["reasoning", "prompt_cache", "background"]:
+        for key in [
+            "reasoning",
+            "prompt_cache",
+            "background",
+            "response_state",
+        ]:
             if key in config:
                 inherited = model_config.get(key, {})
                 override = config[key]
@@ -287,6 +292,7 @@ class ModelFactory:
             "store",
             "prompt_cache",
             "background",
+            "response_state",
         )
         identity = {key: config.get(key) for key in runtime_keys if key in config}
         api_key = config.get("api_key")

@@ -88,6 +88,8 @@ class RuntimeToolLoopTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             continuation.input[0].output, {"papers": ["paper-1"]}
         )
+        self.assertEqual(model.requests[0].reasoning.context, "all_turns")
+        self.assertEqual(continuation.reasoning.context, "all_turns")
 
 
 if __name__ == "__main__":

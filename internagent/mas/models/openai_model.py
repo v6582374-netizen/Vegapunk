@@ -29,6 +29,32 @@ from .runtime import (
 logger = logging.getLogger(__name__)
 
 
+def get_builtin_openai_config() -> Dict[str, Any]:
+    """Return an isolated copy of the project's built-in OpenAI deployment."""
+
+    return {
+        "provider": "openai",
+        "model_name": "gpt-5.6-sol",
+        "api_mode": "responses",
+        "base_url": "https://ai.cloudyz.top/v1",
+        "temperature": 0.7,
+        "max_output_tokens": 128000,
+        "timeout": 600,
+        "reasoning": {
+            "effort": "xhigh",
+            "context": "auto",
+            "mode": "standard",
+        },
+        "store": True,
+        "prompt_cache": {"mode": "implicit", "ttl": "30m"},
+        "background": {
+            "poll_interval_seconds": 2,
+            "timeout_seconds": 3600,
+        },
+        "response_state": {"mode": "replay", "max_entries": 128},
+    }
+
+
 class OpenAIModel(BaseModel):
     """OpenAI Responses implementation with GPT-5.6 runtime policy."""
 
