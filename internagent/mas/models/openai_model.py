@@ -124,11 +124,59 @@ class OpenAIModel(BaseModel):
             self.client = AsyncOpenAI(**client_kwargs)
 
     async def _run(self, request: ModelRunRequest) -> ModelRunResult:
-        handle = await self.submit(request)
-        return await handle.wait()
+        checkpoint = self.current_response_checkpoint()
+        checkpoint_key = request.checkpoint_key if request.background else None
+        handle: ModelRunHandle | None = None
+
+        if checkpoint is not None and checkpoint_key:
+            record = checkpoint.get_model_response(checkpoint_key)
+            response_id = record.get("response_id") if record else None
+            if response_id:
+                try:
+                    handle = await self.resume(response_id)
+                except Exception as error:
+                    if getattr(error, "status_code", None) != 404:
+                        raise
+                    logger.warning(
+                        "Checkpointed OpenAI response %s expired; submitting %s again",
+                        response_id,
+                        checkpoint_key,
+                    )
+
+        if handle is None:
+            handle = await self.submit(request)
+            if checkpoint is not None and checkpoint_key:
+                try:
+                    checkpoint.record_model_response(
+                        checkpoint_key=checkpoint_key,
+                        response_id=handle.response_id,
+                        status="submitted",
+                    )
+                except Exception:
+                    try:
+                        await handle.cancel()
+                    except Exception as cancel_error:
+                        logger.warning(
+                            "Unable to cancel uncheckpointed response %s: %s",
+                            handle.response_id,
+                            cancel_error,
+                        )
+                    raise
+
+        result = await handle.wait()
+        if checkpoint is not None and checkpoint_key:
+            checkpoint.record_model_response(
+                checkpoint_key=checkpoint_key,
+                response_id=result.response_id,
+                status=result.status,
+            )
+        return result
 
     async def submit(self, request: ModelRunRequest) -> ModelRunHandle:
         """Submit a Responses run and expose wait/cancel controls."""
+
+        if request.background and not self.store:
+            raise ValueError("OpenAI background Responses require store=true")
 
         reasoning = {
             "effort": self.reasoning_effort,
@@ -194,6 +242,18 @@ class OpenAIModel(BaseModel):
         response_id = self._field(initial_response, "id", "")
         if not response_id:
             raise ModelRunTerminalError("OpenAI returned a response without an ID")
+
+        return self._handle_for_response(initial_response, response_id)
+
+    async def resume(self, response_id: str) -> ModelRunHandle:
+        """Resume polling a previously checkpointed background Response."""
+        initial_response = await self.client.responses.retrieve(response_id)
+        return self._handle_for_response(initial_response, response_id)
+
+    def _handle_for_response(
+        self, initial_response: Any, response_id: str
+    ) -> ModelRunHandle:
+        """Build wait/cancel controls for a new or recovered Response."""
 
         async def wait_for_result() -> ModelRunResult:
             response = initial_response

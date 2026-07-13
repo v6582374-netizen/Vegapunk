@@ -49,13 +49,14 @@ class DossierCheckpoint:
                     ),
                 )
             checkpoint = cls(run_dir=run_dir, manifest=manifest)
+            checkpoint._upgrade_manifest()
             checkpoint._normalize_interrupted_stages()
             return checkpoint
 
         run_dir.mkdir(parents=True, exist_ok=True)
         now = _now()
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "dossier_run_id": dossier_run_id,
             "launch_id": launch_id,
             "status": "running",
@@ -77,6 +78,7 @@ class DossierCheckpoint:
             "warnings": [],
             "final_outputs": _empty_final_outputs(),
             "error": None,
+            "model_responses": {},
         }
         checkpoint = cls(run_dir=run_dir, manifest=manifest)
         checkpoint._save()
@@ -90,6 +92,23 @@ class DossierCheckpoint:
 
     def stage_succeeded(self, stage_id: str) -> bool:
         return self._stage(stage_id)["status"] == "succeeded"
+
+    def get_model_response(self, checkpoint_key: str) -> dict[str, str] | None:
+        """Load a resumable provider response record by deterministic run key."""
+        record = self.manifest["model_responses"].get(checkpoint_key)
+        return dict(record) if isinstance(record, dict) else None
+
+    def record_model_response(
+        self, *, checkpoint_key: str, response_id: str, status: str
+    ) -> None:
+        """Atomically persist a background response before polling it."""
+        if not checkpoint_key or not response_id or not status:
+            raise ValueError("model response checkpoint fields must be non-empty")
+        self.manifest["model_responses"][checkpoint_key] = {
+            "response_id": response_id,
+            "status": status,
+        }
+        self._save()
 
     @staticmethod
     def recorded_outputs_are_valid(
@@ -277,6 +296,16 @@ class DossierCheckpoint:
             self.manifest["status"] = "running"
             self.manifest["error"] = None
             self._save()
+
+    def _upgrade_manifest(self) -> None:
+        """Add resumable model state to checkpoints created before schema v2."""
+        if "model_responses" in self.manifest:
+            if not isinstance(self.manifest["model_responses"], dict):
+                raise ValueError("dossier model_responses must contain an object")
+            return
+        self.manifest["schema_version"] = 2
+        self.manifest["model_responses"] = {}
+        self._save()
 
     def _save(self) -> None:
         self.manifest["updated_at"] = _now()

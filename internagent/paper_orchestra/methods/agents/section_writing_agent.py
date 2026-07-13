@@ -59,6 +59,7 @@ class SectionWritingAgent:
             agent_role="paper_orchestra_section_writer",
             reasoning=ReasoningConfig(mode="pro"),
             background=True,
+            checkpoint_key="write_remaining_sections",
         )
         try:
             latex = extract_fenced_content(response, "latex")

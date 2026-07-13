@@ -51,6 +51,7 @@ class OutlineAgent:
             agent_role="paper_orchestra_outline",
             reasoning=ReasoningConfig(mode="pro"),
             background=True,
+            checkpoint_key="generate_outline",
         )
         if (
             not isinstance(outline, dict)

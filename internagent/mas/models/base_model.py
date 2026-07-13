@@ -7,12 +7,15 @@ import inspect
 import json
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional, Union
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
 
 from json_repair import repair_json
 
 from .runtime import (
     Message,
+    ModelResponseCheckpoint,
     ModelRunRequest,
     ModelRunResult,
     ReasoningConfig,
@@ -62,6 +65,12 @@ class BaseModel(abc.ABC):
         self.total_tokens = 0
         self.total_time = 0.0
         self._on_completion: Optional[Callable[..., Any]] = None
+        self._response_checkpoint: ContextVar[
+            ModelResponseCheckpoint | None
+        ] = ContextVar(
+            f"model_response_checkpoint_{id(self)}",
+            default=None,
+        )
 
     async def run(self, request: ModelRunRequest) -> ModelRunResult:
         """Execute one typed inference run and emit provider-neutral telemetry."""
@@ -115,6 +124,7 @@ class BaseModel(abc.ABC):
         agent_role: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
         background: bool = False,
+        checkpoint_key: Optional[str] = None,
     ) -> str:
         """Convenience interface for a one-turn text Runtime request."""
 
@@ -131,6 +141,7 @@ class BaseModel(abc.ABC):
                 prompt_cache_key=cache_key,
                 reasoning=reasoning,
                 background=background,
+                checkpoint_key=checkpoint_key,
             )
         )
         return result.text
@@ -148,6 +159,7 @@ class BaseModel(abc.ABC):
         agent_role: Optional[str] = None,
         reasoning: Optional[ReasoningConfig] = None,
         background: bool = False,
+        checkpoint_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate a JSON Object while retaining the existing repair fallback."""
 
@@ -177,6 +189,7 @@ class BaseModel(abc.ABC):
                     prompt_cache_key=cache_key,
                     reasoning=reasoning,
                     background=background,
+                    checkpoint_key=checkpoint_key,
                 )
             )
             try:
@@ -224,6 +237,21 @@ class BaseModel(abc.ABC):
 
     def set_completion_callback(self, callback: Callable[..., Any]) -> None:
         self._on_completion = callback
+
+    @contextmanager
+    def bind_response_checkpoint(
+        self, checkpoint: ModelResponseCheckpoint
+    ) -> Iterator[None]:
+        """Bind response persistence to the current async task context."""
+        token = self._response_checkpoint.set(checkpoint)
+        try:
+            yield
+        finally:
+            self._response_checkpoint.reset(token)
+
+    def current_response_checkpoint(self) -> ModelResponseCheckpoint | None:
+        """Return the dossier checkpoint bound to the current model run."""
+        return self._response_checkpoint.get()
 
     async def _emit_completion(self, telemetry: Dict[str, Any]) -> None:
         if self._on_completion is None:

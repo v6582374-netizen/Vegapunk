@@ -11,10 +11,22 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal, Mapping, TypeAlias
+from typing import Any, Awaitable, Callable, Literal, Mapping, Protocol, TypeAlias
 
 
 MessageRole: TypeAlias = Literal["developer", "user", "assistant"]
+
+
+class ModelResponseCheckpoint(Protocol):
+    """Persistence seam for resumable provider response IDs."""
+
+    def get_model_response(self, checkpoint_key: str) -> Mapping[str, str] | None:
+        """Return the response record associated with a deterministic run key."""
+
+    def record_model_response(
+        self, *, checkpoint_key: str, response_id: str, status: str
+    ) -> None:
+        """Atomically persist the provider response ID and its latest status."""
 
 
 @dataclass(frozen=True)
@@ -93,6 +105,7 @@ class ModelRunRequest:
     prompt_cache_key: str | None = None
     reasoning: ReasoningConfig | None = None
     background: bool = False
+    checkpoint_key: str | None = None
     temperature: float | None = None
     max_output_tokens: int | None = None
 

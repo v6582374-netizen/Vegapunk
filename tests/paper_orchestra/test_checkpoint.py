@@ -11,6 +11,40 @@ from internagent.paper_orchestra.data_types import DossierStageError
 
 
 class CheckpointTest(unittest.TestCase):
+    def test_persists_background_response_ids_for_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_dir = Path(temporary_directory) / "primary"
+            checkpoint = DossierCheckpoint.open(
+                run_dir=run_dir,
+                dossier_run_id="primary",
+                launch_id="launch",
+                resolved_config={},
+                model_identity={"provider": "openai", "name": "gpt-5.6-sol"},
+                stage_ids=("generate_outline",),
+            )
+
+            checkpoint.record_model_response(
+                checkpoint_key="generate_outline",
+                response_id="resp_outline",
+                status="submitted",
+            )
+            resumed = DossierCheckpoint.open(
+                run_dir=run_dir,
+                dossier_run_id="primary",
+                launch_id="launch",
+                resolved_config={},
+                model_identity={"provider": "openai", "name": "gpt-5.6-sol"},
+                stage_ids=("generate_outline",),
+            )
+
+            self.assertEqual(
+                resumed.get_model_response("generate_outline"),
+                {
+                    "response_id": "resp_outline",
+                    "status": "submitted",
+                },
+            )
+
     def test_resume_rejects_changed_configuration_or_model(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             run_dir = Path(temporary_directory) / "primary"

@@ -139,6 +139,9 @@ class AgentTest(unittest.TestCase):
 
             self.assertIs(agent.model, model)
             self.assertEqual(len(model.json_calls), 1)
+            self.assertEqual(
+                model.json_calls[0]["checkpoint_key"], "generate_outline"
+            )
             self.assertIn(
                 "authoritative experiment", model.json_calls[0]["prompt"]
             )
@@ -187,6 +190,10 @@ class AgentTest(unittest.TestCase):
 
             self.assertIs(agent.model, model)
             self.assertEqual(len(model.text_calls), 1)
+            self.assertEqual(
+                model.text_calls[0]["checkpoint_key"],
+                "write_introduction_and_related_work",
+            )
             self.assertIn("Approved evidence content", model.text_calls[0]["prompt"])
             self.assertEqual(
                 latex,

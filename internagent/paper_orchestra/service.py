@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -181,23 +181,32 @@ async def run_dossier(
             )
 
             shared_model = get_model()
-            pipeline_result = await run_writing_pipeline(
-                run_dir=run_dir,
-                raw_materials_dir=raw_materials_dir,
-                template_dir=paper_config.template_dir,
-                candidate_selection=selection,
-                paper_title=linked.selected_method["title"],
-                paper_date=str(checkpoint.manifest["created_at"])[:10],
-                model=shared_model,
-                max_content_refinement_iterations=(
-                    paper_config.max_content_refinement_iterations
-                ),
-                max_format_correction_iterations=(
-                    paper_config.max_format_correction_iterations
-                ),
-                layout_review_enabled=paper_config.layout_review_enabled,
-                checkpoint=checkpoint,
+            bind_checkpoint = getattr(
+                shared_model, "bind_response_checkpoint", None
             )
+            checkpoint_context = (
+                bind_checkpoint(checkpoint)
+                if callable(bind_checkpoint)
+                else nullcontext()
+            )
+            with checkpoint_context:
+                pipeline_result = await run_writing_pipeline(
+                    run_dir=run_dir,
+                    raw_materials_dir=raw_materials_dir,
+                    template_dir=paper_config.template_dir,
+                    candidate_selection=selection,
+                    paper_title=linked.selected_method["title"],
+                    paper_date=str(checkpoint.manifest["created_at"])[:10],
+                    model=shared_model,
+                    max_content_refinement_iterations=(
+                        paper_config.max_content_refinement_iterations
+                    ),
+                    max_format_correction_iterations=(
+                        paper_config.max_format_correction_iterations
+                    ),
+                    layout_review_enabled=paper_config.layout_review_enabled,
+                    checkpoint=checkpoint,
+                )
             checkpoint.complete(
                 final_pdf=FINAL_PDF_RELATIVE_PATH.as_posix(),
                 final_tex=FINAL_TEX_RELATIVE_PATH.as_posix(),

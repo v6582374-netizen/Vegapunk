@@ -93,6 +93,7 @@ class ContentRefinementAgent:
                 agent_role="paper_orchestra_content_refiner",
                 reasoning=ReasoningConfig(mode="pro"),
                 background=True,
+                checkpoint_key=f"refine_content:rewrite:{iteration}",
             )
             try:
                 candidate_latex = extract_fenced_content(response, "latex")

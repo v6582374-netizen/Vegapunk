@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 
+from internagent.mas.models.base_model import ModelError
 from internagent.mas.models.openai_model import OpenAIModel
 from internagent.mas.models.runtime import (
     FunctionCallOutput,
@@ -63,9 +65,11 @@ class _FakeOpenAIClient:
 
 class _BackgroundResponses:
     def __init__(self) -> None:
+        self.create_count = 0
         self.retrieve_count = 0
 
     async def create(self, **_: object) -> SimpleNamespace:
+        self.create_count += 1
         return SimpleNamespace(
             id="resp_background",
             status="in_progress",
@@ -98,6 +102,24 @@ class _BackgroundResponses:
 class _BackgroundOpenAIClient:
     def __init__(self) -> None:
         self.responses = _BackgroundResponses()
+
+
+class _RecordingResponseCheckpoint:
+    def __init__(self) -> None:
+        self.responses: dict[str, dict[str, str]] = {}
+        self.history: list[tuple[str, str, str]] = []
+
+    def get_model_response(self, checkpoint_key: str) -> dict[str, str] | None:
+        return self.responses.get(checkpoint_key)
+
+    def record_model_response(
+        self, *, checkpoint_key: str, response_id: str, status: str
+    ) -> None:
+        self.responses[checkpoint_key] = {
+            "response_id": response_id,
+            "status": status,
+        }
+        self.history.append((checkpoint_key, response_id, status))
 
 
 class _FailedResponses:
@@ -316,6 +338,100 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             client.responses.last_response_id, "resp_background"
         )
+
+    async def test_background_run_resumes_checkpointed_response_id(self) -> None:
+        client = _BackgroundOpenAIClient()
+        model = OpenAIModel(
+            api_key="test-key",
+            model_name="gpt-5.6-sol",
+            background_poll_interval=0,
+            client=client,
+        )
+        checkpoint = _RecordingResponseCheckpoint()
+        checkpoint.record_model_response(
+            checkpoint_key="write_remaining_sections",
+            response_id="resp_background",
+            status="submitted",
+        )
+
+        with model.bind_response_checkpoint(checkpoint):
+            result = await model.run(
+                ModelRunRequest(
+                    input=(Message.user("Resume the final dossier."),),
+                    background=True,
+                    checkpoint_key="write_remaining_sections",
+                )
+            )
+
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(client.responses.create_count, 0)
+        self.assertEqual(client.responses.retrieve_count, 1)
+        self.assertEqual(
+            checkpoint.responses["write_remaining_sections"],
+            {"response_id": "resp_background", "status": "completed"},
+        )
+
+    async def test_background_run_records_id_before_polling(self) -> None:
+        client = _BackgroundOpenAIClient()
+        model = OpenAIModel(
+            api_key="test-key",
+            background_poll_interval=0,
+            client=client,
+        )
+        checkpoint = _RecordingResponseCheckpoint()
+
+        with model.bind_response_checkpoint(checkpoint):
+            await model.run(
+                ModelRunRequest(
+                    input=(Message.user("Start the final dossier."),),
+                    background=True,
+                    checkpoint_key="generate_outline",
+                )
+            )
+
+        self.assertEqual(
+            checkpoint.history,
+            [
+                ("generate_outline", "resp_background", "submitted"),
+                ("generate_outline", "resp_background", "completed"),
+            ],
+        )
+
+    async def test_checkpoint_binding_is_isolated_per_async_task(self) -> None:
+        model = OpenAIModel(
+            api_key="test-key",
+            client=_FakeOpenAIClient(),
+        )
+        first = _RecordingResponseCheckpoint()
+        second = _RecordingResponseCheckpoint()
+
+        async def bound_checkpoint(checkpoint):
+            with model.bind_response_checkpoint(checkpoint):
+                await asyncio.sleep(0)
+                return model.current_response_checkpoint()
+
+        observed = await asyncio.gather(
+            bound_checkpoint(first),
+            bound_checkpoint(second),
+        )
+
+        self.assertEqual(observed, [first, second])
+        self.assertIsNone(model.current_response_checkpoint())
+
+    async def test_background_mode_rejects_store_false(self) -> None:
+        model = OpenAIModel(
+            api_key="test-key",
+            store=False,
+            client=_BackgroundOpenAIClient(),
+        )
+
+        with self.assertRaisesRegex(ModelError, "require store=true"):
+            await model.run(
+                ModelRunRequest(
+                    input=(Message.user("Do not submit this."),),
+                    background=True,
+                )
+            )
 
     async def test_failed_terminal_status_does_not_look_successful(self) -> None:
         model = OpenAIModel(

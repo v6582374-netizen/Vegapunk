@@ -48,6 +48,7 @@ class LiteratureReviewAgent:
             agent_role="paper_orchestra_literature_writer",
             reasoning=ReasoningConfig(mode="pro"),
             background=True,
+            checkpoint_key="write_introduction_and_related_work",
         )
         try:
             latex = extract_fenced_content(response, "latex")
