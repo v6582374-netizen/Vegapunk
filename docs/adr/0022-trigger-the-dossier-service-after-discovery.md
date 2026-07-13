@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0069
 ---
 
 # Trigger the Dossier Service after Discovery

@@ -9,6 +9,7 @@ from typing import Dict, Any, Type
 
 from ..models.model_factory import ModelFactory
 from .base_agent import BaseAgent
+from internagent.living_manuscript import attach_living_manuscript_hook
 
 from .survey_agent import SurveyAgent
 from .scholar_agent import ScholarAgent
@@ -115,6 +116,7 @@ class AgentFactory:
             
             # Create the agent instance
             agent = agent_class(model, config)
+            attach_living_manuscript_hook(agent, agent_name=agent_type)
             
             # Cache the instance
             cls._agent_cache[cache_key] = agent

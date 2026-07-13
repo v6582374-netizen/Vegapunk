@@ -98,6 +98,13 @@ class BaseModel(abc.ABC):
                 raise
             raise classified from exc
         finally:
+            from internagent.living_manuscript import record_task_model_interaction
+
+            record_task_model_interaction(
+                request=request,
+                result=result,
+                error=error,
+            )
             elapsed = time.perf_counter() - started_at
             self.total_time += elapsed
             telemetry = self._telemetry_event(

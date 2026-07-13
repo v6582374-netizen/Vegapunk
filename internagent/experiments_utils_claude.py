@@ -8,6 +8,7 @@ import re
 import os
 from datetime import datetime
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,17 @@ class ClaudeCodeRunner:
         # Run Claude with acceptEdits permission mode
         # Capture both stdout and stderr so we can log them properly
         result = subprocess.run(
-            ['claude', '--permission-mode', 'acceptEdits', '--model', self.model, prompt],
+            [
+                'claude',
+                '-p',
+                '--permission-mode',
+                'acceptEdits',
+                '--model',
+                self.model,
+                '--output-format',
+                'json',
+                prompt,
+            ],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -141,8 +152,43 @@ class ClaudeCodeRunner:
             error_message = f"Claude CLI error (return code {result.returncode}): {result.stderr}"
             logger.error(error_message)
         
-        # Return the stdout result
-        return result.stdout
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            payload = {}
+        output = payload.get('result')
+        if not isinstance(output, str):
+            output = result.stdout
+
+        from internagent.living_manuscript import (
+            ClaudeSessionTaskContext,
+            get_active_living_manuscript,
+        )
+
+        manuscript = get_active_living_manuscript()
+        if manuscript is not None:
+            session_id = payload.get('session_id')
+            if not isinstance(session_id, str) or not session_id:
+                raise RuntimeError(
+                    'Claude Code returned no session_id for the Living Manuscript hook'
+                )
+            error = None
+            if result.returncode != 0:
+                error = (
+                    f"Claude CLI exited with code {result.returncode}: "
+                    f"{result.stderr.strip()}"
+                )
+            manuscript.consider_claude_session(
+                ClaudeSessionTaskContext(
+                    agent_name='ClaudeCodeRunner',
+                    source_session_id=session_id,
+                    source_cwd=Path(cwd).resolve() if cwd else Path.cwd().resolve(),
+                    output=output,
+                    error=error,
+                )
+            )
+
+        return output
 
 def run_experiment(folder_name, run_num, timeout=None, gpu_ids=None, log_file=None, task_type='auto'):
     """

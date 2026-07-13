@@ -8,7 +8,7 @@ Each Dossier Run persists one immutable `candidate_selection.json` at the Dossie
 
 The mutable `dossier_run.json` remains the operational stage checkpoint, while `candidate_selection.json` is the stable scientific selection record. Resuming the same Dossier Run must validate and reuse the existing selection without reranking, reinference, or rerandomization; intentionally choosing again requires a new Dossier Run ID.
 
-PaperOrchestra supplies the structured selection record directly to the `研究过程` writer and verifies that every required disclosure from ADR-0032 and ADR-0037 appears in the compiled Research Narrative. It will not create an intermediate Markdown selection projection.
+PaperOrchestra keeps the structured selection record available as authoritative provenance without routing it through a mandatory `研究过程` writer or treating its absence from the manuscript as a validation failure. The Manuscript Sculptor may use it only when ADR-0052's scientific-relevance test is met. PaperOrchestra will not create an intermediate Markdown selection projection.
 
 **Considered Options**
 

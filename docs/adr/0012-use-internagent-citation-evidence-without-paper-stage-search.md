@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0058
 ---
 
 # Use InternAgent Citation Evidence without Paper-stage Search

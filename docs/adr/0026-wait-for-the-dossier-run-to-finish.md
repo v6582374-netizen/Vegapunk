@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0069
 ---
 
 # Wait for the Dossier Run to Finish

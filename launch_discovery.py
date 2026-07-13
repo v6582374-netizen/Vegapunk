@@ -13,9 +13,17 @@ import shutil
 import torch
 import yaml
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Import MAS components
+from internagent.living_manuscript import (
+    ClaudeCodeSculptor,
+    LatexManuscriptValidator,
+    LivingManuscript,
+    clear_active_living_manuscript,
+    set_active_living_manuscript,
+)
 from internagent.stage import IdeaGenerator, ExperimentRunner
 from typing import List, Dict, Any, Optional
 
@@ -733,6 +741,23 @@ def main():
         logger.info("=" * 80)
         return
 
+    repo_root = Path(__file__).resolve().parent
+    manuscript_config = config.get("living_manuscript", {})
+    sculptor_model = manuscript_config.get(
+        "model", "claude-sonnet-4-5-20250929"
+    )
+    living_manuscript = LivingManuscript.initialize(
+        launch_dir=Path(args.output_dir),
+        template_dir=repo_root / "tex_templates" / "elegantpaper",
+        sculptor=ClaudeCodeSculptor(
+            model=sculptor_model,
+            prompt_path=repo_root / "internagent" / "manuscript_sculptor_prompt.md",
+        ),
+        validator=LatexManuscriptValidator(),
+    )
+    set_active_living_manuscript(living_manuscript)
+    logger.info(f"Living Manuscript: {living_manuscript.tex_path}")
+
     logger.info("=" * 80)
     logger.info("InternAgent Pipeline Started" + (" (RESUMED)" if args.resume else ""))
     logger.info(f"Task: {args.task_name}")
@@ -1094,33 +1119,57 @@ def main():
 
     logger.info(f"\nSummary saved to {summary_path}")
 
-    # The paper stage runs once per completed experiment Launch. Its outcome is
-    # intentionally independent from the already-completed Discovery outcome.
     if args.mode == "experiment":
-        try:
-            from pathlib import Path
-            from internagent.paper_orchestra import run_dossier
+        from internagent.paper_orchestra.candidate_selection import select_candidate
+        from internagent.paper_orchestra.data_types import DossierStageError
+        from internagent.paper_orchestra.utils.path_utils import (
+            resolve_launch_directory,
+        )
 
-            dossier_result = asyncio.run(
-                run_dossier(
+        async def select_terminal_candidate():
+            try:
+                return await select_candidate(
                     launch_dir=Path(args.output_dir),
-                    internagent_config=config,
-                    paper_config_path=Path("config/paper_orchestra.yaml"),
-                    dossier_run_id="primary",
+                    run_dir=living_manuscript.manuscript_dir,
+                    model=None,
                 )
-            )
-            if dossier_result.status == "succeeded":
-                logger.info(f"Research Dossier completed: {dossier_result.run_dir}")
-            else:
-                logger.error(
-                    "Research Dossier failed without changing Discovery status: "
-                    f"{dossier_result.error}"
+            except DossierStageError as error:
+                if error.code != "criterion_inference_requires_model":
+                    raise
+                from internagent.mas.models.model_factory import ModelFactory
+
+                selection_model = ModelFactory.create_model_for_agent(
+                    "paper_orchestra",
+                    {
+                        "model_provider": "openai",
+                        "temperature": 0,
+                        "_global_config": config,
+                    },
                 )
-        except Exception as error:
-            logger.exception(
-                "Research Dossier failed without changing Discovery status: %s",
-                error,
-            )
+                return await select_candidate(
+                    launch_dir=Path(args.output_dir),
+                    run_dir=living_manuscript.manuscript_dir,
+                    model=selection_model,
+                )
+
+        selection = asyncio.run(select_terminal_candidate())
+        selected_candidate_path = resolve_launch_directory(
+            Path(args.output_dir),
+            selection["selected_candidate"]["folder_name"],
+        )
+        living_manuscript.finalize(
+            selection=selection,
+            selected_candidate_path=selected_candidate_path,
+        )
+        logger.info(
+            "Synchronized Living Manuscript completed: "
+            f"{living_manuscript.tex_path}"
+        )
+        pdf_path = living_manuscript.manuscript_dir / "main.pdf"
+        if pdf_path.is_file():
+            logger.info(f"Synchronized Living Manuscript PDF: {pdf_path}")
+
+    clear_active_living_manuscript(living_manuscript)
 
     logger.info("=" * 80)
     logger.info("All done!")
@@ -1140,3 +1189,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        clear_active_living_manuscript()

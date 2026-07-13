@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0069
 ---
 
 # Use primary as the Automatic Dossier Run ID

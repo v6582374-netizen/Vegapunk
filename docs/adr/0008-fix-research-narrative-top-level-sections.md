@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0051
 ---
 
 # Fix Research Narrative Top-level Sections

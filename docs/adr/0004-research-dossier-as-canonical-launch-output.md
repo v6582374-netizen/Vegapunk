@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0053
 ---
 
 # Research Dossier as Canonical Launch Output

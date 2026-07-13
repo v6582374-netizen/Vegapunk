@@ -8,7 +8,7 @@ Terminal Candidate Selection runs once after every Discovery Round has finished 
 
 This is a narrow exception to the no-inference rule. The model judgment cannot participate in InternAgent's between-round baseline choices, alter a completed Discovery Round, compare candidates across rounds, run during paper writing or refinement, search external sources, or fill any other missing scientific content. A backward fallback to an earlier Paper Candidate Round does not move the judgment into that historical round; the inference still occurs only once at the terminal post-discovery stage.
 
-Any inferred field must be validated against the available candidate metrics and recorded and disclosed as Candidate Selection Provenance under ADR-0032. This supersedes the narrower proposed rule in ADR-0029; behavior when a candidate does not report the selected metric, when inference cannot produce a valid criterion, and when values tie remains separately unresolved.
+Any inferred field must be validated against the available candidate metrics and recorded as Candidate Selection Provenance. ADR-0052 governs whether that provenance is scientifically relevant to the manuscript; recording it does not require manuscript disclosure. This supersedes the narrower proposed rule in ADR-0029; behavior when a candidate does not report the selected metric, when inference cannot produce a valid criterion, and when values tie remains separately unresolved.
 
 **Considered Options**
 

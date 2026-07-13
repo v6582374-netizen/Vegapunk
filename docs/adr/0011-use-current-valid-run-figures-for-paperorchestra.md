@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Use Current Valid Run Figures for PaperOrchestra

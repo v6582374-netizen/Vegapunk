@@ -1,10 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0069
 ---
 
 # Trigger Dossier Generation Only for Experiments
 
-The automatic post-discovery Dossier trigger applies only when `launch_discovery.py` runs in `experiment` mode. `report` mode continues to generate its existing idea reports and then exits without creating a Dossier Run, because it does not execute Candidate Experiments or produce the measured run artifacts required by the Research Narrative's experiment, research-process, and reproduction sections.
+The automatic post-discovery Dossier trigger applies only when `launch_discovery.py` runs in `experiment` mode. `report` mode continues to generate its existing idea reports and then exits without creating a Dossier Run, because it does not execute Candidate Experiments or produce the measured run artifacts needed to support a publication-oriented scientific argument.
 
 The Dossier Service must not compensate for a report-only launch by inferring missing experimental evidence or asking writing agents to turn untested ideas into experimental claims.
 
