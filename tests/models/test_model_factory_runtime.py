@@ -6,10 +6,7 @@ from pathlib import Path
 import yaml
 
 from internagent.mas.models.model_factory import ModelFactory
-from internagent.mas.models.openai_model import (
-    OpenAIModel,
-    get_builtin_openai_config,
-)
+from internagent.mas.models.openai_model import OpenAIModel
 
 
 class ModelFactoryRuntimeTest(unittest.TestCase):
@@ -75,11 +72,6 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertEqual(model.prompt_cache_ttl, "30m")
         self.assertEqual(model.response_state_mode, "replay")
         self.assertEqual(model.response_state_max_entries, 128)
-
-        fallback = get_builtin_openai_config()
-        self.assertEqual(fallback["base_url"], config["base_url"])
-        self.assertEqual(fallback["prompt_cache"], config["prompt_cache"])
-        self.assertEqual(fallback["response_state"], config["response_state"])
 
     def test_models_with_different_runtime_policies_are_not_cache_collapsed(self) -> None:
         project_config = {

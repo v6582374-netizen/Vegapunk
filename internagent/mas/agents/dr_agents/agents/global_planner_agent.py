@@ -12,7 +12,7 @@ from utils.logger import get_logger
 from agents.base_agent import BaseAgent
 from utils.graph import DirectedGraph, NodeExecutionStatus
 from utils.prompt_loader import load_prompt
-from tools import get_tool_manager
+from tools import get_tool_manager, with_runtime_config
 
 from models import get_model
 
@@ -36,7 +36,12 @@ class GlobalPlannerAgent(BaseAgent):
         """
         super().__init__(model=model, tools=tools, config=config)
         self.model_instance = get_model(model, **model_kwargs)
-        self.tool_manager = get_tool_manager(config=config)
+        self.tool_manager = get_tool_manager(
+            config=with_runtime_config(
+                config,
+                model_kwargs.get("runtime_config"),
+            )
+        )
         self.logger = get_logger("GlobalPlannerAgent")
         self._set_logger(self.logger)  # 设置logger到基类
         self.graph = None

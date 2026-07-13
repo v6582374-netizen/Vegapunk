@@ -9,10 +9,7 @@ import threading
 from dataclasses import replace
 from typing import Any, Dict, Optional
 
-from internagent.mas.models.openai_model import (
-    OpenAIModel as RuntimeOpenAIModel,
-    get_builtin_openai_config,
-)
+from internagent.mas.models.openai_model import OpenAIModel as RuntimeOpenAIModel
 from internagent.mas.models.runtime import (
     Message,
     ModelRunRequest,
@@ -96,14 +93,12 @@ class OpenAIModel(BaseModel):
         self.reasoning_context = reasoning_context
         self.reasoning_mode = reasoning_mode
         self.background = background
-        has_explicit_deployment = bool(
-            base_url or (runtime_config or {}).get("base_url")
-        )
-        self.runtime_config = (
-            dict(runtime_config or {})
-            if has_explicit_deployment
-            else {**get_builtin_openai_config(), **(runtime_config or {})}
-        )
+        if not (base_url or (runtime_config or {}).get("base_url")):
+            raise ValueError(
+                "DeepResearch OpenAI requires explicit runtime_config with "
+                "base_url"
+            )
+        self.runtime_config = dict(runtime_config or {})
         self.runtime_config.update(
             {
                 "provider": "openai",

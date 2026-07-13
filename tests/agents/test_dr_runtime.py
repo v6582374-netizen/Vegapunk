@@ -84,7 +84,10 @@ class DeepResearchRuntimeTest(unittest.TestCase):
             _FakeRuntimeOpenAI,
         ):
             model = DROpenAIModel(
-                runtime_config={"api_key": "test"},
+                runtime_config={
+                    "api_key": "test",
+                    "base_url": "https://ai.cloudyz.top/v1",
+                },
                 agent_role="dr_synthesizer",
                 reasoning_context="all_turns",
                 reasoning_mode="pro",
@@ -106,30 +109,21 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         self.assertTrue(request.prompt_cache_key.startswith("test:dr_synthesizer"))
 
     def test_sync_facade_rejects_legacy_openai_options(self) -> None:
-        model = DROpenAIModel(runtime_config={"api_key": "test"})
+        model = DROpenAIModel(
+            runtime_config={
+                "api_key": "test",
+                "base_url": "https://ai.cloudyz.top/v1",
+            }
+        )
 
         with self.assertRaisesRegex(
             ValueError, "Unsupported DeepResearch Runtime options: max_tokens"
         ):
             model.generate("Do not call the API.", max_tokens=2000)
 
-    def test_sync_facade_without_root_config_uses_builtin_gateway(self) -> None:
-        with patch(
-            "internagent.mas.agents.dr_agents.models.openai_model.RuntimeOpenAIModel",
-            _FakeRuntimeOpenAI,
-        ):
-            model = DROpenAIModel(agent_role="dr_tool_helper")
-            model.generate("Summarize the evidence.")
-            model.close()
-
-        config = _FakeRuntimeOpenAI.instances[0].config
-        self.assertEqual(config["base_url"], "https://ai.cloudyz.top/v1")
-        self.assertEqual(
-            config["prompt_cache"], {"mode": "implicit", "ttl": "30m"}
-        )
-        self.assertEqual(
-            config["response_state"], {"mode": "replay", "max_entries": 128}
-        )
+    def test_sync_facade_requires_explicit_deployment_config(self) -> None:
+        with self.assertRaisesRegex(ValueError, "explicit runtime_config"):
+            DROpenAIModel(agent_role="dr_tool_helper")
 
     def test_dr_config_inherits_root_openai_runtime(self) -> None:
         agent = object.__new__(DRAgent)

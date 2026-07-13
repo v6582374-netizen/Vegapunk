@@ -20,7 +20,7 @@ import json
 from typing import Dict, Any, Optional, List, Union, Callable
 import asyncio
 from ..models.base_model import BaseModel
-from ..models.runtime import FunctionTool
+from ..models.runtime import FunctionTool, ReasoningConfig
 from .tool_loop import ModelToolLoop
 
 logger = logging.getLogger(__name__)
@@ -380,6 +380,11 @@ class BaseAgent(abc.ABC):
             prompt_cache_key=self.model.make_prompt_cache_key(
                 agent_role=self.name,
                 stable_prefix=system_prompt,
+            ),
+            reasoning=(
+                ReasoningConfig(context="all_turns")
+                if getattr(self.model, "api_mode", None) == "responses"
+                else None
             ),
         )
         return {

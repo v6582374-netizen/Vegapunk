@@ -59,6 +59,7 @@ class ModelToolLoop:
         max_tool_calls: int,
         temperature: float | None = None,
         prompt_cache_key: str | None = None,
+        reasoning: ReasoningConfig | None = None,
     ) -> ToolLoopResult:
         request = ModelRunRequest(
             instructions=instructions,
@@ -66,7 +67,7 @@ class ModelToolLoop:
             tools=tools,
             temperature=temperature,
             prompt_cache_key=prompt_cache_key,
-            reasoning=ReasoningConfig(context="all_turns"),
+            reasoning=reasoning,
         )
         executed: list[ExecutedToolCall] = []
         last_content = ""
@@ -113,7 +114,7 @@ class ModelToolLoop:
                 temperature=temperature,
                 prompt_cache_key=prompt_cache_key,
                 previous_response_id=response.response_id,
-                reasoning=ReasoningConfig(context="all_turns"),
+                reasoning=reasoning,
             )
 
         return ToolLoopResult(

@@ -12,7 +12,7 @@ from multiprocessing import Pool
 
 
 class SettingManager():
-    def __init__(self, project_path: Path, output_dir: Path, output_name: str, ignore_list: list[str], model: str):
+    def __init__(self, project_path: Path, output_dir: Path, output_name: str, ignore_list: list[str], model: str, runtime_config: dict | None = None):
         self.project_settings = EasyDict(
             project_path = project_path,
             output_dir = output_dir,
@@ -23,7 +23,8 @@ class SettingManager():
             model = model, 
             temperature = 0.6,
             max_output_tokens = 3000,
-            num_proc = 8
+            num_proc = 8,
+            runtime_config = runtime_config,
         )
 
 class PythonElementVisitor(ast.NodeVisitor):
@@ -256,12 +257,16 @@ def _generate_runtime_text(client_model, system_prompt, prompt, llm_settings):
 
     model_name = client_model.lower()
     if model_name.startswith("gpt"):
-        from ..models.openai_model import (
-            OpenAIModel,
-            get_builtin_openai_config,
-        )
+        from ..models.openai_model import OpenAIModel
 
-        model = OpenAIModel.from_config(get_builtin_openai_config())
+        runtime_config = dict(
+            getattr(llm_settings, "runtime_config", None) or {}
+        )
+        if not runtime_config.get("base_url"):
+            raise ValueError(
+                "CodeView requires explicit OpenAI runtime config with base_url"
+            )
+        model = OpenAIModel.from_config(runtime_config)
     elif model_name.startswith("deepseek"):
         from ..models.r1_model import R1Model
 
@@ -491,13 +496,14 @@ def extract_from_repo_summary(repo_summary):
     return summary, key_files
 
 
-def get_repo_structure(model, project_path, output_dir, output_name, ignore_list=None, provider="agent"):
+def get_repo_structure(model, project_path, output_dir, output_name, ignore_list=None, provider="agent", runtime_config=None):
     setting_manager = SettingManager(
         project_path=project_path,
         output_dir=output_dir,
         output_name=output_name,
         ignore_list=ignore_list,
         model=model,
+        runtime_config=runtime_config,
     )
     local_modules = get_local_modules(setting_manager.project_settings.project_path)
     repo_structure_dict = extract_repo_structure(

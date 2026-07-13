@@ -1442,7 +1442,12 @@ def search_archived_webpage(url: str, date: str) -> Tuple[bool, str]:
                 logger.error(f"Archived webpage search failed after {max_retries} attempts")
                 raise
 
-def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
+def extract_and_answer_query_from_url(
+    url: str,
+    query: str,
+    *,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
     r"""Extract the content of a given url and answer the query according to the content.
 
     Uses Tavily extract API for fast content extraction, with Volcengine as fallback.
@@ -1516,7 +1521,15 @@ def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
     # Step 3: Ask LLM to answer query based on content
     try:
         from models import get_model
-        model = get_model("gpt-5.6-sol", agent_role="dr_tool_integration")
+        if not runtime_config:
+            raise ValueError(
+                "URL processor requires explicit OpenAI runtime_config"
+            )
+        model = get_model(
+            "gpt-5.6-sol",
+            agent_role="dr_tool_integration",
+            runtime_config=runtime_config,
+        )
 
         prompt = f"""Based on the following content extracted from a webpage, answer the question comprehensively.
 
@@ -1551,6 +1564,57 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         过滤后的工具列表
     """
 
+    runtime_config = dict((config or {}).get("runtime_model", {}) or {})
+
+    def configured_url_processor(url: str, query: str) -> Tuple[bool, str]:
+        return extract_and_answer_query_from_url(
+            url,
+            query,
+            runtime_config=runtime_config,
+        )
+
+    configured_url_processor.__name__ = "extract_and_answer_query_from_url"
+    configured_url_processor.__doc__ = extract_and_answer_query_from_url.__doc__
+
+    def configured_paper_processor(paper_source: str) -> Dict[str, Any]:
+        return summarize_paper(
+            paper_source,
+            runtime_config=runtime_config,
+        )
+
+    configured_paper_processor.__name__ = "summarize_paper"
+    configured_paper_processor.__doc__ = summarize_paper.__doc__
+
+    def configured_paper_report(
+        query: str,
+        max_number: int = 3,
+    ) -> List[Dict[str, Any]]:
+        return search_and_summarize_papers(
+            query,
+            max_number=max_number,
+            runtime_config=runtime_config,
+        )
+
+    configured_paper_report.__name__ = "search_and_summarize_papers"
+    configured_paper_report.__doc__ = search_and_summarize_papers.__doc__
+
+    def configured_web_report(
+        query: str,
+        max_number: int = 3,
+        time_range: str = "d3",
+        region: str = "None",
+    ) -> List[Dict[str, Any]]:
+        return search_and_summarize_webpages(
+            query,
+            max_number=max_number,
+            time_range=time_range,
+            region=region,
+            runtime_config=runtime_config,
+        )
+
+    configured_web_report.__name__ = "search_and_summarize_webpages"
+    configured_web_report.__doc__ = search_and_summarize_webpages.__doc__
+
     # 创建无状态或状态安全的工具包实例（这些可以共享）
     image_analysis_toolkit = ImageAnalysisToolkit(model=_models['image_analysis_model'])
     excel_toolkit = ExcelToolkit()
@@ -1566,8 +1630,8 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         ("search_wiki", FunctionTool(search_wiki)),                   # 带重试机制的Wikipedia搜索
         ("web_search", FunctionTool(search_archived_webpage)),   # 带重试机制的存档网页搜索
         ("file_processor", FunctionTool(extract_document_content)),  # 并发安全的文档处理
-        ("url_processor", FunctionTool(extract_and_answer_query_from_url)),      # 并发安全的URL内容提取
-        ("paper_processor", FunctionTool(summarize_paper)), 
+        ("url_processor", FunctionTool(configured_url_processor)),      # 并发安全的URL内容提取
+        ("paper_processor", FunctionTool(configured_paper_processor)),
         ("video_processor", FunctionTool(ask_question_about_video)), # 并发安全的视频分析
         ("image_processor", FunctionTool(image_analysis_toolkit.ask_question_about_image)),  # 安全：仅持有模型
         ("audio_processor", FunctionTool(ask_question_about_audio)), # 并发安全的音频分析
@@ -1576,8 +1640,8 @@ def construct_agent_list(config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         ("ocr", FunctionTool(ocr2text)),            # OCR文字识别
         ("browser_use", FunctionTool(browse_url)),       # 浏览器
         ("literature_search", FunctionTool(search_academic_papers)),        # 多源学术论文搜索
-        ("report_generation", FunctionTool(search_and_summarize_papers)),        # 多源学术论文搜索
-        ("report_generation", FunctionTool(search_and_summarize_webpages)),  # 集成搜索、提取、分析功能
+        ("report_generation", FunctionTool(configured_paper_report)),        # 多源学术论文搜索
+        ("report_generation", FunctionTool(configured_web_report)),  # 集成搜索、提取、分析功能
          
 
     ]

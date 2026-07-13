@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import unittest
+import sys
+from types import ModuleType
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from internagent.mas.agents.tool_loop import ModelToolLoop
 from internagent.mas.models.runtime import (
@@ -10,7 +14,17 @@ from internagent.mas.models.runtime import (
     ModelRunRequest,
     ModelRunResult,
     OutputText,
+    ReasoningConfig,
 )
+
+
+def _load_codeview_runtime():
+    easydict = ModuleType("easydict")
+    easydict.EasyDict = lambda **values: SimpleNamespace(**values)
+    with patch.dict(sys.modules, {"easydict": easydict}):
+        from internagent.mas.agents.codeview_agent import _generate_runtime_text
+
+    return _generate_runtime_text
 
 
 class _ScriptedModel:
@@ -70,6 +84,7 @@ class RuntimeToolLoopTest(unittest.IsolatedAsyncioTestCase):
             ),
             max_iterations=4,
             max_tool_calls=4,
+            reasoning=ReasoningConfig(context="all_turns"),
         )
 
         self.assertEqual(result.content, "Found the relevant paper.")
@@ -90,6 +105,73 @@ class RuntimeToolLoopTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(model.requests[0].reasoning.context, "all_turns")
         self.assertEqual(continuation.reasoning.context, "all_turns")
+
+    async def test_loop_does_not_assume_provider_reasoning_support(self) -> None:
+        model = _ScriptedModel()
+        model.results = [
+            ModelRunResult(
+                response_id="resp_final",
+                status="completed",
+                model="vendor/chat-model",
+                items=(OutputText(text="done"),),
+            )
+        ]
+
+        result = await ModelToolLoop(
+            model=model,
+            execute_tool=lambda *_: None,
+        ).run(
+            instructions="Answer directly.",
+            prompt="Hello.",
+            tools=(),
+            max_iterations=1,
+            max_tool_calls=0,
+        )
+
+        self.assertEqual(result.content, "done")
+        self.assertIsNone(model.requests[0].reasoning)
+
+
+class CodeViewRuntimeConfigTest(unittest.TestCase):
+    def test_openai_codeview_requires_explicit_runtime_config(self) -> None:
+        _generate_runtime_text = _load_codeview_runtime()
+        settings = SimpleNamespace(
+            runtime_config={}, temperature=0.6, max_output_tokens=3000
+        )
+
+        with self.assertRaisesRegex(ValueError, "explicit OpenAI runtime config"):
+            _generate_runtime_text("gpt-5.6-sol", "system", "prompt", settings)
+
+    def test_openai_codeview_uses_injected_runtime_config(self) -> None:
+        _generate_runtime_text = _load_codeview_runtime()
+        config = {
+            "provider": "openai",
+            "model_name": "gpt-5.6-sol",
+            "api_mode": "responses",
+            "base_url": "https://ai.cloudyz.top/v1",
+            "prompt_cache": {"mode": "implicit", "ttl": "30m"},
+            "response_state": {"mode": "replay", "max_entries": 128},
+        }
+        settings = SimpleNamespace(
+            runtime_config=config,
+            temperature=0.6,
+            max_output_tokens=3000,
+        )
+
+        class _FakeModel:
+            async def generate(self, **_):
+                return "summary"
+
+        with patch(
+            "internagent.mas.models.openai_model.OpenAIModel.from_config",
+            return_value=_FakeModel(),
+        ) as create:
+            result = _generate_runtime_text(
+                "gpt-5.6-sol", "system", "prompt", settings
+            )
+
+        self.assertEqual(result, "summary")
+        create.assert_called_once_with(config)
 
 
 if __name__ == "__main__":

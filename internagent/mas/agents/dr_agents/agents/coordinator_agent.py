@@ -14,7 +14,7 @@ from utils.graph import DirectedGraph, NodeExecutionStatus
 
 from utils.logger import get_logger
 from utils.prompt_loader import load_prompt
-from tools import get_tool_manager
+from tools import get_tool_manager, with_runtime_config
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -42,7 +42,12 @@ class CoordinatorAgent(BaseAgent):
         self.logger = logger
         self._set_logger(logger)  # 设置logger到基类
         self.model_kwargs = model_kwargs
-        self.tool_manager = get_tool_manager(config=config)
+        self.tool_manager = get_tool_manager(
+            config=with_runtime_config(
+                config,
+                model_kwargs.get("runtime_config"),
+            )
+        )
         
         # 从配置加载prompt（如果配置中没有指定，使用默认值）
         self.config = config or {}

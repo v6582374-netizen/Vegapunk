@@ -201,7 +201,8 @@ def extract_and_answer_query(
     model_name: str = "gpt-5.6-sol",
     chunk_size: int = 16000,
     max_workers: int = 8,
-    timeout: int = 120
+    timeout: int = 120,
+    runtime_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, str]:
     """
     Extract content from URL and answer the query according to the content.
@@ -225,7 +226,7 @@ def extract_and_answer_query(
     """
     try:
         # Initialize LLM model
-        model = get_model(model_name)
+        model = get_model(model_name, runtime_config=runtime_config)
     except Exception as e:
         return False, f"Error initializing LLM model: {e}"
     
@@ -349,7 +350,11 @@ Please provide a comprehensive and complete answer that integrates all relevant 
             return False, f"Error generating final answer: {e}"
 
 
-def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
+def extract_and_answer_query_from_url(
+    url: str,
+    query: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, str]:
     r"""Extract the content of a given url and answer the query according to the content.
 
     Args:
@@ -360,7 +365,11 @@ def extract_and_answer_query_from_url(url: str, query: str) -> Tuple[bool, str]:
         Tuple[bool, str]: A tuple containing a boolean indicating whether the tool was executed successfully, and the answer to the query according to the content of the url (if success).
     """
     try:
-        result = extract_and_answer_query(url, query)
+        result = extract_and_answer_query(
+            url,
+            query,
+            runtime_config=runtime_config,
+        )
         return result
     except Exception as e:
         logger.error(f"Extract and answer query from URL failed: {e}")
@@ -1168,7 +1177,10 @@ def search_academic_papers(
 # Paper and Webpage Content Extraction Functions
 # ==============================================================================
 
-def extract_paper_content_to_summary(paper_path: str) -> str:
+def extract_paper_content_to_summary(
+    paper_path: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Extract key content from a paper file (PDF or TXT).
     If the paper is too long, it will be split into 16k character chunks,
@@ -1192,7 +1204,7 @@ def extract_paper_content_to_summary(paper_path: str) -> str:
     
     # Initialize model for extraction
     model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
-    model = get_model(model_name)
+    model = get_model(model_name, runtime_config=runtime_config)
     
     # Read paper content based on file type
     try:
@@ -1423,7 +1435,10 @@ Return ONLY the JSON object, no additional text."""
         
         return json.dumps(final_result, ensure_ascii=False, indent=2)
 
-def extract_webpage_content_to_summary(webpage_content: str) -> str:
+def extract_webpage_content_to_summary(
+    webpage_content: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Extract key content from webpage text.
     If the content is too long, it will be split into 16k character chunks,
@@ -1448,7 +1463,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     
     # Initialize model for extraction
     model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
-    model = get_model(model_name)
+    model = get_model(model_name, runtime_config=runtime_config)
     
     # Define chunk size (16k characters)
     CHUNK_SIZE = 16000
@@ -1728,7 +1743,11 @@ def summarize_webpage(webpage_url: str) -> Dict[str, Any]:
         logger.error(f"Failed to summarize webpage: {e}")
         return result
 
-def search_and_summarize_papers(query: str, max_number: int = 3) -> List[Dict[str, Any]]:
+def search_and_summarize_papers(
+    query: str,
+    max_number: int = 3,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """
     Search academic papers, download PDFs, and extract content summaries.
     
@@ -1845,7 +1864,10 @@ def search_and_summarize_papers(query: str, max_number: int = 3) -> List[Dict[st
                 # 提取论文内容（注意：extract_paper_content_to_summary内部已经是并行的）
                 logger.info(f"正在提取论文内容 (索引 {idx})...")
                 try:
-                    summary_json = extract_paper_content_to_summary(local_path)
+                    summary_json = extract_paper_content_to_summary(
+                        local_path,
+                        runtime_config=runtime_config,
+                    )
                     summary = json.loads(summary_json)
                     paper_result["summary"] = summary
                     logger.info(f"✓ 内容提取成功 (索引 {idx})")
@@ -1945,7 +1967,10 @@ def search_and_summarize_papers(query: str, max_number: int = 3) -> List[Dict[st
     return results
 
 
-def extract_webpage_content_to_summary(webpage_content: str) -> str:
+def extract_webpage_content_to_summary(
+    webpage_content: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Extract key content from webpage text.
     If the content is too long, it will be split into 16k character chunks,
@@ -1971,7 +1996,7 @@ def extract_webpage_content_to_summary(webpage_content: str) -> str:
     
     # Initialize model for extraction
     model_name = os.getenv("EXTRACTION_MODEL", "gpt-5.6-sol")
-    model = get_model(model_name)
+    model = get_model(model_name, runtime_config=runtime_config)
     
     # Define chunk size (16k characters)
     CHUNK_SIZE = 16000
@@ -2163,7 +2188,10 @@ Return ONLY the JSON object, no additional text."""
         return json.dumps(final_result, ensure_ascii=False, indent=2)
 
 
-def summarize_paper(paper_source: str) -> Dict[str, Any]:
+def summarize_paper(
+    paper_source: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Extract and summarize content from a specified paper (local file, URL, or paper name).
     
@@ -2346,7 +2374,10 @@ def summarize_paper(paper_source: str) -> Dict[str, Any]:
         
         # Extract content from the paper
         logger.info(f"Extracting content from paper: {local_path}")
-        summary_json = extract_paper_content_to_summary(local_path)
+        summary_json = extract_paper_content_to_summary(
+            local_path,
+            runtime_config=runtime_config,
+        )
         summary = json.loads(summary_json)
         
         result["success"] = True
@@ -2363,8 +2394,13 @@ def summarize_paper(paper_source: str) -> Dict[str, Any]:
 
 
 
-def search_and_summarize_webpages(query: str, max_number: int = 3, time_range: str = "d3",
-                                   region: str = "None") -> List[Dict[str, Any]]:
+def search_and_summarize_webpages(
+    query: str,
+    max_number: int = 3,
+    time_range: str = "d3",
+    region: str = "None",
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """
     Search webpages, extract content, and analyze summaries.
     
@@ -2497,7 +2533,10 @@ def search_and_summarize_webpages(query: str, max_number: int = 3, time_range: s
                 # 分析网页内容
                 logger.info(f"正在分析网页内容 (索引 {idx})...")
                 try:
-                    summary_json = extract_webpage_content_to_summary(content)
+                    summary_json = extract_webpage_content_to_summary(
+                        content,
+                        runtime_config=runtime_config,
+                    )
                     summary = json.loads(summary_json)
                     webpage_result["summary"] = summary
                     logger.info(f"✓ 内容分析成功 (索引 {idx})")

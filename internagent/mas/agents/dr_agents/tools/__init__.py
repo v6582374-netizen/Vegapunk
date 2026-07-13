@@ -399,6 +399,18 @@ class ToolManager:
 tool_manager = None
 
 
+def with_runtime_config(
+    config: Dict[str, Any] = None,
+    runtime_config: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Attach an explicitly selected model deployment to a tool config."""
+
+    merged = dict(config or {})
+    if runtime_config is not None:
+        merged["runtime_model"] = dict(runtime_config)
+    return merged
+
+
 def get_tool_manager(mode: str = "local", config: Dict[str, Any] = None) -> ToolManager:
     """
     获取工具管理器实例
@@ -422,17 +434,20 @@ def get_tool_manager(mode: str = "local", config: Dict[str, Any] = None) -> Tool
         # 获取当前和新的 enabled_tools，如果是 None 则转为 [] 进行比较
         current_tools = current_config.get('tools', {}).get('enabled_tools')
         new_tools = config.get('tools', {}).get('enabled_tools')
+        current_runtime = current_config.get('runtime_model')
+        new_runtime = config.get('runtime_model')
         # None 和 [] 都视为空配置
         current_tools = current_tools if current_tools is not None else []
         new_tools = new_tools if new_tools is not None else []
         
         config_changed = (
             tool_manager.mode != mode or 
-            current_tools != new_tools
+            current_tools != new_tools or
+            current_runtime != new_runtime
         )
     
         # 如果模式或配置改变，重新创建工具管理器
         if config_changed:
             tool_manager = ToolManager(mode, config)
     
-    return tool_manager 
+    return tool_manager

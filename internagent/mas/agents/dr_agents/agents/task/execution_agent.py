@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from agents.base_agent import BaseAgent
 from models import get_model
-from tools import get_tool_manager
+from tools import get_tool_manager, with_runtime_config
 from utils.reference_manager import ReferenceManager
 from utils.logger import get_logger
 from utils.prompt_loader import load_prompt
@@ -46,7 +46,13 @@ class ExecutionAgent(BaseAgent):
         self.tool_mode = tool_mode
         # 使用基类的 _logger，可以通过 _set_logger 动态更改
         self._set_logger(get_logger("ExecutionAgent"))
-        self.tool_manager = get_tool_manager(mode=tool_mode, config=config)
+        self.tool_manager = get_tool_manager(
+            mode=tool_mode,
+            config=with_runtime_config(
+                config,
+                model_kwargs.get("runtime_config"),
+            ),
+        )
         self.tool_map = self._build_tool_map()
         self.model_kwargs = model_kwargs
         self.config = config or {}
