@@ -247,11 +247,10 @@ class DRAgent(BaseAgent):
         # Extract optional file path
         file_path = context.get("file_path", None)
         
-        # 如果调研子系统不可用，返回可读的降级结果，而不是让整个问答或发现流程崩掉。
+        # 工作流不可用是这个 Agent 的最终失败，交给任务出口统一记录和传播。
         if self.workflow is None:
             logger.error("DR workflow is not initialized - cannot execute task")
-            # Return a simple fallback response
-            return f"Background research needed for: {task}\n\nNote: DR workflow is not available. Please provide background context manually."
+            raise AgentExecutionError("DR workflow is not available")
         
         try:
             logger.info(f"DR Agent executing task: {task}")
@@ -270,5 +269,4 @@ class DRAgent(BaseAgent):
             
         except Exception as e:
             logger.error(f"Error during DR workflow execution: {str(e)}")
-            # Return a fallback response instead of raising error
-            return f"Background research for: {task}\n\nNote: DR workflow execution failed. Please provide background context manually."
+            raise AgentExecutionError("DR workflow execution failed") from e

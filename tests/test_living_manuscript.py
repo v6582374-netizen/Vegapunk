@@ -20,7 +20,9 @@ from internagent.living_manuscript import (
     LivingManuscript,
     ManuscriptValidationError,
     attach_living_manuscript_hook,
+    attach_sync_living_manuscript_hook,
     clear_active_living_manuscript,
+    preflight_living_manuscript_runtime,
     set_active_living_manuscript,
 )
 from internagent.mas.models.base_model import BaseModel
@@ -121,6 +123,7 @@ class AlwaysValidValidator:
 class RecordedCommand:
     command: list[str]
     cwd: Path
+    input: str | None
 
 
 class RecordingCommandRunner:
@@ -136,8 +139,9 @@ class RecordingCommandRunner:
         capture_output: bool,
         text: bool,
         check: bool,
+        input: str | None = None,
     ) -> CompletedProcess[str]:
-        self.calls.append(RecordedCommand(command=command, cwd=cwd))
+        self.calls.append(RecordedCommand(command=command, cwd=cwd, input=input))
         return CompletedProcess(
             command,
             0,
@@ -444,7 +448,7 @@ class LivingManuscriptTest(unittest.TestCase):
             self.assertIn("--append-system-prompt-file", invocation.command)
             self.assertIn(str(prompt_path.resolve()), invocation.command)
             self.assertIn(str(manuscript.launch_dir), invocation.command)
-            self.assertIn(str(manuscript.tex_path), invocation.command[-1])
+            self.assertIn(str(manuscript.tex_path), invocation.input)
 
     def test_mas_context_transfer_keeps_raw_provider_response_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -487,7 +491,7 @@ class LivingManuscriptTest(unittest.TestCase):
                 ),
             )
 
-            transferred_prompt = commands.calls[0].command[-1]
+            transferred_prompt = commands.calls[0].input
             self.assertIn("retain this exact instruction", transferred_prompt)
             self.assertIn("exact-provider-payload", transferred_prompt)
             self.assertIn("exact-input", transferred_prompt)
@@ -624,7 +628,67 @@ class AgentTaskHookTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(task)
         self.assertIs(task.input["args"][0], context)
         self.assertIsNone(task.output)
-        self.assertEqual(task.error, "ValueError: exhausted after retries")
+        self.assertIn("Traceback", task.error)
+        self.assertIn("ValueError: exhausted after retries", task.error)
+
+    def test_sync_agent_completion_uses_the_same_sculptor_barrier(self) -> None:
+        class SyncAgent:
+            def execute(self, source: dict[str, object]) -> dict[str, object]:
+                return source
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            template_dir = root / "elegantpaper"
+            template_dir.mkdir()
+            (template_dir / "elegantpaper.cls").write_text("class", encoding="utf-8")
+            sculptor = RepairingSculptor()
+            manuscript = LivingManuscript.initialize(
+                launch_dir=root / "launch",
+                template_dir=template_dir,
+                sculptor=sculptor,
+                validator=DraftValidator(),
+            )
+            source = {"query": "deep research"}
+            set_active_living_manuscript(manuscript)
+            try:
+                agent = attach_sync_living_manuscript_hook(
+                    SyncAgent(), agent_name="SyncAgent"
+                )
+                output = agent.execute(source)
+            finally:
+                clear_active_living_manuscript(manuscript)
+
+        task = sculptor.started_with
+        self.assertIsNotNone(task)
+        self.assertIs(task.input["args"][0], source)
+        self.assertIs(task.output, output)
+
+
+class LivingManuscriptPreflightTest(unittest.TestCase):
+    def test_preflight_rejects_a_backend_without_native_context_fork(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "claudecode"):
+            preflight_living_manuscript_runtime(experiment_backend="iflow")
+
+    def test_preflight_rejects_a_claude_cli_without_fork_flags(self) -> None:
+        def find_executable(name: str) -> str:
+            return f"/bin/{name}"
+
+        def incomplete_help(
+            command: list[str], **kwargs: object
+        ) -> CompletedProcess[str]:
+            return CompletedProcess(
+                command,
+                0,
+                stdout="--resume --output-format",
+                stderr="",
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "--fork-session"):
+            preflight_living_manuscript_runtime(
+                experiment_backend="claudecode",
+                find_executable=find_executable,
+                run_command=incomplete_help,
+            )
 
 
 class ClaudeCodeRunnerHookTest(unittest.TestCase):
@@ -688,11 +752,33 @@ class DiscoveryLaunchWiringTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         activation = launch_source.index("set_active_living_manuscript(")
+        preflight = launch_source.index("preflight_living_manuscript_runtime(")
         first_agent = launch_source.index("IdeaGenerator(")
 
+        self.assertLess(preflight, activation)
         self.assertLess(activation, first_agent)
         self.assertIn("living_manuscript.finalize(", launch_source)
         self.assertNotIn("run_dossier(", launch_source)
+
+    def test_deep_research_agents_install_hooks_and_propagate_failure(self) -> None:
+        repo_root = Path(__file__).parents[1]
+        base_agent_source = (
+            repo_root
+            / "internagent/mas/agents/dr_agents/agents/base_agent.py"
+        ).read_text(encoding="utf-8")
+        dr_agent_source = (
+            repo_root / "internagent/mas/agents/dr_agent.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("attach_sync_living_manuscript_hook(", base_agent_source)
+        self.assertIn(
+            'raise AgentExecutionError("DR workflow is not available")',
+            dr_agent_source,
+        )
+        self.assertIn(
+            'raise AgentExecutionError("DR workflow execution failed") from e',
+            dr_agent_source,
+        )
 
 
 if __name__ == "__main__":

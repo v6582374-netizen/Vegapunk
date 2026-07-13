@@ -22,6 +22,7 @@ from internagent.living_manuscript import (
     LatexManuscriptValidator,
     LivingManuscript,
     clear_active_living_manuscript,
+    preflight_living_manuscript_runtime,
     set_active_living_manuscript,
 )
 from internagent.stage import IdeaGenerator, ExperimentRunner
@@ -742,6 +743,11 @@ def main():
         return
 
     repo_root = Path(__file__).resolve().parent
+    preflight_living_manuscript_runtime(
+        experiment_backend=(
+            args.exp_backend if args.mode == "experiment" else None
+        )
+    )
     manuscript_config = config.get("living_manuscript", {})
     sculptor_model = manuscript_config.get(
         "model", "claude-sonnet-4-5-20250929"
@@ -752,6 +758,7 @@ def main():
         sculptor=ClaudeCodeSculptor(
             model=sculptor_model,
             prompt_path=repo_root / "internagent" / "manuscript_sculptor_prompt.md",
+            env_overrides=config.get("proxy_settings", {}),
         ),
         validator=LatexManuscriptValidator(),
     )

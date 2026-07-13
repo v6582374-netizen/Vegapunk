@@ -29,6 +29,15 @@ class BaseAgent(ABC):
         self.task_id: Optional[str] = None
         self.redis_client: Optional[redis.Redis] = None
         self._logger = None
+
+        from internagent.living_manuscript import (
+            attach_sync_living_manuscript_hook,
+        )
+
+        attach_sync_living_manuscript_hook(
+            self,
+            agent_name=type(self).__name__,
+        )
     
     @abstractmethod
     def execute(self, input_data: Any) -> Any:

@@ -6,7 +6,9 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
+import traceback
 from contextvars import ContextVar
 from dataclasses import dataclass, field, fields, is_dataclass
 from functools import wraps
@@ -282,7 +284,7 @@ def attach_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
                     agent_name=agent_name,
                     input={"args": args, "kwargs": kwargs},
                     output=None,
-                    error=f"{type(error).__name__}: {error}",
+                    error=traceback.format_exc(),
                     model_interactions=tuple(interactions),
                 )
                 await asyncio.to_thread(manuscript.consider_agent_task, task)
@@ -303,6 +305,103 @@ def attach_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
     agent.execute = execute_with_sculptor
     agent._living_manuscript_hook_attached = True
     return agent
+
+
+def attach_sync_living_manuscript_hook(agent: Any, *, agent_name: str) -> Any:
+    """Wrap a synchronous Agent task exit with the same Sculptor barrier."""
+
+    if getattr(agent, "_living_manuscript_hook_attached", False):
+        return agent
+
+    execute = agent.execute
+
+    @wraps(execute)
+    def execute_with_sculptor(*args: Any, **kwargs: Any) -> Any:
+        manuscript = get_active_living_manuscript()
+        if manuscript is None:
+            return execute(*args, **kwargs)
+
+        interactions: list[dict[str, Any]] = []
+        token = _task_model_interactions.set(interactions)
+        try:
+            try:
+                output = execute(*args, **kwargs)
+            except Exception:
+                manuscript.consider_agent_task(
+                    AgentTaskContext(
+                        agent_name=agent_name,
+                        input={"args": args, "kwargs": kwargs},
+                        output=None,
+                        error=traceback.format_exc(),
+                        model_interactions=tuple(interactions),
+                    )
+                )
+                raise
+
+            manuscript.consider_agent_task(
+                AgentTaskContext(
+                    agent_name=agent_name,
+                    input={"args": args, "kwargs": kwargs},
+                    output=output,
+                    error=None,
+                    model_interactions=tuple(interactions),
+                )
+            )
+            return output
+        finally:
+            _task_model_interactions.reset(token)
+
+    agent.execute = execute_with_sculptor
+    agent._living_manuscript_hook_attached = True
+    return agent
+
+
+def preflight_living_manuscript_runtime(
+    *,
+    experiment_backend: str | None,
+    find_executable: Callable[[str], str | None] = shutil.which,
+    run_command: CommandRunner | None = None,
+) -> None:
+    """Fail before research when the configured runtime cannot fork and validate."""
+
+    if experiment_backend not in (None, "claudecode"):
+        raise RuntimeError(
+            "Living Manuscript experiment launches currently require the "
+            "claudecode backend for native context forks"
+        )
+
+    required = ("claude", "latexmk", "xelatex", "biber")
+    missing = [name for name in required if find_executable(name) is None]
+    if missing:
+        raise RuntimeError(
+            "Living Manuscript runtime is missing executable(s): "
+            + ", ".join(missing)
+        )
+
+    command_runner = run_command or subprocess.run
+    completed = command_runner(
+        ["claude", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "Claude Code capability preflight failed: " + completed.stderr.strip()
+        )
+    help_text = completed.stdout + "\n" + completed.stderr
+    required_flags = (
+        ("--resume",),
+        ("--fork-session",),
+        ("--append-system-prompt-file", "--append-system-prompt[-file]"),
+        ("--output-format",),
+    )
+    for alternatives in required_flags:
+        if not any(flag in help_text for flag in alternatives):
+            raise RuntimeError(
+                "Claude Code does not support required Sculptor flag: "
+                + alternatives[0]
+            )
 
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -393,10 +492,12 @@ class ClaudeCodeSculptor:
         *,
         model: str,
         prompt_path: Path,
+        env_overrides: dict[str, str] | None = None,
         run_command: CommandRunner = subprocess.run,
     ) -> None:
         self.model = model
         self.prompt_path = prompt_path.resolve()
+        self.env_overrides = dict(env_overrides or {})
         self._run_command = run_command
         if not self.prompt_path.is_file():
             raise FileNotFoundError(f"Sculptor prompt not found: {self.prompt_path}")
@@ -523,11 +624,13 @@ class ClaudeCodeSculptor:
             command.extend(["--resume", resume_session_id])
         if fork_session:
             command.append("--fork-session")
-        command.append(prompt)
+        env = os.environ.copy()
+        env.update(self.env_overrides)
         completed = self._run_command(
             command,
             cwd=cwd,
-            env=os.environ.copy(),
+            env=env,
+            input=prompt,
             capture_output=True,
             text=True,
             check=False,
