@@ -8,7 +8,7 @@ requests-oauthlib==2.0.0
 httpx==0.28.1
 
 # AI/ML Model APIs
-openai==1.98.0
+openai==2.45.0
 anthropic==0.60.0
 
 # Computer Vision & OCR (actually used in tools/our_tools.py)
@@ -20,7 +20,7 @@ pillow==10.4.0
 pandas==2.3.1
 numpy==2.2.6
 json5  # for JSON parsing utilities
-pyyaml==6.0.1  # for YAML configuration file support
+pyyaml==6.0.2  # for YAML configuration file support
 
 # Web scraping and downloading (used in tools)
 beautifulsoup4==4.13.4
