@@ -70,6 +70,20 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             self.assertIn("before interruption", content)
             self.assertNotIn("after interruption", content)
 
+    def test_project_test_suites_are_concrete_local_packages(self) -> None:
+        import tests
+        import tests.paper_orchestra
+
+        repository_root = Path(__file__).parents[1]
+        self.assertEqual(
+            Path(tests.__file__).resolve(),
+            repository_root / "tests" / "__init__.py",
+        )
+        self.assertEqual(
+            Path(tests.paper_orchestra.__file__).resolve(),
+            repository_root / "tests" / "paper_orchestra" / "__init__.py",
+        )
+
     def test_new_discovery_launch_builds_draft_then_automatically_hands_off(
         self,
     ) -> None:

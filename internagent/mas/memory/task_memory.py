@@ -135,6 +135,7 @@ class TaskMemoryLayer:
         # Initialize LLM for analysis (optional)
         self.analyze_agent = None
         if llm_config:
+            llm_config = llm_config.copy()
             # Allow custom_metric_config at both levels
             if custom_metric_config and "custom_metric_config" not in llm_config:
                 llm_config["custom_metric_config"] = custom_metric_config
@@ -157,9 +158,18 @@ class TaskMemoryLayer:
                     "prompt_cache",
                     "background",
                 }
-                model = ModelFactory.create_model(
-                    {key: value for key, value in llm_config.items() if key in model_keys}
-                )
+                if "_global_config" in llm_config:
+                    model = ModelFactory.create_model_for_agent(
+                        "exp_analyze", llm_config
+                    )
+                else:
+                    model = ModelFactory.create_model(
+                        {
+                            key: value
+                            for key, value in llm_config.items()
+                            if key in model_keys
+                        }
+                    )
                 self.analyze_agent = ExpAnalyzeAgent(model, llm_config)
             except Exception as e:
                 print(f"Warning: Failed to initialize ExpAnalyzeAgent: {e}")
@@ -228,6 +238,7 @@ class TaskMemoryLayer:
             agent_config = config["agents"].get("exp_analyze", None)
             if agent_config is not None and isinstance(agent_config, dict):
                 llm_config = agent_config.copy()
+                llm_config["_global_config"] = config
 
         # Extract custom_metric_config if at top level
         custom_metric_config = config.get("custom_metric_config", None)

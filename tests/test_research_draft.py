@@ -8,7 +8,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
 
 from internagent.research_draft import (
@@ -229,6 +229,25 @@ class ClaudeCodeDraftCaptureTest(unittest.TestCase):
             self.assertIn(completed.stdout, content)
             self.assertIn(completed.stderr, content)
             self.assertEqual(output, "finished")
+
+    def test_runner_rejects_success_text_from_a_failed_process(self) -> None:
+        completed = CompletedProcess(
+            ["claude"],
+            7,
+            stdout='{"result":"ALL_COMPLETED"}',
+            stderr="fatal cli failure",
+        )
+
+        with patch(
+            "internagent.experiments_utils_claude.subprocess.run",
+            return_value=completed,
+        ):
+            with self.assertRaises(CalledProcessError) as raised:
+                ClaudeCodeRunner(model="claude-test").run("run experiment")
+
+        self.assertEqual(raised.exception.returncode, 7)
+        self.assertEqual(raised.exception.stdout, completed.stdout)
+        self.assertEqual(raised.exception.stderr, completed.stderr)
 
 
 if __name__ == "__main__":

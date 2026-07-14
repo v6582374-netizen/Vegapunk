@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import internagent
+
 from internagent.mas.models.runtime import (
     ImageContent,
     ModelRunResult,
@@ -77,6 +79,18 @@ class RuntimeScoringAgentTest(unittest.TestCase):
                 base_url="",
                 model_name="gpt-5.5",
             )
+
+    def test_rcb_evaluation_is_a_cross_platform_package_bridge(self) -> None:
+        package_path = Path(internagent.__file__).parent / "rcb_evaluation"
+
+        self.assertTrue(package_path.is_dir())
+        self.assertFalse(package_path.is_symlink())
+
+        from internagent.rcb_evaluation import score, utils
+
+        expected_root = Path(__file__).parents[1] / "sci_tasks" / "evaluation"
+        self.assertEqual(Path(score.__file__).resolve(), expected_root / "score.py")
+        self.assertEqual(Path(utils.__file__).resolve(), expected_root / "utils.py")
 
 
 if __name__ == "__main__":

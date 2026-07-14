@@ -132,10 +132,14 @@ class ModelFactory:
         
         model_config["provider"] = model_provider
         model_config["default_provider"] = global_config.get("models", {}).get("default_provider", "openai")
-        
-        # 运行时行为参数允许按角色覆盖；嵌套策略必须逐字段合并，避免只改
-        # reasoning.context 时意外丢掉全局 effort 和 mode。
+
+        # Agent-specific identity, endpoint, and scalar runtime settings remain
+        # valid overrides after inheriting the selected provider configuration.
         for key in [
+            "api_key",
+            "base_url",
+            "model_name",
+            "default_headers",
             "temperature",
             "max_output_tokens",
             "api_mode",
@@ -145,6 +149,8 @@ class ModelFactory:
             if key in config:
                 model_config[key] = config[key]
 
+        # 嵌套策略必须逐字段合并，避免只改 reasoning.context 时意外丢掉
+        # 全局 effort 和 mode。
         for key in [
             "reasoning",
             "prompt_cache",

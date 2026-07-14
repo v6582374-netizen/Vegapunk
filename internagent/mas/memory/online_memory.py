@@ -40,11 +40,10 @@ class OnlineMemorySaver:
             base_dir = memory_config.get("task_memory", {}).get("memory_dir", "./config/mem_store")
             task_memory_dir = f"{base_dir}/{task_name}"
 
-            # 这里把全局配置重排成底层记忆组件认识的形状。
-            task_config = {
-                "task_memory": memory_config.get("task_memory", {}).copy(),
-                "agents": config.get("agents", {})
-            }
+            # 这里把全局配置重排成底层记忆组件认识的形状，同时保留模型
+            # endpoint 和 Responses 运行策略供 exp_analyze 继承。
+            task_config = config.copy()
+            task_config["task_memory"] = memory_config.get("task_memory", {}).copy()
             # Override memory_dir for this task
             task_config["task_memory"]["memory_dir"] = task_memory_dir
 

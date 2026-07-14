@@ -4,6 +4,7 @@ import subprocess
 from subprocess import TimeoutExpired
 import sys
 import json
+import math
 import re
 import os
 from datetime import datetime
@@ -159,6 +160,14 @@ class ClaudeCodeRunner:
         if result.returncode != 0 or result.stderr:
             error_message = f"Claude CLI error (return code {result.returncode}): {result.stderr}"
             logger.error(error_message)
+
+        if result.returncode != 0:
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                command,
+                output=result.stdout,
+                stderr=result.stderr,
+            )
         
         try:
             payload = json.loads(result.stdout)
@@ -330,6 +339,77 @@ def run_experiment(folder_name, run_num, timeout=None, gpu_ids=None, log_file=No
         return 1, next_prompt, None, None
 
 
+_NON_METRIC_CONTAINER_KEYS = {
+    "config",
+    "configuration",
+    "environment",
+    "metadata",
+    "model_config",
+    "system_info",
+    "training_config",
+}
+_NON_METRIC_VALUE_KEYS = {
+    "epoch",
+    "iteration",
+    "n_samples",
+    "run",
+    "run_id",
+    "seed",
+    "step",
+    "timestamp",
+}
+
+
+def _contains_usable_numeric_metric(value, key=None) -> bool:
+    """Recognize numeric measurements while ignoring bookkeeping metadata."""
+    normalized_key = (
+        str(key).strip().lower().replace("-", "_").replace(" ", "_")
+        if key is not None
+        else None
+    )
+    if normalized_key in _NON_METRIC_CONTAINER_KEYS:
+        return False
+    if normalized_key in _NON_METRIC_VALUE_KEYS:
+        return False
+    if isinstance(value, dict):
+        return any(
+            _contains_usable_numeric_metric(child, child_key)
+            for child_key, child in value.items()
+        )
+    if isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _has_valid_improvement_artifact(folder_name) -> bool:
+    """Return whether any non-baseline run contains usable numeric metrics."""
+    try:
+        run_directories = [
+            entry
+            for entry in os.scandir(folder_name)
+            if entry.is_dir() and re.fullmatch(r"run_[1-9]\d*", entry.name)
+        ]
+    except OSError:
+        return False
+
+    for run_directory in run_directories:
+        final_info_path = osp.join(run_directory.path, "final_info.json")
+        try:
+            with open(final_info_path, "r", encoding="utf-8") as file:
+                final_info = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        if isinstance(final_info, dict) and final_info:
+            if _contains_usable_numeric_metric(final_info):
+                return True
+
+    return False
+
+
 def perform_experiments(
     idea,
     folder_name,
@@ -426,7 +506,9 @@ def perform_experiments(
             log_message("Error: litellm.BadRequestError detected in Claude output")
             return False
         if "ALL_COMPLETED" in claude_output:
-            log_message("All experiments completed successfully")
+            log_message(
+                "Claude reported all experiments completed; validating artifacts"
+            )
             break
 
         # Run experiment with specified GPU IDs
@@ -452,6 +534,16 @@ def perform_experiments(
     if (run <= max_runs) and (current_iter >= MAX_ITERS):
         logger.info("Not all experiments completed.")
         _generate_report_with_claude(claude_runner, folder_name, run, current_iter, completed=False)
+        return False
+
+    if not _has_valid_improvement_artifact(folder_name):
+        log_message(
+            "Experiments did not produce a valid run_N/final_info.json artifact"
+        )
+        logger.error("Experiment completion rejected: no valid improvement artifact")
+        _generate_report_with_claude(
+            claude_runner, folder_name, run, current_iter, completed=False
+        )
         return False
 
     logger.info("Experiments completed successfully")
