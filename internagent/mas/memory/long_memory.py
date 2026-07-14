@@ -1095,7 +1095,14 @@ class ExperienceGenerator:
             logger.info("No config path provided")
 
         # Load default configuration
-        default_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "default.yaml")
+        default_config_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "config",
+            "default_config.yaml",
+        )
         default_config_path = os.path.abspath(default_config_path)
         logger.info(f"Loading default configuration from: {default_config_path}")
 
