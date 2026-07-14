@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 import sys
+import tempfile
+from pathlib import Path
 from types import ModuleType
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,6 +18,7 @@ from internagent.mas.models.runtime import (
     OutputText,
     ReasoningConfig,
 )
+from internagent.research_draft import ResearchDraft
 
 
 def _load_codeview_runtime():
@@ -57,6 +60,33 @@ class _ScriptedModel:
 
 
 class RuntimeToolLoopTest(unittest.IsolatedAsyncioTestCase):
+    async def test_each_tool_call_and_result_append_to_research_draft(self) -> None:
+        model = _ScriptedModel()
+
+        async def execute_tool(
+            name: str, arguments: dict[str, object]
+        ) -> dict[str, object]:
+            return {"tool": name, "query": arguments["query"], "papers": ["p1"]}
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            draft = ResearchDraft.open(Path(temporary_directory) / "launch")
+            with draft.activate():
+                await ModelToolLoop(
+                    model=model, execute_tool=execute_tool
+                ).run(
+                    instructions="Use the tool.",
+                    prompt="Find evidence.",
+                    tools=(),
+                    max_iterations=3,
+                    max_tool_calls=2,
+                )
+
+            content = draft.path.read_text(encoding="utf-8")
+            self.assertIn("search_papers", content)
+            self.assertIn("model runtime", content)
+            self.assertIn("papers", content)
+            self.assertIn("p1", content)
+
     async def test_tool_results_continue_the_same_response_chain(self) -> None:
         model = _ScriptedModel()
         executions: list[tuple[str, dict[str, object]]] = []

@@ -1,5 +1,10 @@
-enabled: true
 template_dir: tex_templates/elegantpaper
 layout_review_enabled: true
 max_content_refinement_iterations: 3
 max_format_correction_iterations: 1
+draft_batch_max_chars: 120000
+plotting_max_critic_rounds: 3
+image_generation:
+  base_url: https://yunwu.ai/v1
+  model: gemini-3-pro-image-preview
+  api_key_env: PAPER_ORCHESTRA_IMAGE_API_KEY

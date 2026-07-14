@@ -12,7 +12,7 @@ from typing import Any, NoReturn
 
 from internagent.mas.models.runtime import ReasoningConfig
 
-from .data_types import DossierStageError
+from .data_types import PaperOrchestraStageError
 from .utils.experiment_runs import find_current_valid_run
 from .utils.path_utils import resolve_launch_directory
 
@@ -94,7 +94,7 @@ async def select_candidate(
             criterion = await _resolve_criterion(
                 launch_dir / "prompt.json", candidate_paths, model
             )
-        except DossierStageError as error:
+        except PaperOrchestraStageError as error:
             if error.code == "criterion_inference_requires_model":
                 raise
             criterion_error = error
@@ -122,7 +122,7 @@ async def select_candidate(
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "launch_id": summary.get("launch_id", launch_dir.name),
-        "dossier_run_id": run_dir.name,
+        "paper_orchestra_run_id": run_dir.name,
         "paper_candidate_round": {
             "round": candidate_round_number,
             "session_id": candidate_round.get("session_id"),
@@ -189,7 +189,7 @@ def _terminal_candidate_context(
         ]
         if successful:
             return rounds, round_data, successful
-    raise DossierStageError(
+    raise PaperOrchestraStageError(
         stage="terminal_candidate_selection",
         code="no_successful_candidate",
         message="Discovery Launch has no successful Candidate Experiment",
@@ -261,8 +261,8 @@ def _validate_persisted_selection(
         _invalid_selection("unsupported candidate selection schema version")
     if selection.get("launch_id") != summary.get("launch_id", launch_dir.name):
         _invalid_selection("candidate selection launch ID differs from its Launch")
-    if selection.get("dossier_run_id") != run_dir.name:
-        _invalid_selection("candidate selection Dossier Run ID differs from its directory")
+    if selection.get("paper_orchestra_run_id") != run_dir.name:
+        _invalid_selection("candidate selection PaperOrchestra Run ID differs from its directory")
 
     expected_identities = [
         _candidate_identity(candidate) for candidate in successful_candidates
@@ -602,7 +602,7 @@ def _validate_candidate_record_facts(
 
 
 def _invalid_selection(message: str) -> NoReturn:
-    raise DossierStageError(
+    raise PaperOrchestraStageError(
         stage="terminal_candidate_selection",
         code="invalid_candidate_selection",
         message=message,
@@ -653,7 +653,7 @@ def _unavailable_criterion(path: Path, error: Exception) -> dict[str, Any]:
 
 
 def _criterion_fallback_reason(error: Exception) -> str:
-    if isinstance(error, DossierStageError):
+    if isinstance(error, PaperOrchestraStageError):
         return error.code
     if isinstance(error, (FileNotFoundError, json.JSONDecodeError, ValueError, OSError)):
         return "criterion_source_unavailable"
@@ -684,13 +684,13 @@ async def _resolve_criterion(
 
     reported_metric_names = context.reported_metric_names
     if not reported_metric_names:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="terminal_candidate_selection",
             code="no_reported_metric_names",
             message="successful candidates report no finite metric names",
         )
     if model is None:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="terminal_candidate_selection",
             code="criterion_inference_requires_model",
             message="missing terminal selection criterion requires the shared model",
@@ -724,7 +724,7 @@ async def _resolve_criterion(
             reasoning=ReasoningConfig(context="current_turn"),
         )
     except Exception as cause:
-        error = DossierStageError(
+        error = PaperOrchestraStageError(
             stage="terminal_candidate_selection",
             code="criterion_inference_failed",
             message=f"criterion model call failed: {cause}",
@@ -735,7 +735,7 @@ async def _resolve_criterion(
         }
         raise error from cause
     if not isinstance(model_output, dict):
-        error = DossierStageError(
+        error = PaperOrchestraStageError(
             stage="terminal_candidate_selection",
             code="invalid_model_criterion",
             message=f"criterion model output must be a JSON object: {model_output!r}",
@@ -749,7 +749,7 @@ async def _resolve_criterion(
     inferred_direction = model_output.get("optimization_direction")
     reasoning = model_output.get("reasoning")
     if not _model_criterion_is_valid(model_output, reported_metric_names):
-        error = DossierStageError(
+        error = PaperOrchestraStageError(
             stage="terminal_candidate_selection",
             code="invalid_model_criterion",
             message=(

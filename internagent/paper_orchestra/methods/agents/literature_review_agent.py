@@ -9,7 +9,7 @@ from typing import Any
 from internagent.mas.models.base_model import BaseModel
 from internagent.mas.models.runtime import ReasoningConfig
 
-from ...data_types import DossierStageError
+from ...data_types import PaperOrchestraStageError
 from ...utils.common_utils import validate_citation_keys
 from ...utils.content_parsing_utils import extract_fenced_content
 from ..prompts.literature_review_agent import LITERATURE_SYSTEM_PROMPT
@@ -23,8 +23,7 @@ class LiteratureReviewAgent:
         self,
         *,
         outline_path: Path,
-        idea_path: Path,
-        experimental_log_path: Path,
+        materials_path: Path,
         template_path: Path,
         citation_map_path: Path,
         guidelines_path: Path,
@@ -35,8 +34,7 @@ class LiteratureReviewAgent:
             "intro_related_work_plan": _read_json_object(outline_path).get(
                 "intro_related_work_plan", {}
             ),
-            "idea.md": idea_path.read_text(encoding="utf-8"),
-            "experimental_log.md": experimental_log_path.read_text(encoding="utf-8"),
+            "paper_materials.md": materials_path.read_text(encoding="utf-8"),
             "template.tex": template_path.read_text(encoding="utf-8"),
             "citation_map.json": citation_map,
             "guidelines.md": guidelines_path.read_text(encoding="utf-8"),
@@ -74,7 +72,7 @@ def _read_json_object(path: Path) -> dict[str, Any]:
 
 
 def _fail(message: str) -> None:
-    raise DossierStageError(
+    raise PaperOrchestraStageError(
         stage="write_introduction_and_related_work",
         code="invalid_model_output",
         message=message,

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0078
 ---
 
 # Fork Observable Research Context into the Sculptor

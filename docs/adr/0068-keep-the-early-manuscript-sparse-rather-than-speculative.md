@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0077
 ---
 
 # Keep the Early Manuscript Sparse Rather Than Speculative

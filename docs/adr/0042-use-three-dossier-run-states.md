@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0089
 ---
 
 # Use Three Dossier Run States

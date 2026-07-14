@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0078
 ---
 
 # Repair the Manuscript Forward Instead of Rolling Back

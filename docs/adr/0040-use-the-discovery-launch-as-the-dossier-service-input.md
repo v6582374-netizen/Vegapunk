@@ -2,11 +2,11 @@
 status: accepted
 ---
 
-# Use the Discovery Launch as the Dossier Service Input
+# Use the Discovery Launch as the PaperOrchestra Input
 
-The single async Dossier Service entrypoint receives a completed Discovery Launch directory, an optional Dossier Run ID, and PaperOrchestra-owned configuration. It does not require `launch_discovery.py` or a historical-run command to identify or pass a Candidate Experiment directory.
+The single async PaperOrchestra entrypoint receives a completed Discovery Launch directory, an optional PaperOrchestra Run ID, and PaperOrchestra-owned configuration. It does not require `launch_discovery.py` or a historical-run command to identify or pass a Candidate Experiment directory.
 
-From the launch boundary, the service validates `discovery_summary.json`, determines the Paper Candidate Round, performs Terminal Candidate Selection, persists `candidate_selection.json`, links the selected result to its exact Candidate Experiment and full Idea, prepares raw materials, and runs the ported PaperOrchestra pipeline. Existing discovery code therefore adds only one application-service call and never imports or coordinates individual PaperOrchestra agents.
+From the launch boundary, PaperOrchestra validates `discovery_summary.json` and `manuscript/draft.md`, optionally performs Terminal Candidate Selection, ingests the complete Research Draft in bounded batches, gathers launch-wide citations and figures, and runs the writing pipeline. Existing discovery code therefore adds only one call and never imports or coordinates individual PaperOrchestra agents.
 
 **Considered Options**
 

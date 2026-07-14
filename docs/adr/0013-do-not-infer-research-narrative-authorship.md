@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0051
 ---
 
 # Do Not Infer Research Narrative Authorship

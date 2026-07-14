@@ -8,13 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Iterable
 
-from .data_types import DossierStageError
+from .data_types import PaperOrchestraStageError
 
 
-class DossierCheckpoint:
+class PaperOrchestraCheckpoint:
     def __init__(self, *, run_dir: Path, manifest: dict[str, Any]) -> None:
         self.run_dir = run_dir
-        self.path = run_dir / "dossier_run.json"
+        self.path = run_dir / "paper_orchestra_run.json"
         self.manifest = manifest
 
     @classmethod
@@ -22,30 +22,44 @@ class DossierCheckpoint:
         cls,
         *,
         run_dir: Path,
-        dossier_run_id: str,
+        paper_orchestra_run_id: str,
         launch_id: str,
         resolved_config: dict[str, Any],
         model_identity: dict[str, Any],
         stage_ids: Iterable[str],
-    ) -> "DossierCheckpoint":
-        path = run_dir / "dossier_run.json"
+    ) -> "PaperOrchestraCheckpoint":
+        path = run_dir / "paper_orchestra_run.json"
         if path.exists():
             with path.open("r", encoding="utf-8") as file:
                 manifest = json.load(file)
             if not isinstance(manifest, dict):
-                raise ValueError("dossier_run.json must contain an object")
-            if manifest.get("dossier_run_id") != dossier_run_id:
-                raise ValueError("Dossier Run ID differs from existing checkpoint")
+                raise ValueError("paper_orchestra_run.json must contain an object")
+            if manifest.get("paper_orchestra_run_id") != paper_orchestra_run_id:
+                raise ValueError("PaperOrchestra Run ID differs from existing checkpoint")
+            existing_stage_ids = [
+                stage.get("id")
+                for stage in manifest.get("stages", [])
+                if isinstance(stage, dict)
+            ]
+            if existing_stage_ids != list(stage_ids):
+                raise PaperOrchestraStageError(
+                    stage="checkpoint",
+                    code="resume_pipeline_mismatch",
+                    message=(
+                        "PaperOrchestra stage order differs from the existing Run; "
+                        "start a new Run for the changed pipeline"
+                    ),
+                )
             if (
                 manifest.get("resolved_config") != resolved_config
                 or manifest.get("model") != model_identity
             ):
-                raise DossierStageError(
+                raise PaperOrchestraStageError(
                     stage="checkpoint",
                     code="resume_context_mismatch",
                     message=(
                         "resolved configuration or model identity differs from the "
-                        "existing Dossier Run; use a new Dossier Run ID"
+                        "existing PaperOrchestra Run; use a new PaperOrchestra Run ID"
                     ),
                 )
             checkpoint = cls(run_dir=run_dir, manifest=manifest)
@@ -56,10 +70,9 @@ class DossierCheckpoint:
         run_dir.mkdir(parents=True, exist_ok=True)
         now = _now()
         manifest = {
-            "schema_version": 2,
-            "dossier_run_id": dossier_run_id,
+            "schema_version": 3,
+            "paper_orchestra_run_id": paper_orchestra_run_id,
             "launch_id": launch_id,
-            "status": "running",
             "created_at": now,
             "updated_at": now,
             "resolved_config": resolved_config,
@@ -77,7 +90,6 @@ class DossierCheckpoint:
             ],
             "warnings": [],
             "final_outputs": _empty_final_outputs(),
-            "error": None,
             "model_responses": {},
         }
         checkpoint = cls(run_dir=run_dir, manifest=manifest)
@@ -158,15 +170,15 @@ class DossierCheckpoint:
         if stage["status"] == "succeeded":
             try:
                 self._validate_outputs(outputs)
-            except DossierStageError as error:
+            except PaperOrchestraStageError as error:
                 if error.code != "stage_output_missing":
                     raise
                 if immutable_outputs:
-                    raise DossierStageError(
+                    raise PaperOrchestraStageError(
                         stage=stage_id,
                         code="immutable_stage_output_missing",
                         message=(
-                            "immutable stage output is missing; use a new Dossier "
+                            "immutable stage output is missing; use a new PaperOrchestra "
                             "Run ID instead of recomputing it"
                         ),
                     ) from error
@@ -184,8 +196,6 @@ class DossierCheckpoint:
                 "error": None,
             }
         )
-        self.manifest["status"] = "running"
-        self.manifest["error"] = None
         self._save()
         try:
             result = operation()
@@ -197,7 +207,7 @@ class DossierCheckpoint:
             stage["completed_at"] = _now()
             error_data = (
                 error.error.to_dict()
-                if isinstance(error, DossierStageError)
+                if isinstance(error, PaperOrchestraStageError)
                 else {
                     "stage": stage_id,
                     "code": "stage_failed",
@@ -206,8 +216,6 @@ class DossierCheckpoint:
                 }
             )
             stage["error"] = error_data
-            self.manifest["status"] = "failed"
-            self.manifest["error"] = error_data
             self._save()
             raise
         stage["status"] = "succeeded"
@@ -224,8 +232,7 @@ class DossierCheckpoint:
         warnings: Iterable[str] = (),
     ) -> None:
         if self.first_incomplete_stage() is not None:
-            raise ValueError("cannot complete a Dossier Run with unfinished stages")
-        self.manifest["status"] = "succeeded"
+            raise ValueError("cannot complete a PaperOrchestra Run with unfinished stages")
         self.manifest["warnings"] = list(warnings)
         pdf_path = self.run_dir / final_pdf
         tex_path = self.run_dir / final_tex
@@ -235,12 +242,6 @@ class DossierCheckpoint:
             "pdf_sha256": _sha256(pdf_path),
             "tex_sha256": _sha256(tex_path),
         }
-        self.manifest["error"] = None
-        self._save()
-
-    def fail(self, error: DossierStageError) -> None:
-        self.manifest["status"] = "failed"
-        self.manifest["error"] = error.error.to_dict()
         self._save()
 
     def reset_from_stage(self, stage_id: str) -> None:
@@ -260,17 +261,15 @@ class DossierCheckpoint:
                     }
                 )
         if not reset:
-            raise KeyError(f"unknown Dossier stage: {stage_id}")
-        self.manifest["status"] = "running"
+            raise KeyError(f"unknown PaperOrchestra stage: {stage_id}")
         self.manifest["final_outputs"] = _empty_final_outputs()
-        self.manifest["error"] = None
         self._save()
 
     def _stage(self, stage_id: str) -> dict[str, Any]:
         for stage in self.manifest["stages"]:
             if stage["id"] == stage_id:
                 return stage
-        raise KeyError(f"unknown Dossier stage: {stage_id}")
+        raise KeyError(f"unknown PaperOrchestra stage: {stage_id}")
 
     def _validate_outputs(self, outputs: tuple[str, ...]) -> None:
         missing = []
@@ -279,7 +278,7 @@ class DossierCheckpoint:
             if not _output_is_valid(path):
                 missing.append(output)
         if missing:
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="checkpoint",
                 code="stage_output_missing",
                 message=f"stage output missing or empty: {', '.join(missing)}",
@@ -293,17 +292,15 @@ class DossierCheckpoint:
                 stage["completed_at"] = None
                 changed = True
         if changed:
-            self.manifest["status"] = "running"
-            self.manifest["error"] = None
             self._save()
 
     def _upgrade_manifest(self) -> None:
         """Add resumable model state to checkpoints created before schema v2."""
         if "model_responses" in self.manifest:
             if not isinstance(self.manifest["model_responses"], dict):
-                raise ValueError("dossier model_responses must contain an object")
+                raise ValueError("paper model_responses must contain an object")
             return
-        self.manifest["schema_version"] = 2
+        self.manifest["schema_version"] = 3
         self.manifest["model_responses"] = {}
         self._save()
 

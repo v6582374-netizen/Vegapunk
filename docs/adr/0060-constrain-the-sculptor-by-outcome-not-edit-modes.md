@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0078
 ---
 
 # Constrain the Sculptor by Outcome, Not Edit Modes

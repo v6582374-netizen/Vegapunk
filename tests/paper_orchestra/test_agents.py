@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from internagent.paper_orchestra.data_types import DossierStageError
+from internagent.paper_orchestra.data_types import PaperOrchestraStageError
 from internagent.mas.models.runtime import (
     ImageContent,
     ModelRunRequest,
@@ -49,6 +49,8 @@ class RecordingModel:
         if self.json_responses:
             return self.json_responses.pop(0)
         return {
+            "paper_title": "Evidence-Grounded Test Paper",
+            "plotting_plan": [],
             "intro_related_work_plan": {
                 "introduction": ["Grounded motivation"],
                 "related_work": ["Use approved citations"],
@@ -95,7 +97,7 @@ class AgentTest(unittest.TestCase):
         model = RecordingModel(text_response=f"```latex\n{changed}\n```")
         agent = ContentRefinementAgent(model=model)
 
-        with self.assertRaises(DossierStageError) as raised:
+        with self.assertRaises(PaperOrchestraStageError) as raised:
             asyncio.run(
                 agent.correct_layout(
                     latex=original,
@@ -113,8 +115,7 @@ class AgentTest(unittest.TestCase):
             root = Path(temporary_directory)
             inputs = {}
             for name, content in (
-                ("idea.md", "authoritative idea"),
-                ("experimental_log.md", "authoritative experiment"),
+                ("paper_materials.md", "authoritative research material"),
                 ("template.tex", "latex skeleton"),
                 ("guidelines.md", "writing constraints"),
             ):
@@ -128,8 +129,7 @@ class AgentTest(unittest.TestCase):
 
             outline = asyncio.run(
                 agent.run(
-                    idea_file=inputs["idea.md"],
-                    experimental_log_file=inputs["experimental_log.md"],
+                    materials_path=inputs["paper_materials.md"],
                     latex_template_file=inputs["template.tex"],
                     guidelines_file=inputs["guidelines.md"],
                     candidate_selection=selection,
@@ -143,7 +143,7 @@ class AgentTest(unittest.TestCase):
                 model.json_calls[0]["checkpoint_key"], "generate_outline"
             )
             self.assertIn(
-                "authoritative experiment", model.json_calls[0]["prompt"]
+                "authoritative research material", model.json_calls[0]["prompt"]
             )
             self.assertIn(
                 '"selection_method": "random_fallback"',
@@ -166,8 +166,7 @@ class AgentTest(unittest.TestCase):
             for name, value in files.items():
                 (root / name).write_text(json.dumps(value), encoding="utf-8")
             for name, content in (
-                ("idea.md", "idea"),
-                ("experimental_log.md", "experiment"),
+                ("paper_materials.md", "grounded research material"),
                 ("template.tex", "template"),
                 ("guidelines.md", "guidelines"),
             ):
@@ -179,8 +178,7 @@ class AgentTest(unittest.TestCase):
             latex = asyncio.run(
                 agent.run(
                     outline_path=root / "outline.json",
-                    idea_path=root / "idea.md",
-                    experimental_log_path=root / "experimental_log.md",
+                    materials_path=root / "paper_materials.md",
                     template_path=root / "template.tex",
                     citation_map_path=root / "citation_map.json",
                     guidelines_path=root / "guidelines.md",
@@ -201,20 +199,18 @@ class AgentTest(unittest.TestCase):
             )
             self.assertEqual(output_path.read_text(encoding="utf-8"), latex + "\n")
 
-    def test_section_agent_preserves_fixed_narrative_contract(self) -> None:
+    def test_section_agent_accepts_an_adaptive_argument_structure(self) -> None:
         complete_latex = r"""\documentclass[lang=cn]{elegantpaper}
 \title{Exact research title}
 \author{}
 \institute{}
 \begin{document}
 \begin{abstract}摘要内容。\end{abstract}
-\section{引言}引言。
-\section{相关工作}相关工作 \cite{ref001}。
-\section{方法}方法。
-\section{实验}实验。
-\section{研究过程}使用记录的 random fallback。
-\section{复现指南}复现。
-\section{局限性与适用边界}局限。
+\section{问题定义}研究问题。
+\section{证据缺口}相关工作 \cite{ref001}。
+\section{算法设计}方法与公式。
+\section{结果分析}实验结果。
+\section{适用边界}没有证据的条件保持未知。
 \section{结论}结论。
 \end{document}"""
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -227,8 +223,7 @@ class AgentTest(unittest.TestCase):
             for name, value in json_files.items():
                 (root / name).write_text(json.dumps(value), encoding="utf-8")
             for name, content in (
-                ("idea.md", "# Exact research title\n"),
-                ("experimental_log.md", "experiment"),
+                ("paper_materials.md", "# Exact research title\nexperiment"),
                 ("literature_draft.tex", "draft"),
                 ("guidelines.md", "guidelines"),
             ):
@@ -241,8 +236,7 @@ class AgentTest(unittest.TestCase):
                 agent.run(
                     outline_path=root / "outline.json",
                     template_path=root / "literature_draft.tex",
-                    idea_path=root / "idea.md",
-                    experimental_log_path=root / "experimental_log.md",
+                    materials_path=root / "paper_materials.md",
                     citation_map_path=root / "citation_map.json",
                     figures_info_path=root / "info.json",
                     guidelines_path=root / "guidelines.md",
@@ -282,7 +276,7 @@ class AgentTest(unittest.TestCase):
                 model=model,
                 latex="FULL LATEX SOURCE",
                 pdf_text="FULL EXTRACTED PDF TEXT",
-                experimental_log="AUTHORITATIVE EXPERIMENT LOG",
+                paper_materials="AUTHORITATIVE PAPER MATERIALS",
                 citation_map={"ref001": {"title": "Approved"}},
             )
         )
@@ -292,7 +286,7 @@ class AgentTest(unittest.TestCase):
         prompt = model.json_calls[0]["prompt"]
         self.assertIn("FULL LATEX SOURCE", prompt)
         self.assertIn("FULL EXTRACTED PDF TEXT", prompt)
-        self.assertIn("AUTHORITATIVE EXPERIMENT LOG", prompt)
+        self.assertIn("AUTHORITATIVE PAPER MATERIALS", prompt)
 
     def test_layout_review_sends_page_images_through_multimodal_model_api(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -353,7 +347,9 @@ class AgentTest(unittest.TestCase):
             initial_pdf_path = root / "initial.pdf"
             initial_tex_path.write_text(initial_latex, encoding="utf-8")
             initial_pdf_path.write_bytes(b"%PDF-initial\n%%EOF")
-            (root / "experimental_log.md").write_text("experiment", encoding="utf-8")
+            (root / "paper_materials.md").write_text(
+                "grounded material", encoding="utf-8"
+            )
             (root / "citation_map.json").write_text("{}", encoding="utf-8")
             (root / "guidelines.md").write_text("guidelines", encoding="utf-8")
             model = RecordingModel(
@@ -371,7 +367,7 @@ class AgentTest(unittest.TestCase):
                 agent.refine_content(
                     initial_tex_path=initial_tex_path,
                     initial_pdf_path=initial_pdf_path,
-                    experimental_log_path=root / "experimental_log.md",
+                    materials_path=root / "paper_materials.md",
                     citation_map_path=root / "citation_map.json",
                     guidelines_path=root / "guidelines.md",
                     paper_title="Exact title",

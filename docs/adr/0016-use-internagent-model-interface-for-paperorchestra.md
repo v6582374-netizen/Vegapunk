@@ -6,7 +6,7 @@ status: accepted
 
 Every ported PaperOrchestra agent will receive the same `internagent.mas.models.BaseModel` instance created by InternAgent's `ModelFactory`. Text and LaTeX generation use `generate`, structured outputs use `generate_json`, and image-bearing reviews use `generate_with_messages`. The ported pipeline and agents become natively asynchronous and directly await these methods; no synchronous bridge or PaperOrchestra-specific model gateway is introduced.
 
-PaperOrchestra's Gemini and OpenAI helpers, provider clients, hard-coded model names, API-key loading, and provider selection are removed from the ported runtime. A configured model that cannot process the default multimodal layout review produces an explicit stage failure recorded in the Dossier Run instead of silently switching providers or skipping the review.
+PaperOrchestra's legacy Gemini and OpenAI text helpers, provider clients, hard-coded text-model names, API-key loading, and text-provider selection are removed from the ported runtime. A configured primary model that cannot process the default multimodal layout review produces an explicit stage failure recorded in the PaperOrchestra Run instead of silently switching providers or skipping the review. ADR-0097 separately permits an image-only provider for raster method and architecture diagrams.
 
 **Considered Options**
 

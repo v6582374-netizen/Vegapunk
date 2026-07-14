@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from pathlib import Path
 from typing import Any, Callable
 
 from internagent.mas.models.base_model import BaseModel
 
-from .candidate_selection import RANDOM_SELECTION_METHODS, RANDOM_TIE_METHOD
-from .checkpoint import DossierCheckpoint
-from .data_types import DossierStageError, PipelineResult
+from .checkpoint import PaperOrchestraCheckpoint
+from .data_types import PaperOrchestraStageError, PipelineResult
 from .methods.agents.content_refinement_agent import ContentRefinementAgent
 from .methods.agents.literature_review_agent import LiteratureReviewAgent
 from .methods.agents.outline_agent import OutlineAgent
+from .methods.agents.plotting_agent import PlottingAgent
 from .methods.agents.section_writing_agent import SectionWritingAgent
-from .raw_materials import RAW_MATERIAL_PATHS
 from .utils.common_utils import validate_citation_keys, validate_narrative_contract
 from .utils.pdf_utils import (
     compile_latex,
@@ -32,56 +30,60 @@ FINAL_PDF_RELATIVE_PATH = Path("final_paper.pdf")
 async def run_writing_pipeline(
     *,
     run_dir: Path,
-    raw_materials_dir: Path,
+    materials_path: Path,
+    evidence_dir: Path,
     template_dir: Path,
-    candidate_selection: dict[str, Any],
-    paper_title: str,
-    paper_date: str | None = None,
+    candidate_selection: dict[str, Any] | None,
     model: BaseModel,
+    image_generator: Any | None,
+    plotting_max_critic_rounds: int,
     max_content_refinement_iterations: int,
     max_format_correction_iterations: int,
     layout_review_enabled: bool,
+    paper_date: str | None = None,
     compile_document: Callable[..., Path] = compile_latex,
     extract_text: Callable[[Path], str] = extract_pdf_text,
     render_pages: Callable[[Path, Path], list[Path]] = render_pdf_pages,
-    checkpoint: DossierCheckpoint | None = None,
+    checkpoint: PaperOrchestraCheckpoint | None = None,
 ) -> PipelineResult:
-    """Run the migrated PaperOrchestra writing and review architecture."""
+    """Construct, illustrate, review, and compile one publication Paper."""
+
     workspace = run_dir / "latex_writeup"
-    guidelines_path = workspace / "guidelines.md"
-    template_path = workspace / "template.tex"
+    template_path = template_dir / "template.tex"
+    guidelines_path = template_dir / "guidelines.md"
+    citation_map_path = evidence_dir / "citation_map.json"
+    evidence_figures_dir = evidence_dir / "figures"
+    figures_dir = workspace / "figures"
+    figures_info_path = figures_dir / "info.json"
+    logs_dir = workspace / "logs"
 
     async def prepare_workspace() -> None:
         preflight_tex_toolchain()
-        shutil.copytree(template_dir, workspace, dirs_exist_ok=True)
-        shutil.copy2(
-            raw_materials_dir / RAW_MATERIAL_PATHS["references"],
-            workspace / "references.bib",
-        )
-        raw_figures = raw_materials_dir / RAW_MATERIAL_PATHS["figures_info"].parent
-        if raw_figures.is_dir():
-            shutil.copytree(raw_figures, workspace / "figures", dirs_exist_ok=True)
+        workspace.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(evidence_dir / "references.bib", workspace / "references.bib")
+        if evidence_figures_dir.is_dir():
+            shutil.copytree(evidence_figures_dir, figures_dir, dirs_exist_ok=True)
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        if not figures_info_path.is_file():
+            figures_info_path.write_text("[]\n", encoding="utf-8")
 
     await _run_stage(
         checkpoint,
         "prepare_latex_workspace",
         prepare_workspace,
-        outputs=_relative_outputs(run_dir, template_path, guidelines_path),
+        outputs=_relative_outputs(
+            run_dir,
+            workspace / "references.bib",
+            figures_info_path,
+        ),
     )
-
-    idea_path = raw_materials_dir / RAW_MATERIAL_PATHS["idea"]
-    experimental_log_path = raw_materials_dir / RAW_MATERIAL_PATHS["experimental_log"]
-    citation_map_path = raw_materials_dir / RAW_MATERIAL_PATHS["citation_map"]
-    figures_info_path = raw_materials_dir / RAW_MATERIAL_PATHS["figures_info"]
-    logs_dir = workspace / "logs"
 
     outline_path = run_dir / "outline.json"
     outline_agent = OutlineAgent(model=model)
 
     async def generate_outline() -> None:
         await outline_agent.run(
-            idea_file=idea_path,
-            experimental_log_file=experimental_log_path,
+            materials_path=materials_path,
             latex_template_file=template_path,
             guidelines_file=guidelines_path,
             candidate_selection=candidate_selection,
@@ -94,6 +96,35 @@ async def run_writing_pipeline(
         generate_outline,
         outputs=_relative_outputs(run_dir, outline_path),
     )
+    outline = _read_json_object(outline_path)
+    paper_title = outline.get("paper_title")
+    if not isinstance(paper_title, str) or not paper_title.strip():
+        raise PaperOrchestraStageError(
+            stage="generate_outline",
+            code="invalid_model_output",
+            message="outline.json contains no paper_title",
+        )
+
+    plotting_agent = PlottingAgent(
+        model=model,
+        image_generator=image_generator,
+        max_critic_rounds=plotting_max_critic_rounds,
+    )
+
+    async def generate_figures() -> None:
+        await plotting_agent.run(
+            outline_path=outline_path,
+            materials_path=materials_path,
+            figures_dir=figures_dir,
+            existing_info_path=figures_info_path,
+        )
+
+    await _run_stage(
+        checkpoint,
+        "generate_figures",
+        generate_figures,
+        outputs=_relative_outputs(run_dir, figures_info_path),
+    )
 
     literature_path = workspace / "literature_draft.tex"
     literature_agent = LiteratureReviewAgent(model=model)
@@ -101,8 +132,7 @@ async def run_writing_pipeline(
     async def write_literature() -> None:
         await literature_agent.run(
             outline_path=outline_path,
-            idea_path=idea_path,
-            experimental_log_path=experimental_log_path,
+            materials_path=materials_path,
             template_path=template_path,
             citation_map_path=citation_map_path,
             guidelines_path=guidelines_path,
@@ -123,8 +153,7 @@ async def run_writing_pipeline(
         await section_agent.run(
             outline_path=outline_path,
             template_path=literature_path,
-            idea_path=idea_path,
-            experimental_log_path=experimental_log_path,
+            materials_path=materials_path,
             citation_map_path=citation_map_path,
             figures_info_path=figures_info_path,
             guidelines_path=guidelines_path,
@@ -141,10 +170,13 @@ async def run_writing_pipeline(
         outputs=_relative_outputs(run_dir, raw_draft_path),
     )
 
+    def compile_with_template(**kwargs: Any) -> Path:
+        return compile_document(template_dir=template_dir, **kwargs)
+
     initial_pdf_path = workspace / "initial_draft.pdf"
 
     async def compile_initial() -> None:
-        compile_document(
+        compile_with_template(
             work_dir=workspace,
             tex_path=raw_draft_path,
             output_pdf=initial_pdf_path,
@@ -170,7 +202,7 @@ async def run_writing_pipeline(
         refinement = await refinement_agent.refine_content(
             initial_tex_path=raw_draft_path,
             initial_pdf_path=initial_pdf_path,
-            experimental_log_path=experimental_log_path,
+            materials_path=materials_path,
             citation_map_path=citation_map_path,
             guidelines_path=guidelines_path,
             paper_title=paper_title,
@@ -178,9 +210,10 @@ async def run_writing_pipeline(
             work_dir=refinement_dir,
             max_iterations=max_content_refinement_iterations,
             compile_work_dir=workspace,
-            compile_document=compile_document,
+            compile_document=compile_with_template,
             extract_text=extract_text,
         )
+        refinement_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(refinement.tex_path, refinement_tex_path)
         shutil.copy2(refinement.pdf_path, refinement_pdf_path)
         _write_json(refinement_review_path, refinement.review)
@@ -196,9 +229,8 @@ async def run_writing_pipeline(
             refinement_review_path,
         ),
     )
-    accepted_tex_path = refinement_tex_path
-    accepted_pdf_path = refinement_pdf_path
-    accepted_latex = accepted_tex_path.read_text(encoding="utf-8").rstrip("\n")
+
+    accepted_latex = refinement_tex_path.read_text(encoding="utf-8").rstrip("\n")
     citation_map = _read_json_object(citation_map_path)
     layout_dir = workspace / "layout_review"
     layout_tex_path = layout_dir / "accepted.tex"
@@ -209,11 +241,12 @@ async def run_writing_pipeline(
         layout_dir.mkdir(parents=True, exist_ok=True)
         layout_warnings: list[str] = []
         layout_latex = accepted_latex
-        layout_pdf = accepted_pdf_path
-        layout_source_tex = accepted_tex_path
+        layout_pdf = refinement_pdf_path
+        layout_source_tex = refinement_tex_path
         if layout_review_enabled:
-            screenshots_dir = workspace / "pdf_screenshots" / "layout_v0"
-            image_paths = render_pages(layout_pdf, screenshots_dir)
+            image_paths = render_pages(
+                layout_pdf, workspace / "pdf_screenshots" / "layout_v0"
+            )
             layout_review = await refinement_agent.review_layout(
                 image_paths=image_paths,
                 guidelines=guidelines_path.read_text(encoding="utf-8"),
@@ -229,29 +262,28 @@ async def run_writing_pipeline(
                         paper_date=paper_date,
                         citation_map=citation_map,
                     )
-                    corrected_tex_path = workspace / "formatted_candidate_v1.tex"
-                    corrected_pdf_path = workspace / "formatted_candidate_v1.pdf"
-                    corrected_tex_path.write_text(layout_latex + "\n", encoding="utf-8")
-                    compile_document(
+                    corrected_tex = workspace / "formatted_candidate_v1.tex"
+                    corrected_pdf = workspace / "formatted_candidate_v1.pdf"
+                    corrected_tex.write_text(layout_latex + "\n", encoding="utf-8")
+                    compile_with_template(
                         work_dir=workspace,
-                        tex_path=corrected_tex_path,
-                        output_pdf=corrected_pdf_path,
+                        tex_path=corrected_tex,
+                        output_pdf=corrected_pdf,
                         log_path=logs_dir / "compile_formatted_candidate_v1.log",
                         stage="review_layout_and_optionally_correct",
                         timeout=120,
                     )
-                    layout_source_tex = corrected_tex_path
-                    layout_pdf = corrected_pdf_path
-                    corrected_images = render_pages(
-                        layout_pdf,
-                        workspace / "pdf_screenshots" / "layout_v1",
-                    )
-                    residual_review = await refinement_agent.review_layout(
-                        image_paths=corrected_images,
+                    layout_source_tex = corrected_tex
+                    layout_pdf = corrected_pdf
+                    residual = await refinement_agent.review_layout(
+                        image_paths=render_pages(
+                            layout_pdf,
+                            workspace / "pdf_screenshots" / "layout_v1",
+                        ),
                         guidelines=guidelines_path.read_text(encoding="utf-8"),
                     )
-                    _write_json(layout_dir / "review_v1.json", residual_review)
-                    if _has_layout_issues(residual_review):
+                    _write_json(layout_dir / "review_v1.json", residual)
+                    if _has_layout_issues(residual):
                         layout_warnings.append("layout_review_has_residual_issues")
                 else:
                     layout_warnings.append("layout_review_has_residual_issues")
@@ -266,25 +298,17 @@ async def run_writing_pipeline(
         "review_layout_and_optionally_correct",
         review_layout,
         outputs=_relative_outputs(
-            run_dir,
-            layout_tex_path,
-            layout_pdf_path,
-            layout_warnings_path,
+            run_dir, layout_tex_path, layout_pdf_path, layout_warnings_path
         ),
     )
-    accepted_tex_path = layout_tex_path
-    accepted_pdf_path = layout_pdf_path
-    accepted_latex = accepted_tex_path.read_text(encoding="utf-8").rstrip("\n")
-    warnings_data = json.loads(layout_warnings_path.read_text(encoding="utf-8"))
-    warnings = [warning for warning in warnings_data if isinstance(warning, str)]
 
     final_tex_path = run_dir / FINAL_TEX_RELATIVE_PATH
-    final_tex_path.write_text(accepted_latex + "\n", encoding="utf-8")
     final_pdf_path = run_dir / FINAL_PDF_RELATIVE_PATH
+    final_latex = layout_tex_path.read_text(encoding="utf-8").rstrip("\n")
 
     async def compile_final() -> None:
-        final_tex_path.write_text(accepted_latex + "\n", encoding="utf-8")
-        compile_document(
+        final_tex_path.write_text(final_latex + "\n", encoding="utf-8")
+        compile_with_template(
             work_dir=workspace,
             tex_path=final_tex_path,
             output_pdf=final_pdf_path,
@@ -302,41 +326,27 @@ async def run_writing_pipeline(
 
     async def validate_final() -> None:
         try:
-            validate_narrative_contract(accepted_latex, paper_title, paper_date)
-            validate_citation_keys(accepted_latex, set(citation_map))
-            validate_candidate_disclosures(accepted_latex, candidate_selection)
+            validate_narrative_contract(final_latex, paper_title, paper_date)
+            validate_citation_keys(final_latex, set(citation_map))
         except ValueError as error:
-            raise DossierStageError(
-                stage="validate_final_outputs_and_disclosures",
-                code="required_disclosure_missing",
+            raise PaperOrchestraStageError(
+                stage="validate_final_outputs",
+                code="invalid_final_paper",
                 message=str(error),
             ) from error
-        if not final_tex_path.stat().st_size or not final_pdf_path.stat().st_size:
-            raise DossierStageError(
-                stage="validate_final_outputs_and_disclosures",
-                code="final_output_missing",
-                message="final LaTeX and PDF must both be non-empty",
-            )
-        try:
-            final_pdf_text = extract_text(final_pdf_path)
-        except Exception as error:
-            raise DossierStageError(
-                stage="validate_final_outputs_and_disclosures",
-                code="final_pdf_invalid",
-                message=f"final PDF cannot be opened and read: {error}",
-            ) from error
-        if not final_pdf_text.strip():
-            raise DossierStageError(
-                stage="validate_final_outputs_and_disclosures",
+        if not extract_text(final_pdf_path).strip():
+            raise PaperOrchestraStageError(
+                stage="validate_final_outputs",
                 code="final_pdf_invalid",
                 message="final PDF contains no extractable text",
             )
 
-    await _run_stage(
-        checkpoint,
-        "validate_final_outputs_and_disclosures",
-        validate_final,
-    )
+    await _run_stage(checkpoint, "validate_final_outputs", validate_final)
+    warnings = [
+        warning
+        for warning in json.loads(layout_warnings_path.read_text(encoding="utf-8"))
+        if isinstance(warning, str)
+    ]
     return PipelineResult(
         final_tex=final_tex_path,
         final_pdf=final_pdf_path,
@@ -345,8 +355,7 @@ async def run_writing_pipeline(
 
 
 def _has_layout_issues(review: dict[str, Any]) -> bool:
-    figure_tables = review.get("figure_and_tables", {})
-    for details in figure_tables.values():
+    for details in review.get("figure_and_tables", {}).values():
         if isinstance(details, dict):
             issue = details.get("detected_issue")
             if isinstance(issue, str) and issue.strip().casefold() not in {"", "none"}:
@@ -358,93 +367,6 @@ def _has_layout_issues(review: dict[str, Any]) -> bool:
     return False
 
 
-def validate_candidate_disclosures(
-    latex: str, selection: dict[str, Any]
-) -> None:
-    """Require every exceptional candidate-selection fact in Research Process."""
-    match = re.search(
-        r"\\section\{研究过程\}(.*?)(?=\\section\{|\\end\{document\}|$)",
-        latex,
-        flags=re.DOTALL,
-    )
-    process = (match.group(1) if match else "").replace(r"\_", "_")
-    if r"\subsection{候选选择}" not in process:
-        raise ValueError("研究过程缺少候选选择小节")
-    candidate_round = selection.get("paper_candidate_round", {})
-    skipped_rounds = candidate_round.get("skipped_later_rounds", [])
-    if skipped_rounds and (
-        "回退" not in process
-        or "无成功" not in process
-        or any(str(number) not in process for number in skipped_rounds)
-        or str(candidate_round.get("round")) not in process
-    ):
-        raise ValueError("研究过程缺少回退轮次或较新轮次无成功候选的披露")
-    criterion = selection.get("criterion", {})
-    if criterion.get("source") == "model_inference":
-        primary_metric = criterion.get("primary_metric")
-        direction = criterion.get("optimization_direction")
-        direction_terms = {
-            "minimize": ("minimize", "最小化"),
-            "maximize": ("maximize", "最大化"),
-        }.get(direction, (str(direction),))
-        if (
-            "模型的主观判断" not in process
-            or not isinstance(primary_metric, str)
-            or primary_metric not in process
-            or not any(term in process for term in direction_terms)
-        ):
-            raise ValueError("研究过程缺少模型推断的主指标或优化方向披露")
-        source_paths = criterion.get("source_paths", [])
-        if any(
-            not isinstance(source_path, str) or source_path not in process
-            for source_path in source_paths
-        ):
-            raise ValueError("研究过程缺少模型判断的来源文本披露")
-        compared = [
-            (item.get("idea_name"), item.get("primary_metric_value"))
-            for item in selection.get("successful_candidates", [])
-            if item.get("primary_metric_value") is not None
-        ]
-        if any(
-            not isinstance(name, str)
-            or name not in process
-            or str(value) not in process
-            for name, value in compared
-        ):
-            raise ValueError("研究过程缺少模型判断所用的候选指标值")
-    excluded = [
-        (item.get("idea_name"), item.get("exclusion_reason"))
-        for item in selection.get("successful_candidates", [])
-        if item.get("exclusion_reason")
-    ]
-    if any(
-        not isinstance(name, str)
-        or name not in process
-        or not isinstance(reason, str)
-        or reason not in process
-        for name, reason in excluded
-    ):
-        raise ValueError("研究过程缺少被排除候选或其指标排除原因")
-    if selection.get("selection_method") in RANDOM_SELECTION_METHODS:
-        pool_names = [item.get("idea_name") for item in selection.get("fallback_pool", [])]
-        fallback_reason = selection.get("fallback_reason")
-        selected_name = selection.get("selected_candidate", {}).get("idea_name")
-        missing_tie = (
-            selection.get("selection_method") == RANDOM_TIE_METHOD
-            and "并列" not in process
-        )
-        if (
-            "随机" not in process
-            or missing_tie
-            or not isinstance(fallback_reason, str)
-            or fallback_reason not in process
-            or any(name and name not in process for name in pool_names)
-            or not isinstance(selected_name, str)
-            or selected_name not in process
-        ):
-            raise ValueError("研究过程缺少随机候选池、选中者、并列事实或触发原因")
-
-
 def _read_json_object(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
@@ -454,6 +376,7 @@ def _read_json_object(path: Path) -> dict[str, Any]:
 
 
 def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -461,7 +384,7 @@ def _write_json(path: Path, data: Any) -> None:
 
 
 async def _run_stage(
-    checkpoint: DossierCheckpoint | None,
+    checkpoint: PaperOrchestraCheckpoint | None,
     stage_id: str,
     operation: Callable[[], Any],
     *,

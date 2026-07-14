@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import os
 from pathlib import Path
 
-from ..data_types import DossierStageError
+from ..data_types import PaperOrchestraStageError
 
 
 REQUIRED_TEX_BINARIES = ("latexmk", "xelatex", "biber")
@@ -15,7 +16,7 @@ REQUIRED_TEX_BINARIES = ("latexmk", "xelatex", "biber")
 def preflight_tex_toolchain() -> None:
     missing = [name for name in REQUIRED_TEX_BINARIES if shutil.which(name) is None]
     if missing:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="prepare_latex_workspace",
             code="missing_tex_toolchain",
             message=f"missing required executable(s): {', '.join(missing)}",
@@ -30,12 +31,13 @@ def compile_latex(
     log_path: Path,
     stage: str,
     timeout: int,
+    template_dir: Path | None = None,
 ) -> Path:
     preflight_tex_toolchain()
     work_root = work_dir.resolve()
     source = tex_path.resolve()
     if not source.is_relative_to(work_root) or not source.is_file():
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage=stage,
             code="latex_compile_failed",
             message="LaTeX source must exist inside its writing workspace",
@@ -51,9 +53,16 @@ def compile_latex(
         source.name,
     ]
     try:
+        environment = os.environ.copy()
+        if template_dir is not None:
+            existing_texinputs = environment.get("TEXINPUTS", "")
+            environment["TEXINPUTS"] = (
+                str(template_dir.resolve()) + os.pathsep + existing_texinputs
+            )
         completed = subprocess.run(
             command,
             cwd=work_root,
+            env=environment,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -66,7 +75,7 @@ def compile_latex(
     except subprocess.TimeoutExpired as error:
         log_text = f"$ {' '.join(command)}\n\nTIMEOUT after {timeout}s\n{error}"
         log_path.write_text(log_text, encoding="utf-8")
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage=stage,
             code="latex_compile_failed",
             message=f"XeLaTeX/Biber compilation timed out after {timeout}s",
@@ -76,7 +85,7 @@ def compile_latex(
 
     built_pdf = work_root / f"{source.stem}.pdf"
     if completed.returncode != 0 or not is_openable_pdf(built_pdf):
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage=stage,
             code="latex_compile_failed",
             message=f"XeLaTeX/Biber compilation failed with exit code {completed.returncode}",
@@ -86,7 +95,7 @@ def compile_latex(
     if built_pdf.resolve() != output_pdf.resolve():
         shutil.copy2(built_pdf, output_pdf)
     if not is_openable_pdf(output_pdf):
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage=stage,
             code="latex_compile_failed",
             message="compiled PDF is missing or invalid",
@@ -102,13 +111,13 @@ def extract_pdf_text(pdf_path: Path) -> str:
         with pdfplumber.open(pdf_path) as document:
             text = "\n\n".join(page.extract_text() or "" for page in document.pages)
     except Exception as error:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="refine_content",
             code="pdf_text_extraction_failed",
             message=f"could not extract PDF text: {error}",
         ) from error
     if not text.strip():
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="refine_content",
             code="pdf_text_extraction_failed",
             message="compiled PDF contains no extractable text",
@@ -131,13 +140,13 @@ def render_pdf_pages(pdf_path: Path, output_dir: Path, *, scale: float = 1.5) ->
             page.close()
         document.close()
     except Exception as error:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="review_layout_and_optionally_correct",
             code="pdf_page_render_failed",
             message=f"could not render PDF pages: {error}",
         ) from error
     if not image_paths:
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="review_layout_and_optionally_correct",
             code="pdf_page_render_failed",
             message="compiled PDF has no renderable pages",

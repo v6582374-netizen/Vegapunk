@@ -89,11 +89,18 @@ class ModelToolLoop:
             for call in calls:
                 arguments = dict(call.arguments)
                 error = None
+                from internagent.research_draft import record_research_event
+
+                record_research_event(
+                    {"tool_name": call.name, "arguments": arguments}
+                )
                 try:
                     output = await self._execute_tool(call.name, arguments)
                 except Exception as exc:  # tool failure becomes model-visible evidence
                     error = str(exc)
                     output = {"error": error}
+                    record_research_event(exc)
+                record_research_event(output)
                 executed.append(
                     ExecutedToolCall(
                         call_id=call.call_id,

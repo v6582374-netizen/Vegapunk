@@ -9,7 +9,7 @@ from typing import Any
 from internagent.mas.models.base_model import BaseModel
 from internagent.mas.models.runtime import ReasoningConfig
 
-from ..data_types import DossierStageError
+from ..data_types import PaperOrchestraStageError
 
 
 REVIEW_AXES = (
@@ -30,13 +30,13 @@ async def review_paper(
     model: BaseModel,
     latex: str,
     pdf_text: str,
-    experimental_log: str,
+    paper_materials: str,
     citation_map: dict[str, Any],
 ) -> dict[str, Any]:
     payload = {
         "paper.tex": latex,
         "paper.pdf.txt": pdf_text,
-        "experimental_log.md": experimental_log,
+        "paper_materials.md": paper_materials,
         "citation_map.json": citation_map,
     }
     properties: dict[str, Any] = {
@@ -57,7 +57,7 @@ async def review_paper(
         prompt=json.dumps(payload, ensure_ascii=False, sort_keys=True),
         schema=schema,
         system_prompt=(
-            "Review this Research Dossier only against its supplied evidence. "
+            "Review this paper only against its supplied evidence. "
             "Do not request or assume unrecorded experiments, facts, or citations."
         ),
         temperature=0,
@@ -69,7 +69,7 @@ async def review_paper(
         or not isinstance(review.get(axis), Real)
         for axis in REVIEW_AXES
     ):
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="refine_content",
             code="invalid_model_output",
             message="Agent Review returned an invalid structured review",

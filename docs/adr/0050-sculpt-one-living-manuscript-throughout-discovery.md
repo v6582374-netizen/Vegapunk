@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0077
 ---
 
 # Sculpt One Living Manuscript Throughout Discovery

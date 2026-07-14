@@ -10,22 +10,18 @@ import asyncio
 import logging
 import glob
 import shutil
-import torch
 import yaml
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
 # Import MAS components
-from internagent.living_manuscript import (
-    ClaudeCodeSculptor,
-    LatexManuscriptValidator,
-    LivingManuscript,
-    clear_active_living_manuscript,
-    preflight_living_manuscript_runtime,
-    set_active_living_manuscript,
+from internagent.research_draft import (
+    ResearchDraft,
+    record_research_event,
+    start_research_draft_capture,
+    stop_research_draft_capture,
 )
-from internagent.stage import IdeaGenerator, ExperimentRunner
 from typing import List, Dict, Any, Optional
 
 # Long memory imports (optional - only if long_memory is available)
@@ -350,6 +346,61 @@ def setup_logging():
     return logging.getLogger("InternAgent")
 
 
+def _run_paper_orchestra(
+    *,
+    launch_dir: Path,
+    config: Dict[str, Any],
+    repository_root: Path,
+    logger: logging.Logger,
+) -> None:
+    """Continue the launch into its automatic PaperOrchestra Run."""
+
+    from internagent.paper_orchestra import run_paper_orchestra
+
+    result = asyncio.run(
+        run_paper_orchestra(
+            launch_dir=launch_dir,
+            internagent_config=config,
+            paper_config_path=repository_root / "config" / "paper_orchestra.yaml",
+        )
+    )
+    if result.error is not None:
+        logger.error(
+            "PaperOrchestra paused at %s: %s",
+            result.error.stage,
+            result.error.message,
+        )
+        return
+    logger.info("PaperOrchestra Run: %s", result.run_dir)
+    if result.final_tex is not None:
+        logger.info("Paper TeX: %s", result.final_tex)
+    if result.final_pdf is not None:
+        logger.info("Paper PDF: %s", result.final_pdf)
+
+
+def _handoff_to_paper_orchestra(
+    *,
+    launch_dir: Path,
+    config: Dict[str, Any],
+    repository_root: Path,
+    logger: logging.Logger,
+    research_draft: ResearchDraft,
+    completed_rounds: int,
+) -> None:
+    """Close Discovery capture, then continue into PaperOrchestra."""
+
+    record_research_event(
+        f"Draft Handoff after {completed_rounds} completed Discovery rounds."
+    )
+    stop_research_draft_capture(research_draft)
+    _run_paper_orchestra(
+        launch_dir=launch_dir,
+        config=config,
+        repository_root=repository_root,
+        logger=logger,
+    )
+
+
 # ============================================================================
 # Argument Parser
 # ============================================================================
@@ -578,7 +629,7 @@ def _scan_completed_rounds(resume_path: str, resume_state: dict, logger) -> dict
 # ============================================================================
 # Main Pipeline
 # ============================================================================
-def main():
+def _main():
     logger = setup_logging()
     args = parse_arguments()
 
@@ -734,36 +785,30 @@ def main():
         logger.warning(f"Invalid loop_mode '{loop_mode}', defaulting to 'fresh'")
         loop_mode = 'fresh'
 
-    # Check if all rounds are already completed
+    repo_root = Path(__file__).resolve().parent
+
+    # A completed Discovery Launch may still have an unfinished PaperOrchestra
+    # Run. Do not reopen Draft capture when there is no Discovery work to record.
     if start_round > loop_rounds:
-        logger.info("=" * 80)
-        logger.info("All rounds already completed! Nothing to resume.")
-        logger.info(f"Completed: {start_round - 1}/{loop_rounds} rounds")
-        logger.info("=" * 80)
+        logger.info("Discovery rounds are complete; continuing PaperOrchestra.")
+        _run_paper_orchestra(
+            launch_dir=Path(args.output_dir),
+            config=config,
+            repository_root=repo_root,
+            logger=logger,
+        )
         return
 
-    repo_root = Path(__file__).resolve().parent
-    preflight_living_manuscript_runtime(
-        experiment_backend=(
-            args.exp_backend if args.mode == "experiment" else None
-        )
-    )
-    manuscript_config = config.get("living_manuscript", {})
-    sculptor_model = manuscript_config.get(
-        "model", "claude-sonnet-4-5-20250929"
-    )
-    living_manuscript = LivingManuscript.initialize(
-        launch_dir=Path(args.output_dir),
-        template_dir=repo_root / "tex_templates" / "elegantpaper",
-        sculptor=ClaudeCodeSculptor(
-            model=sculptor_model,
-            prompt_path=repo_root / "internagent" / "manuscript_sculptor_prompt.md",
-            env_overrides=config.get("proxy_settings", {}),
-        ),
-        validator=LatexManuscriptValidator(),
-    )
-    set_active_living_manuscript(living_manuscript)
-    logger.info(f"Living Manuscript: {living_manuscript.tex_path}")
+    # Keep completed-launch PaperOrchestra resume independent from optional
+    # Discovery-only dependencies such as the experiment toolchain.
+    from internagent.stage import IdeaGenerator, ExperimentRunner
+
+    research_draft = ResearchDraft.open(Path(args.output_dir))
+    start_research_draft_capture(research_draft)
+    record_research_event(Path(args.prompt_path).read_text(encoding="utf-8"))
+    record_research_event(config)
+    record_research_event(vars(args))
+    logger.info(f"Research Draft: {research_draft.path}")
 
     logger.info("=" * 80)
     logger.info("InternAgent Pipeline Started" + (" (RESUMED)" if args.resume else ""))
@@ -1126,60 +1171,26 @@ def main():
 
     logger.info(f"\nSummary saved to {summary_path}")
 
-    if args.mode == "experiment":
-        from internagent.paper_orchestra.candidate_selection import select_candidate
-        from internagent.paper_orchestra.data_types import DossierStageError
-        from internagent.paper_orchestra.utils.path_utils import (
-            resolve_launch_directory,
-        )
-
-        async def select_terminal_candidate():
-            try:
-                return await select_candidate(
-                    launch_dir=Path(args.output_dir),
-                    run_dir=living_manuscript.manuscript_dir,
-                    model=None,
-                )
-            except DossierStageError as error:
-                if error.code != "criterion_inference_requires_model":
-                    raise
-                from internagent.mas.models.model_factory import ModelFactory
-
-                selection_model = ModelFactory.create_model_for_agent(
-                    "paper_orchestra",
-                    {
-                        "model_provider": "openai",
-                        "temperature": 0,
-                        "_global_config": config,
-                    },
-                )
-                return await select_candidate(
-                    launch_dir=Path(args.output_dir),
-                    run_dir=living_manuscript.manuscript_dir,
-                    model=selection_model,
-                )
-
-        selection = asyncio.run(select_terminal_candidate())
-        selected_candidate_path = resolve_launch_directory(
-            Path(args.output_dir),
-            selection["selected_candidate"]["folder_name"],
-        )
-        living_manuscript.finalize(
-            selection=selection,
-            selected_candidate_path=selected_candidate_path,
-        )
-        logger.info(
-            "Synchronized Living Manuscript completed: "
-            f"{living_manuscript.tex_path}"
-        )
-        pdf_path = living_manuscript.manuscript_dir / "main.pdf"
-        if pdf_path.is_file():
-            logger.info(f"Synchronized Living Manuscript PDF: {pdf_path}")
-
-    clear_active_living_manuscript(living_manuscript)
+    _handoff_to_paper_orchestra(
+        launch_dir=Path(args.output_dir),
+        config=config,
+        repository_root=repo_root,
+        logger=logger,
+        research_draft=research_draft,
+        completed_rounds=len(all_round_results),
+    )
 
     logger.info("=" * 80)
     logger.info("All done!")
+
+
+def main():
+    """Run one launch and always release process-level Draft capture."""
+
+    try:
+        return _main()
+    finally:
+        stop_research_draft_capture()
 
 
 # ============================================================================
@@ -1196,5 +1207,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    finally:
-        clear_active_living_manuscript()

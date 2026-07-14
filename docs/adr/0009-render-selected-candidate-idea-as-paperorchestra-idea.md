@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0098
 ---
 
 # Render the Selected Candidate Idea as PaperOrchestra idea.md

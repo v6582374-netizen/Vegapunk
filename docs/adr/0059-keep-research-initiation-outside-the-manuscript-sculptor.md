@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0078
 ---
 
 # Keep Research Initiation Outside the Manuscript Sculptor

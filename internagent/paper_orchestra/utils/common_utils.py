@@ -4,18 +4,6 @@ import hashlib
 import re
 
 
-RESEARCH_NARRATIVE_SECTIONS = (
-    "引言",
-    "相关工作",
-    "方法",
-    "实验",
-    "研究过程",
-    "复现指南",
-    "局限性与适用边界",
-    "结论",
-)
-
-
 def validate_citation_keys(latex: str, approved_keys: set[str]) -> None:
     used_keys: set[str] = set()
     for match in re.finditer(r"\\cite(?:\[[^\]]*\])?\{([^}]*)\}", latex):
@@ -31,21 +19,21 @@ def validate_narrative_contract(
     if "\\documentclass" not in latex or "\\begin{document}" not in latex:
         raise ValueError("model output is not a complete LaTeX document")
     if "\\begin{abstract}" not in latex or "\\end{abstract}" not in latex:
-        raise ValueError("Research Narrative must contain an abstract")
+        raise ValueError("Paper must contain an abstract")
     title_match = re.search(r"\\title\{([^{}]*)\}", latex)
     if title_match is None or title_match.group(1) != paper_title:
-        raise ValueError("Research Narrative title differs from the selected method title")
+        raise ValueError("Paper title differs from the planned title")
     for command in ("author", "institute"):
         match = re.search(rf"\\{command}\{{([^{{}}]*)\}}", latex)
         if match is None or match.group(1).strip():
-            raise ValueError(f"Research Narrative {command} must remain empty")
+            raise ValueError(f"Paper {command} must remain empty")
     if paper_date is not None:
         date_match = re.search(r"\\date\{([^{}]*)\}", latex)
         if date_match is None or date_match.group(1) != paper_date:
-            raise ValueError("Research Narrative date differs from Dossier Run creation date")
+            raise ValueError("Paper date differs from PaperOrchestra Run creation date")
     sections = tuple(re.findall(r"\\section\*?\{([^{}]+)\}", latex))
-    if sections != RESEARCH_NARRATIVE_SECTIONS:
-        raise ValueError("Research Narrative top-level sections or order are invalid")
+    if not sections or any(not section.strip() for section in sections):
+        raise ValueError("Paper must contain non-empty top-level sections")
 
 
 def scientific_content_fingerprint(latex: str) -> str:

@@ -1,6 +1,6 @@
 """PaperOrchestra migration package."""
 
-from .data_types import DossierError, DossierRunResult
-from .service import run_dossier
+from .data_types import PaperOrchestraError, PaperOrchestraRunResult
+from .service import run_paper_orchestra
 
-__all__ = ["DossierError", "DossierRunResult", "run_dossier"]
+__all__ = ["PaperOrchestraError", "PaperOrchestraRunResult", "run_paper_orchestra"]

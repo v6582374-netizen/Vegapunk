@@ -2,9 +2,9 @@
 status: accepted
 ---
 
-# Use XeLaTeX and Biber for Research Narratives
+# Use XeLaTeX and Biber for Papers
 
-Research Narratives will be compiled with XeLaTeX and Biber rather than PaperOrchestra's existing PDFLaTeX and BibTeX sequence. XeLaTeX is required by ElegantPaper's Chinese mode, and Biber is ElegantPaper's default bibliography backend with more reliable Unicode handling for Chinese authors and titles. PaperOrchestra's existing `references.bib` output remains the direct bibliography input through `\addbibresource{references.bib}`; no bibliography conversion or intermediate representation will be introduced.
+Papers will be compiled with XeLaTeX and Biber rather than PaperOrchestra's existing PDFLaTeX and BibTeX sequence. XeLaTeX is required by ElegantPaper's Chinese mode, and Biber is ElegantPaper's default bibliography backend with more reliable Unicode handling for Chinese authors and titles. PaperOrchestra's `references.bib` output remains the direct bibliography input through `\addbibresource{references.bib}`; no bibliography conversion or intermediate representation will be introduced.
 
 **Considered Options**
 

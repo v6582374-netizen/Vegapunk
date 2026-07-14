@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0088
 ---
 
 # Let the Manuscript Sculptor Render but Not Analyze Evidence

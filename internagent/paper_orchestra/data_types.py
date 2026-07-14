@@ -6,14 +6,6 @@ from typing import Any
 
 
 @dataclass(frozen=True)
-class LinkedArtifacts:
-    candidate_dir: Path
-    session_dir: Path
-    selected_method: dict[str, Any]
-    full_idea: dict[str, Any]
-
-
-@dataclass(frozen=True)
 class RefinementResult:
     tex_path: Path
     pdf_path: Path
@@ -28,18 +20,17 @@ class PipelineResult:
 
 
 @dataclass(frozen=True)
-class DossierRunResult:
-    dossier_run_id: str
-    status: str
+class PaperOrchestraRunResult:
+    paper_orchestra_run_id: str
     run_dir: Path
     final_pdf: Path | None
     final_tex: Path | None
     warnings: tuple[str, ...]
-    error: DossierError | None
+    error: PaperOrchestraError | None
 
 
 @dataclass(frozen=True)
-class DossierError:
+class PaperOrchestraError:
     stage: str
     code: str
     message: str
@@ -49,7 +40,7 @@ class DossierError:
         return asdict(self)
 
 
-class DossierStageError(RuntimeError):
+class PaperOrchestraStageError(RuntimeError):
     def __init__(
         self,
         *,
@@ -59,7 +50,7 @@ class DossierStageError(RuntimeError):
         log_path: str | None = None,
     ) -> None:
         super().__init__(message)
-        self.error = DossierError(
+        self.error = PaperOrchestraError(
             stage=stage,
             code=code,
             message=message,

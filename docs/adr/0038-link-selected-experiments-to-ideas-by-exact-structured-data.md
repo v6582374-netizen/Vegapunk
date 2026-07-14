@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0094
 ---
 
 # Link Selected Experiments to Ideas by Exact Structured Data

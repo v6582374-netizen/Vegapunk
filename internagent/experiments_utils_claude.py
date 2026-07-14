@@ -8,7 +8,6 @@ import re
 import os
 from datetime import datetime
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -117,25 +116,34 @@ class ClaudeCodeRunner:
         log_message = f"[{timestamp}] Running Claude CLI with prompt: {prompt}..."
         logger.info(log_message)
             
-        # Run Claude with acceptEdits permission mode
-        # Capture both stdout and stderr so we can log them properly
+        # Run Claude with acceptEdits permission mode. Keep the existing
+        # single-result JSON contract while recording the exact process seam.
+        command = [
+            'claude',
+            '-p',
+            '--permission-mode',
+            'acceptEdits',
+            '--model',
+            self.model,
+            '--output-format',
+            'json',
+            prompt,
+        ]
+        from internagent.research_draft import record_research_event
+
+        record_research_event(command)
         result = subprocess.run(
-            [
-                'claude',
-                '-p',
-                '--permission-mode',
-                'acceptEdits',
-                '--model',
-                self.model,
-                '--output-format',
-                'json',
-                prompt,
-            ],
+            command,
             cwd=cwd,
             capture_output=True,
             text=True,
             env=env
         )
+        if result.stdout:
+            record_research_event(result.stdout)
+        if result.stderr:
+            record_research_event(result.stderr)
+        record_research_event(str(result.returncode))
 
         # Enhanced logging - Log completion and output
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -159,34 +167,6 @@ class ClaudeCodeRunner:
         output = payload.get('result')
         if not isinstance(output, str):
             output = result.stdout
-
-        from internagent.living_manuscript import (
-            ClaudeSessionTaskContext,
-            get_active_living_manuscript,
-        )
-
-        manuscript = get_active_living_manuscript()
-        if manuscript is not None:
-            session_id = payload.get('session_id')
-            if not isinstance(session_id, str) or not session_id:
-                raise RuntimeError(
-                    'Claude Code returned no session_id for the Living Manuscript hook'
-                )
-            error = None
-            if result.returncode != 0:
-                error = (
-                    f"Claude CLI exited with code {result.returncode}: "
-                    f"{result.stderr.strip()}"
-                )
-            manuscript.consider_claude_session(
-                ClaudeSessionTaskContext(
-                    agent_name='ClaudeCodeRunner',
-                    source_session_id=session_id,
-                    source_cwd=Path(cwd).resolve() if cwd else Path.cwd().resolve(),
-                    output=output,
-                    error=error,
-                )
-            )
 
         return output
 

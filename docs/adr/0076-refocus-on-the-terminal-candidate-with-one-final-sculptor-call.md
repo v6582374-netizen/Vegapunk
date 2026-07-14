@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0077
 ---
 
 # Refocus on the Terminal Candidate with One Final Sculptor Call

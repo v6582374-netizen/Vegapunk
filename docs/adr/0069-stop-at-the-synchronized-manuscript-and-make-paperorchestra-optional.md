@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0077
 ---
 
 # Stop at the Synchronized Manuscript and Make PaperOrchestra Optional

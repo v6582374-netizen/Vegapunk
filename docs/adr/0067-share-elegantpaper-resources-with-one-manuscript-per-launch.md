@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0077
 ---
 
 # Share ElegantPaper Resources with One Manuscript per Launch

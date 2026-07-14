@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0092
 ---
 
 # Persist Immutable Candidate Selection Provenance

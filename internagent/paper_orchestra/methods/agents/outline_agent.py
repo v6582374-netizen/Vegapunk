@@ -9,7 +9,7 @@ from typing import Any
 from internagent.mas.models.base_model import BaseModel
 from internagent.mas.models.runtime import ReasoningConfig
 
-from ...data_types import DossierStageError
+from ...data_types import PaperOrchestraStageError
 from ..prompts.outline_agent import OUTLINE_SYSTEM_PROMPT
 
 
@@ -20,27 +20,33 @@ class OutlineAgent:
     async def run(
         self,
         *,
-        idea_file: Path,
-        experimental_log_file: Path,
+        materials_path: Path,
         latex_template_file: Path,
         guidelines_file: Path,
-        candidate_selection: dict[str, Any],
+        candidate_selection: dict[str, Any] | None,
         output_path: Path,
     ) -> dict[str, Any]:
         payload = {
-            "idea.md": idea_file.read_text(encoding="utf-8"),
-            "experimental_log.md": experimental_log_file.read_text(encoding="utf-8"),
+            "paper_materials.md": materials_path.read_text(encoding="utf-8"),
             "template.tex": latex_template_file.read_text(encoding="utf-8"),
             "guidelines.md": guidelines_file.read_text(encoding="utf-8"),
-            "candidate_selection.json": candidate_selection,
         }
+        if candidate_selection is not None:
+            payload["candidate_selection.json"] = candidate_selection
         schema = {
             "type": "object",
             "properties": {
+                "paper_title": {"type": "string"},
                 "intro_related_work_plan": {"type": "object"},
                 "section_plan": {"type": "array", "items": {"type": "object"}},
+                "plotting_plan": {"type": "array", "items": {"type": "object"}},
             },
-            "required": ["intro_related_work_plan", "section_plan"],
+            "required": [
+                "paper_title",
+                "intro_related_work_plan",
+                "section_plan",
+                "plotting_plan",
+            ],
             "additionalProperties": False,
         }
         outline = await self.model.generate_json(
@@ -55,10 +61,13 @@ class OutlineAgent:
         )
         if (
             not isinstance(outline, dict)
+            or not isinstance(outline.get("paper_title"), str)
+            or not outline["paper_title"].strip()
             or not isinstance(outline.get("intro_related_work_plan"), dict)
             or not isinstance(outline.get("section_plan"), list)
+            or not isinstance(outline.get("plotting_plan"), list)
         ):
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="generate_outline",
                 code="invalid_model_output",
                 message="OutlineAgent returned an invalid outline",

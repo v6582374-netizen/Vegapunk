@@ -90,7 +90,7 @@ class _BackgroundResponses:
                 SimpleNamespace(
                     type="message",
                     content=[
-                        SimpleNamespace(type="output_text", text="Final dossier")
+                        SimpleNamespace(type="output_text", text="Final paper")
                     ],
                 )
             ],
@@ -433,13 +433,13 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         result = await model.run(
             ModelRunRequest(
-                input=(Message.user("Write the final dossier."),),
+                input=(Message.user("Write the final paper."),),
                 background=True,
             )
         )
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.text, "Final dossier")
+        self.assertEqual(result.text, "Final paper")
         self.assertEqual(client.responses.retrieve_count, 1)
         self.assertEqual(
             client.responses.last_response_id, "resp_background"
@@ -463,7 +463,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         with model.bind_response_checkpoint(checkpoint):
             result = await model.run(
                 ModelRunRequest(
-                    input=(Message.user("Resume the final dossier."),),
+                    input=(Message.user("Resume the final paper."),),
                     background=True,
                     checkpoint_key="write_remaining_sections",
                 )
@@ -489,7 +489,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         with model.bind_response_checkpoint(checkpoint):
             await model.run(
                 ModelRunRequest(
-                    input=(Message.user("Start the final dossier."),),
+                    input=(Message.user("Start the final paper."),),
                     background=True,
                     checkpoint_key="generate_outline",
                 )

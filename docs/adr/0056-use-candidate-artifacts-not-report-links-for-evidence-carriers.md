@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0094
 ---
 
 # Use Candidate Artifacts, Not Report Links, for Evidence Carriers

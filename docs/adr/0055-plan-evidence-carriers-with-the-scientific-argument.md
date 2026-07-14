@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0088
 ---
 
 # Plan Evidence Carriers with the Scientific Argument

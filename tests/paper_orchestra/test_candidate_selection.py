@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from internagent.paper_orchestra.candidate_selection import select_candidate
-from internagent.paper_orchestra.data_types import DossierStageError
+from internagent.paper_orchestra.data_types import PaperOrchestraStageError
 
 
 class CandidateSelectionTest(unittest.TestCase):
@@ -47,7 +47,7 @@ class CandidateSelectionTest(unittest.TestCase):
             (launch_dir / "discovery_summary.json").write_text(
                 json.dumps(summary), encoding="utf-8"
             )
-            run_dir = launch_dir / "dossier_runs" / "primary"
+            run_dir = launch_dir / "paper_orchestra_runs" / "primary"
 
             selection = asyncio.run(
                 select_candidate(launch_dir=launch_dir, run_dir=run_dir)
@@ -106,9 +106,9 @@ class CandidateSelectionTest(unittest.TestCase):
             (launch_dir / "discovery_summary.json").write_text(
                 json.dumps(summary), encoding="utf-8"
             )
-            run_dir = launch_dir / "dossier_runs" / "primary"
+            run_dir = launch_dir / "paper_orchestra_runs" / "primary"
 
-            with self.assertRaises(DossierStageError) as raised:
+            with self.assertRaises(PaperOrchestraStageError) as raised:
                 asyncio.run(
                     select_candidate(launch_dir=launch_dir, run_dir=run_dir)
                 )
@@ -166,7 +166,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                 )
             )
 
@@ -200,7 +200,7 @@ class CandidateSelectionTest(unittest.TestCase):
                 )
             )
             selection_path = (
-                launch_dir / "dossier_runs" / "primary" / "candidate_selection.json"
+                launch_dir / "paper_orchestra_runs" / "primary" / "candidate_selection.json"
             )
             forged_fallback = json.loads(json.dumps(selection))
             forged_fallback["criterion"] = {
@@ -224,11 +224,11 @@ class CandidateSelectionTest(unittest.TestCase):
             selection_path.write_text(
                 json.dumps(forged_fallback), encoding="utf-8"
             )
-            with self.assertRaises(DossierStageError) as forged_error:
+            with self.assertRaises(PaperOrchestraStageError) as forged_error:
                 asyncio.run(
                     select_candidate(
                         launch_dir=launch_dir,
-                        run_dir=launch_dir / "dossier_runs" / "primary",
+                        run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     )
                 )
             self.assertEqual(
@@ -240,11 +240,11 @@ class CandidateSelectionTest(unittest.TestCase):
                 "folder_name": "session_1/candidate-a",
             }
             selection_path.write_text(json.dumps(selection), encoding="utf-8")
-            with self.assertRaises(DossierStageError) as raised:
+            with self.assertRaises(PaperOrchestraStageError) as raised:
                 asyncio.run(
                     select_candidate(
                         launch_dir=launch_dir,
-                        run_dir=launch_dir / "dossier_runs" / "primary",
+                        run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     )
                 )
             self.assertEqual(raised.exception.code, "invalid_candidate_selection")
@@ -310,7 +310,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     model=model,
                 )
             )
@@ -395,7 +395,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     random_source=random_source,
                 )
             )
@@ -476,7 +476,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     random_source=LastChoice(),
                 )
             )
@@ -498,14 +498,14 @@ class CandidateSelectionTest(unittest.TestCase):
                 }
             )
             selection_path = (
-                launch_dir / "dossier_runs" / "primary" / "candidate_selection.json"
+                launch_dir / "paper_orchestra_runs" / "primary" / "candidate_selection.json"
             )
             selection_path.write_text(json.dumps(selection), encoding="utf-8")
-            with self.assertRaises(DossierStageError) as raised:
+            with self.assertRaises(PaperOrchestraStageError) as raised:
                 asyncio.run(
                     select_candidate(
                         launch_dir=launch_dir,
-                        run_dir=launch_dir / "dossier_runs" / "primary",
+                        run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     )
                 )
             self.assertEqual(raised.exception.code, "invalid_candidate_selection")
@@ -574,7 +574,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     model=InvalidCriterionModel(),
                     random_source=LastChoice(),
                 )
@@ -601,26 +601,26 @@ class CandidateSelectionTest(unittest.TestCase):
             resumed = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                 )
             )
             self.assertEqual(resumed, selection)
 
             selection["criterion"]["model_input"] = None
             selection_path = (
-                launch_dir / "dossier_runs" / "primary" / "candidate_selection.json"
+                launch_dir / "paper_orchestra_runs" / "primary" / "candidate_selection.json"
             )
             selection_path.write_text(json.dumps(selection), encoding="utf-8")
-            with self.assertRaises(DossierStageError) as raised:
+            with self.assertRaises(PaperOrchestraStageError) as raised:
                 asyncio.run(
                     select_candidate(
                         launch_dir=launch_dir,
-                        run_dir=launch_dir / "dossier_runs" / "primary",
+                        run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     )
                 )
             self.assertEqual(raised.exception.code, "invalid_candidate_selection")
 
-            failure_run_dir = launch_dir / "dossier_runs" / "provider-failure"
+            failure_run_dir = launch_dir / "paper_orchestra_runs" / "provider-failure"
             failed_inference = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
@@ -688,7 +688,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     random_source=FirstChoice(),
                 )
             )
@@ -704,13 +704,13 @@ class CandidateSelectionTest(unittest.TestCase):
             resumed = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     random_source=LastChoice(),
                 )
             )
             self.assertEqual(resumed, selection)
             selection_path = (
-                launch_dir / "dossier_runs" / "primary" / "candidate_selection.json"
+                launch_dir / "paper_orchestra_runs" / "primary" / "candidate_selection.json"
             )
             temporary_path = selection_path.with_suffix(".json.tmp")
             selection_path.replace(temporary_path)
@@ -718,7 +718,7 @@ class CandidateSelectionTest(unittest.TestCase):
             recovered = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                     random_source=LastChoice(),
                 )
             )
@@ -759,7 +759,7 @@ class CandidateSelectionTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            run_dir = launch_dir / "dossier_runs" / "primary"
+            run_dir = launch_dir / "paper_orchestra_runs" / "primary"
             selection = asyncio.run(
                 select_candidate(launch_dir=launch_dir, run_dir=run_dir)
             )
@@ -771,7 +771,7 @@ class CandidateSelectionTest(unittest.TestCase):
                 json.dumps(selection), encoding="utf-8"
             )
 
-            with self.assertRaises(DossierStageError) as raised:
+            with self.assertRaises(PaperOrchestraStageError) as raised:
                 asyncio.run(
                     select_candidate(launch_dir=launch_dir, run_dir=run_dir)
                 )
@@ -809,7 +809,7 @@ class CandidateSelectionTest(unittest.TestCase):
             selection = asyncio.run(
                 select_candidate(
                     launch_dir=launch_dir,
-                    run_dir=launch_dir / "dossier_runs" / "primary",
+                    run_dir=launch_dir / "paper_orchestra_runs" / "primary",
                 )
             )
 

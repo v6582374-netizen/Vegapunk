@@ -4,11 +4,11 @@ status: accepted
 
 # Isolate PaperOrchestra Configuration
 
-The port adds `config/paper_orchestra.yaml` for settings owned only by the writing subsystem. Its initial configurable surface is `enabled`, `template_dir`, `layout_review_enabled`, `max_content_refinement_iterations`, and `max_format_correction_iterations`; the accepted defaults are enabled Dossier generation, ElegantPaper, enabled multimodal layout review, three content-refinement iterations, and one formatting-correction iteration.
+The port adds `config/paper_orchestra.yaml` for settings owned only by the writing subsystem. Its configurable surface includes the shared template path, Draft batch size, Plotting Agent critique rounds, image-generation provider coordinates, layout review, content-refinement iterations, and formatting-correction iterations. PaperOrchestra is mandatory after Draft Handoff, so the configuration has no enable/disable switch.
 
-The file does not duplicate provider, model, endpoint, credential, or API-key settings. The Dossier Service receives the model created through InternAgent's existing configuration and `ModelFactory`. `launch_discovery.py` loads the fixed default PaperOrchestra configuration path, while the standalone historical-run command may explicitly override that path.
+The file does not duplicate the primary text provider, model, or credential settings. PaperOrchestra receives that model through InternAgent's existing configuration and `ModelFactory`; ADR-0097 defines the separate image-only provider and environment variable. `launch_discovery.py` loads the fixed default PaperOrchestra configuration path, while a standalone historical-run command may explicitly override that path.
 
-Stable runtime contracts such as the `primary` Dossier Run ID, stage order, checkpoint semantics, and final output filenames are not configurable in the initial integration.
+Stable runtime contracts such as round-derived Run IDs, stage order, checkpoint semantics, and final output filenames are not configurable.
 
 **Considered Options**
 

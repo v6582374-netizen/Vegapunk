@@ -75,6 +75,9 @@ class BaseModel(abc.ABC):
     async def run(self, request: ModelRunRequest) -> ModelRunResult:
         """Execute one typed inference run and emit provider-neutral telemetry."""
 
+        from internagent.research_draft import record_research_event
+
+        record_research_event(request)
         started_at = time.perf_counter()
         self.total_calls += 1
         result: ModelRunResult | None = None
@@ -98,13 +101,10 @@ class BaseModel(abc.ABC):
                 raise
             raise classified from exc
         finally:
-            from internagent.living_manuscript import record_task_model_interaction
-
-            record_task_model_interaction(
-                request=request,
-                result=result,
-                error=error,
-            )
+            if result is not None:
+                record_research_event(result)
+            if error is not None:
+                record_research_event(error)
             elapsed = time.perf_counter() - started_at
             self.total_time += elapsed
             telemetry = self._telemetry_event(
@@ -257,7 +257,7 @@ class BaseModel(abc.ABC):
             self._response_checkpoint.reset(token)
 
     def current_response_checkpoint(self) -> ModelResponseCheckpoint | None:
-        """Return the dossier checkpoint bound to the current model run."""
+        """Return the PaperOrchestra checkpoint bound to the current model run."""
         return self._response_checkpoint.get()
 
     async def _emit_completion(self, telemetry: Dict[str, Any]) -> None:

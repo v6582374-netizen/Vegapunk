@@ -10,7 +10,7 @@ from typing import Any
 from internagent.mas.models.base_model import BaseModel
 from internagent.mas.models.runtime import ReasoningConfig
 
-from ...data_types import DossierStageError
+from ...data_types import PaperOrchestraStageError
 from ...utils.common_utils import (
     validate_citation_keys,
     validate_narrative_contract,
@@ -28,12 +28,11 @@ class SectionWritingAgent:
         *,
         outline_path: Path,
         template_path: Path,
-        idea_path: Path,
-        experimental_log_path: Path,
+        materials_path: Path,
         citation_map_path: Path,
         figures_info_path: Path,
         guidelines_path: Path,
-        candidate_selection: dict[str, Any],
+        candidate_selection: dict[str, Any] | None,
         paper_title: str,
         paper_date: str | None = None,
         output_path: Path,
@@ -43,15 +42,15 @@ class SectionWritingAgent:
         payload = {
             "outline.json": _read_json(outline_path, dict),
             "template.tex": template_path.read_text(encoding="utf-8"),
-            "idea.md": idea_path.read_text(encoding="utf-8"),
-            "experimental_log.md": experimental_log_path.read_text(encoding="utf-8"),
+            "paper_materials.md": materials_path.read_text(encoding="utf-8"),
             "citation_map.json": citation_map,
             "figures/info.json": figures_info,
             "guidelines.md": guidelines_path.read_text(encoding="utf-8"),
-            "candidate_selection.json": candidate_selection,
             "authoritative_title": paper_title,
             "authoritative_date": paper_date,
         }
+        if candidate_selection is not None:
+            payload["candidate_selection.json"] = candidate_selection
         response = await self.model.generate(
             prompt=json.dumps(payload, ensure_ascii=False, sort_keys=True),
             system_prompt=SECTION_WRITING_SYSTEM_PROMPT,
@@ -67,7 +66,7 @@ class SectionWritingAgent:
             validate_citation_keys(latex, set(citation_map))
             _validate_figures(latex, figures_info)
         except ValueError as error:
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="write_remaining_sections",
                 code="invalid_model_output",
                 message=str(error),
@@ -81,7 +80,7 @@ def _read_json(path: Path, expected_type: type) -> Any:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, expected_type):
-        raise DossierStageError(
+        raise PaperOrchestraStageError(
             stage="write_remaining_sections",
             code="invalid_input",
             message=f"{path.name} has an invalid JSON shape",

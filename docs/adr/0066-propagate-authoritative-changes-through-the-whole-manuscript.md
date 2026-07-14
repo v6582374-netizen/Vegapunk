@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0078
 ---
 
 # Propagate Authoritative Changes Through the Whole Manuscript

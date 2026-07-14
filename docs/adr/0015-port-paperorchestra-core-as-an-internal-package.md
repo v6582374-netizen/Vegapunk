@@ -4,9 +4,9 @@ status: accepted
 
 # Port PaperOrchestra Core as an Internal Package
 
-The PaperOrchestra runtime required for one Research Narrative will be ported into `internagent.paper_orchestra` as an ordinary, internally maintained Python package. The package preserves the Outline, literature-writing, section-writing, review, content-refinement, format-review, and PDF-review agent architecture together with their prompts, parsing, data types, autoraters, and required utilities. A single pipeline entrypoint is its public interface; existing InternAgent discovery code does not import or coordinate individual PaperOrchestra agents.
+The PaperOrchestra runtime required for one Paper will be ported into `internagent.paper_orchestra` as an ordinary, internally maintained Python package. The package preserves the Outline, plotting, literature-writing, section-writing, review, content-refinement, format-review, and PDF-review agent architecture together with their prompts, parsing, data types, autoraters, and required utilities. A single pipeline entrypoint is its public interface; existing InternAgent discovery code does not import or coordinate individual PaperOrchestra agents.
 
-The initial port excludes the Streamlit frontend, batch and benchmark drivers, legacy shell and CLI entrypoints, bundled venue templates, Plotting Agent, image-generation path, and online literature-search implementation. Those files do not participate in the accepted single-paper, existing-figure, pre-collected-citation path. The package retains the upstream license and an `UPSTREAM.md` recording the source commit and local adaptations.
+The port excludes the Streamlit frontend, batch and benchmark drivers, legacy shell and CLI entrypoints, bundled venue templates, and online literature-search implementation. ADR-0088 restores the Plotting Agent and ADR-0097 adds its independent image-generation path. The package retains the upstream license and an `UPSTREAM.md` recording the source commit and local adaptations.
 
 **Considered Options**
 

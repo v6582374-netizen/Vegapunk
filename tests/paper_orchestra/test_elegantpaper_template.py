@@ -18,18 +18,18 @@ class ElegantPaperTemplateTest(unittest.TestCase):
                     f"{executable} is required for the ElegantPaper smoke test"
                 )
 
-        with self.subTest("isolated template workspace"):
+        with self.subTest("workspace uses the shared template resources"):
             import tempfile
 
             with tempfile.TemporaryDirectory() as temporary_directory:
-                workspace = Path(temporary_directory) / "elegantpaper"
-                shutil.copytree(TEMPLATE_ROOT, workspace)
+                workspace = Path(temporary_directory) / "paper"
+                workspace.mkdir()
                 shutil.copyfile(
-                    workspace / "reference.bib", workspace / "references.bib"
+                    TEMPLATE_ROOT / "reference.bib", workspace / "references.bib"
                 )
                 template_path = workspace / "template.tex"
                 template_path.write_text(
-                    template_path.read_text(encoding="utf-8").replace(
+                    (TEMPLATE_ROOT / "template.tex").read_text(encoding="utf-8").replace(
                         "\\printbibliography", "\\nocite{en3}\n\\printbibliography"
                     ),
                     encoding="utf-8",
@@ -42,8 +42,10 @@ class ElegantPaperTemplateTest(unittest.TestCase):
                     log_path=workspace / "logs" / "compile.log",
                     stage="compile_initial_draft",
                     timeout=120,
+                    template_dir=TEMPLATE_ROOT,
                 )
 
+                self.assertFalse((workspace / "elegantpaper.cls").exists())
                 self.assertGreater(pdf_path.stat().st_size, 0)
                 pdf_bytes = pdf_path.read_bytes()
                 self.assertTrue(pdf_bytes.startswith(b"%PDF-"))

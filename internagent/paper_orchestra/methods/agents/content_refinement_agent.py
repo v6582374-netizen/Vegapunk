@@ -17,7 +17,7 @@ from internagent.mas.models.runtime import (
 )
 
 from ...autoraters.agent_review import REVIEW_AXES, review_paper
-from ...data_types import DossierStageError, RefinementResult
+from ...data_types import PaperOrchestraStageError, RefinementResult
 from ...utils.common_utils import (
     scientific_content_fingerprint,
     validate_citation_keys,
@@ -40,7 +40,7 @@ class ContentRefinementAgent:
         *,
         initial_tex_path: Path,
         initial_pdf_path: Path,
-        experimental_log_path: Path,
+        materials_path: Path,
         citation_map_path: Path,
         guidelines_path: Path,
         paper_title: str,
@@ -58,12 +58,12 @@ class ContentRefinementAgent:
         reviews_dir.mkdir(exist_ok=True)
         citation_map = json.loads(citation_map_path.read_text(encoding="utf-8"))
         if not isinstance(citation_map, dict):
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="refine_content",
                 code="invalid_input",
                 message="citation_map.json must contain an object",
             )
-        experimental_log = experimental_log_path.read_text(encoding="utf-8")
+        paper_materials = materials_path.read_text(encoding="utf-8")
         guidelines = guidelines_path.read_text(encoding="utf-8")
         current_tex_path = initial_tex_path
         current_pdf_path = initial_pdf_path
@@ -72,7 +72,7 @@ class ContentRefinementAgent:
             model=self.model,
             latex=current_latex,
             pdf_text=extract_text(current_pdf_path),
-            experimental_log=experimental_log,
+            paper_materials=paper_materials,
             citation_map=citation_map,
         )
         _write_json(reviews_dir / "review_v0.json", current_review)
@@ -82,7 +82,7 @@ class ContentRefinementAgent:
             payload = {
                 "reviewer_feedback": current_review,
                 "guidelines.md": guidelines,
-                "experimental_log.md": experimental_log,
+                "paper_materials.md": paper_materials,
                 "citation_map.json": citation_map,
                 "paper.tex": current_latex,
             }
@@ -100,7 +100,7 @@ class ContentRefinementAgent:
                 validate_narrative_contract(candidate_latex, paper_title, paper_date)
                 validate_citation_keys(candidate_latex, set(citation_map))
             except ValueError as error:
-                raise DossierStageError(
+                raise PaperOrchestraStageError(
                     stage="refine_content",
                     code="invalid_model_output",
                     message=str(error),
@@ -121,7 +121,7 @@ class ContentRefinementAgent:
                 model=self.model,
                 latex=candidate_latex,
                 pdf_text=extract_text(candidate_pdf_path),
-                experimental_log=experimental_log,
+                paper_materials=paper_materials,
                 citation_map=citation_map,
             )
             _write_json(reviews_dir / f"review_v{iteration}.json", candidate_review)
@@ -178,7 +178,7 @@ class ContentRefinementAgent:
         try:
             review = extract_json_response(response)
         except (ValueError, TypeError) as error:
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="review_layout_and_optionally_correct",
                 code="layout_review_failed",
                 message=str(error),
@@ -186,7 +186,7 @@ class ContentRefinementAgent:
         if not isinstance(review.get("figure_and_tables"), dict) or not isinstance(
             review.get("other_issues"), list
         ):
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="review_layout_and_optionally_correct",
                 code="layout_review_failed",
                 message="layout review returned an invalid JSON shape",
@@ -227,7 +227,7 @@ class ContentRefinementAgent:
             ) != scientific_content_fingerprint(latex):
                 raise ValueError("layout correction changed scientific content")
         except ValueError as error:
-            raise DossierStageError(
+            raise PaperOrchestraStageError(
                 stage="review_layout_and_optionally_correct",
                 code="invalid_model_output",
                 message=str(error),

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -13,6 +15,8 @@ from internagent.mas.agents.dr_agents.models import get_model as get_dr_model
 from internagent.mas.agents.dr_agents.agents.task.execution_agent import (
     ExecutionAgent,
 )
+from internagent.research_draft import ResearchDraft
+from tools import ToolManager
 from internagent.mas.models.runtime import (
     FunctionCall,
     FunctionCallOutput,
@@ -80,6 +84,23 @@ class DeepResearchRuntimeTest(unittest.TestCase):
     def setUp(self) -> None:
         _FakeRuntimeOpenAI.instances.clear()
 
+    def test_dr_tool_manager_appends_each_call_and_result_to_draft(self) -> None:
+        manager = ToolManager.__new__(ToolManager)
+        manager.tools = {
+            "lookup": {"function": lambda query: {"query": query, "score": 0.9}}
+        }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            draft = ResearchDraft.open(Path(temporary_directory) / "launch")
+            with draft.activate():
+                result = manager.call_tool("lookup", query="formula evidence")
+
+            content = draft.path.read_text(encoding="utf-8")
+            self.assertEqual(result, {"query": "formula evidence", "score": 0.9})
+            self.assertIn("lookup", content)
+            self.assertIn("formula evidence", content)
+            self.assertIn("0.9", content)
+
     def test_sync_facade_projects_pro_background_policy(self) -> None:
         with patch(
             "internagent.mas.agents.dr_agents.models.openai_model.RuntimeOpenAIModel",
@@ -96,7 +117,7 @@ class DeepResearchRuntimeTest(unittest.TestCase):
                 background=True,
             )
             result = model.generate(
-                "Synthesize the dossier.",
+                "Synthesize the paper.",
                 system_prompt="Stable synthesis instructions.",
                 max_output_tokens=128000,
             )

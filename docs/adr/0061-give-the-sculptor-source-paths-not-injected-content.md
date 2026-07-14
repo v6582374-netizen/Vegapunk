@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR-0070
+status: superseded by ADR-0078
 ---
 
 # Give the Sculptor Source Paths, Not Injected Content
