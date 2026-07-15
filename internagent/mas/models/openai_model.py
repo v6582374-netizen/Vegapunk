@@ -63,7 +63,7 @@ class OpenAIModel(BaseModel):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model_name: str = "gpt-5.6-sol",
-        max_output_tokens: int = 128000,
+        max_output_tokens: Optional[int] = None,
         temperature: float = 0.7,
         timeout: int = 600,
         default_headers: Optional[Dict[str, str]] = None,
@@ -204,11 +204,6 @@ class OpenAIModel(BaseModel):
         input_items: list[Dict[str, Any]] = []
         request_params: Dict[str, Any] = {
             "model": self.model_name,
-            "max_output_tokens": (
-                request.max_output_tokens
-                if request.max_output_tokens is not None
-                else self.max_output_tokens
-            ),
             "reasoning": reasoning,
             "store": self.store,
             "background": request.background,
@@ -218,6 +213,14 @@ class OpenAIModel(BaseModel):
             },
             "text": {"format": {"type": request.response_format}},
         }
+
+        max_output_tokens = (
+            request.max_output_tokens
+            if request.max_output_tokens is not None
+            else self.max_output_tokens
+        )
+        if max_output_tokens is not None:
+            request_params["max_output_tokens"] = max_output_tokens
 
         if request.instructions:
             if self.prompt_cache_mode == "explicit":
@@ -527,7 +530,7 @@ class OpenAIModel(BaseModel):
             api_key=config.get("api_key"),
             base_url=config.get("base_url"),
             model_name=config.get("model_name", "gpt-5.6-sol"),
-            max_output_tokens=config.get("max_output_tokens", 128000),
+            max_output_tokens=config.get("max_output_tokens"),
             temperature=config.get("temperature", 0.7),
             timeout=config.get("timeout", 600),
             default_headers=config.get("default_headers"),

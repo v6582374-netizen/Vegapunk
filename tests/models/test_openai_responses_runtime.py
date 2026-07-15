@@ -181,6 +181,16 @@ class _ReplayOpenAIClient:
 
 
 class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_default_output_token_ceiling_is_omitted(self) -> None:
+        client = _FakeOpenAIClient()
+        model = OpenAIModel(api_key="test-key", client=client)
+
+        await model.run(
+            ModelRunRequest(input=(Message.user("Use the provider default."),))
+        )
+
+        self.assertNotIn("max_output_tokens", client.responses.requests[0])
+
     async def test_run_returns_typed_items_and_usage(self) -> None:
         model = OpenAIModel(
             api_key="test-key",

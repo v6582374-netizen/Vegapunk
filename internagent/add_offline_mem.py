@@ -32,7 +32,6 @@ DEFAULT_CONFIG = {
             "api_mode": "responses",
             "api_key": "",
             "temperature": 0.7,
-            "max_output_tokens": 128000,
             "reasoning": {
                 "effort": "xhigh",
                 "context": "current_turn",

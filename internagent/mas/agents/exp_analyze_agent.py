@@ -284,7 +284,6 @@ If you cannot determine with confidence, return "unknown".
                 prompt=prompt,
                 system_prompt="You are a helpful assistant that analyzes ML metrics.",
                 temperature=0.0,
-                max_output_tokens=10,
                 agent_role=self.name,
             )
 
@@ -396,7 +395,6 @@ Example: "val/PQ_Vm_rmse"
                 prompt=prompt,
                 system_prompt="You are a helpful assistant that analyzes ML experiments.",
                 temperature=0.0,
-                max_output_tokens=50,
                 agent_role=self.name,
             )
 

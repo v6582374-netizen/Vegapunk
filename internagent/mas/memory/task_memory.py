@@ -109,7 +109,6 @@ class TaskMemoryLayer:
                     "model_name": "gpt-5.6-sol",  # Model name
                     "api_key": "...",  # API key
                     "temperature": 0.7,  # Optional: sampling temperature
-                    "max_output_tokens": 128000,  # Optional: output cap
                     "timeout": 600,  # Optional: timeout in seconds
 
                     # Agent-specific configuration

@@ -73,6 +73,18 @@ class ModelFactoryRuntimeTest(unittest.TestCase):
         self.assertEqual(model.response_state_mode, "replay")
         self.assertEqual(model.response_state_max_entries, 128)
 
+    def test_missing_output_token_config_leaves_responses_ceiling_unset(self) -> None:
+        model = OpenAIModel.from_config(
+            {
+                "provider": "openai",
+                "api_key": "test-key",
+                "model_name": "gpt-5.6-sol",
+                "api_mode": "responses",
+            }
+        )
+
+        self.assertIsNone(model.max_output_tokens)
+
     def test_models_with_different_runtime_policies_are_not_cache_collapsed(self) -> None:
         project_config = {
             "models": {
