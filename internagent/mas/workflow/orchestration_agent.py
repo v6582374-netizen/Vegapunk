@@ -25,7 +25,8 @@ from .data_type import Idea, Task, WorkflowSession, WorkflowState
 
 logger = logging.getLogger(__name__)
 
-MAX_CONCURRENT_LLM_TASKS = 10
+# Keep Discovery's model burst below the one-account relay's observed stable range.
+MAX_CONCURRENT_LLM_TASKS = 2
 MAX_CONCURRENT_SEARCH_TASKS = 10
 
 # 这个类是多代理流程的“交通调度员”：它不亲自生成想法或写方法，

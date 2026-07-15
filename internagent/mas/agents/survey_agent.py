@@ -21,6 +21,9 @@ from ..tools.utils import parse_io_description, format_papers_for_printing_next_
 
 logger = logging.getLogger(__name__)
 
+MAX_CONCURRENT_LLM_TASKS = 2
+MAX_CONCURRENT_SEARCH_TASKS = 10
+
 
 class SurveyAgent(BaseAgent):
     """
@@ -58,7 +61,9 @@ class SurveyAgent(BaseAgent):
         self.max_papers = config.get("max_papers", 5) # max paper for download and deep read
         self.search_depth = config.get("search_depth", "moderate")  # shallow, moderate, deep
         self.sources = config.get("sources", ["arxiv", "crossref"])
-        self.max_concurrent_tasks = 10
+        # Keep model scoring bounded independently from external literature search.
+        self.max_concurrent_tasks = MAX_CONCURRENT_LLM_TASKS
+        self.max_concurrent_search_tasks = MAX_CONCURRENT_SEARCH_TASKS
         # Initialize tools
         tools_config = config.get("_global_config", {}).get("tools", {})
         self.literature_search = None
@@ -424,7 +429,7 @@ class SurveyAgent(BaseAgent):
         # ------------------------------------------------------------
         # Step 4: run all literature queries concurrently
         # ------------------------------------------------------------
-        semaphore_lit = asyncio.Semaphore(self.max_concurrent_tasks)
+        semaphore_lit = asyncio.Semaphore(self.max_concurrent_search_tasks)
 
         lit_tasks = [
             asyncio.create_task(run_lit_query(q, semaphore_lit))
