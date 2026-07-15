@@ -15,6 +15,9 @@ from tests.paper_orchestra.test_vendored_service import _write_launch
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 VENDOR_ROOT = REPOSITORY_ROOT / "third_party/paper_orchestra"
+_TRANSLATION_REQUEST_MARKER = (
+    "Translate the following complete final LaTeX paper"
+)
 
 PAPER_TEX = r"""\documentclass{article}
 \title{Mock PaperOrchestra Paper}
@@ -177,7 +180,7 @@ research_cutoff: 2025-01
             translation_requests = [
                 request
                 for request in relay.requests
-                if "Translate the following complete final LaTeX paper"
+                if _TRANSLATION_REQUEST_MARKER
                 in json.dumps(request, ensure_ascii=False)
             ]
             self.assertEqual(len(translation_requests), 1)
@@ -260,10 +263,7 @@ class _MockResponsesRelay:
 
     def _response_text(self, request: dict[str, object]) -> str:
         serialized = json.dumps(request, ensure_ascii=False)
-        if (
-            "Translate the following complete final LaTeX paper"
-            in serialized
-        ):
+        if _TRANSLATION_REQUEST_MARKER in serialized:
             return f"```latex\n{CHINESE_PAPER_TEX}\n```"
         if "Analyze the provided page images" in serialized:
             return json.dumps({"figure_and_tables": {}, "other_issues": []})

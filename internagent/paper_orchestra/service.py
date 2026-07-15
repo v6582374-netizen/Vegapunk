@@ -122,13 +122,9 @@ async def run_paper_orchestra(
             model_name=paper_config.writer_model,
         )
     except Exception as error:
-        return _error_result(
+        return _successful_result(
             run_dir,
-            PaperOrchestraError(
-                stage="chinese_companion",
-                code="chinese_companion_generation_failed",
-                message=str(error),
-            ),
+            warnings=(f"Chinese companion generation failed: {error}",),
         )
     return _successful_result(run_dir)
 
@@ -439,13 +435,15 @@ def _existing_result(run_dir: Path) -> PaperOrchestraRunResult | None:
     return _successful_result(run_dir) if _final_outputs_are_valid(run_dir) else None
 
 
-def _successful_result(run_dir: Path) -> PaperOrchestraRunResult:
+def _successful_result(
+    run_dir: Path, *, warnings: tuple[str, ...] = ()
+) -> PaperOrchestraRunResult:
     return PaperOrchestraRunResult(
         paper_orchestra_run_id=PAPER_ORCHESTRA_RUN_ID,
         run_dir=run_dir,
         final_pdf=run_dir / FINAL_PDF_RELATIVE_PATH,
         final_tex=run_dir / FINAL_TEX_RELATIVE_PATH,
-        warnings=(),
+        warnings=warnings,
         error=None,
     )
 

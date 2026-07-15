@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import subprocess
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,22 +12,28 @@ from internagent.paper_orchestra.chinese_companion import (
 )
 
 
+def _write_english_paper(run_dir: Path, tex: str) -> Path:
+    work_dir = run_dir / "content_refinement_workdir"
+    work_dir.mkdir()
+    source_tex = work_dir / "final_refined_paper.tex"
+    source_tex.write_text(tex, encoding="utf-8")
+    return source_tex
+
+
 class ChineseCompanionTest(unittest.TestCase):
     def test_generates_complete_chinese_tex_and_pdf_without_changing_english(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             run_dir = Path(temporary_directory)
-            work_dir = run_dir / "content_refinement_workdir"
-            work_dir.mkdir()
-            source_tex = work_dir / "final_refined_paper.tex"
             english = r"""\documentclass{article}
 \title{English title}
 \begin{document}
 English evidence \citep{Keep2024} and $R^2=0.95$.
 \end{document}
 """
-            source_tex.write_text(english, encoding="utf-8")
+            source_tex = _write_english_paper(run_dir, english)
+            work_dir = source_tex.parent
             translated = r"""```latex
 \documentclass{article}
 \title{中文标题}
@@ -80,6 +86,60 @@ English evidence \citep{Keep2024} and $R^2=0.95$.
             self.assertEqual(len(call.kwargs["content"]), 1)
             self.assertIn(english, call.kwargs["content"][0].text)
 
+    def test_rejects_nonzero_latex_exit_even_if_a_pdf_was_left_behind(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            run_dir = Path(temporary_directory)
+            _write_english_paper(
+                run_dir,
+                r"""\documentclass{article}
+\begin{document}
+English paper.
+\end{document}
+""",
+            )
+
+            def fail_xelatex(command, *, cwd, **kwargs):
+                (Path(cwd) / "final_paper_zh_CN.pdf").write_bytes(
+                    b"%PDF-1.4\nincomplete\n%%EOF"
+                )
+                return subprocess.CompletedProcess(
+                    command,
+                    1,
+                    "partial stdout",
+                    "fatal translation compile error",
+                )
+
+            with mock.patch(
+                "internagent.paper_orchestra.chinese_companion."
+                "PaperOrchestraResponsesRuntime"
+            ) as runtime_type, mock.patch(
+                "internagent.paper_orchestra.chinese_companion.subprocess.run",
+                side_effect=fail_xelatex,
+            ):
+                runtime_type.return_value.generate_text.return_value = (
+                    r"""\documentclass{article}
+\begin{document}
+中文论文。
+\end{document}
+"""
+                )
+
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "fatal translation compile error",
+                ):
+                    generate_chinese_companion(
+                        run_dir=run_dir,
+                        provider_config={
+                            "base_url": "https://relay.example/v1"
+                        },
+                        model_name="writer-model",
+                    )
+
+            self.assertFalse((run_dir / "final_paper.zh-CN.pdf").exists())
+
     @unittest.skipUnless(
         shutil.which("xelatex") and shutil.which("bibtex"),
         "XeLaTeX and BibTeX are required",
@@ -87,15 +147,13 @@ English evidence \citep{Keep2024} and $R^2=0.95$.
     def test_compiles_chinese_with_the_installed_tex_toolchain(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             run_dir = Path(temporary_directory)
-            work_dir = run_dir / "content_refinement_workdir"
-            work_dir.mkdir()
-            (work_dir / "final_refined_paper.tex").write_text(
+            _write_english_paper(
+                run_dir,
                 r"""\documentclass{article}
 \begin{document}
 English paper.
 \end{document}
 """,
-                encoding="utf-8",
             )
             translated = r"""\documentclass{article}
 \begin{document}

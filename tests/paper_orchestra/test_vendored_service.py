@@ -138,6 +138,45 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             self.assertIn("fake child stdout", (result.run_dir / "stdout.log").read_text())
             self.assertIn("fake child stderr", (result.run_dir / "stderr.log").read_text())
 
+    def test_chinese_companion_failure_preserves_english_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            launch_dir = root / "launch"
+            _write_launch(launch_dir)
+            vendor_root = _write_fake_vendor(root)
+            config_path = _write_config(root, vendor_root)
+
+            with mock.patch(
+                "internagent.paper_orchestra.service."
+                "generate_chinese_companion",
+                side_effect=RuntimeError("translation unavailable"),
+            ):
+                result = asyncio.run(
+                    run_paper_orchestra(
+                        launch_dir=launch_dir,
+                        internagent_config={
+                            "models": {
+                                "openai": {
+                                    "base_url": "https://relay.example/v1",
+                                    "model_name": "default-text-model",
+                                }
+                            }
+                        },
+                        paper_config_path=config_path,
+                    )
+                )
+
+            self.assertIsNone(result.error)
+            self.assertTrue(result.final_pdf.is_file())
+            self.assertTrue(result.final_tex.is_file())
+            self.assertEqual(
+                result.warnings,
+                (
+                    "Chinese companion generation failed: "
+                    "translation unavailable",
+                ),
+            )
+
 
 def _write_launch(launch_dir: Path) -> None:
     launch_dir.mkdir(parents=True)

@@ -169,7 +169,7 @@ def _run_latex_commands(commands: list[list[str]], work_dir: Path) -> None:
     ):
         environment.pop(variable, None)
     for command in commands:
-        subprocess.run(
+        completed = subprocess.run(
             command,
             cwd=work_dir,
             env=environment,
@@ -178,6 +178,19 @@ def _run_latex_commands(commands: list[list[str]], work_dir: Path) -> None:
             timeout=120,
             check=False,
         )
+        if completed.returncode != 0:
+            output = "\n".join(
+                part
+                for part in (completed.stdout, completed.stderr)
+                if part
+            ).strip()
+            if len(output) > 2000:
+                output = output[-2000:]
+            detail = output or "no process output"
+            raise RuntimeError(
+                "LaTeX command failed with exit code "
+                f"{completed.returncode}: {' '.join(command)}\n{detail}"
+            )
 
 
 def _valid_pdf(path: Path) -> bool:
