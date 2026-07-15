@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Append Draft Blocks Without a Writing Agent

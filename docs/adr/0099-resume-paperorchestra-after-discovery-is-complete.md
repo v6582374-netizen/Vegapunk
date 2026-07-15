@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0105
 ---
 
 # Resume PaperOrchestra After Discovery Is Complete

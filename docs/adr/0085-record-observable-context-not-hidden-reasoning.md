@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Record Observable Context, Not Hidden Reasoning

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0101
 ---
 
 # Do Not Restore Paper-Stage Literature Search

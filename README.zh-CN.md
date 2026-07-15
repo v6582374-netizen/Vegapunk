@@ -38,17 +38,13 @@ pip install -r requirements.txt
 
 ### 配置 API 密钥
 
-将 `.env.example` 重命名为 `.env`，并填入你的 API 密钥：
-
-```bash
-mv .env.example .env
-```
+在仓库根目录创建 `.env`，并填入你的 API 密钥。
 
 `.env` 中的关键字段：
 
 ```
 OPENAI_API_KEY=        # OpenAI Responses API 密钥
-OPENAI_API_BASE_URL=   # OpenAI API 基础 URL（通常无需修改）
+OPENAI_BASE_URL=       # OpenAI-compatible Relay Provider 基础 URL
 OPENROUTER_API_KEY=    # OpenRouter API 密钥（使用 openrouter provider 时）
 ANTHROPIC_API_KEY=     # Anthropic API 密钥（用于基于 Claude 的实验后端）
 ```
@@ -56,7 +52,7 @@ ANTHROPIC_API_KEY=     # Anthropic API 密钥（用于基于 Claude 的实验后
 如需使用 OpenRouter 作为模型网关，请设置 `OPENROUTER_API_KEY`，并使用
 `config/openrouter_config.yaml` 运行。更多设置细节见 [docs/openrouter.md](docs/openrouter.md)。
 
-原生 OpenAI 推理统一使用 `gpt-5.6-sol` 和 Responses API；默认 reasoning effort 为 `xhigh`，最大输出为 128000 tokens，并启用 `store: true` 与 30 分钟 implicit prompt cache。内置 `ai.cloudyz.top` 端点不支持显式内容断点和 response retrieve API，因此工具续接会在本地重放完整 Responses items，并保留原始 `call_id`。Runtime 仍保留官方 explicit cache 与 server-side state 供兼容端点使用。Deep Research 与 PaperOrchestra 始终读取独立的 `models.openai` 配置；OpenRouter 只作为其他主发现角色的 Chat-compatible provider。
+原生 OpenAI 推理统一使用 `gpt-5.6-sol` 和 Responses API；默认 reasoning effort 为 `xhigh`，默认不发送 `max_output_tokens`，并启用 `store: true` 与 30 分钟 implicit prompt cache。需要限制单次响应时再显式设置该参数。内置 `ai.cloudyz.top` 端点不支持显式内容断点和 response retrieve API，因此工具续接会在本地重放完整 Responses items，并保留原始 `call_id`。Runtime 仍保留官方 explicit cache 与 server-side state 供兼容端点使用。PaperOrchestra 的文本、视觉理解和图片生成统一使用同一家 OpenAI-compatible Relay Provider；文本角色默认映射到 `gpt-5.6-sol`，图片由同一 base URL 和凭据下的 image endpoint 处理。OpenRouter 只作为其他主发现角色的 Chat-compatible provider。
 
 ### 运行发现实验
 
@@ -68,6 +64,25 @@ python launch_discovery.py \
     --task AutoDebug \
     --exp_backend claudecode
 ```
+
+实验模式完成全部 Discovery 工作后，会自动发生一次 Paper Handoff，并在
+`paper_orchestra_runs/paper/` 中最多生成一篇 Paper。仓库完整 vendoring 了固定提交
+`ca1b3fa01c2970fc7cda32d16245db38d57b3f56` 的上游 PaperOrchestra，保留原始
+Agent、提示词、同步 pipeline、文献流程和自主绘图，只在宿主输入输出与模型调用边界做适配。
+
+首个可运行基线只把系统自然产物投影为 `idea_sparse.md` 与
+`experimental_log.md`：不读取 `manuscript/draft.md`、源码、代码差异或
+`code_summary.json`。`report/report.md` 存在时会进入实验记录，缺失时不会阻塞实验、候选选择或论文生成。
+
+为已有 Discovery Launch 单独触发同一个单-Paper服务：
+
+```bash
+python launch_paper.py \
+    --launch-dir results/<task>/<timestamp>_launch \
+    --config ./config/default_config.yaml
+```
+
+成功结果会直接复用；该基线不提供逐 stage 持久恢复，也不会为同一 Launch 创建多个论文版本。
 
 ### 运行 QA 查询
 

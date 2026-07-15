@@ -15,7 +15,7 @@
 import json
 from typing import Optional, Callable, Dict, Any
 
-from google.genai import types
+from utils import genai_types as types
 
 from utils.gemini_utils import (
     call_gemini_with_text_prompt,

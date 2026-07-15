@@ -12,63 +12,24 @@ from pathlib import Path
 from unittest.mock import patch
 
 import launch_discovery
-from internagent.research_draft import (
-    ResearchDraft,
-    record_research_event,
-    start_research_draft_capture,
-    stop_research_draft_capture,
-)
 
 
 class DiscoveryPaperHandoffTest(unittest.TestCase):
-    def tearDown(self) -> None:
-        stop_research_draft_capture()
-
-    def test_handoff_stops_draft_capture_before_paperorchestra(self) -> None:
+    def test_handoff_calls_paperorchestra_directly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             launch_dir = root / "launch"
-            draft = ResearchDraft.open(launch_dir)
-            start_research_draft_capture(draft)
-            record_research_event("discovery observation")
-
-            def run_paper(**_: object) -> None:
-                record_research_event("paper activity must not return to Draft")
-
             with patch(
-                "launch_discovery._run_paper_orchestra", side_effect=run_paper
+                "launch_discovery._run_paper_orchestra"
             ) as run:
                 launch_discovery._handoff_to_paper_orchestra(
                     launch_dir=launch_dir,
                     config={},
                     repository_root=root,
                     logger=logging.getLogger("handoff-test"),
-                    research_draft=draft,
-                    completed_rounds=2,
                 )
 
-            content = draft.path.read_text(encoding="utf-8")
-            self.assertIn("discovery observation", content)
-            self.assertIn("Draft Handoff after 2 completed Discovery rounds.", content)
-            self.assertNotIn("paper activity must not return to Draft", content)
             run.assert_called_once()
-
-    def test_main_releases_draft_capture_when_discovery_raises(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            draft = ResearchDraft.open(Path(temporary_directory) / "launch")
-            start_research_draft_capture(draft)
-            record_research_event("before interruption")
-
-            with patch(
-                "launch_discovery._main", side_effect=RuntimeError("interrupted")
-            ):
-                with self.assertRaisesRegex(RuntimeError, "interrupted"):
-                    launch_discovery.main()
-            record_research_event("after interruption")
-
-            content = draft.path.read_text(encoding="utf-8")
-            self.assertIn("before interruption", content)
-            self.assertNotIn("after interruption", content)
 
     def test_project_test_suites_are_concrete_local_packages(self) -> None:
         import tests
@@ -84,7 +45,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             repository_root / "tests" / "paper_orchestra" / "__init__.py",
         )
 
-    def test_new_discovery_launch_builds_draft_then_automatically_hands_off(
+    def test_new_discovery_launch_automatically_hands_off_without_draft(
         self,
     ) -> None:
         class ReportWriter:
@@ -149,10 +110,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             launches = list((root / "results" / "paper-test").glob("*_launch"))
             self.assertEqual(len(launches), 1)
             draft_path = launches[0] / "manuscript" / "draft.md"
-            self.assertTrue(draft_path.is_file())
-            draft_content = draft_path.read_text(encoding="utf-8")
-            self.assertIn("derive x = A b", draft_content)
-            self.assertIn("Draft Handoff after 1 completed Discovery rounds.", draft_content)
+            self.assertFalse(draft_path.exists())
             run.assert_called_once()
             called_launch = root / run.call_args.kwargs["launch_dir"]
             self.assertEqual(called_launch.resolve(), launches[0].resolve())

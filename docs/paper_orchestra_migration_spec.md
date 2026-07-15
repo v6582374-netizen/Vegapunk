@@ -1,8 +1,11 @@
 # PaperOrchestra 到 InternAgent 的迁移 Spec
 
+> [!WARNING]
+> 本文是已被取代的原生重写方案，仅保留为历史设计证据。当前实现以完整 vendoring 固定上游源码并做最小适配为准；请阅读 [PaperOrchestra 移植对等性审计](./paper_orchestra_port_parity_audit.md) 与 ADR-0101 至 ADR-0122。
+
 ## 1. 文档状态
 
-- 状态：设计完成，等待实现
+- 状态：已被完整 vendoring 方案取代，仅作历史参考
 - 日期：2026-07-10
 - 目标仓库：InternAgent `a5358fa079eb5c17c3b2d5de91cd4a5778abe404`
 - 来源仓库：PaperOrchestra `ca1b3fa01c2970fc7cda32d16245db38d57b3f56`

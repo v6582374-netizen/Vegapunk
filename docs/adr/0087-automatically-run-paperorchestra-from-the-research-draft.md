@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Automatically Run PaperOrchestra from the Research Draft

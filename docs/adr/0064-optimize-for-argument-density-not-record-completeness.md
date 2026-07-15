@@ -8,7 +8,7 @@ Argument Density is a leading editorial principle of PaperOrchestra's writing an
 
 PaperOrchestra removes generic background, repeated summaries, raw result inventories, procedural narration, and technically true side material when they do not help a reader understand or assess the contribution. This principle does not demand maximal brevity: definitions, setup, derivations, counterexamples, and detailed analysis remain when the argument needs them. Its prompts do not impose a paragraph formula, a permitted-function enumeration, a word limit, or a compression score; the model judges argumentative contribution directly.
 
-This unifies the publication-oriented exclusions in ADR-0052 and ADR-0053 with the Evidence Carrier requirements now implemented under ADR-0088. The Research Draft deliberately follows the opposite retention rule because it is exhaustive input, not publication prose.
+This unifies the publication-oriented exclusions in ADR-0052 and ADR-0053 with the Evidence Carrier requirements. Native Discovery Artifacts remain complete according to their own runtime contracts; PaperOrchestra is responsible for selecting only what advances the publication argument.
 
 **Considered Options**
 

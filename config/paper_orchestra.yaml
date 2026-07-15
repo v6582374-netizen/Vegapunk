@@ -1,10 +1,12 @@
-template_dir: tex_templates/elegantpaper
-layout_review_enabled: true
-max_content_refinement_iterations: 3
-max_format_correction_iterations: 1
-draft_batch_max_chars: 120000
+# PaperOrchestra keeps the upstream pipeline and uses InternAgent's single
+# models.openai relay for text, vision, search-like prompts, and image calls.
+vendor_root: third_party/paper_orchestra
+template_dir: templates/iclr2025
+use_plotting: true
+writer_model: gpt-5.6-sol
+reflection_model: gpt-5.6-sol
+plotting_model: gpt-5.6-sol
+image_model: gpt-image-2
+max_concurrent_model_requests: 2
 plotting_max_critic_rounds: 3
-image_generation:
-  base_url: https://yunwu.ai/v1
-  model: gemini-3-pro-image-preview
-  api_key_env: PAPER_ORCHESTRA_IMAGE_API_KEY
+research_cutoff: null

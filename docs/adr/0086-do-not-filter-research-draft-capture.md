@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Do Not Filter Research Draft Capture

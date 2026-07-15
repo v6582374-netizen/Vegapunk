@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Pass the Draft and Launch Directly to PaperOrchestra

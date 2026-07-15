@@ -8,44 +8,50 @@ from internagent.paper_orchestra.config import load_paper_config
 
 
 class PaperConfigTest(unittest.TestCase):
-    def test_loads_and_resolves_isolated_paper_configuration(self) -> None:
+    def test_resolves_vendor_and_template_without_a_second_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            template_dir = root / "templates" / "elegantpaper"
+            vendor_root = root / "third_party" / "paper_orchestra"
+            template_dir = vendor_root / "templates" / "iclr2025"
             template_dir.mkdir(parents=True)
-            (template_dir / "template.tex").write_text("template", encoding="utf-8")
-            (template_dir / "guidelines.md").write_text("rules", encoding="utf-8")
+            (vendor_root / "paper_writing_cli.py").write_text(
+                "# upstream CLI", encoding="utf-8"
+            )
+            (template_dir / "template.tex").write_text(
+                "template", encoding="utf-8"
+            )
+            (template_dir / "guidelines.md").write_text(
+                "rules", encoding="utf-8"
+            )
             config_path = root / "paper_orchestra.yaml"
             config_path.write_text(
-                """template_dir: templates/elegantpaper
-layout_review_enabled: true
-max_content_refinement_iterations: 3
-max_format_correction_iterations: 1
-draft_batch_max_chars: 120000
+                """vendor_root: third_party/paper_orchestra
+template_dir: templates/iclr2025
+use_plotting: true
+writer_model: writer-model
+reflection_model: reflection-model
+plotting_model: plotting-model
+image_model: image-model
+max_concurrent_model_requests: 2
 plotting_max_critic_rounds: 3
-image_generation:
-  base_url: https://yunwu.ai/v1
-  model: gemini-3-pro-image-preview
-  api_key_env: PAPER_ORCHESTRA_IMAGE_API_KEY
+research_cutoff: null
 """,
                 encoding="utf-8",
             )
 
             config = load_paper_config(config_path, repository_root=root)
 
+            self.assertEqual(config.vendor_root, vendor_root.resolve())
             self.assertEqual(config.template_dir, template_dir.resolve())
-            self.assertTrue(config.layout_review_enabled)
-            self.assertEqual(config.max_content_refinement_iterations, 3)
-            self.assertEqual(config.max_format_correction_iterations, 1)
-            self.assertEqual(config.draft_batch_max_chars, 120000)
+            self.assertTrue(config.use_plotting)
+            self.assertEqual(config.writer_model, "writer-model")
+            self.assertEqual(config.reflection_model, "reflection-model")
+            self.assertEqual(config.plotting_model, "plotting-model")
+            self.assertEqual(config.image_model, "image-model")
+            self.assertEqual(config.max_concurrent_model_requests, 2)
             self.assertEqual(config.plotting_max_critic_rounds, 3)
-            self.assertEqual(
-                config.image_generation.base_url, "https://yunwu.ai/v1"
-            )
-            self.assertEqual(
-                config.image_generation.model, "gemini-3-pro-image-preview"
-            )
-            self.assertEqual(
-                config.image_generation.api_key_env,
-                "PAPER_ORCHESTRA_IMAGE_API_KEY",
-            )
+            self.assertIsNone(config.research_cutoff)
+
+
+if __name__ == "__main__":
+    unittest.main()

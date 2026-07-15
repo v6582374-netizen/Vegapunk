@@ -77,9 +77,9 @@ The `openrouter` provider block is already included in the default config.
 
 OpenRouter remains the default provider for the main multi-agent discovery
 roles in this config. Deep Research and PaperOrchestra are explicitly assigned
-to the separate `models.openai` block because they depend on Responses-only
-features such as persisted reasoning, Pro mode, background execution, and
-resumable response IDs.
+to the separate `models.openai` block. Deep Research uses its Responses-native
+features, while PaperOrchestra uses that block as its single Relay Provider for
+text and vision requests and the same provider's image endpoint.
 
 ```bash
 OPENROUTER_API_KEY=sk-or-...
@@ -88,8 +88,8 @@ OPENAI_API_KEY=sk-...
 
 Do not point the OpenAI block at an OpenRouter Chat Completions endpoint. To run
 without the OpenAI-native Deep Research stage, set `agents.dr.enabled: false`.
-PaperOrchestra likewise requires the OpenAI block when dossier generation is
-enabled.
+PaperOrchestra likewise requires the OpenAI block whenever a Discovery Launch
+enters Paper Handoff.
 
 QA always uses the OpenAI block:
 

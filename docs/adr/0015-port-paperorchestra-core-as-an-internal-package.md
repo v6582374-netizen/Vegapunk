@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0101
 ---
 
 # Port PaperOrchestra Core as an Internal Package

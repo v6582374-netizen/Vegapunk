@@ -257,6 +257,8 @@ pyee==13.0.0
 pyflakes==3.4.0
 Pygments==2.19.2
 PyJWT==2.10.1
+PyMuPDF==1.28.0
+pymupdf4llm==0.3.4
 pypandoc==1.15
 pyparsing==3.2.3
 pypdf==6.1.0
@@ -327,6 +329,7 @@ sympy==1.14.0
 tenacity==9.1.2
 tensorboardX==2.6.4
 terminado==0.18.1
+thefuzz==0.22.1
 threadpoolctl==3.6.0
 tiktoken==0.10.0
 tinycss2==1.4.0

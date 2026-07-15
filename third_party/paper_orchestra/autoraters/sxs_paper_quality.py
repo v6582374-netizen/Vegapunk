@@ -19,7 +19,7 @@ import base64
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from google.genai import types
+from utils import genai_types as types
 import pymupdf  # type: ignore
 
 from utils.pdf_utils import load_paper

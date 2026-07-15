@@ -16,36 +16,18 @@ import re
 import json
 from typing import Dict, Any
 
-from google import genai
-from google.genai import types  # type: ignore
+from utils import genai_types as types
 import time
 import os
-import mimetypes
 import base64
 
-import dotenv
+from utils.internagent_adapter import (
+    call_responses_with_contents,
+    generate_image_base64,
+)
 
-dot_file = os.path.join(os.path.dirname(__file__), "../.env")
-dotenv.load_dotenv(dot_file)
-
-vertex_ai_project = os.getenv("VERTEX_AI_PROJECT")
-vertex_ai_location = os.getenv("VERTEX_AI_LOCATION")
-gemini_api_key = os.getenv("GEMINI_API_KEY")
-
-if vertex_ai_project and vertex_ai_location:
-    print(
-        f"Using Vertex AI configuration. Project: {vertex_ai_project}, Location: {vertex_ai_location}"
-    )
-    genai_client = genai.Client(
-        vertexai=True, project=vertex_ai_project, location=vertex_ai_location
-    )
-elif gemini_api_key:
-    print("Using Gemini API Key configuration.")
-    genai_client = genai.Client(api_key=gemini_api_key)
-else:
-    raise ValueError(
-        "Either VERTEX_AI_PROJECT/VERTEX_AI_LOCATION or GEMINI_API_KEY must be set."
-    )
+# Kept only for source-level import compatibility with upstream helpers.
+genai_client = None
 
 
 def parse_gemini_json_results(response: str):
@@ -153,16 +135,11 @@ def call_gemini_with_contents(
 
     for attempt in range(max_retries):
         try:
-            response = genai_client.models.generate_content(
-                model=model_name,
+            raw_response = call_responses_with_contents(
                 contents=contents,
-                config=types.GenerateContentConfig(**generation_configs),
+                model_name=model_name,
+                generation_configs=generation_configs,
             )
-
-            if not response or not hasattr(response, "text") or response.text is None:
-                raise ValueError("Incomplete response from Gemini API or empty text")
-
-            raw_response = response.text
             parsed_response = result_parsing_func(raw_response)
 
             if check_parsed_response_not_none:
@@ -273,49 +250,20 @@ def generate_image_with_gemini(
 
     for attempt in range(max_retries):
         try:
-            config_args = {
-                "temperature": 0.7,
-                "candidate_count": 1,
-                "response_modalities": ["IMAGE"],
-                "image_config": types.ImageConfig(
-                    aspect_ratio=aspect_ratio, image_size="1k"
-                ),
-            }
-            config_args.update(generation_configs)
-
-            response = genai_client.models.generate_content(
-                model=model_name,
-                contents=[types.Part.from_text(text=prompt)],
-                config=types.GenerateContentConfig(**config_args),
+            img_base64 = generate_image_base64(
+                model_name=model_name,
+                prompt=prompt,
+                aspect_ratio=aspect_ratio,
             )
-            if hasattr(response, "candidates") and response.candidates:
-                if (
-                    len(response.candidates) > 0
-                    and response.candidates[0].content
-                    and response.candidates[0].content.parts
-                ):
-                    for part in response.candidates[0].content.parts:
-                        if part.inline_data:
-                            img_base64 = base64.b64encode(part.inline_data.data).decode(
-                                "utf-8"
-                            )
-
-                            if save_path:
-                                try:
-                                    os.makedirs(
-                                        os.path.dirname(save_path), exist_ok=True
-                                    )
-                                    with open(save_path, "wb") as fh:
-                                        fh.write(base64.b64decode(img_base64))
-                                    print(
-                                        f"Image for prompt '{prompt}' saved to {save_path}"
-                                    )
-                                except Exception as e:
-                                    print(
-                                        f"Warning: Failed to save image to {save_path}: {e}"
-                                    )
-
-                            return img_base64
+            if save_path:
+                try:
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    with open(save_path, "wb") as fh:
+                        fh.write(base64.b64decode(img_base64))
+                    print(f"Image for prompt '{prompt}' saved to {save_path}")
+                except Exception as e:
+                    print(f"Warning: Failed to save image to {save_path}: {e}")
+            return img_base64
         except Exception as e:
             print(f"Warning: Gemini API image generation failed {e}.")
             if attempt + 1 == max_retries:

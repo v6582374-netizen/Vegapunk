@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0113
 ---
 
 # Render the Selected Candidate Experiment as experimental_log.md

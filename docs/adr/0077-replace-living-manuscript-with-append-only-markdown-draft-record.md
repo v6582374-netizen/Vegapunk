@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Replace Living Manuscript with an Append-Only Markdown Draft Record

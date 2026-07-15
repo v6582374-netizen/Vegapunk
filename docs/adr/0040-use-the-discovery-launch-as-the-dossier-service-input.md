@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0110
 ---
 
 # Use the Discovery Launch as the PaperOrchestra Input

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0103
 ---
 
 # Use the InternAgent Model Interface for PaperOrchestra

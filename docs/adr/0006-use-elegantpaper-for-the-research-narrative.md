@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0101
 ---
 
 # Use ElegantPaper for the Paper

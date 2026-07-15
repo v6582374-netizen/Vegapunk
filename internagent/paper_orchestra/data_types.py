@@ -2,21 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
-
-
-@dataclass(frozen=True)
-class RefinementResult:
-    tex_path: Path
-    pdf_path: Path
-    review: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class PipelineResult:
-    final_tex: Path
-    final_pdf: Path
-    warnings: tuple[str, ...]
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ InternAgent coordinates LLM-backed agents for research, discovery, memory, and e
 ## Language
 
 **Discovery Launch**:
-A bounded research effort that may contain multiple Discovery Rounds and Candidate Experiments. It owns one Research Draft and may produce successive Papers through distinct PaperOrchestra Runs when the Launch is later extended.
+A bounded research effort that may contain multiple Discovery Rounds and Candidate Experiments. It may automatically produce at most one Paper after its configured Discovery work is complete; research intended to produce another Paper begins as a new Launch.
 _Avoid_: session, round, candidate experiment
 
 **Discovery Round**:
@@ -29,7 +29,7 @@ The single post-discovery decision that reduces the Paper Candidate Round to one
 _Avoid_: round-to-round baseline selection, continuous reranking, writing-stage selection
 
 **Selected Research Candidate**:
-The Candidate Experiment chosen from the Paper Candidate Round when Discovery can make a terminal selection. Its artifacts provide preferred scientific context to PaperOrchestra, but its absence does not block Draft Handoff or paper construction.
+The sole Candidate Experiment whose candidate-local Native Discovery Artifacts enter the Paper Input Bundle when Terminal Candidate Selection succeeds; all of its Experiment Runs remain in scope, while sibling candidates are excluded. Its absence does not block Paper Handoff or paper construction.
 _Avoid_: latest candidate, last successful result, all candidates
 
 **Candidate Selection Provenance**:
@@ -37,36 +37,36 @@ The auditable record of how the Paper Candidate Round and Selected Research Cand
 _Avoid_: hidden ranking, unexplained best result, selection guess
 
 **Paper**:
-The publication-oriented LaTeX/PDF product constructed by one PaperOrchestra Run from a Discovery Launch's Research Draft and authoritative artifacts, optionally informed by a Selected Research Candidate. Its sources and figures remain in that run's workspace alongside the final PDF.
-_Avoid_: Research Draft, launch summary, raw artifact dump
+The publication-oriented LaTeX/PDF product constructed by one PaperOrchestra Run from a Discovery Launch's Native Discovery Artifacts, optionally centered on a Selected Research Candidate. Its sources and figures remain in that run's workspace alongside the final PDF.
+_Avoid_: research draft, launch summary, raw artifact dump
 
-**Research Draft**:
-The mandatory launch-local Markdown record at `manuscript/draft.md` that begins with the Launch's complete initial research inputs and then appends exhaustive, self-contained blocks from the Discovery process. Capture starts as soon as the Launch exists, before any Agent, model, tool, or experiment work. It has no independent checkpoint or resume state; resumed core work simply appends more blocks, and replay may create duplicates. Draft capture stops when the currently configured Discovery work reaches Draft Handoff. If that Launch is later explicitly extended and resumed, capture resumes by appending to the same Draft; PaperOrchestra activity never appends back into it.
-_Avoid_: Living Manuscript, Paper, activity log
+**Native Discovery Artifact**:
+A persisted scientific or execution artifact that the normal Discovery workflow produces independently of paper generation, such as a task prompt, candidate method, experiment report, metric record, code file, log, citation record, or figure. Paper-specific capture, model-generated material curation, and PaperOrchestra outputs are not Native Discovery Artifacts.
+_Avoid_: Research Draft, Paper Input Bundle, transient model context
 
-**Draft Block**:
-One append-only Markdown unit representing one Observable Research Event, such as a model call, tool call, tool result, error, or completed stage output. Blocks contain no semantic metadata or editorial envelope; a fixed non-rendered delimiter separates adjacent raw event content. Every mathematical expression is preserved verbatim, including notation, delimiters, definitions, assumptions, and derivation steps, without semantic filtering or editorial restructuring.
-_Avoid_: summary, chapter, manuscript section, filtered log entry
+**Paper Input Bundle**:
+The deterministic, paper-run-local projection of Native Discovery Artifacts into the input shape required by PaperOrchestra. It adds no model-authored scientific content and does not replace its source artifacts.
+_Avoid_: Research Draft, new research result, model summary, source of truth
 
-**Observable Research Event**:
-A meaningful event exposed by the current research runtime, including Agent lifecycle, model traffic, tool traffic, subprocess execution, Discovery stage or round transitions, explicitly reported artifact creation or updates, and text actually emitted through the Discovery process's Python logging, standard-output, or standard-error channels. Capture does not scan directories before and after opaque work or duplicate changed artifact contents into the Draft; those files remain authoritative under the Launch root supplied to PaperOrchestra. An opaque backend's unexposed internal events are outside this boundary: for the initial Claude Code integration, capture sees the invocation, prompt, process result, errors, and final JSON response but does not change the existing invocation to expose its internal event stream. Operating-system syscalls, lock contention, and scheduler activity are not Observable Research Events.
-_Avoid_: syscall trace, debug noise, inferred event, semantic summary
+**Paper Idea Brief**:
+The method-focused component of a Paper Input Bundle that combines a Discovery Launch's task context with its Selected Research Candidate's method record. It excludes experimental outcomes and competing candidates.
+_Avoid_: Experimental Record, Research Draft, complete idea pool
 
-**Observable Model Context**:
-The prompts, instructions, visible responses, structured outputs, tool calls, tool results, and visible stream fragments exposed by a model runtime. It excludes hidden model reasoning and makes no claim to capture it.
-_Avoid_: chain of thought, hidden reasoning, inferred intention
+**Experimental Record**:
+The results-focused component of a Paper Input Bundle that presents the baseline and every Experiment Run of one Selected Research Candidate in chronological order, including exact measurements and recorded failures. It does not select a best run, calculate new results, or include sibling candidates.
+_Avoid_: best-run summary, ablation table, complete Discovery Launch log
+
+**Initial Paper Baseline**:
+The control configuration used to evaluate the source-faithful PaperOrchestra port with existing non-code Native Discovery Artifacts only. It excludes Research Drafts, model-authored preprocessing, source code, code summaries, and code differences without deciding whether those inputs may be added later.
+_Avoid_: permanent no-code policy, final paper pipeline, Research Draft baseline
 
 **Workflow Progress**:
-The persisted collection of Research Draft blocks, research artifacts, PaperOrchestra outputs, and core checkpoints that describes how far a Launch has advanced. It is not a global success/failure verdict; resumption follows the core workflow checkpoints, while Draft capture remains an append-only side effect.
+The persisted collection of Native Discovery Artifacts, PaperOrchestra outputs, and core checkpoints that describes how far a Launch has advanced. It is not a global success/failure verdict; resumption follows the core workflow checkpoints.
 _Avoid_: final status, binary launch result, all-or-nothing outcome
 
-**Draft Handoff**:
-The one-way transition after all currently configured Discovery work reaches a terminal outcome. It appends the final event, stops Draft capture, and supplies PaperOrchestra with the absolute Research Draft path, Launch root, and optional candidate-selection path without a Discovery-side raw-material conversion layer. Explicitly extending and resuming a previously handed-off Launch may produce a later handoff from the expanded Draft; it does not alter the earlier PaperOrchestra Run.
-_Avoid_: live shared input, bidirectional synchronization, writing-event capture
-
-**Agent Task Completion**:
-The boundary at which an Agent reaches the final success or final failure of one bounded assigned task and returns its coherent result or exhausted-failure context to its caller, regardless of whether that outcome proves useful to the launch's draft record. It is finer-grained than a Discovery stage but does not include model calls, tool operations, intermediate errors, retries, or partial outputs inside an unfinished Agent task.
-_Avoid_: Research-Significant Action, success-only completion, intermediate retry
+**Paper Handoff**:
+The one-time transition after all configured Discovery work reaches a terminal outcome. It freezes the Paper Input Bundle assembled from available Native Discovery Artifacts and starts the Launch's PaperOrchestra Run; a Discovery Launch has at most one Paper Handoff.
+_Avoid_: Draft Handoff, live shared input, bidirectional synchronization
 
 **Adaptive Argument Structure**:
 The top-level organization of a Paper chosen and revised to fit its contribution type, evidence, and scientific argument. It allocates Argument Responsibilities without imposing shared section names or a shared section order across papers.
@@ -84,22 +84,32 @@ _Avoid_: project completeness, information volume, maximal brevity
 A manuscript form chosen to carry the support or reasoning for a scientific claim, such as a figure, table, equation, algorithm, or prose. Its value comes from its argumentative function and traceability to authoritative research evidence rather than its presence or count.
 _Avoid_: decoration, image slot, figure quota
 
-**Presentation Transformation**:
-A deterministic rendering of already recorded evidence into an Evidence Carrier that preserves its scientific meaning and creates no new measurement, metric, aggregation, statistical inference, or selection judgment.
-_Avoid_: new analysis, experiment, data repair
-
 **Plotting Agent**:
-The PaperOrchestra role that plans, generates, critiques, and corrects the full range of paper figures, including evidence-backed statistical plots and explanatory method diagrams. It consumes the Research Draft and authoritative artifacts but is not part of Discovery capture and does not perform literature research. Textual planning and visual criticism use InternAgent's primary Model Runtime, while raster image generation may use the separately configured Image Generation Provider.
-_Avoid_: figure copier, Draft capture hook, Manuscript Sculptor
+The PaperOrchestra role that autonomously plans, generates, captions, critiques, and revises publication figures from the Paper Input Bundle as part of a PaperOrchestra Run.
+_Avoid_: Discovery Agent, experiment backend, figure copier
 
-**Image Generation Provider**:
-The separately configured external model service used only when the Plotting Agent must synthesize raster visuals such as method or architecture diagrams. Its credentials are runtime secrets and are not part of the Research Draft, repository configuration, or primary text-model credential path.
-_Avoid_: primary Model Runtime, plotting agent, vision reviewer, committed API key
+**Relay Provider**:
+The single third-party OpenAI-compatible model service through which every PaperOrchestra model call is routed. It owns one base URL and credential boundary while exposing multiple capability-specific model IDs and endpoints.
+_Avoid_: one model, separate image provider, upstream Gemini provider
+
+**Image Generation Model**:
+The capability-specific model exposed by the Relay Provider for synthesizing raster visuals such as method or architecture diagrams. It is distinct from the primary text model but does not introduce a second provider or credential boundary.
+_Avoid_: Image Generation Provider, primary text model, plotting agent, vision reviewer
 
 **Paper Template**:
 A selectable presentation form for a Paper that controls document class, typography, page design, and localized presentation without prescribing its top-level scientific structure.
 _Avoid_: Paper, argument structure, paper schema
 
 **PaperOrchestra Run**:
-One automatically triggered, independently resumable execution of PaperOrchestra for a particular Draft Handoff that constructs a Paper and its figures. It may read the Research Draft in delimiter-aligned batches and persist disposable working material so model context limits do not require truncating the canonical Draft. Re-entry for that same handoff resumes the same run, while a later handoff after additional Discovery creates a new run and preserves every earlier run unchanged. Its checkpoints contribute to Workflow Progress and never rewrite the Research Draft.
-_Avoid_: discovery round, experiment run, report generation
+The single automatically triggered Paper-generation execution owned by a Discovery Launch after Paper Handoff. It constructs that Launch's one Paper and figures; provider retries and upstream in-process retries remain part of the same Run, but the Run has no durable host-restart or stage-resume contract. Re-entry after success returns the existing Paper, while a new Paper requires a new Discovery Launch.
+_Avoid_: paper version, retry attempt, independently resumable job
+
+## Discovery Operations
+
+**Discovery LLM Concurrency Limit**:
+The fixed number of Discovery model tasks allowed to run simultaneously in the current process. It is set to 2 for the current one-account relay test and must be changed manually before a later run; the process does not negotiate or adapt it at runtime.
+_Avoid_: account capacity, retry budget, search concurrency
+
+**Output Token Ceiling**:
+An optional upper bound on the total tokens generated for one model response, including reasoning and visible output. When no ceiling is requested, the Responses request leaves the field out and the provider applies its own finite model/context limits.
+_Avoid_: visible output length, context window, retry budget

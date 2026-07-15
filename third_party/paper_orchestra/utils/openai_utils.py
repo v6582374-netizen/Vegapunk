@@ -17,21 +17,9 @@ import re
 import json
 import time
 import os
-import sys
-import cv2  # type: ignore
 import base64
 
-from openai import OpenAI  # type: ignore
-from dotenv import load_dotenv  # type: ignore
-
-dot_file = os.path.join(os.path.dirname(__file__), "../.env")
-load_dotenv(dot_file)
-
-openai_api_key = os.environ.get("OPENAI_API_KEY")
-if not openai_api_key:
-    raise ValueError("OPENAI_API_KEY must be set.")
-
-openai_client = OpenAI(api_key=openai_api_key)
+from utils.internagent_adapter import call_responses_with_contents
 
 
 def parse_openai_json_results(response: str):
@@ -109,19 +97,12 @@ def call_openai_models_with_content(
 
     for attempt in range(max_retries):
         try:
-            messages = []
-            if system_prompt:
-                role = "developer" if model_name.startswith(("o1", "o3")) else "system"
-                messages.append({"role": role, "content": system_prompt})
-
-            messages.append({"role": "user", "content": content})
-
-            response = openai_client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                **generation_configs,
+            raw_response = call_responses_with_contents(
+                contents=content,
+                model_name=model_name,
+                generation_configs=generation_configs,
+                system_prompt=system_prompt,
             )
-            raw_response = response.choices[0].message.content
             parsed_response = result_parsing_func(raw_response)
 
             if check_parsed_response_not_none:

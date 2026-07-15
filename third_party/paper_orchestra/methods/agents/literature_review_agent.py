@@ -20,7 +20,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Dict
 from pydantic import BaseModel
-from google.genai import types  # type: ignore
+from utils import genai_types as types
 
 from methods.prompts.literature_review_agent import (
     literature_review_agent_writter_prompt,

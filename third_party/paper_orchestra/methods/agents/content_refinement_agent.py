@@ -16,7 +16,7 @@ import os
 import traceback
 import json
 import shutil
-from google.genai import types  # type: ignore
+from utils import genai_types as types
 
 from utils.pdf_utils import compile_latex, load_paper, pdf_to_grid_images
 from utils.gemini_utils import (

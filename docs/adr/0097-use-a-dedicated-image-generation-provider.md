@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0102
 ---
 
 # Use a Dedicated Image Generation Provider

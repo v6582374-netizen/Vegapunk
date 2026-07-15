@@ -20,7 +20,7 @@ import json
 import matplotlib.pyplot as plt
 import json_repair
 from typing import Dict, Any, List, Tuple
-from google.genai import types
+from utils import genai_types as types
 
 from utils.gemini_utils import (
     genai_client,

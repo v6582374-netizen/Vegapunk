@@ -15,7 +15,7 @@
 from utils.common_utils import load_md_file
 from utils.gemini_utils import call_gemini_with_contents
 import json
-from google.genai import types  # type: ignore
+from utils import genai_types as types
 
 from methods.prompts.outline_agent import outline_agent_system_prompt
 

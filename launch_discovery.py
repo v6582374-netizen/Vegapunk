@@ -15,13 +15,6 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Import MAS components
-from internagent.research_draft import (
-    ResearchDraft,
-    record_research_event,
-    start_research_draft_capture,
-    stop_research_draft_capture,
-)
 from typing import List, Dict, Any, Optional
 
 # Long memory imports (optional - only if long_memory is available)
@@ -366,7 +359,7 @@ def _run_paper_orchestra(
     )
     if result.error is not None:
         logger.error(
-            "PaperOrchestra paused at %s: %s",
+            "PaperOrchestra failed at %s: %s",
             result.error.stage,
             result.error.message,
         )
@@ -384,15 +377,9 @@ def _handoff_to_paper_orchestra(
     config: Dict[str, Any],
     repository_root: Path,
     logger: logging.Logger,
-    research_draft: ResearchDraft,
-    completed_rounds: int,
 ) -> None:
-    """Close Discovery capture, then continue into PaperOrchestra."""
+    """Continue a completed Discovery Launch into PaperOrchestra."""
 
-    record_research_event(
-        f"Draft Handoff after {completed_rounds} completed Discovery rounds."
-    )
-    stop_research_draft_capture(research_draft)
     _run_paper_orchestra(
         launch_dir=launch_dir,
         config=config,
@@ -787,10 +774,10 @@ def _main():
 
     repo_root = Path(__file__).resolve().parent
 
-    # A completed Discovery Launch may still have an unfinished PaperOrchestra
-    # Run. Do not reopen Draft capture when there is no Discovery work to record.
+    # If Discovery already reached its configured terminal round, proceed
+    # directly to the Launch's single Paper Handoff.
     if start_round > loop_rounds:
-        logger.info("Discovery rounds are complete; continuing PaperOrchestra.")
+        logger.info("Discovery rounds are complete; entering Paper Handoff.")
         _run_paper_orchestra(
             launch_dir=Path(args.output_dir),
             config=config,
@@ -802,13 +789,6 @@ def _main():
     # Keep completed-launch PaperOrchestra resume independent from optional
     # Discovery-only dependencies such as the experiment toolchain.
     from internagent.stage import IdeaGenerator, ExperimentRunner
-
-    research_draft = ResearchDraft.open(Path(args.output_dir))
-    start_research_draft_capture(research_draft)
-    record_research_event(Path(args.prompt_path).read_text(encoding="utf-8"))
-    record_research_event(config)
-    record_research_event(vars(args))
-    logger.info(f"Research Draft: {research_draft.path}")
 
     logger.info("=" * 80)
     logger.info("InternAgent Pipeline Started" + (" (RESUMED)" if args.resume else ""))
@@ -1176,8 +1156,6 @@ def _main():
         config=config,
         repository_root=repo_root,
         logger=logger,
-        research_draft=research_draft,
-        completed_rounds=len(all_round_results),
     )
 
     logger.info("=" * 80)
@@ -1185,12 +1163,9 @@ def _main():
 
 
 def main():
-    """Run one launch and always release process-level Draft capture."""
+    """Run one Discovery Launch."""
 
-    try:
-        return _main()
-    finally:
-        stop_research_draft_capture()
+    return _main()
 
 
 # ============================================================================

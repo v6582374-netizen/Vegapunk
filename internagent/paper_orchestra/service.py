@@ -3,44 +3,27 @@ from __future__ import annotations
 import json
 import os
 import re
-from contextlib import contextmanager, nullcontext
+import subprocess
+import sys
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+
+import yaml
 
 from .candidate_selection import select_candidate
-from .checkpoint import PaperOrchestraCheckpoint
-from .config import load_paper_config
+from .config import PaperOrchestraConfig, load_paper_config
 from .data_types import (
     PaperOrchestraError,
     PaperOrchestraRunResult,
     PaperOrchestraStageError,
 )
-from .evidence import prepare_launch_evidence
-from .image_generation import EnvironmentImageGenerator
-from .material_ingestion import ingest_research_draft
-from .pipeline import (
-    FINAL_PDF_RELATIVE_PATH,
-    FINAL_TEX_RELATIVE_PATH,
-    run_writing_pipeline,
-)
-from .utils.pdf_utils import is_openable_pdf
+from .utils.path_utils import resolve_launch_directory
 
 
-PAPER_ORCHESTRA_STAGE_IDS = (
-    "validate_launch",
-    "optional_candidate_selection",
-    "ingest_research_draft",
-    "prepare_launch_evidence",
-    "prepare_latex_workspace",
-    "generate_outline",
-    "generate_figures",
-    "write_introduction_and_related_work",
-    "write_remaining_sections",
-    "compile_initial_draft",
-    "refine_content",
-    "review_layout_and_optionally_correct",
-    "compile_final",
-    "validate_final_outputs",
+PAPER_ORCHESTRA_RUN_ID = "paper"
+FINAL_PDF_RELATIVE_PATH = Path("final_paper.pdf")
+FINAL_TEX_RELATIVE_PATH = Path(
+    "content_refinement_workdir/final_refined_paper.tex"
 )
 
 
@@ -49,203 +32,93 @@ async def run_paper_orchestra(
     launch_dir: Path,
     internagent_config: dict[str, Any],
     paper_config_path: Path,
-    paper_orchestra_run_id: str | None = None,
 ) -> PaperOrchestraRunResult:
-    """Start or resume the PaperOrchestra Run for the current Draft Handoff."""
+    """Generate the Discovery Launch's single Paper with vendored upstream code."""
 
     launch_dir = launch_dir.resolve()
+    run_dir = launch_dir / "paper_orchestra_runs" / PAPER_ORCHESTRA_RUN_ID
     try:
-        summary = _validate_launch(launch_dir)
-        run_id = paper_orchestra_run_id or _automatic_run_id(summary)
-        _validate_run_id(run_id)
+        _validate_launch(launch_dir)
         paper_config = load_paper_config(paper_config_path)
     except PaperOrchestraStageError as error:
-        run_id = paper_orchestra_run_id or "unresolved"
-        return _error_result(
-            run_id,
-            launch_dir / "paper_orchestra_runs" / run_id,
-            error.error,
-        )
+        return _error_result(run_dir, error.error)
 
-    run_dir = launch_dir / "paper_orchestra_runs" / run_id
-    existing = _existing_result(run_dir, run_id)
+    existing = _existing_result(run_dir)
     if existing is not None:
         return existing
 
+    run_dir.mkdir(parents=True, exist_ok=True)
+    selection = await _optional_candidate_selection(
+        launch_dir=launch_dir,
+        run_dir=run_dir,
+        internagent_config=internagent_config,
+    )
+
     try:
-        with _writer_lock(run_dir):
-            checkpoint = PaperOrchestraCheckpoint.open(
-                run_dir=run_dir,
-                paper_orchestra_run_id=run_id,
-                launch_id=launch_dir.name,
-                resolved_config=paper_config.to_dict(),
-                model_identity=_model_identity(internagent_config),
-                stage_ids=PAPER_ORCHESTRA_STAGE_IDS,
-            )
-
-            async def validate_launch_stage() -> None:
-                _validate_launch(launch_dir)
-
-            await checkpoint.run_stage("validate_launch", validate_launch_stage)
-
-            model: Any | None = None
-
-            def get_model() -> Any:
-                nonlocal model
-                if model is None:
-                    from internagent.mas.models.model_factory import ModelFactory
-
-                    model = ModelFactory.create_model_for_agent(
-                        "paper_orchestra",
-                        {
-                            "model_provider": "openai",
-                            "temperature": 0,
-                            "_global_config": internagent_config,
-                        },
-                    )
-                return model
-
-            selection_holder: dict[str, Any] = {}
-
-            async def choose_candidate_when_available() -> None:
-                try:
-                    selection_holder.update(
-                        await _select_candidate_with_model_fallback(
-                            launch_dir=launch_dir,
-                            run_dir=run_dir,
-                            get_model=get_model,
-                        )
-                    )
-                except Exception:
-                    # Terminal Candidate Selection is useful context, not a
-                    # prerequisite for constructing a paper from the Draft.
-                    # Keep cancellation signals (BaseException subclasses)
-                    # intact while treating every ordinary selection failure
-                    # as an unavailable optional input.
-                    return
-
-            selection_path = run_dir / "candidate_selection.json"
-            await checkpoint.run_stage(
-                "optional_candidate_selection", choose_candidate_when_available
-            )
-            selection = (
-                _read_json_object(selection_path)
-                if selection_path.is_file()
-                else selection_holder or None
-            )
-
-            shared_model = get_model()
-            bind_checkpoint = getattr(shared_model, "bind_response_checkpoint", None)
-            checkpoint_context = (
-                bind_checkpoint(checkpoint)
-                if callable(bind_checkpoint)
-                else nullcontext()
-            )
-            with checkpoint_context:
-                materials_path = run_dir / "working_materials" / "paper_materials.md"
-
-                async def ingest() -> None:
-                    await ingest_research_draft(
-                        draft_path=launch_dir / "manuscript" / "draft.md",
-                        launch_dir=launch_dir,
-                        output_dir=run_dir / "working_materials",
-                        model=shared_model,
-                        max_batch_chars=paper_config.draft_batch_max_chars,
-                    )
-
-                await checkpoint.run_stage(
-                    "ingest_research_draft",
-                    ingest,
-                    outputs=("working_materials/paper_materials.md",),
-                )
-
-                evidence_dir = run_dir / "evidence"
-
-                async def prepare_evidence() -> None:
-                    prepare_launch_evidence(
-                        launch_dir=launch_dir, output_dir=evidence_dir
-                    )
-
-                await checkpoint.run_stage(
-                    "prepare_launch_evidence",
-                    prepare_evidence,
-                    outputs=(
-                        "evidence/references.bib",
-                        "evidence/citation_map.json",
-                        "evidence/figures/info.json",
-                    ),
-                )
-
-                image_generator = EnvironmentImageGenerator(
-                    config=paper_config.image_generation
-                )
-                pipeline_result = await run_writing_pipeline(
-                    run_dir=run_dir,
-                    materials_path=materials_path,
-                    evidence_dir=evidence_dir,
-                    template_dir=paper_config.template_dir,
-                    candidate_selection=selection,
-                    paper_date=str(checkpoint.manifest["created_at"])[:10],
-                    model=shared_model,
-                    image_generator=image_generator,
-                    plotting_max_critic_rounds=paper_config.plotting_max_critic_rounds,
-                    max_content_refinement_iterations=(
-                        paper_config.max_content_refinement_iterations
-                    ),
-                    max_format_correction_iterations=(
-                        paper_config.max_format_correction_iterations
-                    ),
-                    layout_review_enabled=paper_config.layout_review_enabled,
-                    checkpoint=checkpoint,
-                )
-            checkpoint.complete(
-                final_pdf=FINAL_PDF_RELATIVE_PATH.as_posix(),
-                final_tex=FINAL_TEX_RELATIVE_PATH.as_posix(),
-                warnings=pipeline_result.warnings,
-            )
-            return PaperOrchestraRunResult(
-                paper_orchestra_run_id=run_id,
-                run_dir=run_dir,
-                final_pdf=pipeline_result.final_pdf,
-                final_tex=pipeline_result.final_tex,
-                warnings=pipeline_result.warnings,
-                error=None,
-            )
+        candidate_dir = _selected_candidate_directory(launch_dir, selection)
+        _prepare_raw_materials(
+            launch_dir=launch_dir,
+            candidate_dir=candidate_dir,
+            raw_materials_dir=run_dir / "raw_materials",
+        )
+        provider_config = _resolve_provider_config(internagent_config)
+        runtime_config_path = _write_runtime_config(
+            run_dir=run_dir,
+            provider_config=provider_config,
+            paper_config=paper_config,
+        )
+        completed = _run_vendored_cli(
+            run_dir=run_dir,
+            paper_config=paper_config,
+            provider_config=provider_config,
+            runtime_config_path=runtime_config_path,
+        )
     except PaperOrchestraStageError as error:
-        return _error_result(run_id, run_dir, error.error)
+        return _error_result(run_dir, error.error)
     except Exception as error:
         return _error_result(
-            run_id,
             run_dir,
             PaperOrchestraError(
-                stage="paper_orchestra_service",
+                stage="paper_orchestra_adapter",
                 code="unexpected_paper_orchestra_error",
                 message=str(error),
             ),
         )
 
-
-async def _select_candidate_with_model_fallback(
-    *, launch_dir: Path, run_dir: Path, get_model: Any
-) -> dict[str, Any]:
-    try:
-        return await select_candidate(
-            launch_dir=launch_dir, run_dir=run_dir, model=None
+    stderr_path = run_dir / "stderr.log"
+    if completed.returncode != 0:
+        return _error_result(
+            run_dir,
+            PaperOrchestraError(
+                stage="vendored_paper_orchestra",
+                code="upstream_process_failed",
+                message=(
+                    f"vendored PaperOrchestra exited with code "
+                    f"{completed.returncode}: {_log_tail(stderr_path)}"
+                ),
+                log_path=str(stderr_path),
+            ),
         )
-    except PaperOrchestraStageError as error:
-        if error.code != "criterion_inference_requires_model":
-            raise
-    return await select_candidate(
-        launch_dir=launch_dir, run_dir=run_dir, model=get_model()
-    )
+    if not _final_outputs_are_valid(run_dir):
+        return _error_result(
+            run_dir,
+            PaperOrchestraError(
+                stage="vendored_paper_orchestra",
+                code="missing_final_outputs",
+                message=(
+                    "vendored PaperOrchestra exited without a complete final "
+                    f"TeX/PDF pair: {_log_tail(stderr_path)}"
+                ),
+                log_path=str(stderr_path),
+            ),
+        )
+    return _successful_result(run_dir)
 
 
 def _validate_launch(launch_dir: Path) -> dict[str, Any]:
     if not launch_dir.is_dir():
         _input_error(f"Discovery Launch directory does not exist: {launch_dir}")
-    draft_path = launch_dir / "manuscript" / "draft.md"
-    if not draft_path.is_file():
-        _input_error(f"Research Draft does not exist: {draft_path}")
+    _read_json_object(launch_dir / "prompt.json")
     summary = _read_json_object(launch_dir / "discovery_summary.json")
     rounds = summary.get("rounds")
     if not isinstance(rounds, list) or not rounds:
@@ -253,109 +126,337 @@ def _validate_launch(launch_dir: Path) -> dict[str, Any]:
     return summary
 
 
-def _automatic_run_id(summary: dict[str, Any]) -> str:
-    rounds = summary.get("rounds", [])
-    completed = [
-        item.get("round")
-        for item in rounds
-        if isinstance(item, dict)
-        and isinstance(item.get("round"), int)
-        and not isinstance(item.get("round"), bool)
-    ]
-    if not completed:
-        _input_error("Discovery Launch contains no completed round number")
-    return f"round_{max(completed):04d}"
+async def _optional_candidate_selection(
+    *,
+    launch_dir: Path,
+    run_dir: Path,
+    internagent_config: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        return await select_candidate(launch_dir=launch_dir, run_dir=run_dir)
+    except PaperOrchestraStageError as error:
+        if error.code != "criterion_inference_requires_model":
+            return None
+    except Exception:
+        return None
 
+    try:
+        from internagent.mas.models.model_factory import ModelFactory
 
-def _validate_run_id(run_id: str) -> None:
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", run_id):
-        raise PaperOrchestraStageError(
-            stage="validate_launch",
-            code="invalid_paper_orchestra_run_id",
-            message="PaperOrchestra Run ID contains unsafe path characters",
+        model = ModelFactory.create_model_for_agent(
+            "paper_orchestra_candidate_selection",
+            {
+                "model_provider": "openai",
+                "temperature": 0,
+                "_global_config": internagent_config,
+            },
         )
+        return await select_candidate(
+            launch_dir=launch_dir,
+            run_dir=run_dir,
+            model=model,
+        )
+    except Exception:
+        return None
 
 
-def _existing_result(
-    run_dir: Path, run_id: str
-) -> PaperOrchestraRunResult | None:
-    manifest_path = run_dir / "paper_orchestra_run.json"
-    if not manifest_path.is_file():
+def _selected_candidate_directory(
+    launch_dir: Path, selection: dict[str, Any] | None
+) -> Path | None:
+    if not selection:
         return None
-    manifest = _read_json_object(manifest_path)
-    if not PaperOrchestraCheckpoint.recorded_outputs_are_valid(
-        run_dir=run_dir, manifest=manifest
-    ):
+    selected = selection.get("selected_candidate")
+    if not isinstance(selected, dict):
         return None
-    if not PaperOrchestraCheckpoint.final_outputs_match(
-        run_dir=run_dir, manifest=manifest
-    ):
+    folder_name = selected.get("folder_name")
+    if not isinstance(folder_name, str) or not folder_name:
         return None
-    final_pdf = run_dir / FINAL_PDF_RELATIVE_PATH
-    final_tex = run_dir / FINAL_TEX_RELATIVE_PATH
-    if not _final_outputs_are_valid(run_dir):
+    try:
+        candidate_dir = resolve_launch_directory(launch_dir, folder_name)
+    except (OSError, ValueError):
         return None
+    return candidate_dir if candidate_dir.is_dir() else None
+
+
+def _prepare_raw_materials(
+    *, launch_dir: Path, candidate_dir: Path | None, raw_materials_dir: Path
+) -> None:
+    raw_materials_dir.mkdir(parents=True, exist_ok=True)
+    prompt_path = launch_dir / "prompt.json"
+    idea_parts = [
+        "# Paper Idea Brief",
+        "",
+        _render_source(
+            title="Launch Prompt",
+            source=prompt_path.relative_to(launch_dir),
+            content=prompt_path.read_text(encoding="utf-8"),
+            language="json",
+        ),
+    ]
+    if candidate_dir is not None:
+        notes_path = candidate_dir / "notes.txt"
+        if notes_path.is_file():
+            idea_parts.append(
+                _render_source(
+                    title="Selected Research Candidate Notes",
+                    source=notes_path.relative_to(launch_dir),
+                    content=notes_path.read_text(encoding="utf-8"),
+                )
+            )
+    (raw_materials_dir / "idea_sparse.md").write_text(
+        "\n".join(idea_parts).rstrip() + "\n",
+        encoding="utf-8",
+    )
+
+    experiment_parts = ["# Experimental Record", ""]
+    if candidate_dir is not None:
+        narrative_path = candidate_dir / "experiment_report.txt"
+        if not narrative_path.is_file():
+            narrative_path = candidate_dir / "log.txt"
+        if narrative_path.is_file():
+            experiment_parts.append(
+                _render_source(
+                    title="Candidate Experiment Narrative",
+                    source=narrative_path.relative_to(launch_dir),
+                    content=narrative_path.read_text(encoding="utf-8"),
+                )
+            )
+
+        for run_path in _numbered_run_directories(candidate_dir):
+            run_parts: list[str] = []
+            for relative_path, language in (
+                (Path("final_info.json"), "json"),
+                (Path("report/report.md"), None),
+                (Path("traceback.log"), "text"),
+            ):
+                source_path = run_path / relative_path
+                if source_path.is_file():
+                    run_parts.append(
+                        _render_source(
+                            title=relative_path.as_posix(),
+                            source=source_path.relative_to(launch_dir),
+                            content=source_path.read_text(
+                                encoding="utf-8", errors="replace"
+                            ),
+                            language=language,
+                            heading_level=3,
+                        )
+                    )
+            if run_parts:
+                experiment_parts.extend([f"## {run_path.name}", "", *run_parts])
+
+    (raw_materials_dir / "experimental_log.md").write_text(
+        "\n".join(experiment_parts).rstrip() + "\n",
+        encoding="utf-8",
+    )
+
+
+def _render_source(
+    *,
+    title: str,
+    source: Path,
+    content: str,
+    language: str | None = None,
+    heading_level: int = 2,
+) -> str:
+    parts = [f"{'#' * heading_level} {title}", "", f"Source: `{source.as_posix()}`", ""]
+    if language:
+        parts.extend([f"```{language}", content.rstrip(), "```", ""])
+    else:
+        parts.extend([content.rstrip(), ""])
+    return "\n".join(parts).rstrip()
+
+
+def _numbered_run_directories(candidate_dir: Path) -> list[Path]:
+    numbered: list[tuple[int, Path]] = []
+    for path in candidate_dir.iterdir():
+        match = re.fullmatch(r"run_(\d+)", path.name)
+        if path.is_dir() and match:
+            numbered.append((int(match.group(1)), path))
+    return [path for _, path in sorted(numbered)]
+
+
+def _resolve_provider_config(
+    internagent_config: dict[str, Any],
+) -> dict[str, Any]:
+    models = internagent_config.get("models", {})
+    provider = models.get("openai") if isinstance(models, dict) else None
+    if not isinstance(provider, dict) or not provider.get("base_url"):
+        default_path = Path(__file__).resolve().parents[2] / "config/default_config.yaml"
+        try:
+            default_data = yaml.safe_load(default_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as error:
+            _configuration_error(f"cannot load default OpenAI provider: {error}")
+        default_models = (
+            default_data.get("models", {}) if isinstance(default_data, dict) else {}
+        )
+        provider = (
+            default_models.get("openai")
+            if isinstance(default_models, dict)
+            else None
+        )
+    if not isinstance(provider, dict) or not provider.get("base_url"):
+        _configuration_error("models.openai.base_url is required")
+    resolved = dict(provider)
+    resolved["provider"] = "openai"
+    resolved["api_mode"] = "responses"
+    return resolved
+
+
+def _write_runtime_config(
+    *,
+    run_dir: Path,
+    provider_config: dict[str, Any],
+    paper_config: PaperOrchestraConfig,
+) -> Path:
+    sanitized_provider = {
+        key: value
+        for key, value in provider_config.items()
+        if key not in {"api_key", "temperature"} and value is not None
+    }
+    runtime_config = {
+        "max_concurrent_model_requests": (
+            paper_config.max_concurrent_model_requests
+        ),
+        "provider": sanitized_provider,
+        "models": {
+            "writer": paper_config.writer_model,
+            "reflection": paper_config.reflection_model,
+            "plotting": paper_config.plotting_model,
+            "image": paper_config.image_model,
+        },
+        "model_aliases": {
+            "gemini-3.1-pro-preview": paper_config.writer_model,
+            "gemini-3-flash-preview": paper_config.writer_model,
+            "gemini-3-pro-image-preview": paper_config.image_model,
+        },
+    }
+    path = run_dir / "internagent_runtime.json"
+    path.write_text(
+        json.dumps(runtime_config, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _run_vendored_cli(
+    *,
+    run_dir: Path,
+    paper_config: PaperOrchestraConfig,
+    provider_config: dict[str, Any],
+    runtime_config_path: Path,
+) -> subprocess.CompletedProcess[Any]:
+    command = [
+        sys.executable,
+        str(paper_config.vendor_root / "paper_writing_cli.py"),
+        "--raw_materials_dir",
+        str(run_dir / "raw_materials"),
+        "--output_dir",
+        str(run_dir),
+        "--latex_template_dir",
+        str(paper_config.template_dir),
+        "--idea_filename",
+        "idea_sparse.md",
+        "--experimental_log_filename",
+        "experimental_log.md",
+        "--writer_model_name",
+        paper_config.writer_model,
+        "--reflection_model_name",
+        paper_config.reflection_model,
+        "--use_plotting",
+        "true" if paper_config.use_plotting else "false",
+        "--plotting_model_name",
+        paper_config.plotting_model,
+        "--image_model_name",
+        paper_config.image_model,
+        "--plotting_max_critic_rounds",
+        str(paper_config.plotting_max_critic_rounds),
+    ]
+    if paper_config.research_cutoff:
+        command.extend(["--research_cutoff", paper_config.research_cutoff])
+
+    environment = os.environ.copy()
+    repository_root = Path(__file__).resolve().parents[2]
+    existing_pythonpath = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        item
+        for item in (
+            str(paper_config.vendor_root),
+            str(repository_root),
+            existing_pythonpath,
+        )
+        if item
+    )
+    environment["PAPER_ORCHESTRA_RUNTIME_CONFIG"] = str(runtime_config_path)
+    environment["PYTHONUNBUFFERED"] = "1"
+    environment["MPLBACKEND"] = "Agg"
+    configured_api_key = provider_config.get("api_key")
+    if isinstance(configured_api_key, str) and configured_api_key:
+        environment["OPENAI_API_KEY"] = configured_api_key
+
+    stdout_path = run_dir / "stdout.log"
+    stderr_path = run_dir / "stderr.log"
+    try:
+        with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open(
+            "w", encoding="utf-8"
+        ) as stderr_file:
+            return subprocess.run(
+                command,
+                cwd=run_dir,
+                env=environment,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                check=False,
+            )
+    except OSError as error:
+        raise PaperOrchestraStageError(
+            stage="vendored_paper_orchestra",
+            code="upstream_process_start_failed",
+            message=str(error),
+            log_path=str(stderr_path),
+        ) from error
+
+
+def _existing_result(run_dir: Path) -> PaperOrchestraRunResult | None:
+    return _successful_result(run_dir) if _final_outputs_are_valid(run_dir) else None
+
+
+def _successful_result(run_dir: Path) -> PaperOrchestraRunResult:
     return PaperOrchestraRunResult(
-        paper_orchestra_run_id=run_id,
+        paper_orchestra_run_id=PAPER_ORCHESTRA_RUN_ID,
         run_dir=run_dir,
-        final_pdf=final_pdf,
-        final_tex=final_tex,
-        warnings=tuple(manifest.get("warnings", [])),
+        final_pdf=run_dir / FINAL_PDF_RELATIVE_PATH,
+        final_tex=run_dir / FINAL_TEX_RELATIVE_PATH,
+        warnings=(),
         error=None,
     )
 
 
 def _final_outputs_are_valid(run_dir: Path) -> bool:
-    final_pdf = run_dir / FINAL_PDF_RELATIVE_PATH
-    final_tex = run_dir / FINAL_TEX_RELATIVE_PATH
+    tex_path = run_dir / FINAL_TEX_RELATIVE_PATH
+    pdf_path = run_dir / FINAL_PDF_RELATIVE_PATH
     try:
-        return (
-            final_tex.is_file()
-            and bool(final_tex.read_text(encoding="utf-8").strip())
-            and is_openable_pdf(final_pdf)
+        tex_valid = tex_path.is_file() and bool(
+            tex_path.read_text(encoding="utf-8").strip()
         )
+        pdf = pdf_path.read_bytes()
     except OSError:
         return False
+    return bool(
+        tex_valid
+        and len(pdf) > 8
+        and pdf.startswith(b"%PDF-")
+        and pdf.rstrip().endswith(b"%%EOF")
+    )
 
 
-@contextmanager
-def _writer_lock(run_dir: Path) -> Iterator[None]:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = run_dir / ".writer.lock"
-    if lock_path.exists() and not _lock_owner_is_alive(lock_path):
-        lock_path.unlink(missing_ok=True)
+def _log_tail(path: Path, *, line_count: int = 20) -> str:
     try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as error:
-        raise PaperOrchestraStageError(
-            stage="paper_orchestra_service",
-            code="concurrent_paper_orchestra_writer",
-            message=f"another writer already owns PaperOrchestra Run {run_dir.name}",
-        ) from error
-    try:
-        os.write(descriptor, str(os.getpid()).encode("ascii"))
-        os.close(descriptor)
-        yield
-    finally:
-        lock_path.unlink(missing_ok=True)
-
-
-def _lock_owner_is_alive(lock_path: Path) -> bool:
-    try:
-        pid = int(lock_path.read_text(encoding="ascii").strip())
-        os.kill(pid, 0)
-    except (ValueError, OSError):
-        return False
-    return True
-
-
-def _model_identity(config: dict[str, Any]) -> dict[str, Any]:
-    models = config.get("models", {}) if isinstance(config, dict) else {}
-    models = models if isinstance(models, dict) else {}
-    provider = models.get("default_provider", "openai")
-    provider_config = models.get(provider, {})
-    provider_config = provider_config if isinstance(provider_config, dict) else {}
-    return {"provider": provider, "name": provider_config.get("model_name")}
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "no stderr log available"
+    tail = " | ".join(lines[-line_count:]).strip()
+    return tail or "stderr was empty"
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:
@@ -376,11 +477,19 @@ def _input_error(message: str) -> None:
     )
 
 
+def _configuration_error(message: str) -> None:
+    raise PaperOrchestraStageError(
+        stage="paper_orchestra_adapter",
+        code="invalid_provider_config",
+        message=message,
+    )
+
+
 def _error_result(
-    run_id: str, run_dir: Path, error: PaperOrchestraError
+    run_dir: Path, error: PaperOrchestraError
 ) -> PaperOrchestraRunResult:
     return PaperOrchestraRunResult(
-        paper_orchestra_run_id=run_id,
+        paper_orchestra_run_id=PAPER_ORCHESTRA_RUN_ID,
         run_dir=run_dir,
         final_pdf=None,
         final_tex=None,
