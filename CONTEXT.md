@@ -37,8 +37,16 @@ The auditable record of how the Paper Candidate Round and Selected Research Cand
 _Avoid_: hidden ranking, unexplained best result, selection guess
 
 **Paper**:
-The publication-oriented LaTeX/PDF product constructed by one PaperOrchestra Run from a Discovery Launch's Native Discovery Artifacts, optionally centered on a Selected Research Candidate. Its sources and figures remain in that run's workspace alongside the final PDF.
-_Avoid_: research draft, launch summary, raw artifact dump
+The publication-oriented scientific work constructed by one PaperOrchestra Run from a Discovery Launch's Native Discovery Artifacts, optionally centered on a Selected Research Candidate. It may have multiple language editions whose sources and figures remain in that run's workspace.
+_Avoid_: paper edition, research draft, launch summary, raw artifact dump
+
+**English Authoritative Edition**:
+The English Paper edition completed by PaperOrchestra's native writing, review, and refinement flow. It is the authoritative source for scientific content and for any localized edition.
+_Avoid_: English draft, default delivery, translation input draft
+
+**Chinese Companion Edition**:
+The automatically produced Simplified Chinese Paper edition that localizes all editable manuscript prose, including captions and appendices, from the completed English Authoritative Edition while preserving equations, citations, bibliography entries, identifiers, code, URLs, numerical values, and raster figure contents. It is an additional delivery and does not replace the English Authoritative Edition as the PaperOrchestra Run's default returned edition.
+_Avoid_: Chinese authoritative edition, default returned edition, second Paper, replacement research result
 
 **Native Discovery Artifact**:
 A persisted scientific or execution artifact that the normal Discovery workflow produces independently of paper generation, such as a task prompt, candidate method, experiment report, metric record, code file, log, citation record, or figure. Paper-specific capture, model-generated material curation, and PaperOrchestra outputs are not Native Discovery Artifacts.

@@ -35,6 +35,25 @@ The integration path produces a complete paper.
 \end{document}
 """
 
+CHINESE_PAPER_TEX = r"""\documentclass{article}
+\title{模拟 PaperOrchestra 论文}
+\author{Anonymous}
+\begin{document}
+\maketitle
+\begin{abstract}
+本文报告一个确定性的集成实验。
+\end{abstract}
+\section{引言}
+我们研究一个小型测量系统。
+\section{方法}
+该方法遵循所提供的候选方案说明。
+\section{实验}
+记录的损失从 1.0 改善到 0.5。
+\section{结论}
+集成路径生成了一篇完整论文。
+\end{document}
+"""
+
 OUTLINE = {
     "plotting_plan": [],
     "intro_related_work_plan": {
@@ -137,6 +156,16 @@ research_cutoff: 2025-01
                 self.fail(f"{result.error}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}")
             self.assertTrue(result.final_pdf.is_file())
             self.assertTrue(result.final_tex.is_file())
+            self.assertEqual(result.final_pdf.name, "final_paper.pdf")
+            self.assertEqual(result.final_tex.name, "final_refined_paper.tex")
+            chinese_tex = result.run_dir.joinpath(
+                "content_refinement_workdir",
+                "final_paper.zh-CN.tex",
+            )
+            self.assertIn("模拟 PaperOrchestra 论文", chinese_tex.read_text())
+            self.assertTrue(
+                (result.run_dir / "final_paper.zh-CN.pdf").is_file()
+            )
             self.assertTrue((result.run_dir / "outline.json").is_file())
             self.assertTrue(
                 (result.run_dir / "literature_agent_output/outline_v1.json").is_file()
@@ -144,6 +173,18 @@ research_cutoff: 2025-01
             self.assertGreaterEqual(len(relay.requests), 10)
             self.assertTrue(
                 any("input_image" in json.dumps(request) for request in relay.requests)
+            )
+            translation_requests = [
+                request
+                for request in relay.requests
+                if "Translate the following complete final LaTeX paper"
+                in json.dumps(request, ensure_ascii=False)
+            ]
+            self.assertEqual(len(translation_requests), 1)
+            self.assertNotIn("tools", translation_requests[0])
+            self.assertNotIn(
+                "namespace",
+                json.dumps(translation_requests[0], ensure_ascii=False),
             )
 
 
@@ -219,6 +260,11 @@ class _MockResponsesRelay:
 
     def _response_text(self, request: dict[str, object]) -> str:
         serialized = json.dumps(request, ensure_ascii=False)
+        if (
+            "Translate the following complete final LaTeX paper"
+            in serialized
+        ):
+            return f"```latex\n{CHINESE_PAPER_TEX}\n```"
         if "Analyze the provided page images" in serialized:
             return json.dumps({"figure_and_tables": {}, "other_issues": []})
         if "REFLECTION ITERATION" in serialized:

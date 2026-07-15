@@ -157,6 +157,7 @@ N09 暴露了一项明确的移植回归：
 - 子进程内的同步模型 helper 通过 ADR-0103 的 Responses 兼容层调用单一中转 provider；每个上游工作线程可复用现有 Deep Research 的 thread-local event loop 与 Runtime client 模式。
 - 进程隔离避免上游顶层 `methods`、`utils` 包、provider adapter 状态和并发 Figure worker 污染或串扰其他 InternAgent Run。
 - 宿主成功边界由 `final_paper.pdf` 与 `content_refinement_workdir/final_refined_paper.tex` 共同确定；成功后重入直接复用。首版明确不提供 PaperOrchestra 的逐 stage checkpoint 或 host-restart resume。
+- 英文成功边界完成后，宿主通过同一 Responses backend 追加一次完整 LaTeX 翻译，并以 XeLaTeX、`ctex`、`xeCJK` 和 Fandol 字体集编译 `final_paper.zh-CN.pdf` 与 `content_refinement_workdir/final_paper.zh-CN.tex`。中文伴随稿翻译全部可编辑正文、caption 与附录，但保留公式、引用、参考文献、标识符、代码、数值、URL 和 raster 图片内容；默认 `final_pdf`、`final_tex` 仍指向英文权威版本。
 
 ## 已确认 Paper 生命周期
 
@@ -247,6 +248,7 @@ N09 暴露了一项明确的移植回归：
 3. 上游子进程使用 run-local Paper workspace 作为 cwd；一个 Discovery Launch 最多拥有一个成功 Paper，成功后重入直接复用。
 4. 共享模型调用已适配到统一 OpenAI-compatible Relay Provider 与 InternAgent Responses Runtime，生图使用同一 provider 的能力专用模型。
 5. mock E2E、真实文本/视觉/生图 probe 和完整真实 PB-Twin smoke 均已通过；图像治理继续不阻塞首个可运行基线。
+6. 英文论文完成后会自动生成一份中文伴随稿；翻译是一次无工具调用的直接 backend 请求，不复用 Codex CLI 的工具历史，英文默认返回路径保持不变。
 
 ## 当前 Vendored 偏离面
 

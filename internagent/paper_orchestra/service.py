@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -11,6 +12,7 @@ from typing import Any
 import yaml
 
 from .candidate_selection import select_candidate
+from .chinese_companion import generate_chinese_companion
 from .config import PaperOrchestraConfig, load_paper_config
 from .data_types import (
     PaperOrchestraError,
@@ -110,6 +112,22 @@ async def run_paper_orchestra(
                     f"TeX/PDF pair: {_log_tail(stderr_path)}"
                 ),
                 log_path=str(stderr_path),
+            ),
+        )
+    try:
+        await asyncio.to_thread(
+            generate_chinese_companion,
+            run_dir=run_dir,
+            provider_config=provider_config,
+            model_name=paper_config.writer_model,
+        )
+    except Exception as error:
+        return _error_result(
+            run_dir,
+            PaperOrchestraError(
+                stage="chinese_companion",
+                code="chinese_companion_generation_failed",
+                message=str(error),
             ),
         )
     return _successful_result(run_dir)

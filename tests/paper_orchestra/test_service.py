@@ -83,20 +83,23 @@ class PaperOrchestraServiceTest(unittest.TestCase):
 
 
 def _run(launch_dir: Path, config_path: Path):
-    return asyncio.run(
-        run_paper_orchestra(
-            launch_dir=launch_dir,
-            internagent_config={
-                "models": {
-                    "openai": {
-                        "base_url": "https://relay.example/v1",
-                        "model_name": "text-model",
+    with patch(
+        "internagent.paper_orchestra.service.generate_chinese_companion"
+    ):
+        return asyncio.run(
+            run_paper_orchestra(
+                launch_dir=launch_dir,
+                internagent_config={
+                    "models": {
+                        "openai": {
+                            "base_url": "https://relay.example/v1",
+                            "model_name": "text-model",
+                        }
                     }
-                }
-            },
-            paper_config_path=config_path,
+                },
+                paper_config_path=config_path,
+            )
         )
-    )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from internagent.paper_orchestra import run_paper_orchestra
 
@@ -18,24 +19,43 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             _write_launch(launch_dir)
             vendor_root = _write_fake_vendor(root)
             config_path = _write_config(root, vendor_root)
+            translated_runs = []
 
-            result = asyncio.run(
-                run_paper_orchestra(
-                    launch_dir=launch_dir,
-                    internagent_config={
-                        "models": {
-                            "openai": {
-                                "api_mode": "responses",
-                                "api_key": "top-secret",
-                                "base_url": "https://relay.example/v1",
-                                "model_name": "default-text-model",
-                                "temperature": 0.7,
-                            }
-                        }
-                    },
-                    paper_config_path=config_path,
+            def generate_chinese_companion(
+                *, run_dir, provider_config, model_name
+            ) -> None:
+                translated_runs.append((run_dir, provider_config, model_name))
+                translated_tex = run_dir.joinpath(
+                    "content_refinement_workdir",
+                    "final_paper.zh-CN.tex",
                 )
-            )
+                translated_tex.write_text("中文论文", encoding="utf-8")
+                (run_dir / "final_paper.zh-CN.pdf").write_bytes(
+                    b"%PDF-1.4\n%%EOF"
+                )
+
+            with mock.patch(
+                "internagent.paper_orchestra.service."
+                "generate_chinese_companion",
+                side_effect=generate_chinese_companion,
+            ):
+                result = asyncio.run(
+                    run_paper_orchestra(
+                        launch_dir=launch_dir,
+                        internagent_config={
+                            "models": {
+                                "openai": {
+                                    "api_mode": "responses",
+                                    "api_key": "top-secret",
+                                    "base_url": "https://relay.example/v1",
+                                    "model_name": "default-text-model",
+                                    "temperature": 0.7,
+                                }
+                            }
+                        },
+                        paper_config_path=config_path,
+                    )
+                )
 
             self.assertIsNone(result.error, result.error)
             self.assertEqual(result.paper_orchestra_run_id, "paper")
@@ -45,6 +65,24 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 result.run_dir
                 / "content_refinement_workdir"
                 / "final_refined_paper.tex",
+            )
+            self.assertEqual(len(translated_runs), 1)
+            translated_run_dir, translated_provider, translated_model = (
+                translated_runs[0]
+            )
+            self.assertEqual(translated_run_dir, result.run_dir)
+            self.assertEqual(
+                translated_provider["base_url"], "https://relay.example/v1"
+            )
+            self.assertEqual(translated_model, "writer-model")
+            self.assertTrue(
+                result.run_dir.joinpath(
+                    "content_refinement_workdir",
+                    "final_paper.zh-CN.tex",
+                ).is_file()
+            )
+            self.assertTrue(
+                (result.run_dir / "final_paper.zh-CN.pdf").is_file()
             )
 
             idea = (result.run_dir / "raw_materials" / "idea_sparse.md").read_text(
