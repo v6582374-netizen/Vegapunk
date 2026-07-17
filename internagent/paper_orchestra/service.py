@@ -6,8 +6,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
@@ -395,23 +396,50 @@ def _run_vendored_cli(
         )
         if item
     )
-    environment["PAPER_ORCHESTRA_CATALOG_PATH"] = str(runtime_config["catalog_path"])
+    environment["PAPER_ORCHESTRA_CATALOG_PATH"] = str(
+        runtime_config["catalog_path"]
+    )
     environment["PYTHONUNBUFFERED"] = "1"
+    environment["PYTHONIOENCODING"] = "utf-8"
     environment["MPLBACKEND"] = "Agg"
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
     try:
-        with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open(
-            "w", encoding="utf-8"
-        ) as stderr_file:
-            return subprocess.run(
+        with (
+            stdout_path.open("w", encoding="utf-8") as stdout_file,
+            stderr_path.open("w", encoding="utf-8") as stderr_file,
+        ):
+            process = subprocess.Popen(
                 command,
                 cwd=run_dir,
                 env=environment,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
             )
+            if process.stdout is None or process.stderr is None:
+                raise RuntimeError(
+                    "Unable to capture vendored PaperOrchestra output"
+                )
+            readers = (
+                threading.Thread(
+                    target=_tee_child_stream,
+                    args=(process.stdout, stdout_file, sys.stdout),
+                ),
+                threading.Thread(
+                    target=_tee_child_stream,
+                    args=(process.stderr, stderr_file, sys.stderr),
+                ),
+            )
+            for reader in readers:
+                reader.start()
+            returncode = process.wait()
+            for reader in readers:
+                reader.join()
+            return subprocess.CompletedProcess(command, returncode)
     except OSError as error:
         raise PaperOrchestraStageError(
             stage="vendored_paper_orchestra",
@@ -421,8 +449,31 @@ def _run_vendored_cli(
         ) from error
 
 
+def _tee_child_stream(
+    source: TextIO, log_file: TextIO, terminal: TextIO
+) -> None:
+    """Persist one child stream while forwarding it to the invoking terminal.
+
+    A detached terminal cannot block log capture or child stream draining.
+    """
+
+    try:
+        for line in source:
+            log_file.write(line)
+            log_file.flush()
+            try:
+                terminal.write(line)
+                terminal.flush()
+            except (OSError, ValueError):
+                pass
+    finally:
+        source.close()
+
+
 def _existing_result(run_dir: Path) -> PaperOrchestraRunResult | None:
-    return _successful_result(run_dir) if _final_outputs_are_valid(run_dir) else None
+    if not _final_outputs_are_valid(run_dir):
+        return None
+    return _successful_result(run_dir)
 
 
 def _successful_result(

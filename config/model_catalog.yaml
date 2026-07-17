@@ -1,10 +1,10 @@
 version: 1
 
-active_text_model: qwen/qwen3.7-max
+active_text_model: relay/gpt-5.6-sol
 
 capability_models:
-  vision: qwen/qwen3.6-plus
-  image_generation: qwen/qwen-image-2.0-pro
+  vision: relay/gpt-5.6-sol
+  image_generation: relay/gpt-image-1
   embedding: local/BAAI-bge-base-en-v1.5
 
 providers:
@@ -13,7 +13,7 @@ providers:
     base_url: https://ai.cloudyz.top/v1
     api_key_env: OPENAI_API_KEY
     timeout: 600
-    request_timeout: 3600
+    request_timeout: 300
     reasoning:
       effort: xhigh
       context: auto
@@ -29,7 +29,7 @@ providers:
     native_base_url: https://dashscope.aliyuncs.com
     api_key_env: DASHSCOPE_API_KEY
     timeout: 600
-    request_timeout: 3600
+    request_timeout: 300
     reasoning:
       effort: xhigh
       context: auto

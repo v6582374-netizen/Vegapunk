@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import tempfile
 import textwrap
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -33,13 +35,23 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                     b"%PDF-1.4\n%%EOF"
                 )
 
-            with mock.patch.dict(
-                os.environ,
-                {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
-            ), mock.patch(
-                "internagent.paper_orchestra.service."
-                "generate_chinese_companion",
-                side_effect=generate_chinese_companion,
+            terminal_stdout = io.StringIO()
+            terminal_stderr = io.StringIO()
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "OPENAI_API_KEY": "test-key",
+                        "DASHSCOPE_API_KEY": "test-key",
+                    },
+                ),
+                mock.patch(
+                    "internagent.paper_orchestra.service."
+                    "generate_chinese_companion",
+                    side_effect=generate_chinese_companion,
+                ),
+                redirect_stdout(terminal_stdout),
+                redirect_stderr(terminal_stderr),
             ):
                 result = asyncio.run(
                     run_paper_orchestra(
@@ -64,7 +76,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             )
             self.assertEqual(translated_run_dir, result.run_dir)
             self.assertTrue(hasattr(translated_runtime, "catalog"))
-            self.assertEqual(translated_model, "qwen/qwen3.7-max")
+            self.assertEqual(translated_model, "relay/gpt-5.6-sol")
             self.assertTrue(
                 result.run_dir.joinpath(
                     "content_refinement_workdir",
@@ -117,9 +129,19 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
-            self.assertTrue(runtime_config["catalog_path"].endswith("model_catalog.yaml"))
-            self.assertIn("fake child stdout", (result.run_dir / "stdout.log").read_text())
-            self.assertIn("fake child stderr", (result.run_dir / "stderr.log").read_text())
+            self.assertTrue(
+                runtime_config["catalog_path"].endswith("model_catalog.yaml")
+            )
+            self.assertIn(
+                "fake child stdout",
+                (result.run_dir / "stdout.log").read_text(),
+            )
+            self.assertIn(
+                "fake child stderr",
+                (result.run_dir / "stderr.log").read_text(),
+            )
+            self.assertIn("fake child stdout", terminal_stdout.getvalue())
+            self.assertIn("fake child stderr", terminal_stderr.getvalue())
 
     def test_chinese_companion_failure_preserves_english_result(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from internagent.mas.models.base_model import ServiceUnavailableError
@@ -171,8 +172,32 @@ class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_catalog_rejects_implicit_provider_resolution(self) -> None:
-        with self.assertRaisesRegex(ValueError, "canonical provider/model identity"):
+        with self.assertRaisesRegex(
+            ValueError, "canonical provider/model identity"
+        ):
             self.runtime.catalog.resolve_model("qwen3.7-max")
+
+    def test_default_catalog_binds_relay_and_bounds_remote_requests(self) -> None:
+        catalog_path = (
+            Path(__file__).resolve().parents[2] / "config/model_catalog.yaml"
+        )
+        catalog = ModelCatalog.from_yaml(catalog_path)
+
+        self.assertEqual(catalog.active_text_model, "relay/gpt-5.6-sol")
+        self.assertEqual(
+            catalog.capability_models["vision"], "relay/gpt-5.6-sol"
+        )
+        self.assertEqual(
+            catalog.capability_models["image_generation"], "relay/gpt-image-1"
+        )
+
+        for provider in catalog.providers.values():
+            if provider.protocol == "local_embedding":
+                continue
+            request_timeout = provider.settings["request_timeout"]
+            self.assertEqual(request_timeout, 300)
+            self.assertLessEqual(request_timeout, catalog.retry.max_elapsed_seconds)
+            self.assertNotIn("max_output_tokens", provider.settings)
 
 
 if __name__ == "__main__":

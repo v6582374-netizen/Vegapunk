@@ -22,10 +22,10 @@ agents:
                 encoding="utf-8",
             )
 
-            with patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}):
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
                 runtime, dr_config = _load_qa_config(str(config_path))
 
-        self.assertEqual(runtime.catalog.active_text_model, "qwen/qwen3.7-max")
+        self.assertEqual(runtime.catalog.active_text_model, "relay/gpt-5.6-sol")
         self.assertEqual(dr_config["mode"], "qa")
         self.assertIs(dr_config["_runtime"], runtime)
 

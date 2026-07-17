@@ -111,7 +111,7 @@ ANTHROPIC_API_KEY=
 工作流、记忆和实验参数位于 `config/default_config.yaml`。
 切换 Provider 时只修改 Catalog 的固定绑定，并为所选 Provider 配置对应密钥。
 
-默认 Catalog 使用 `qwen/qwen3.7-max` 作为 Active Text Model，`qwen/qwen3.6-plus` 作为 vision binding，`qwen/qwen-image-2.0-pro` 作为 image-generation binding，并使用本地 `BAAI/bge-base-en-v1.5` embedding。
+默认 Catalog 使用 `relay/gpt-5.6-sol` 作为 Active Text Model 和 vision binding，`relay/gpt-image-1` 作为 image-generation binding，并使用本地 `BAAI/bge-base-en-v1.5` embedding。
 所有文本和视觉调用使用声明的 Responses protocol，不会静默回退到 Chat Completions。
 Runtime 统一负责 Provider 并发与有界重试，且不会使用 provider-side background execution。
 
