@@ -3,22 +3,17 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from launch_qa import _load_qa_config
 
 
 class LaunchQAConfigTest(unittest.TestCase):
-    def test_qa_inherits_the_shared_openai_runtime_config(self) -> None:
+    def test_qa_injects_the_catalog_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_path = Path(temporary_directory) / "config.yaml"
             config_path.write_text(
-                """models:
-  default_provider: openrouter
-  openai:
-    model_name: gpt-5.6-sol
-    api_mode: responses
-    reasoning:
-      effort: xhigh
+                """model_catalog_path: config/model_catalog.yaml
 agents:
   dr:
     enabled: true
@@ -27,14 +22,12 @@ agents:
                 encoding="utf-8",
             )
 
-            model_name, dr_config = _load_qa_config(str(config_path))
+            with patch.dict("os.environ", {"DASHSCOPE_API_KEY": "test-key"}):
+                runtime, dr_config = _load_qa_config(str(config_path))
 
-        self.assertEqual(model_name, "gpt-5.6-sol")
+        self.assertEqual(runtime.catalog.active_text_model, "qwen/qwen3.7-max")
         self.assertEqual(dr_config["mode"], "qa")
-        self.assertEqual(
-            dr_config["_global_config"]["models"]["openai"]["api_mode"],
-            "responses",
-        )
+        self.assertIs(dr_config["_runtime"], runtime)
 
 
 if __name__ == "__main__":

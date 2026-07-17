@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 from .candidate_selection import select_candidate
 from .chinese_companion import generate_chinese_companion
@@ -42,8 +42,20 @@ async def run_paper_orchestra(
     try:
         _validate_launch(launch_dir)
         paper_config = load_paper_config(paper_config_path)
+        catalog_path = _resolve_catalog_path(internagent_config)
+        runtime = UnifiedModelRuntime.from_catalog_path(catalog_path)
+        _validate_paper_models(runtime, paper_config)
     except PaperOrchestraStageError as error:
         return _error_result(run_dir, error.error)
+    except Exception as error:
+        return _error_result(
+            run_dir,
+            PaperOrchestraError(
+                stage="paper_orchestra_adapter",
+                code="invalid_model_catalog",
+                message=str(error),
+            ),
+        )
 
     existing = _existing_result(run_dir)
     if existing is not None:
@@ -54,6 +66,7 @@ async def run_paper_orchestra(
         launch_dir=launch_dir,
         run_dir=run_dir,
         internagent_config=internagent_config,
+        runtime=runtime,
     )
 
     try:
@@ -63,16 +76,15 @@ async def run_paper_orchestra(
             candidate_dir=candidate_dir,
             raw_materials_dir=run_dir / "raw_materials",
         )
-        provider_config = _resolve_provider_config(internagent_config)
         runtime_config_path = _write_runtime_config(
             run_dir=run_dir,
-            provider_config=provider_config,
+            catalog_path=catalog_path,
             paper_config=paper_config,
+            runtime=runtime,
         )
         completed = _run_vendored_cli(
             run_dir=run_dir,
             paper_config=paper_config,
-            provider_config=provider_config,
             runtime_config_path=runtime_config_path,
         )
     except PaperOrchestraStageError as error:
@@ -118,8 +130,8 @@ async def run_paper_orchestra(
         await asyncio.to_thread(
             generate_chinese_companion,
             run_dir=run_dir,
-            provider_config=provider_config,
-            model_name=paper_config.writer_model,
+            runtime=runtime,
+            model_name=runtime.catalog.active_text_model,
         )
     except Exception as error:
         return _successful_result(
@@ -145,6 +157,7 @@ async def _optional_candidate_selection(
     launch_dir: Path,
     run_dir: Path,
     internagent_config: dict[str, Any],
+    runtime: UnifiedModelRuntime,
 ) -> dict[str, Any] | None:
     try:
         return await select_candidate(launch_dir=launch_dir, run_dir=run_dir)
@@ -155,16 +168,8 @@ async def _optional_candidate_selection(
         return None
 
     try:
-        from internagent.mas.models.model_factory import ModelFactory
-
-        model = ModelFactory.create_model_for_agent(
-            "paper_orchestra_candidate_selection",
-            {
-                "model_provider": "openai",
-                "temperature": 0,
-                "_global_config": internagent_config,
-            },
-        )
+        del internagent_config
+        model = runtime.model_for(capability="text")
         return await select_candidate(
             launch_dir=launch_dir,
             run_dir=run_dir,
@@ -290,59 +295,41 @@ def _numbered_run_directories(candidate_dir: Path) -> list[Path]:
     return [path for _, path in sorted(numbered)]
 
 
-def _resolve_provider_config(
-    internagent_config: dict[str, Any],
-) -> dict[str, Any]:
-    models = internagent_config.get("models", {})
-    provider = models.get("openai") if isinstance(models, dict) else None
-    if not isinstance(provider, dict) or not provider.get("base_url"):
-        default_path = Path(__file__).resolve().parents[2] / "config/default_config.yaml"
-        try:
-            default_data = yaml.safe_load(default_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as error:
-            _configuration_error(f"cannot load default OpenAI provider: {error}")
-        default_models = (
-            default_data.get("models", {}) if isinstance(default_data, dict) else {}
-        )
-        provider = (
-            default_models.get("openai")
-            if isinstance(default_models, dict)
-            else None
-        )
-    if not isinstance(provider, dict) or not provider.get("base_url"):
-        _configuration_error("models.openai.base_url is required")
-    resolved = dict(provider)
-    resolved["provider"] = "openai"
-    resolved["api_mode"] = "responses"
-    return resolved
+def _resolve_catalog_path(internagent_config: dict[str, Any]) -> Path:
+    raw_path = internagent_config.get("model_catalog_path")
+    if raw_path is None:
+        raw_path = Path(__file__).resolve().parents[2] / "config" / "model_catalog.yaml"
+    path = Path(str(raw_path)).expanduser()
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    if not path.is_file():
+        _configuration_error(f"model catalog does not exist: {path}")
+    return path.resolve()
+
+
+def _validate_paper_models(
+    runtime: UnifiedModelRuntime, paper_config: PaperOrchestraConfig
+) -> None:
+    del paper_config
+    runtime.catalog.resolve_model(runtime.catalog.active_text_model, capability="text")
+    runtime.catalog.binding_for("vision")
+    runtime.catalog.binding_for("image_generation")
 
 
 def _write_runtime_config(
     *,
     run_dir: Path,
-    provider_config: dict[str, Any],
+    catalog_path: Path,
     paper_config: PaperOrchestraConfig,
+    runtime: UnifiedModelRuntime,
 ) -> Path:
-    sanitized_provider = {
-        key: value
-        for key, value in provider_config.items()
-        if key not in {"api_key", "temperature"} and value is not None
-    }
     runtime_config = {
-        "max_concurrent_model_requests": (
-            paper_config.max_concurrent_model_requests
-        ),
-        "provider": sanitized_provider,
+        "catalog_path": str(catalog_path),
         "models": {
-            "writer": paper_config.writer_model,
-            "reflection": paper_config.reflection_model,
-            "plotting": paper_config.plotting_model,
-            "image": paper_config.image_model,
-        },
-        "model_aliases": {
-            "gemini-3.1-pro-preview": paper_config.writer_model,
-            "gemini-3-flash-preview": paper_config.writer_model,
-            "gemini-3-pro-image-preview": paper_config.image_model,
+            "writer": runtime.catalog.active_text_model,
+            "reflection": runtime.catalog.active_text_model,
+            "plotting": runtime.catalog.active_text_model,
+            "image": runtime.catalog.binding_for("image_generation").canonical_id,
         },
     }
     path = run_dir / "internagent_runtime.json"
@@ -357,9 +344,16 @@ def _run_vendored_cli(
     *,
     run_dir: Path,
     paper_config: PaperOrchestraConfig,
-    provider_config: dict[str, Any],
     runtime_config_path: Path,
 ) -> subprocess.CompletedProcess[Any]:
+    runtime_config = json.loads(runtime_config_path.read_text(encoding="utf-8"))
+    configured_models = runtime_config.get("models", {})
+    if not isinstance(configured_models, dict):
+        raise ValueError("PaperOrchestra runtime config models must be a mapping")
+    writer_model = str(configured_models["writer"])
+    reflection_model = str(configured_models["reflection"])
+    plotting_model = str(configured_models["plotting"])
+    image_model = str(configured_models["image"])
     command = [
         sys.executable,
         str(paper_config.vendor_root / "paper_writing_cli.py"),
@@ -374,15 +368,15 @@ def _run_vendored_cli(
         "--experimental_log_filename",
         "experimental_log.md",
         "--writer_model_name",
-        paper_config.writer_model,
+        writer_model,
         "--reflection_model_name",
-        paper_config.reflection_model,
+        reflection_model,
         "--use_plotting",
         "true" if paper_config.use_plotting else "false",
         "--plotting_model_name",
-        paper_config.plotting_model,
+        plotting_model,
         "--image_model_name",
-        paper_config.image_model,
+        image_model,
         "--plotting_max_critic_rounds",
         str(paper_config.plotting_max_critic_rounds),
     ]
@@ -401,13 +395,9 @@ def _run_vendored_cli(
         )
         if item
     )
-    environment["PAPER_ORCHESTRA_RUNTIME_CONFIG"] = str(runtime_config_path)
+    environment["PAPER_ORCHESTRA_CATALOG_PATH"] = str(runtime_config["catalog_path"])
     environment["PYTHONUNBUFFERED"] = "1"
     environment["MPLBACKEND"] = "Agg"
-    configured_api_key = provider_config.get("api_key")
-    if isinstance(configured_api_key, str) and configured_api_key:
-        environment["OPENAI_API_KEY"] = configured_api_key
-
     stdout_path = run_dir / "stdout.log"
     stderr_path = run_dir / "stderr.log"
     try:
@@ -496,7 +486,7 @@ def _input_error(message: str) -> None:
 def _configuration_error(message: str) -> None:
     raise PaperOrchestraStageError(
         stage="paper_orchestra_adapter",
-        code="invalid_provider_config",
+        code="invalid_model_catalog",
         message=message,
     )
 

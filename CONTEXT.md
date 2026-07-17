@@ -20,6 +20,106 @@ _Avoid_: discovery round, experiment run, final paper
 One independently reproducible attempt within a Candidate Experiment, with the exact inputs, implementation, execution record, outputs, and outcome used for that attempt.
 _Avoid_: candidate experiment, discovery round, launch
 
+**Model Provider**:
+The configured source of model inference used by LLM-backed agent roles.
+It does not own code-workspace operations or Candidate Experiment execution.
+_Avoid_: model, coding agent CLI, Experiment Backend
+
+**Unified Model Catalog**:
+The single project-wide vocabulary for selecting Model Providers and the models they expose across all in-process LLM roles.
+It is the place where a canonical model identity is associated with the capabilities required by a role.
+_Avoid_: separate PaperOrchestra provider, caller-local model selection, provider-specific dispatch
+
+**Canonical Model Identity**:
+The exact Provider and model identifier that the runtime sends for an inference request, represented as a single `provider/model` reference such as `relay/gpt-5.6-sol`.
+It is never a compatibility alias for another model and never determines a Provider through string-prefix guessing.
+_Avoid_: legacy model alias, display model name, inferred provider
+
+**Provider Configuration**:
+The centrally managed endpoint, credential reference, headers, timeout, protocol, and capability metadata for one Model Provider.
+Callers select Canonical Model Identities but do not override Provider Configuration locally.
+_Avoid_: caller-local provider settings, agent credential, Paper-specific provider
+
+**Unified Model Runtime**:
+The single in-process execution surface that turns semantic model requests into Provider calls for every active consumer.
+It owns Catalog resolution, capability validation, adapter selection, telemetry, and error classification; consumers do not create SDK clients or resolve Providers themselves.
+_Avoid_: Paper runtime, DR runtime, caller-local client, second factory
+
+**Active Provider Set**:
+The generative Model Providers that the project runtime is allowed to resolve for in-process model calls.
+The current generative Active Provider Set contains `relay` and `qwen`; the separately declared `local` embedding implementation is the only non-generative exception.
+_Avoid_: every vendored provider, historical provider list, implicit provider
+
+**Active Text Model**:
+The one Canonical Model Identity used by every text-producing and text-evaluating role in a run.
+Discovery, Deep Research, CodeView, Paper text, candidate selection, and Sci scoring all follow it.
+_Avoid_: per-agent text override, role-local model
+
+**Image Model**:
+The Capability Model Binding used for PaperOrchestra raster image generation when plotting is enabled.
+It is a separate model identity under the same Provider as the Active Text Model.
+_Avoid_: image provider, plotting-specific provider
+
+**Model Capability**:
+A capability that a model may provide independently, such as text generation, structured output, tool use, vision input, image generation, or embeddings.
+Capability support is part of the model's identity and is not assumed merely because two models share an API shape.
+_Avoid_: protocol, endpoint, generic model feature
+
+**Capability Model Binding**:
+A canonical model identity selected for one capability role, such as the text model or image model.
+Different capability bindings may name different models, but the text and image bindings for one run belong to the same Model Provider.
+_Avoid_: provider fallback, mixed-provider run, model alias
+
+**Capability Preflight**:
+The startup validation that checks the fixed Catalog bindings and their known project eligibility before a run begins.
+It does not inspect individual requests, infer capabilities dynamically, or choose alternate models.
+_Avoid_: per-request negotiation, lazy capability failure, silent downgrade
+
+**Capability Declaration**:
+The explicit set of capabilities recorded for one Canonical Model Identity in the Unified Model Catalog.
+It documents the model eligibility established during development and is not inferred from individual requests at runtime.
+_Avoid_: inferred capability, provider guess, runtime accident
+
+**Protocol Fallback**:
+An alternate-protocol retry under the same Provider and Canonical Model Identity.
+The current runtime does not use Protocol Fallback; a model has one declared protocol and protocol errors fail explicitly.
+_Avoid_: provider fallback, model fallback, silent downgrade
+
+**Background Model Execution**:
+Provider-side asynchronous submission and polling for a long model request.
+The current runtime does not use it; all model operations complete synchronously and rely on shared timeout, concurrency, and retry policies.
+_Avoid_: reasoning in the background, workflow background context, required model capability
+
+**Text Model**:
+A model selected for generating or judging textual scientific content, including structured JSON responses and tool-mediated reasoning when supported.
+It is selected independently from the Embedding Model even when both are offered by the same Model Provider.
+_Avoid_: all-purpose model, primary model
+
+**Embedding Model**:
+A model selected to turn text into vectors for Long Memory retrieval.
+It may belong to a different Model Provider from the Active Text Model, and its persisted index is disposable and may be deleted and rebuilt when it changes.
+_Avoid_: text model, memory provider
+
+**Long Memory Index**:
+A disposable retrieval artifact derived from task records and an Embedding Model.
+It improves recall but is not authoritative research state and may be discarded without losing the underlying records.
+_Avoid_: source of truth, permanent memory database
+
+**Experiment Backend**:
+The coding-agent runtime that implements and revises a Candidate Experiment inside its workspace and drives its Experiment Runs.
+It is selected independently from a Model Provider.
+_Avoid_: Model Provider, Candidate Experiment, model
+
+**Qwen Model Provider**:
+The first-class Model Provider for Qwen models.
+It is independently selectable from the Qwen Code Backend.
+_Avoid_: Qwen Code Backend, Qwen model
+
+**Qwen Code Backend**:
+The Experiment Backend implemented through the official Qwen Code coding-agent runtime.
+It is a peer of the Claude Code and iFlow Experiment Backends rather than an alias or mode of either one.
+_Avoid_: Qwen Model Provider, Claude Code Backend, qwen mode
+
 **Paper Candidate Round**:
 The most recent completed Discovery Round containing at least one successful Candidate Experiment. Paper candidate comparison is confined to this round.
 _Avoid_: last round, globally best round, all rounds
@@ -97,8 +197,9 @@ The PaperOrchestra role that autonomously plans, generates, captions, critiques,
 _Avoid_: Discovery Agent, experiment backend, figure copier
 
 **Relay Provider**:
-The single third-party OpenAI-compatible model service through which every PaperOrchestra model call is routed. It owns one base URL and credential boundary while exposing multiple capability-specific model IDs and endpoints.
-_Avoid_: one model, separate image provider, upstream Gemini provider
+The current external OpenAI-compatible Model Provider used by InternAgent and PaperOrchestra.
+It is one selectable provider alongside the Qwen Model Provider, not a PaperOrchestra-specific service boundary.
+_Avoid_: OpenAI provider when the configured base URL is a relay, separate Paper provider
 
 **Image Generation Model**:
 The capability-specific model exposed by the Relay Provider for synthesizing raster visuals such as method or architecture diagrams. It is distinct from the primary text model but does not introduce a second provider or credential boundary.

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
+import asyncio
 import json
 import logging
 import os
@@ -19,7 +19,6 @@ from .runtime import (
     FunctionTool,
     ImageContent,
     Message,
-    ModelRunHandle,
     ModelRunRequest,
     ModelRunResult,
     ModelUsage,
@@ -47,8 +46,10 @@ class OpenAIModel(BaseModel):
         "reasoning",
         "store",
         "prompt_cache",
-        "background",
+        "request_timeout",
         "response_state",
+        "provider_name",
+        "api_key_env",
     }
     _OBSOLETE_CONFIG_KEYS = {
         "max_tokens": "max_output_tokens",
@@ -76,8 +77,7 @@ class OpenAIModel(BaseModel):
         store: bool = True,
         prompt_cache_mode: str = "explicit",
         prompt_cache_ttl: str = "30m",
-        background_poll_interval: float = 2.0,
-        background_timeout: float = 3600.0,
+        request_timeout: float = 3600.0,
         response_state_mode: str = "server",
         response_state_max_entries: int = 128,
         client: Optional[Any] = None,
@@ -106,8 +106,7 @@ class OpenAIModel(BaseModel):
         self.store = store
         self.prompt_cache_mode = prompt_cache_mode
         self.prompt_cache_ttl = prompt_cache_ttl
-        self.background_poll_interval = background_poll_interval
-        self.background_timeout = background_timeout
+        self.request_timeout = request_timeout
         if response_state_mode not in {"server", "replay"}:
             raise ValueError("OpenAI response state mode must be server or replay")
         if response_state_max_entries < 1:
@@ -136,60 +135,30 @@ class OpenAIModel(BaseModel):
             self.client = AsyncOpenAI(**client_kwargs)
 
     async def _run(self, request: ModelRunRequest) -> ModelRunResult:
-        checkpoint = self.current_response_checkpoint()
-        checkpoint_key = request.checkpoint_key if request.background else None
-        handle: ModelRunHandle | None = None
+        request_params = self._build_request_params(request)
+        try:
+            response = await asyncio.wait_for(
+                self.client.responses.create(**request_params),
+                timeout=self.request_timeout,
+            )
+        except asyncio.TimeoutError as error:
+            raise ModelRunTerminalError(
+                f"{self.provider_name} response exceeded request timeout "
+                f"of {self.request_timeout} seconds"
+            ) from error
 
-        if checkpoint is not None and checkpoint_key:
-            record = checkpoint.get_model_response(checkpoint_key)
-            response_id = record.get("response_id") if record else None
-            if response_id:
-                try:
-                    handle = await self.resume(response_id)
-                except Exception as error:
-                    if getattr(error, "status_code", None) != 404:
-                        raise
-                    logger.warning(
-                        "Checkpointed OpenAI response %s expired; submitting %s again",
-                        response_id,
-                        checkpoint_key,
-                    )
-
-        if handle is None:
-            handle = await self.submit(request)
-            if checkpoint is not None and checkpoint_key:
-                try:
-                    checkpoint.record_model_response(
-                        checkpoint_key=checkpoint_key,
-                        response_id=handle.response_id,
-                        status="submitted",
-                    )
-                except Exception:
-                    try:
-                        await handle.cancel()
-                    except Exception as cancel_error:
-                        logger.warning(
-                            "Unable to cancel uncheckpointed response %s: %s",
-                            handle.response_id,
-                            cancel_error,
-                        )
-                    raise
-
-        result = await handle.wait()
-        if checkpoint is not None and checkpoint_key:
-            checkpoint.record_model_response(
-                checkpoint_key=checkpoint_key,
+        result = self._response_to_run_result(response)
+        self._raise_for_terminal_status(response, result)
+        replay_input_items = request_params.get("input")
+        if self.response_state_mode == "replay" and isinstance(replay_input_items, list):
+            self._store_replay_state(
                 response_id=result.response_id,
-                status=result.status,
+                input_items=replay_input_items,
+                response=response,
             )
         return result
 
-    async def submit(self, request: ModelRunRequest) -> ModelRunHandle:
-        """Submit a Responses run and expose wait/cancel controls."""
-
-        if request.background and not self.store:
-            raise ValueError("OpenAI background Responses require store=true")
-
+    def _build_request_params(self, request: ModelRunRequest) -> Dict[str, Any]:
         reasoning = {
             "effort": self.reasoning_effort,
             "context": self.reasoning_context,
@@ -206,7 +175,6 @@ class OpenAIModel(BaseModel):
             "model": self.model_name,
             "reasoning": reasoning,
             "store": self.store,
-            "background": request.background,
             "prompt_cache_options": {
                 "mode": self.prompt_cache_mode,
                 "ttl": self.prompt_cache_ttl,
@@ -266,75 +234,7 @@ class OpenAIModel(BaseModel):
                 self._function_tool_to_response(tool) for tool in request.tools
             ]
 
-        initial_response = await self.client.responses.create(**request_params)
-        response_id = self._field(initial_response, "id", "")
-        if not response_id:
-            raise ModelRunTerminalError("OpenAI returned a response without an ID")
-
-        return self._handle_for_response(
-            initial_response,
-            response_id,
-            replay_input_items=replay_input_items,
-        )
-
-    async def resume(self, response_id: str) -> ModelRunHandle:
-        """Resume polling a previously checkpointed background Response."""
-        initial_response = await self.client.responses.retrieve(response_id)
-        return self._handle_for_response(initial_response, response_id)
-
-    def _handle_for_response(
-        self,
-        initial_response: Any,
-        response_id: str,
-        *,
-        replay_input_items: list[Dict[str, Any]] | None = None,
-    ) -> ModelRunHandle:
-        """Build wait/cancel controls for a new or recovered Response."""
-
-        async def wait_for_result() -> ModelRunResult:
-            response = initial_response
-            while self._field(response, "status") in {"queued", "in_progress"}:
-                if self.background_poll_interval:
-                    await asyncio.sleep(self.background_poll_interval)
-                response = await self.client.responses.retrieve(response_id)
-            result = self._response_to_run_result(response)
-            self._raise_for_terminal_status(response, result)
-            if replay_input_items is not None:
-                self._store_replay_state(
-                    response_id=response_id,
-                    input_items=replay_input_items,
-                    response=response,
-                )
-            return result
-
-        async def wait_with_timeout() -> ModelRunResult:
-            try:
-                return await asyncio.wait_for(
-                    wait_for_result(), timeout=self.background_timeout
-                )
-            except asyncio.TimeoutError as error:
-                try:
-                    await self.client.responses.cancel(response_id)
-                except Exception as cancel_error:
-                    logger.warning(
-                        "Unable to cancel timed-out response %s: %s",
-                        response_id,
-                        cancel_error,
-                    )
-                raise ModelRunTerminalError(
-                    f"OpenAI response {response_id} exceeded background timeout "
-                    f"of {self.background_timeout} seconds"
-                ) from error
-
-        async def cancel_result() -> ModelRunResult:
-            response = await self.client.responses.cancel(response_id)
-            return self._response_to_run_result(response)
-
-        return ModelRunHandle(
-            response_id=response_id,
-            _wait=wait_with_timeout,
-            _cancel=cancel_result,
-        )
+        return request_params
 
     def _store_replay_state(
         self,
@@ -524,7 +424,6 @@ class OpenAIModel(BaseModel):
         cls._validate_config(config)
         reasoning = config.get("reasoning", {})
         prompt_cache = config.get("prompt_cache", {})
-        background = config.get("background", {})
         response_state = config.get("response_state", {})
         return cls(
             api_key=config.get("api_key"),
@@ -534,6 +433,8 @@ class OpenAIModel(BaseModel):
             temperature=config.get("temperature", 0.7),
             timeout=config.get("timeout", 600),
             default_headers=config.get("default_headers"),
+            api_key_env_var=config.get("api_key_env", "OPENAI_API_KEY"),
+            provider_name=config.get("provider_name", "OpenAI"),
             api_mode=config.get("api_mode", "responses"),
             reasoning_effort=reasoning.get("effort", "xhigh"),
             reasoning_context=reasoning.get("context", "auto"),
@@ -541,8 +442,7 @@ class OpenAIModel(BaseModel):
             store=config.get("store", True),
             prompt_cache_mode=prompt_cache.get("mode", "explicit"),
             prompt_cache_ttl=prompt_cache.get("ttl", "30m"),
-            background_poll_interval=background.get("poll_interval_seconds", 2),
-            background_timeout=background.get("timeout_seconds", 3600),
+            request_timeout=config.get("request_timeout", 3600),
             response_state_mode=response_state.get("mode", "server"),
             response_state_max_entries=response_state.get("max_entries", 128),
         )
@@ -602,14 +502,6 @@ class OpenAIModel(BaseModel):
             raise ValueError("Unsupported OpenAI prompt_cache.mode")
         if prompt_cache.get("ttl", "30m") != "30m":
             raise ValueError("OpenAI prompt_cache.ttl currently supports only '30m'")
-
-        background = config.get("background", {})
-        if not isinstance(background, dict):
-            raise ValueError("OpenAI background must be a mapping")
-        if set(background).difference(
-            {"poll_interval_seconds", "timeout_seconds"}
-        ):
-            raise ValueError("Unknown OpenAI background configuration")
 
         response_state = config.get("response_state", {})
         if not isinstance(response_state, dict):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 import textwrap
 import unittest
@@ -21,10 +22,8 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             config_path = _write_config(root, vendor_root)
             translated_runs = []
 
-            def generate_chinese_companion(
-                *, run_dir, provider_config, model_name
-            ) -> None:
-                translated_runs.append((run_dir, provider_config, model_name))
+            def generate_chinese_companion(*, run_dir, runtime, model_name) -> None:
+                translated_runs.append((run_dir, runtime, model_name))
                 translated_tex = run_dir.joinpath(
                     "content_refinement_workdir",
                     "final_paper.zh-CN.tex",
@@ -34,7 +33,10 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                     b"%PDF-1.4\n%%EOF"
                 )
 
-            with mock.patch(
+            with mock.patch.dict(
+                os.environ,
+                {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
+            ), mock.patch(
                 "internagent.paper_orchestra.service."
                 "generate_chinese_companion",
                 side_effect=generate_chinese_companion,
@@ -42,17 +44,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 result = asyncio.run(
                     run_paper_orchestra(
                         launch_dir=launch_dir,
-                        internagent_config={
-                            "models": {
-                                "openai": {
-                                    "api_mode": "responses",
-                                    "api_key": "top-secret",
-                                    "base_url": "https://relay.example/v1",
-                                    "model_name": "default-text-model",
-                                    "temperature": 0.7,
-                                }
-                            }
-                        },
+                        internagent_config={},
                         paper_config_path=config_path,
                     )
                 )
@@ -67,14 +59,12 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 / "final_refined_paper.tex",
             )
             self.assertEqual(len(translated_runs), 1)
-            translated_run_dir, translated_provider, translated_model = (
+            translated_run_dir, translated_runtime, translated_model = (
                 translated_runs[0]
             )
             self.assertEqual(translated_run_dir, result.run_dir)
-            self.assertEqual(
-                translated_provider["base_url"], "https://relay.example/v1"
-            )
-            self.assertEqual(translated_model, "writer-model")
+            self.assertTrue(hasattr(translated_runtime, "catalog"))
+            self.assertEqual(translated_model, "qwen/qwen3.7-max")
             self.assertTrue(
                 result.run_dir.joinpath(
                     "content_refinement_workdir",
@@ -121,20 +111,13 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             self.assertIn("--use_plotting", observation["argv"])
             plotting_index = observation["argv"].index("--use_plotting")
             self.assertEqual(observation["argv"][plotting_index + 1], "true")
-            self.assertTrue(observation["api_key_present"])
 
             runtime_config = json.loads(
                 (result.run_dir / "internagent_runtime.json").read_text(
                     encoding="utf-8"
                 )
             )
-            self.assertEqual(
-                runtime_config["provider"]["base_url"],
-                "https://relay.example/v1",
-            )
-            self.assertNotIn("api_key", runtime_config["provider"])
-            self.assertNotIn("temperature", runtime_config["provider"])
-            self.assertEqual(runtime_config["max_concurrent_model_requests"], 2)
+            self.assertTrue(runtime_config["catalog_path"].endswith("model_catalog.yaml"))
             self.assertIn("fake child stdout", (result.run_dir / "stdout.log").read_text())
             self.assertIn("fake child stderr", (result.run_dir / "stderr.log").read_text())
 
@@ -146,7 +129,10 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             vendor_root = _write_fake_vendor(root)
             config_path = _write_config(root, vendor_root)
 
-            with mock.patch(
+            with mock.patch.dict(
+                os.environ,
+                {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
+            ), mock.patch(
                 "internagent.paper_orchestra.service."
                 "generate_chinese_companion",
                 side_effect=RuntimeError("translation unavailable"),
@@ -154,14 +140,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 result = asyncio.run(
                     run_paper_orchestra(
                         launch_dir=launch_dir,
-                        internagent_config={
-                            "models": {
-                                "openai": {
-                                    "base_url": "https://relay.example/v1",
-                                    "model_name": "default-text-model",
-                                }
-                            }
-                        },
+                        internagent_config={},
                         paper_config_path=config_path,
                     )
                 )
@@ -292,11 +271,6 @@ def _write_config(root: Path, vendor_root: Path) -> Path:
             vendor_root: {vendor_root}
             template_dir: templates/iclr2025
             use_plotting: true
-            writer_model: writer-model
-            reflection_model: reflection-model
-            plotting_model: plotting-model
-            image_model: image-model
-            max_concurrent_model_requests: 2
             plotting_max_critic_rounds: 2
             """
         ).lstrip(),

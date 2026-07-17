@@ -16,11 +16,6 @@ class PaperOrchestraConfig:
     vendor_root: Path
     template_dir: Path
     use_plotting: bool
-    writer_model: str
-    reflection_model: str
-    plotting_model: str
-    image_model: str
-    max_concurrent_model_requests: int
     plotting_max_critic_rounds: int
     research_cutoff: str | None
 
@@ -42,6 +37,20 @@ def load_paper_config(
         _invalid(f"cannot load PaperOrchestra config: {error}")
     if not isinstance(data, dict):
         _invalid("PaperOrchestra config must contain a YAML mapping")
+
+    legacy_model_keys = {
+        "writer_model",
+        "reflection_model",
+        "plotting_model",
+        "image_model",
+        "max_concurrent_model_requests",
+    }
+    configured_legacy_keys = sorted(legacy_model_keys.intersection(data))
+    if configured_legacy_keys:
+        _invalid(
+            "PaperOrchestra model overrides are retired; remove: "
+            + ", ".join(configured_legacy_keys)
+        )
 
     vendor_root = _resolve_directory(
         data=data,
@@ -68,13 +77,6 @@ def load_paper_config(
         vendor_root=vendor_root,
         template_dir=template_dir,
         use_plotting=_boolean(data, "use_plotting"),
-        writer_model=_nonempty_string(data, "writer_model"),
-        reflection_model=_nonempty_string(data, "reflection_model"),
-        plotting_model=_nonempty_string(data, "plotting_model"),
-        image_model=_nonempty_string(data, "image_model"),
-        max_concurrent_model_requests=_positive_integer(
-            data, "max_concurrent_model_requests", default=2
-        ),
         plotting_max_critic_rounds=_nonnegative_integer(
             data, "plotting_max_critic_rounds"
         ),
@@ -108,15 +110,6 @@ def _nonnegative_integer(data: dict[str, Any], key: str) -> int:
     value = data.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         _invalid(f"{key} must be a non-negative integer")
-    return value
-
-
-def _positive_integer(
-    data: dict[str, Any], key: str, *, default: int
-) -> int:
-    value = data.get(key, default)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        _invalid(f"{key} must be a positive integer")
     return value
 
 

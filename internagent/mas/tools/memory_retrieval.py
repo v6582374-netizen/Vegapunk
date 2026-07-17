@@ -361,7 +361,8 @@ def _load_task_memory(task_name: str, memory_dir: str, config: Optional[Dict[str
             # Nested structure - extract task_memory from memory section
             load_config = {
                 "task_memory": config["memory"]["task_memory"].copy(),
-                "agents": config.get("agents", {})
+                "agents": config.get("agents", {}),
+                "_runtime": config.get("_runtime") or config.get("_global_config", {}).get("_runtime"),
             }
         elif "task_memory" in config:
             # Flat structure - use as is

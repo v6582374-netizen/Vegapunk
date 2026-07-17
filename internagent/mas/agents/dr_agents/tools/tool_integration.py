@@ -17,11 +17,6 @@ from camel.toolkits import (
     ExcelToolkit,
     FunctionTool
 )
-from camel.models import ModelFactory
-from camel.types import(
-    ModelPlatformType,
-    ModelType
-)
 from camel.tasks import Task
 from camel.utils import dependencies_required
 from dotenv import load_dotenv
@@ -53,63 +48,39 @@ logger = get_logger(__name__)
 
 
 # 创建模型工厂函数，避免重复创建相同模型
-def create_models():
-    """创建所需的模型实例"""
-    web_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.GPT_4O,
-        model_config_dict={"temperature": 0},
-    )
-    
-    document_processing_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.GPT_4O_MINI,
-        model_config_dict={"temperature": 0},
-    )
-    
-    reasoning_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.O3_MINI,
-        model_config_dict={"temperature": 0},
-    )
-    
-    image_analysis_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.GPT_4O,
-        model_config_dict={"temperature": 0},
-    )
-    
-    audio_reasoning_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.O4_MINI,
-        model_config_dict={"temperature": 0},
-    )
-    
-    web_agent_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.GPT_4O,
-        model_config_dict={"temperature": 0},
-    )
-    
-    planning_agent_model = ModelFactory.create(
-        model_platform=ModelPlatformType.OPENAI,
-        model_type=ModelType.O3_MINI,
-        model_config_dict={"temperature": 0},
-    )
-    
+def create_models(runtime):
+    """Create CAMEL-compatible adapters from the supplied project Runtime."""
+    from internagent.mas.agents.dr_agents.runtime_camel_backend import RuntimeCamelBackend
+
+    text_model = runtime.catalog.active_text_model
+    vision_model = runtime.catalog.capability_models.get("vision", text_model)
     return {
-        'web_model': web_model,
-        'document_processing_model': document_processing_model,
-        'reasoning_model': reasoning_model,
-        'image_analysis_model': image_analysis_model,
-        'audio_reasoning_model': audio_reasoning_model,
-        'web_agent_model': web_agent_model,
-        'planning_agent_model': planning_agent_model
+        "web_model": RuntimeCamelBackend(runtime, text_model),
+        "document_processing_model": RuntimeCamelBackend(runtime, text_model),
+        "reasoning_model": RuntimeCamelBackend(runtime, text_model),
+        "image_analysis_model": RuntimeCamelBackend(runtime, vision_model),
+        "audio_reasoning_model": RuntimeCamelBackend(runtime, text_model),
+        "web_agent_model": RuntimeCamelBackend(runtime, text_model),
+        "planning_agent_model": RuntimeCamelBackend(runtime, text_model),
     }
 
 
-# 全局模型实例（可以共享）
-_models = create_models()
+_models = None
+_runtime = None
+
+
+def configure_runtime(runtime):
+    global _runtime, _models
+    _runtime = runtime
+    _models = create_models(runtime)
+
+
+def _ensure_models():
+    if _models is None:
+        raise RuntimeError(
+            "DeepResearch tool integration requires configure_runtime(runtime)"
+        )
+    return _models
 
 
 # ===== 工厂函数：为有状态的工具创建独立实例 =====
@@ -124,11 +95,12 @@ def create_browser_toolkit():
         AsyncBrowserToolkit: A new browser toolkit instance with unique cache directory.
     """
     session_id = str(uuid.uuid4())
+    models = _ensure_models()
     return AsyncBrowserToolkit(
         headless=True, 
         cache_dir=f"tmp/browser_{session_id}", 
-        planning_agent_model=_models['planning_agent_model'], 
-        web_agent_model=_models['web_agent_model']
+        planning_agent_model=models['planning_agent_model'],
+        web_agent_model=models['web_agent_model']
     )
 
 
@@ -170,9 +142,10 @@ def create_audio_analysis_toolkit():
         AudioAnalysisToolkit: A new audio analysis toolkit instance with unique cache directory.
     """
     session_id = str(uuid.uuid4())
+    models = _ensure_models()
     return AudioAnalysisToolkit(
         cache_dir=f"tmp/audio_{session_id}",
-        audio_reasoning_model=_models['audio_reasoning_model']
+        audio_reasoning_model=models['audio_reasoning_model']
     )
 
 
@@ -1626,7 +1599,9 @@ def construct_agent_list(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     configured_web_report.__doc__ = search_and_summarize_webpages.__doc__
 
     # 创建无状态或状态安全的工具包实例（这些可以共享）
-    image_analysis_toolkit = ImageAnalysisToolkit(model=_models['image_analysis_model'])
+    image_analysis_toolkit = ImageAnalysisToolkit(
+        model=_ensure_models()['image_analysis_model']
+    )
     excel_toolkit = ExcelToolkit()
 
     # 定义所有可用工具及其映射关系

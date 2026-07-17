@@ -94,7 +94,7 @@ def get_default_config() -> Dict[str, Any]:
     """
     return {
         'model': {
-            'default_model': 'gpt-5.6-sol',
+            'default_model': 'qwen/qwen3.7-max',
             'global_planner_model': None,
             'global_execution_model': None,
             'coordinator_model': None,

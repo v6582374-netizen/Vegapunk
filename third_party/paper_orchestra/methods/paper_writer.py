@@ -35,10 +35,12 @@ def write_single_paper(
     latex_template_dir,
     idea_filename="idea_dense.md",
     experimental_log_filename="experimental_log.md",
-    writer_model_name: str = "gemini-3.1-pro-preview",
-    reflection_model_name: str = "gemini-3.1-pro-preview",
+    writer_model_name: str | None = None,
+    reflection_model_name: str | None = None,
     research_cutoff: str = "2024-11",
 ):
+    if not writer_model_name or not reflection_model_name:
+        raise ValueError("PaperOrchestra requires catalog-bound text model identities")
     latex_writeup_dir = osp.join(base_dir, "latex_writeup")
     pdf_file = osp.join(base_dir, "final_paper.pdf")
 
@@ -366,11 +368,13 @@ def run_batch_writeup(
     date_str: str = "",
     idea_filename: str = "idea_sparse.md",
     experimental_log_filename: str = "experimental_log.md",
-    writer_model_name: str = "gemini-3.1-pro-preview",
+    writer_model_name: str | None = None,
     research_cutoff: str = "2024-11",
     n_papers=-1,
     max_workers=4,
 ):
+    if not writer_model_name:
+        raise ValueError("PaperOrchestra requires catalog-bound text model identities")
     if output_dir == "":
         output_dir = create_log_folder(prefix=output_dir_prefix, date_str=date_str)
     else:

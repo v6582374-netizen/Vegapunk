@@ -6,12 +6,43 @@ Combines BM25 keyword search with vector semantic search using RRF fusion.
 
 from typing import List, Tuple, Optional, TYPE_CHECKING, Any
 import numpy as np
-import faiss
-from rank_bm25 import BM25Okapi
+try:
+    import faiss
+except ImportError:  # pragma: no cover - lightweight environments
+    faiss = None
+try:
+    from rank_bm25 import BM25Okapi
+except ImportError:  # pragma: no cover - lightweight environments
+    class BM25Okapi:
+        def __init__(self, corpus):
+            self.corpus = corpus
+
+        def get_scores(self, query_tokens):
+            query = set(query_tokens)
+            return np.array([sum(token in query for token in doc) for doc in self.corpus], dtype=float)
 
 if TYPE_CHECKING:
     from internagent.mas.models.embedding_models import EmbeddingModel
     from internagent.mas.memory.task_memory import TaskMemRecord
+
+
+class _NumpyIndex:
+    def __init__(self, dimension: int) -> None:
+        self.dimension = dimension
+        self.vectors = np.empty((0, dimension), dtype="float32")
+
+    def add(self, vectors: np.ndarray) -> None:
+        self.vectors = np.vstack([self.vectors, np.asarray(vectors, dtype="float32")])
+
+    def search(self, queries: np.ndarray, top_k: int):
+        queries = np.asarray(queries, dtype="float32")
+        distances = ((queries[:, None, :] - self.vectors[None, :, :]) ** 2).sum(axis=2)
+        indices = np.argsort(distances, axis=1)[:, :top_k]
+        return np.take_along_axis(distances, indices, axis=1), indices
+
+
+def _new_index(dimension: int):
+    return faiss.IndexFlatL2(dimension) if faiss is not None else _NumpyIndex(dimension)
 
 
 class HybridRetriever:
@@ -36,7 +67,7 @@ class HybridRetriever:
         self.bm25_corpus: List[List[str]] = []
 
         # Vector components
-        self.vector_index: Optional[faiss.IndexFlatL2] = None
+        self.vector_index = None
         self.vectors: Optional[np.ndarray] = None
 
         # Data
@@ -63,7 +94,7 @@ class HybridRetriever:
         print(f"Computing embeddings for {len(texts)} texts...")
         embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
         self.vectors = embeddings
-        self.vector_index = faiss.IndexFlatL2(self.dimension)
+        self.vector_index = _new_index(self.dimension)
         self.vector_index.add(embeddings)
         print(f"Built vector index with {len(texts)} vectors")
 
@@ -82,7 +113,11 @@ class HybridRetriever:
         np.save(embeddings_path, self.vectors)
 
         # Save FAISS index
-        faiss.write_index(self.vector_index, index_path)
+        if faiss is not None:
+            faiss.write_index(self.vector_index, index_path)
+        else:
+            with open(index_path, "wb") as file:
+                np.save(file, self.vector_index.vectors)
 
     def load_index(self, records: List[Any], texts: List[str], embeddings_path: str, index_path: str):
         """
@@ -101,7 +136,12 @@ class HybridRetriever:
         self.vectors = np.load(embeddings_path)
 
         # Load FAISS index
-        self.vector_index = faiss.read_index(index_path)
+        if faiss is not None:
+            self.vector_index = faiss.read_index(index_path)
+        else:
+            self.vector_index = _new_index(self.dimension)
+            with open(index_path, "rb") as file:
+                self.vector_index.add(np.load(file))
 
         # Validate dimensions
         if self.vectors.shape[0] != len(records):
@@ -142,7 +182,7 @@ class HybridRetriever:
             self.vectors = new_embeddings
 
         if self.vector_index is None:
-            self.vector_index = faiss.IndexFlatL2(self.dimension)
+            self.vector_index = _new_index(self.dimension)
 
         self.vector_index.add(new_embeddings)
 

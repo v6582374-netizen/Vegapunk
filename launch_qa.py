@@ -15,27 +15,29 @@ load_dotenv(override=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from internagent.mas.agents.dr_agent import DRAgent
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 
-def _load_qa_config(path: str) -> tuple[str, dict]:
-    """Load the shared OpenAI Runtime policy and project it into DR QA."""
+def _load_qa_config(path: str) -> tuple[UnifiedModelRuntime, dict]:
+    """Load the Catalog Runtime and project it into Deep Research QA."""
     with Path(path).open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
     if not isinstance(config, dict):
         raise ValueError("InternAgent config must contain a mapping")
-    models = config.get("models", {})
-    if not isinstance(models, dict):
-        raise ValueError("InternAgent models config must contain a mapping")
-    openai_config = models.get("openai", {})
-    if not isinstance(openai_config, dict):
-        raise ValueError("InternAgent models.openai must contain a mapping")
-    model_name = openai_config.get("model_name", "gpt-5.6-sol")
-    if model_name != "gpt-5.6-sol":
-        raise ValueError("Deep Research QA requires model='gpt-5.6-sol'")
+    catalog_path = config.get("model_catalog_path")
+    repository_root = Path(__file__).resolve().parent
+    if catalog_path is None:
+        catalog_path = repository_root / "config" / "model_catalog.yaml"
+    else:
+        catalog_path = Path(str(catalog_path)).expanduser()
+        if not catalog_path.is_absolute():
+            catalog_path = repository_root / catalog_path
+    runtime = UnifiedModelRuntime.from_catalog_path(catalog_path)
     agents = config.get("agents", {})
     dr_config = dict(agents.get("dr", {})) if isinstance(agents, dict) else {}
-    dr_config.update({"mode": "qa", "_global_config": config})
-    return model_name, dr_config
+    config["_runtime"] = runtime
+    dr_config.update({"mode": "qa", "_global_config": config, "_runtime": runtime})
+    return runtime, dr_config
 
 
 # 问答模式是一条短路径：把问题交给调研工作流，拿到一次性回答后打印或写文件。
@@ -54,8 +56,8 @@ def main():
 
     # 这里使用调研适配器，是因为问答同样需要“查背景、组织证据、合成答案”的能力；
     # 只是输出直接回到终端，而不是进入后续实验阶段。
-    model_name, dr_config = _load_qa_config(args.config)
-    agent = DRAgent(model=model_name, config=dr_config)
+    runtime, dr_config = _load_qa_config(args.config)
+    agent = DRAgent(model=runtime.model_for(capability="text"), config=dr_config)
     answer = str(asyncio.run(
         agent.execute({'task': args.question, 'file_path': args.file}, {})
     ))

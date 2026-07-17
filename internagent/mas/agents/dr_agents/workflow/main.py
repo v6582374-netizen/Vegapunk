@@ -55,14 +55,19 @@ class Workflow(BaseAgent):
         default_model = role_models['default']
         extraction_model = role_models['extraction']
         runtime_config = self.config.get('runtime_model', {})
+        runtime = runtime_config.get("runtime")
+        if runtime is None:
+            raise ValueError("DeepResearch workflow requires UnifiedModelRuntime")
+        from tools.tool_integration import configure_runtime
 
-        def runtime_policy(role, context="current_turn", mode="standard", background=False):
+        configure_runtime(runtime)
+
+        def runtime_policy(role, context="current_turn", mode="standard"):
             return {
                 "runtime_config": runtime_config,
                 "agent_role": role,
                 "reasoning_context": context,
                 "reasoning_mode": mode,
-                "background": background,
                 "extraction_model": extraction_model,
             }
         
@@ -90,7 +95,6 @@ class Workflow(BaseAgent):
                 "dr_synthesizer",
                 context="all_turns",
                 mode="pro",
-                background=True,
             )
         )
         

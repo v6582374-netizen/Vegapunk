@@ -93,7 +93,8 @@ class IdeaGenerator:
                 self.idea_graph = IdeaGraph(
                     working_dir=output_dir,
                     namespace=self.args.task_name,
-                    similarity_threshold=0.7
+                    similarity_threshold=0.7,
+                    runtime=self.interface.model_runtime,
                 )
                 self.logger.info("IdeaGraph initialized")
             except Exception as e:
@@ -952,7 +953,6 @@ class ExperimentRunner:
                         with open(checklist_path) as _f:
                             checklist = json.load(_f)
 
-                sci_scorer_model = self.config.get('sci_task', {}).get('scorer_model', 'gpt-5.6-sol')
                 run_timeout = self.config.get('experiment', {}).get('run_timeout', None)
 
                 success = perform_experiments_claudecode(
@@ -965,8 +965,8 @@ class ExperimentRunner:
                     task_type=task_type,
                     task_info=task_info,
                     checklist=checklist,
-                    sci_scorer_model=sci_scorer_model,
                     run_timeout=run_timeout,
+                    runtime=self.interface.model_runtime,
                 )
 
             self.logger.info(f"Claude Code experiment {'succeeded' if success else 'failed'}: {idea_name}")

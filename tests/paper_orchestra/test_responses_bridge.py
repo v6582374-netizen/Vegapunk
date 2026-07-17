@@ -1,175 +1,84 @@
 from __future__ import annotations
 
-import base64
-import threading
-import time
+import asyncio
 import unittest
-from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
-from internagent.mas.models.runtime import (
-    ImageContent,
-    ModelRunResult,
-    OutputText,
-    TextContent,
-)
-from internagent.paper_orchestra.responses_runtime import (
-    PaperOrchestraResponsesRuntime,
-)
+from internagent.mas.models.runtime import ImageContent, ModelRunResult, OutputText, TextContent
+from internagent.paper_orchestra.responses_runtime import PaperOrchestraResponsesRuntime
+
+
+class _Catalog:
+    active_text_model = "qwen/qwen3.7-max"
+    capability_models = {"vision": "qwen/qwen3.6-plus"}
+
+    def resolve_model(self, model_id, capability=None):
+        del capability
+        if "/" not in model_id:
+            raise ValueError("canonical provider/model identity required")
+        return SimpleNamespace(canonical_id=model_id)
+
+    def binding_for(self, capability):
+        return SimpleNamespace(canonical_id=self.capability_models[capability])
+
+
+class _Runtime:
+    catalog = _Catalog()
+
+    def __init__(self):
+        self.requests = []
+
+    async def run(self, request, *, model_id, capability):
+        self.requests.append((request, model_id, capability))
+        return ModelRunResult(
+            response_id="response-1",
+            status="completed",
+            model=model_id.split("/", 1)[1],
+            items=(OutputText("model output"),),
+        )
+
+    async def generate_image(self, prompt, *, aspect_ratio, model_id):
+        self.requests.append((prompt, model_id, aspect_ratio))
+        return b"generated image"
 
 
 class PaperOrchestraResponsesRuntimeTest(unittest.TestCase):
-    def test_limits_parallel_requests_without_changing_upstream_workers(self) -> None:
-        lock = threading.Lock()
-        active = 0
-        maximum_active = 0
+    def test_maps_canonical_text_and_vision_requests(self) -> None:
+        runtime = _Runtime()
+        bridge = PaperOrchestraResponsesRuntime(runtime=runtime)
 
-        class FakeModel:
-            def run(self, request):
-                nonlocal active, maximum_active
-                with lock:
-                    active += 1
-                    maximum_active = max(maximum_active, active)
-                time.sleep(0.03)
-                with lock:
-                    active -= 1
-                return ModelRunResult(
-                    response_id="response-1",
-                    status="completed",
-                    model="writer-model",
-                    items=(OutputText("model output"),),
-                )
-
-        runtime = PaperOrchestraResponsesRuntime(
-            {
-                "max_concurrent_model_requests": 2,
-                "provider": {"base_url": "https://relay.example/v1"},
-            },
-            model_factory=lambda **kwargs: FakeModel(),
-        )
-
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            outputs = list(
-                executor.map(
-                    lambda _: runtime.generate_text(
-                        model_name="writer-model",
-                        content=(TextContent("write"),),
-                    ),
-                    range(6),
-                )
-            )
-
-        self.assertEqual(outputs, ["model output"] * 6)
-        self.assertEqual(maximum_active, 2)
-
-    def test_maps_upstream_alias_to_responses_request(self) -> None:
-        created: list[tuple[str, dict[str, object], str]] = []
-        requests = []
-
-        class FakeModel:
-            def run(self, request):
-                requests.append(request)
-                return ModelRunResult(
-                    response_id="response-1",
-                    status="completed",
-                    model="writer-model",
-                    items=(OutputText("model output"),),
-                )
-
-        def model_factory(*, model_name, runtime_config, agent_role):
-            created.append((model_name, runtime_config, agent_role))
-            return FakeModel()
-
-        runtime = PaperOrchestraResponsesRuntime(
-            {
-                "provider": {
-                    "provider": "openai",
-                    "api_mode": "responses",
-                    "base_url": "https://relay.example/v1",
-                },
-                "models": {"image": "image-model"},
-                "model_aliases": {"gemini-3-flash-preview": "writer-model"},
-            },
-            model_factory=model_factory,
-        )
-
-        text = runtime.generate_text(
-            model_name="gemini-3-flash-preview",
-            content=(
-                TextContent("find papers"),
-                ImageContent("data:image/png;base64,AA==", detail="original"),
-            ),
+        text = bridge.generate_text(
+            model_name="qwen/qwen3.7-max",
+            content=(TextContent("find papers"),),
             system_prompt="write JSON",
-            temperature=0.2,
+        )
+        vision = bridge.generate_text(
+            model_name="qwen/qwen3.7-max",
+            content=(TextContent("inspect"), ImageContent("data:image/png;base64,AA==")),
         )
 
         self.assertEqual(text, "model output")
-        self.assertEqual(created[0][0], "writer-model")
-        self.assertEqual(created[0][1]["base_url"], "https://relay.example/v1")
-        self.assertIsNone(created[0][1]["temperature"])
-        self.assertEqual(created[0][2], "paper_orchestra")
-        self.assertEqual(requests[0].instructions, "write JSON")
-        self.assertIsNone(requests[0].temperature)
-        self.assertEqual(requests[0].input[0].content[0], TextContent("find papers"))
+        self.assertEqual(vision, "model output")
+        self.assertEqual(runtime.requests[0][1:], ("qwen/qwen3.7-max", "text"))
+        self.assertEqual(runtime.requests[1][1:], ("qwen/qwen3.6-plus", "vision"))
+
+    def test_aliases_and_implicit_provider_names_are_rejected(self) -> None:
+        bridge = PaperOrchestraResponsesRuntime(runtime=_Runtime())
+        with self.assertRaises(ValueError):
+            bridge.resolve_model("gemini-3-flash-preview")
+
+    def test_image_generation_stays_on_the_runtime_image_binding(self) -> None:
+        runtime = _Runtime()
+        bridge = PaperOrchestraResponsesRuntime(runtime=runtime)
         self.assertEqual(
-            requests[0].input[0].content[1],
-            ImageContent("data:image/png;base64,AA==", detail="original"),
+            bridge.generate_image(
+                model_name="qwen/qwen-image-2.0-pro",
+                prompt="draw a method diagram",
+                aspect_ratio="16:9",
+            ),
+            b"generated image",
         )
-
-    def test_image_generation_uses_the_same_provider(self) -> None:
-        calls = []
-        expected = b"generated image"
-
-        class FakeImages:
-            def generate(self, **kwargs):
-                calls.append(kwargs)
-                return SimpleNamespace(
-                    data=[
-                        SimpleNamespace(
-                            b64_json=base64.b64encode(expected).decode("ascii"),
-                            url=None,
-                        )
-                    ]
-                )
-
-        class FakeClient:
-            images = FakeImages()
-
-        client_arguments = []
-
-        def image_client_factory(**kwargs):
-            client_arguments.append(kwargs)
-            return FakeClient()
-
-        runtime = PaperOrchestraResponsesRuntime(
-            {
-                "provider": {
-                    "provider": "openai",
-                    "api_mode": "responses",
-                    "api_key": "relay-key",
-                    "base_url": "https://relay.example/v1",
-                    "timeout": 90,
-                },
-                "models": {"image": "image-model"},
-                "model_aliases": {
-                    "gemini-3-pro-image-preview": "image-model"
-                },
-            },
-            image_client_factory=image_client_factory,
-        )
-
-        generated = runtime.generate_image(
-            model_name="gemini-3-pro-image-preview",
-            prompt="draw a method diagram",
-            aspect_ratio="16:9",
-        )
-
-        self.assertEqual(generated, expected)
-        self.assertEqual(client_arguments[0]["base_url"], "https://relay.example/v1")
-        self.assertEqual(client_arguments[0]["api_key"], "relay-key")
-        self.assertEqual(calls[0]["model"], "image-model")
-        self.assertEqual(calls[0]["prompt"], "draw a method diagram")
-        self.assertEqual(calls[0]["size"], "1536x1024")
+        self.assertEqual(runtime.requests[0][1:], ("qwen/qwen-image-2.0-pro", "16:9"))
 
 
 if __name__ == "__main__":

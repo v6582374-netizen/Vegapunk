@@ -21,7 +21,6 @@ from typing import Dict, Any
 
 from json_repair import repair_json
 
-from internagent.mas.models.openai_model import OpenAIModel
 from internagent.mas.models.runtime import (
     ImageContent,
     Message,
@@ -29,6 +28,7 @@ from internagent.mas.models.runtime import (
     ReasoningConfig,
     TextContent,
 )
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 from internagent.rcb_evaluation.score import (
     _read_report, _find_generated_images, _score_single_item,
 )
@@ -50,21 +50,24 @@ class RuntimeScoringAgent:
     def __init__(
         self,
         *,
-        api_key: str,
-        base_url: str,
-        model_name: str,
+        runtime: UnifiedModelRuntime | None = None,
+        model_name: str | None = None,
         max_output_tokens: int = 500,
         timeout: int = 120,
     ) -> None:
-        if model_name != "gpt-5.6-sol":
-            raise ValueError(
-                "ResearchClawBench scoring requires model='gpt-5.6-sol'"
-            )
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model_name = model_name
+        del timeout
+        if runtime is None:
+            raise ValueError("Sci evaluator requires the process-owned UnifiedModelRuntime")
+        self.runtime = runtime
+        self.model_id = model_name or self.runtime.catalog.active_text_model
+        if model_name is not None and model_name != self.runtime.catalog.active_text_model:
+            raise ValueError("Sci evaluator must use the Catalog active_text_model")
+        self.model_id = self.runtime.catalog.resolve_model(
+            self.model_id, capability="json"
+        ).canonical_id
+        self.vision_model_id = self.runtime.catalog.binding_for("vision").canonical_id
+        self.model_name = self.runtime.catalog.resolve_model(self.model_id).model
         self.max_output_tokens = max_output_tokens
-        self.timeout = timeout
 
     def __call__(
         self,
@@ -75,28 +78,19 @@ class RuntimeScoringAgent:
         max_try: int = 2,
     ) -> dict[str, object] | None:
         del return_example
-        last_error: Exception | None = None
-        for _ in range(max_try):
-            try:
-                return asyncio.run(self._run(prompt, image_paths or []))
-            except Exception as error:
-                last_error = error
-        logger.error("Responses scorer failed after %d attempts: %s", max_try, last_error)
-        return None
+        del max_try
+        try:
+            return asyncio.run(self._run(prompt, image_paths or []))
+        except Exception as error:
+            logger.error("Unified Runtime scorer failed: %s", error)
+            return None
 
     async def _run(
         self, prompt: str, image_paths: list[str]
     ) -> dict[str, object]:
-        model = OpenAIModel(
-            api_key=self.api_key,
-            base_url=self.base_url or None,
-            model_name=self.model_name,
-            max_output_tokens=self.max_output_tokens,
-            temperature=0,
-            timeout=self.timeout,
-            reasoning_context="current_turn",
-            reasoning_mode="pro",
-        )
+        capability = "vision" if image_paths else "json"
+        request_model_id = self.vision_model_id if image_paths else self.model_id
+        model = self.runtime.model_for(request_model_id, capability=capability)
         content: list[TextContent | ImageContent] = [TextContent(text=prompt)]
         for raw_path in image_paths:
             path = Path(raw_path)
@@ -154,7 +148,8 @@ def _get_env(name: str, *fallbacks: str) -> str:
 def score_run(
     workspace_dir: str,
     checklist_path: str,
-    model: str = "gpt-5.6-sol",
+    model: str | None = None,
+    runtime: UnifiedModelRuntime | None = None,
 ) -> Dict[str, Any]:
     """Score all checklist items using the official ResearchClawBench scorer."""
     if not osp.exists(checklist_path):
@@ -181,12 +176,12 @@ def score_run(
 
     generated_images = _find_generated_images(workspace)
 
+    if runtime is None:
+        raise ValueError("Sci evaluator requires the process-owned UnifiedModelRuntime")
     agent = RuntimeScoringAgent(
-        api_key=_get_env("OPENAI_API_KEY"),
-        base_url=_get_env("OPENAI_BASE_URL", "OPENAI_API_BASE_URL"),
+        runtime=runtime,
         model_name=model,
         max_output_tokens=500,
-        timeout=120,
     )
 
     target_base = workspace / "target_study"

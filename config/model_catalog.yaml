@@ -1,0 +1,88 @@
+version: 1
+
+active_text_model: qwen/qwen3.7-max
+
+capability_models:
+  vision: qwen/qwen3.6-plus
+  image_generation: qwen/qwen-image-2.0-pro
+  embedding: local/BAAI-bge-base-en-v1.5
+
+providers:
+  relay:
+    protocol: responses
+    base_url: https://ai.cloudyz.top/v1
+    api_key_env: OPENAI_API_KEY
+    timeout: 600
+    request_timeout: 3600
+    reasoning:
+      effort: xhigh
+      context: auto
+      mode: standard
+    store: true
+    prompt_cache:
+      mode: implicit
+      ttl: 30m
+
+  qwen:
+    protocol: responses
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    native_base_url: https://dashscope.aliyuncs.com
+    api_key_env: DASHSCOPE_API_KEY
+    timeout: 600
+    request_timeout: 3600
+    reasoning:
+      effort: xhigh
+      context: auto
+      mode: standard
+    store: true
+    prompt_cache:
+      mode: implicit
+      ttl: 30m
+
+  local:
+    protocol: local_embedding
+
+models:
+  relay/gpt-5.6-sol:
+    provider: relay
+    model: gpt-5.6-sol
+    capabilities: [text, json, tools, vision, reasoning, continuation]
+
+  relay/gpt-image-1:
+    provider: relay
+    model: gpt-image-1
+    protocol: openai_images
+    capabilities: [image_generation]
+
+  qwen/qwen3.7-max:
+    provider: qwen
+    model: qwen3.7-max
+    capabilities: [text, json, tools, reasoning, continuation]
+
+  qwen/qwen3.6-plus:
+    provider: qwen
+    model: qwen3.6-plus
+    capabilities: [text, json, tools, vision, reasoning, continuation]
+
+  qwen/qwen-image-2.0-pro:
+    provider: qwen
+    model: qwen-image-2.0-pro
+    protocol: dashscope_multimodal
+    capabilities: [image_generation]
+
+  local/BAAI-bge-base-en-v1.5:
+    provider: local
+    model: BAAI/bge-base-en-v1.5
+    protocol: local_embedding
+    capabilities: [embedding]
+
+retry:
+  max_attempts: 8
+  max_elapsed_seconds: 900
+  initial_backoff_seconds: 2
+  max_backoff_seconds: 60
+
+concurrency:
+  relay: 2
+  qwen: 2
+  local: 2

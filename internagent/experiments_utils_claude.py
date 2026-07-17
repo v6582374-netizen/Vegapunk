@@ -421,8 +421,8 @@ def perform_experiments(
     task_type='auto',
     task_info=None,
     checklist=None,
-    sci_scorer_model='gpt-5.6-sol',
     run_timeout=None,
+    runtime=None,
 ) -> bool:
     """
     Perform multi-round experiments using Claude Code.
@@ -438,7 +438,6 @@ def perform_experiments(
         task_type: 'auto' for standard tasks, 'sci' for paper reproduction tasks
         task_info: For sci tasks — parsed task_info.json dict (task description, data)
         checklist: For sci tasks — parsed checklist.json list
-        sci_scorer_model: Model to use for LLM-as-judge scoring of sci tasks
 
     Returns:
         True if experiments completed successfully, False otherwise
@@ -520,7 +519,8 @@ def perform_experiments(
         if task_type == 'sci':
             return_code, next_prompt = _handle_sci_run_scoring(
                 folder_name, run, return_code, next_prompt,
-                checklist, sci_scorer_model, log_message,
+                checklist, log_message,
+                runtime,
             )
 
         if return_code == 0:
@@ -589,7 +589,7 @@ def _build_sci_initial_prompt(idea_info, task_info, checklist, max_runs, folder_
 
 
 def _handle_sci_run_scoring(folder_name, run_num, return_code, next_prompt,
-                             checklist, sci_scorer_model, log_message):
+                             checklist, log_message, runtime=None):
     """
     After a sci_task run: if report exists but no final_info.json, score it.
 
@@ -608,7 +608,7 @@ def _handle_sci_run_scoring(folder_name, run_num, return_code, next_prompt,
         return return_code, next_prompt
 
     # Report exists — score it
-    log_message(f"Scoring sci_task run {run_num} with LLM judge (model={sci_scorer_model})...")
+    log_message(f"Scoring sci_task run {run_num} with the Catalog active text model...")
     checklist_path = osp.join(run_dir, "target_study", "checklist.json")
 
     # Fall back to checklist object if file not found in run_dir
@@ -626,7 +626,7 @@ def _handle_sci_run_scoring(folder_name, run_num, return_code, next_prompt,
 
     try:
         from internagent.sci_eval import score_run, write_final_info
-        scores = score_run(run_dir, checklist_path, model=sci_scorer_model)
+        scores = score_run(run_dir, checklist_path, runtime=runtime)
         write_final_info(run_dir, scores)
         total = scores.get('total_score', 0)
         log_message(f"Sci task score for run {run_num}: {total:.1f}/100")

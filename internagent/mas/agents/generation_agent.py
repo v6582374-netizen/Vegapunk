@@ -891,11 +891,9 @@ class GenerationAgent(BaseAgent):
                             output_dir=ref_code_path,
                             output_name="code_summary.json",
                             ignore_list=None,
-                            model=self.model.model_name,
+                            model=self.model.model_id,
                             provider="user",
-                            runtime_config=(
-                                global_config.get("models", {}).get("openai", {})
-                            ),
+                            runtime_config={"runtime": global_config.get("_runtime")},
                         )
                 # Format key_files list into a readable string
                 key_files = ref_code.get('key_files', [])

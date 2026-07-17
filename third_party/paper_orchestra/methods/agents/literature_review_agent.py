@@ -69,7 +69,7 @@ class HybridLiteratureAgent:
         latex_template_path: str,
         conference_guidelines_path: str,
         output_dir: str,
-        model_name: str = "gemini-3.1-pro-preview",
+        model_name: str | None = None,
         max_workers: int = 5,
     ):
         self.output_dir = output_dir
@@ -462,7 +462,7 @@ class HybridLiteratureAgent:
             """
 
         response_dict = call_gemini_with_contents(
-            model_name="gemini-3-flash-preview",
+            model_name=self.model_name,
             contents=[prompt],
             generation_configs={
                 "tools": [self.google_search_tool],

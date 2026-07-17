@@ -35,9 +35,6 @@ def _load_long_memory_module() -> types.ModuleType:
     agent_factory = _stub_module(
         "internagent.mas.agents.agent_factory", AgentFactory=object
     )
-    model_factory = _stub_module(
-        "internagent.mas.models.model_factory", ModelFactory=object
-    )
 
     module_name = "_long_memory_config_test"
     spec = importlib.util.spec_from_file_location(module_name, LONG_MEMORY_PATH)
@@ -51,7 +48,6 @@ def _load_long_memory_module() -> types.ModuleType:
         "chromadb.config": chromadb_config,
         "chromadb.utils": chromadb_utils,
         "internagent.mas.agents.agent_factory": agent_factory,
-        "internagent.mas.models.model_factory": model_factory,
         module_name: module,
     }
     with patch.dict(sys.modules, stubs):

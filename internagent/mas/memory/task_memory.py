@@ -16,8 +16,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 
-from internagent.mas.models.embedding_models import EmbeddingModel
-from internagent.mas.models.model_factory import ModelFactory
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 from internagent.mas.memory.retriever import HybridRetriever
 from internagent.mas.agents.exp_analyze_agent import ExpAnalyzeAgent, get_metric_direction_by_pattern as get_metric_direction
 import asyncio
@@ -89,34 +88,16 @@ class TaskMemoryLayer:
         llm_config: Optional[Dict[str, Any]] = None,
         label_threshold_percent: float = 5.0,
         embedding_mode: str = "description",
-        custom_metric_config: Optional[Dict[str, str]] = None
+        custom_metric_config: Optional[Dict[str, str]] = None,
+        runtime: UnifiedModelRuntime | None = None,
     ):
         """
         Initialize memory layer
 
         Args:
             memory_dir: Directory to store memory files
-            embedding_config: Configuration for EmbeddingModel
-                {
-                    "model_type": "local" or "openai" or "azure",
-                    "model_name": "",
-                    "api_key": "...",
-                    "base_url": "...",
-                }
-            llm_config: Configuration for AnalyzeAgent (follows InternAgent model config pattern)
-                {
-                    "provider": "openai",  # Model provider (openai/azure/custom)
-                    "model_name": "gpt-5.6-sol",  # Model name
-                    "api_key": "...",  # API key
-                    "temperature": 0.7,  # Optional: sampling temperature
-                    "timeout": 600,  # Optional: timeout in seconds
-
-                    # Agent-specific configuration
-                    "custom_metric_config": {...},  # Optional: custom metric directions
-                    "use_llm_for_metric_direction": True,  # Optional: use LLM for unknown metrics
-                    "primary_metric": "val/PQ_Vm_rmse",  # Optional: specify primary metric
-                    "use_llm_for_primary_metric": True,  # Optional: use LLM to auto-select primary metric
-                }
+            embedding_config: Retired compatibility argument; model selection comes from the shared catalog.
+            llm_config: Agent behavior settings plus the injected Runtime; Provider settings are not accepted.
             label_threshold_percent: Threshold for labeling ideas
             embedding_mode: Mode for text extraction (title/description/method/full)
             custom_metric_config: Custom metric direction configuration (can also be in llm_config)
@@ -126,10 +107,23 @@ class TaskMemoryLayer:
 
         self.label_threshold_percent = label_threshold_percent
         self.embedding_mode = embedding_mode
+        if embedding_config:
+            raise ValueError(
+                "Task memory embedding provider settings are retired; use the catalog binding"
+            )
 
         # Initialize embedding model
-        embedding_config = embedding_config or {"model_type": "local"}
-        self.embedding_model = EmbeddingModel(**embedding_config)
+        runtime = runtime or (
+            llm_config.get("_runtime") if isinstance(llm_config, dict) else None
+        )
+        if not hasattr(runtime, "embedding_model"):
+            raise ValueError(
+                "Task memory requires the process-owned UnifiedModelRuntime"
+            )
+        self.embedding_model = runtime.embedding_model()
+        self.embedding_identity = (
+            f"{self.embedding_model.model_type}/{self.embedding_model.model_name}"
+        )
 
         # Initialize LLM for analysis (optional)
         self.analyze_agent = None
@@ -141,34 +135,14 @@ class TaskMemoryLayer:
 
             # Create model from config
             try:
-                model_keys = {
-                    "provider",
-                    "default_provider",
-                    "api_key",
-                    "base_url",
-                    "model_name",
-                    "max_output_tokens",
-                    "temperature",
-                    "timeout",
-                    "default_headers",
-                    "api_mode",
-                    "reasoning",
-                    "store",
-                    "prompt_cache",
-                    "background",
-                }
-                if "_global_config" in llm_config:
-                    model = ModelFactory.create_model_for_agent(
-                        "exp_analyze", llm_config
+                runtime = runtime or llm_config.get("_runtime")
+                if runtime is None or not hasattr(runtime, "model_for"):
+                    runtime = llm_config.get("_global_config", {}).get("_runtime")
+                if runtime is None or not hasattr(runtime, "model_for"):
+                    raise ValueError(
+                        "Task memory analysis requires the shared UnifiedModelRuntime"
                     )
-                else:
-                    model = ModelFactory.create_model(
-                        {
-                            key: value
-                            for key, value in llm_config.items()
-                            if key in model_keys
-                        }
-                    )
+                model = runtime.model_for(capability="text")
                 self.analyze_agent = ExpAnalyzeAgent(model, llm_config)
             except Exception as e:
                 print(f"Warning: Failed to initialize ExpAnalyzeAgent: {e}")
@@ -226,21 +200,37 @@ class TaskMemoryLayer:
         label_threshold = task_memory_config.get("label_threshold_percent", 5.0)
         embedding_mode = task_memory_config.get("embedding_mode", "description")
 
-        # Build embedding config
-        embedding_config = None
         if "embedding" in task_memory_config:
-            embedding_config = task_memory_config["embedding"].copy()
+            raise ValueError(
+                "Task memory embedding configuration is retired; use model_catalog.yaml"
+            )
+        embedding_config = None
 
         # Build LLM config for ExpAnalyzeAgent from agents.exp_analyze
         llm_config = None
         if "agents" in config and isinstance(config["agents"], dict):
             agent_config = config["agents"].get("exp_analyze", None)
             if agent_config is not None and isinstance(agent_config, dict):
+                legacy_model_keys = {
+                    "provider",
+                    "model_provider",
+                    "model_name",
+                    "api_key",
+                    "base_url",
+                    "api_mode",
+                }
+                if legacy_model_keys.intersection(agent_config):
+                    raise ValueError(
+                        "Task memory LLM Provider settings are retired; use the shared Runtime"
+                    )
                 llm_config = agent_config.copy()
                 llm_config["_global_config"] = config
 
         # Extract custom_metric_config if at top level
         custom_metric_config = config.get("custom_metric_config", None)
+        runtime = config.get("_runtime")
+        if runtime is None and isinstance(config.get("_global_config"), dict):
+            runtime = config["_global_config"].get("_runtime")
 
         return cls(
             memory_dir=memory_dir,
@@ -248,7 +238,8 @@ class TaskMemoryLayer:
             llm_config=llm_config,
             label_threshold_percent=label_threshold,
             embedding_mode=embedding_mode,
-            custom_metric_config=custom_metric_config
+            custom_metric_config=custom_metric_config,
+            runtime=runtime,
         )
 
     def _save_record_source(
@@ -341,6 +332,21 @@ class TaskMemoryLayer:
             # Try to load persisted embeddings and index
             embeddings_file = self.memory_dir / "embeddings.npy"
             index_file = self.memory_dir / "faiss.index"
+            metadata_file = self.memory_dir / "metadata.json"
+
+            cached_identity = None
+            if metadata_file.exists():
+                try:
+                    cached_identity = json.loads(
+                        metadata_file.read_text(encoding="utf-8")
+                    ).get("embedding_identity")
+                except (OSError, json.JSONDecodeError):
+                    cached_identity = None
+            if cached_identity != self.embedding_identity:
+                # Vector values are model-specific.  A changed model must
+                # rebuild the disposable index from the authoritative records.
+                embeddings_file.unlink(missing_ok=True)
+                index_file.unlink(missing_ok=True)
 
             if self.records:
                 # Check if persisted embeddings exist and are valid
@@ -415,6 +421,7 @@ class TaskMemoryLayer:
         metadata = {
             "embedding_model_type": self.embedding_model.model_type,
             "embedding_model_name": self.embedding_model.model_name,
+            "embedding_identity": self.embedding_identity,
             "dimension": self.embedding_model.dimension,
             "embedding_mode": self.embedding_mode,
             "label_threshold_percent": self.label_threshold_percent,

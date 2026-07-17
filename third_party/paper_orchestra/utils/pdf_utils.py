@@ -128,8 +128,10 @@ Here is the paper text:
 
 
 def extract_reference_from_pdf_text(
-    paper_text: str, model_name: str = "gemini-3.1-pro-preview"
+    paper_text: str, model_name: str | None = None
 ) -> str:
+    if not model_name:
+        raise ValueError("Reference extraction requires a catalog-bound model identity")
     from utils.llm_backend_utils import call_llm_with_text_prompt
 
     instructions = papaer_text_to_reference_text_prompt_template.format(
@@ -145,7 +147,7 @@ def extract_reference_from_pdf_text(
 
 
 def get_paper_references_from_pdf(
-    pdf_path: str, model_name: str = "gemini-3.1-pro-preview"
+    pdf_path: str, model_name: str | None = None
 ):
     try:
         paper_text = load_paper(pdf_path)

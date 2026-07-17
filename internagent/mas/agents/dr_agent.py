@@ -10,7 +10,7 @@ import asyncio
 import sys
 import os
 import copy
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 from .base_agent import BaseAgent, AgentExecutionError
 
@@ -35,44 +35,6 @@ def _merge_workflow_config(
         else:
             merged[key] = copy.deepcopy(value)
     return merged
-
-
-def _effective_dr_model_names(model_config: Dict[str, Any]) -> Tuple[str, ...]:
-    """Resolve the model names that the DR workflow will actually use."""
-
-    from .dr_agents.utils.config_loader import resolve_dr_model_roles
-
-    resolved = resolve_dr_model_roles(model_config)
-    return tuple(dict.fromkeys(resolved.values()))
-
-
-def _probe_dr_model(
-    model_name: str, runtime_config: Dict[str, Any]
-) -> None:
-    """Make one small real request through the selected DR provider."""
-
-    from .dr_agents.models import get_model
-
-    model = get_model(
-        model_name,
-        runtime_config=runtime_config,
-        agent_role="dr_availability_probe",
-        reasoning_context="current_turn",
-        reasoning_mode="standard",
-        background=False,
-    )
-    try:
-        probe = getattr(model, "probe", None)
-        if not callable(probe):
-            raise ValueError(
-                f"DeepResearch model {model_name!r} does not support "
-                "availability probing"
-            )
-        probe()
-    finally:
-        close = getattr(model, "close", None)
-        if callable(close):
-            close()
 
 
 def _get_workflow_class():
@@ -145,14 +107,6 @@ class DRAgent(BaseAgent):
         # 工作流初始化失败时保留一个可创建的代理对象，调用方仍能拿到降级提示。
         Workflow = _get_workflow_class()
         if Workflow is not None:
-            for model_name in _effective_dr_model_names(
-                self.workflow_config["model"]
-            ):
-                _probe_dr_model(
-                    model_name,
-                    self.workflow_config.get("runtime_model", {}),
-                )
-                logger.info("DR model availability confirmed: %s", model_name)
             try:
                 self.workflow = Workflow(config=self.workflow_config)
                 logger.info("DR workflow initialized successfully")
@@ -208,15 +162,26 @@ class DRAgent(BaseAgent):
             )
             logger.info("Applied agent config overrides to DR workflow config")
 
-        _effective_dr_model_names(workflow_config.get("model", {}))
-
-        # DR is a synchronous orchestration layer, but it inherits the exact root
-        # provider policy instead of maintaining a second OpenAI configuration.
-        global_config = agent_config.get("_global_config", {})
-        models_config = global_config.get("models", {})
-        provider_config = copy.deepcopy(models_config.get("openai", {}))
-        provider_config["provider"] = "openai"
-        workflow_config["runtime_model"] = provider_config
+        runtime = agent_config.get("_runtime")
+        if runtime is None:
+            runtime = agent_config.get("_global_config", {}).get("_runtime")
+        if runtime is None:
+            raise ValueError(
+                "DeepResearch configuration requires the shared UnifiedModelRuntime"
+            )
+        active_model = runtime.catalog.active_text_model
+        workflow_config["model"] = {
+            "default_model": active_model,
+            "global_planner_model": active_model,
+            "global_execution_model": active_model,
+            "coordinator_model": active_model,
+            "synthesizer_model": active_model,
+            "extraction_model": active_model,
+        }
+        workflow_config["runtime_model"] = {
+            "runtime": runtime,
+            "model_id": active_model,
+        }
 
         return workflow_config
     

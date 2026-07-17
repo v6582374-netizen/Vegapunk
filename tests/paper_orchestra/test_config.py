@@ -28,11 +28,6 @@ class PaperConfigTest(unittest.TestCase):
                 """vendor_root: third_party/paper_orchestra
 template_dir: templates/iclr2025
 use_plotting: true
-writer_model: writer-model
-reflection_model: reflection-model
-plotting_model: plotting-model
-image_model: image-model
-max_concurrent_model_requests: 2
 plotting_max_critic_rounds: 3
 research_cutoff: null
 """,
@@ -44,11 +39,6 @@ research_cutoff: null
             self.assertEqual(config.vendor_root, vendor_root.resolve())
             self.assertEqual(config.template_dir, template_dir.resolve())
             self.assertTrue(config.use_plotting)
-            self.assertEqual(config.writer_model, "writer-model")
-            self.assertEqual(config.reflection_model, "reflection-model")
-            self.assertEqual(config.plotting_model, "plotting-model")
-            self.assertEqual(config.image_model, "image-model")
-            self.assertEqual(config.max_concurrent_model_requests, 2)
             self.assertEqual(config.plotting_max_critic_rounds, 3)
             self.assertIsNone(config.research_cutoff)
 

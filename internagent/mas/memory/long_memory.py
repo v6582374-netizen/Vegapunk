@@ -17,12 +17,21 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Iterable, Tuple
 from chromadb import PersistentClient as ChromaClient
-from chromadb.config import Settings
-from chromadb.utils import embedding_functions
 from internagent.mas.agents.agent_factory import AgentFactory
-from internagent.mas.models.model_factory import ModelFactory
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 logger = logging.getLogger(__name__)
 CHROMA_AVAILABLE = True
+
+
+class _RuntimeChromaEmbeddingFunction:
+    """Adapt the explicit catalog embedding binding to Chroma's callback API."""
+
+    def __init__(self, runtime: UnifiedModelRuntime) -> None:
+        self.embedding_model = runtime.embedding_model()
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        values = self.embedding_model.encode(input)
+        return values.tolist() if hasattr(values, "tolist") else values
 
 # 长期记忆分三层：把想法连成图、把实验记录整理成经验、再用经验改写下一轮提示。
 # 它增强多轮发现质量，但主实验流程不依赖它才能启动。
@@ -44,6 +53,7 @@ class IdeaGraph:
     working_dir: str
     namespace: str
     similarity_threshold: float = 0.7
+    runtime: UnifiedModelRuntime | None = None
 
     def __post_init__(self):
         """Initialize the idea graph and load existing data if available."""
@@ -55,18 +65,34 @@ class IdeaGraph:
         # 修改这里：使用新的 PersistentClient 替代旧的 Client + Settings
         self.chroma_client = ChromaClient(path=chroma_db_path)
         
-        # Use OpenAI embeddings (can be configured)
-        self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
-            api_base=os.environ.get("OPENAI_API_BASE_URL", ""),
-            model_name="text-embedding-3-small"
+        if self.runtime is None:
+            raise ValueError("IdeaGraph requires the shared UnifiedModelRuntime")
+        self.embedding_function = _RuntimeChromaEmbeddingFunction(self.runtime)
+        embedding_model = self.runtime.embedding_model()
+        embedding_identity = (
+            f"{embedding_model.model_type}/{embedding_model.model_name}"
         )
+        rebuild_vector_store = False
         
         # Get or create collection
         try:
+            try:
+                existing_collection = self.chroma_client.get_collection(
+                    name=self.namespace
+                )
+            except Exception:
+                existing_collection = None
+            if existing_collection is not None:
+                existing_identity = (existing_collection.metadata or {}).get(
+                    "embedding_identity"
+                )
+                if existing_identity != embedding_identity:
+                    self.chroma_client.delete_collection(name=self.namespace)
+                    rebuild_vector_store = True
             self.collection = self.chroma_client.get_or_create_collection(
                 name=self.namespace,
-                embedding_function=self.embedding_function
+                embedding_function=self.embedding_function,
+                metadata={"embedding_identity": embedding_identity},
             )
         except Exception as e:
             logger.error(f"Failed to create ChromaDB collection: {e}")
@@ -89,6 +115,55 @@ class IdeaGraph:
         else:
             self.graph = nx.Graph()
             logger.info("New empty IdeaGraph created")
+        if rebuild_vector_store:
+            self._rebuild_vector_store()
+
+    def _rebuild_vector_store(self) -> None:
+        """Recreate disposable Chroma vectors from durable graph nodes."""
+
+        if self.collection is None or not self.graph.nodes:
+            return
+        try:
+            nodes = list(self.graph.nodes(data=True))
+            self.collection.add(
+                ids=[str(node_id) for node_id, _ in nodes],
+                documents=[
+                    f"{attributes.get('name', '')}: {attributes.get('description', '')}"
+                    for _, attributes in nodes
+                ],
+                metadatas=[
+                    {
+                        "id": str(node_id),
+                        "name": str(attributes.get("name", "")),
+                        "description": str(attributes.get("description", "")),
+                    }
+                    for node_id, attributes in nodes
+                ],
+            )
+            self.graph.remove_edges_from(list(self.graph.edges))
+            for node_id, attributes in nodes:
+                idea_text = (
+                    f"{attributes.get('name', '')}: "
+                    f"{attributes.get('description', '')}"
+                )
+                results = self.collection.query(
+                    query_texts=[idea_text], n_results=len(nodes)
+                )
+                for neighbor_id, distance in zip(
+                    results.get("ids", [[]])[0],
+                    results.get("distances", [[]])[0],
+                ):
+                    if neighbor_id == str(node_id):
+                        continue
+                    if neighbor_id not in self.graph:
+                        continue
+                    similarity = 1 - distance
+                    if similarity >= self.similarity_threshold:
+                        self.graph.add_edge(node_id, neighbor_id, weight=similarity)
+            self._save_graph()
+            logger.info("Rebuilt Long Memory vectors for %d persisted ideas", len(nodes))
+        except Exception as error:
+            logger.error("Failed to rebuild Long Memory vectors: %s", error)
 
 
     def add_idea_node(self, idea: Dict[str, Any]) -> None:
@@ -407,7 +482,16 @@ class PromptEvolver:
         self.logger = logger
         self.config = config or {}
         self.prompt_agent = None
-        self.model_factory = ModelFactory()
+        self.model_runtime = (
+            idea_graph.runtime
+            if idea_graph is not None and idea_graph.runtime is not None
+            else self.config.get("_runtime")
+        )
+        if self.model_runtime is None:
+            raise ValueError(
+                "PromptEvolver requires the process-owned UnifiedModelRuntime"
+            )
+        self.config["_runtime"] = self.model_runtime
         self.agent_factory = AgentFactory()
         self.idea_graph = idea_graph
 
@@ -422,7 +506,7 @@ class PromptEvolver:
         self.prompt_agent = self.agent_factory.create_agent(
             agent_type="prompt_evolver",
             config=self.config,
-            model_factory=self.model_factory
+            model_runtime=self.model_runtime
         )
         self.logger.info(f"Prompt Agent initialized via AgentFactory")
             # Get the prompt_evolver agent
@@ -1054,8 +1138,13 @@ class ExperienceGenerator:
         """
         self.logger = logger or logging.getLogger("ExperienceGenerator")
         self.config = self._load_config(config_path)
+        self.model_runtime = self.config.get("_runtime")
+        if self.model_runtime is None:
+            raise ValueError(
+                "ExperienceGenerator requires the process-owned UnifiedModelRuntime"
+            )
+        self.config["_runtime"] = self.model_runtime
         self.experience_agent = None
-        self.model_factory = ModelFactory()
         self.agent_factory = AgentFactory()
 
 
@@ -1125,7 +1214,7 @@ class ExperienceGenerator:
         self.experience_agent = self.agent_factory.create_agent(
             agent_type="experience",
             config=self.config,
-            model_factory=self.model_factory
+            model_runtime=self.model_runtime
         )
 
     

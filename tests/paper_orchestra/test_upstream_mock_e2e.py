@@ -8,6 +8,9 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
+
+import yaml
 
 from internagent.paper_orchestra import run_paper_orchestra
 from tests.paper_orchestra.test_vendored_service import _write_launch
@@ -108,46 +111,55 @@ class UpstreamMockEndToEndTest(unittest.TestCase):
                 f"""vendor_root: {VENDOR_ROOT}
 template_dir: templates/iclr2025
 use_plotting: true
-writer_model: mock-model
-reflection_model: mock-model
-plotting_model: mock-model
-image_model: mock-image-model
-max_concurrent_model_requests: 2
 plotting_max_critic_rounds: 0
 research_cutoff: 2025-01
 """,
                 encoding="utf-8",
             )
 
-            result = asyncio.run(
-                run_paper_orchestra(
-                    launch_dir=launch_dir,
-                    internagent_config={
-                        "models": {
-                            "openai": {
-                                "api_mode": "responses",
-                                "api_key": "mock-key",
+            catalog_path = root / "model_catalog.yaml"
+            catalog_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "active_text_model": "relay/mock-model",
+                        "capability_models": {
+                            "vision": "relay/mock-model",
+                            "image_generation": "relay/mock-image-model",
+                        },
+                        "providers": {
+                            "relay": {
+                                "protocol": "responses",
                                 "base_url": relay.base_url,
-                                "model_name": "mock-model",
-                                "temperature": 0,
-                                "timeout": 60,
-                                "reasoning": {
-                                    "effort": "low",
-                                    "context": "current_turn",
-                                    "mode": "standard",
-                                },
-                                "store": False,
-                                "prompt_cache": {
-                                    "mode": "implicit",
-                                    "ttl": "30m",
-                                },
-                                "response_state": {"mode": "replay"},
+                                "api_key_env": "OPENAI_API_KEY",
                             }
-                        }
+                        },
+                        "models": {
+                            "relay/mock-model": {
+                                "provider": "relay",
+                                "model": "mock-model",
+                                "capabilities": ["text", "json", "tools", "vision", "reasoning", "continuation"],
+                            },
+                            "relay/mock-image-model": {
+                                "provider": "relay",
+                                "model": "mock-image-model",
+                                "protocol": "openai_images",
+                                "capabilities": ["image_generation"],
+                            },
+                        },
+                        "concurrency": {"relay": 2},
                     },
-                    paper_config_path=config_path,
-                )
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
             )
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "mock-key"}):
+                result = asyncio.run(
+                    run_paper_orchestra(
+                        launch_dir=launch_dir,
+                        internagent_config={"model_catalog_path": str(catalog_path)},
+                        paper_config_path=config_path,
+                    )
+                )
 
             if result.error is not None:
                 stdout = (result.run_dir / "stdout.log").read_text(

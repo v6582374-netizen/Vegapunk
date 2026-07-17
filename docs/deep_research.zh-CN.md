@@ -28,7 +28,6 @@ QA 模式会跳过大纲生成和章节润色，因此速度明显更快。Repor
 ```yaml
 agents:
   dr:
-    model_provider: "openai"   # DR 是 Responses-native OpenAI 路径
     enabled: true              # 设为 false 可完全禁用 DR 后台研究
     mode: "simple"             # 使用哪种 DR 配置："simple" 或 "complex"
                                #   simple  → config_simple.yaml（更快，无协调器）
@@ -37,7 +36,9 @@ agents:
 
 禁用 DR（`enabled: false`）会跳过想法生成阶段的后台文献依据构建，适合离线运行或 API 速率限制较紧的场景。
 
-DR 直接继承项目配置中的 `models.openai`。所有活跃 DR 角色统一使用 `gpt-5.6-sol` 和 Responses API，并继承全局 `reasoning.effort: xhigh`。规划保持 standard；执行与协调保留 all-turn reasoning；最终综合使用 Pro 与 background。工具循环始终用模型返回的原始 `call_id` 回传结果：支持服务端状态的端点通过 `previous_response_id` 续接；内置网关没有 response retrieve，因此按显式配置重放完整 Responses items。
+DR 接收进程拥有的 `UnifiedModelRuntime`，所有角色统一使用 Catalog 的 Active Text Model。
+声明为 Responses 的 binding 在支持时可通过 `previous_response_id` 做普通续接。
+Provider-side background execution 已禁用。
 
 ---
 
@@ -78,16 +79,19 @@ synthesizer:
 ```python
 import yaml
 from internagent.mas.agents.dr_agent import DRAgent
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
 
+runtime = UnifiedModelRuntime.from_catalog_path(project_config["model_catalog_path"])
 agent = DRAgent(
-    model="gpt-5.6-sol",
+    model=runtime.model_for(capability="text"),
     config={
         "mode": "qa",
         "workflow_config": {"main": {"max_iter": 3}},
         "_global_config": project_config,
+        "_runtime": runtime,
     },
 )
 ```
@@ -159,13 +163,15 @@ python launch_qa.py --question "What methodology does this paper use?" \
 from internagent.mas.agents.dr_agent import DRAgent
 import asyncio
 import yaml
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
 
+runtime = UnifiedModelRuntime.from_catalog_path(project_config["model_catalog_path"])
 agent = DRAgent(
-    model="gpt-5.6-sol",
-    config={"mode": "qa", "_global_config": project_config},
+    model=runtime.model_for(capability="text"),
+    config={"mode": "qa", "_global_config": project_config, "_runtime": runtime},
 )
 answer = asyncio.run(agent.execute({'task': 'Your research question'}, {}))
 print(answer)

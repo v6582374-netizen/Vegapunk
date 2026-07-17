@@ -7,9 +7,8 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Mapping
-
 from internagent.mas.models.runtime import TextContent
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 from .responses_runtime import PaperOrchestraResponsesRuntime
 
@@ -48,21 +47,15 @@ adds Chinese typesetting support after translation.
 def generate_chinese_companion(
     *,
     run_dir: Path,
-    provider_config: Mapping[str, Any],
+    runtime: UnifiedModelRuntime,
     model_name: str,
 ) -> None:
     """Translate the final English TeX and compile its Chinese companion."""
 
     source_tex_path = run_dir / ENGLISH_TEX_RELATIVE_PATH
     source_tex = source_tex_path.read_text(encoding="utf-8")
-    runtime = PaperOrchestraResponsesRuntime(
-        {
-            "provider": dict(provider_config),
-            "models": {"writer": model_name},
-            "max_concurrent_model_requests": 1,
-        }
-    )
-    response = runtime.generate_text(
+    bridge = PaperOrchestraResponsesRuntime(runtime=runtime)
+    response = bridge.generate_text(
         model_name=model_name,
         content=(
             TextContent(

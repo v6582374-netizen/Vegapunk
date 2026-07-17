@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -83,7 +84,10 @@ class PaperOrchestraServiceTest(unittest.TestCase):
 
 
 def _run(launch_dir: Path, config_path: Path):
-    with patch(
+    with patch.dict(
+        os.environ,
+        {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
+    ), patch(
         "internagent.paper_orchestra.service.generate_chinese_companion"
     ):
         return asyncio.run(

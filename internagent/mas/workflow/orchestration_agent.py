@@ -20,7 +20,7 @@ from typing import Dict, List, Optional, Any, Callable
 
 from ..agents.base_agent import BaseAgent
 from ..memory.memory_manager import MemoryManager
-from ..models.model_factory import ModelFactory
+from ..models.unified_runtime import UnifiedModelRuntime
 from .data_type import Idea, Task, WorkflowSession, WorkflowState
 
 logger = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class OrchestrationAgent:
     Attributes:
         config (Dict[str, Any]): Configuration dictionary
         memory_manager (MemoryManager): Persistent storage manager
-        model_factory (ModelFactory): Model instance creator
+        model_runtime (UnifiedModelRuntime): Runtime for model calls
         agent_registry (Dict[str, BaseAgent]): Registered specialized agents
         max_iterations (int): Maximum refinement iterations
         top_ideas_count (int): Number of top ideas to select
@@ -58,23 +58,27 @@ class OrchestrationAgent:
     def __init__(self,
                 config: Dict[str, Any],
                 memory_manager: MemoryManager,
-                model_factory: ModelFactory = None,
+                model_runtime: UnifiedModelRuntime = None,
                 agent_registry: Dict[str, BaseAgent] = None):
         """
         Initialize orchestration agent with configuration and dependencies.
 
         Loads workflow configuration (max iterations, top ideas count, concurrency limits),
-        initializes agent registry and model factory, and prepares session tracking structures.
+        initializes agent registry and model Runtime, and prepares session tracking structures.
 
         Args:
             config (Dict[str, Any]): Configuration with workflow settings
             memory_manager (MemoryManager): Manager for session persistence
-            model_factory (ModelFactory): Factory for model creation (optional)
+            model_runtime (UnifiedModelRuntime): Process-owned Runtime for model calls
             agent_registry (Dict[str, BaseAgent]): Specialized agents by type (optional)
         """
         self.config = config
         self.memory_manager = memory_manager
-        self.model_factory = model_factory or ModelFactory()
+        if model_runtime is None:
+            raise ValueError(
+                "OrchestrationAgent requires the process-owned UnifiedModelRuntime"
+            )
+        self.model_runtime = model_runtime
         self.agent_registry = agent_registry or {}
 
         # 这些配置决定研究会走几轮、每轮保留多少候选，以及同时调用多少外部服务。

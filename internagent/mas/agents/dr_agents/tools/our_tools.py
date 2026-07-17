@@ -4,13 +4,8 @@ import os
 # 添加camel模块路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from camel.models import ModelFactory
 from agents.task.execution_agent import ExecutionAgent
 from utils.reference_manager import ReferenceManager
-from camel.types import(
-    ModelPlatformType,
-    ModelType
-)
 from dotenv import load_dotenv
 
 load_dotenv(override=True)

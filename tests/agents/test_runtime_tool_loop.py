@@ -163,45 +163,46 @@ class RuntimeToolLoopTest(unittest.IsolatedAsyncioTestCase):
 
 
 class CodeViewRuntimeConfigTest(unittest.TestCase):
-    def test_openai_codeview_requires_explicit_runtime_config(self) -> None:
+    def test_codeview_requires_canonical_runtime_identity(self) -> None:
         _generate_runtime_text = _load_codeview_runtime()
         settings = SimpleNamespace(
             runtime_config={}, temperature=0.6, max_output_tokens=3000
         )
 
-        with self.assertRaisesRegex(ValueError, "explicit OpenAI runtime config"):
+        with self.assertRaisesRegex(ValueError, "canonical"):
             _generate_runtime_text("gpt-5.6-sol", "system", "prompt", settings)
 
-    def test_openai_codeview_uses_injected_runtime_config(self) -> None:
+    def test_codeview_uses_injected_runtime(self) -> None:
         _generate_runtime_text = _load_codeview_runtime()
-        config = {
-            "provider": "openai",
-            "model_name": "gpt-5.6-sol",
-            "api_mode": "responses",
-            "base_url": "https://ai.cloudyz.top/v1",
-            "prompt_cache": {"mode": "implicit", "ttl": "30m"},
-            "response_state": {"mode": "replay", "max_entries": 128},
-        }
+        class _Catalog:
+            def resolve_model(self, model_id, capability=None):
+                del capability
+                return SimpleNamespace(canonical_id=model_id)
+
+        class _Runtime:
+            catalog = _Catalog()
+
+            def model_for(self, model_id, *, capability):
+                del model_id, capability
+
+                class _FakeModel:
+                    async def generate(self, **_):
+                        return "summary"
+
+                return _FakeModel()
+
+        config = {"runtime": _Runtime()}
         settings = SimpleNamespace(
             runtime_config=config,
             temperature=0.6,
             max_output_tokens=3000,
         )
 
-        class _FakeModel:
-            async def generate(self, **_):
-                return "summary"
-
-        with patch(
-            "internagent.mas.models.openai_model.OpenAIModel.from_config",
-            return_value=_FakeModel(),
-        ) as create:
-            result = _generate_runtime_text(
-                "gpt-5.6-sol", "system", "prompt", settings
-            )
+        result = _generate_runtime_text(
+            "relay/gpt-5.6-sol", "system", "prompt", settings
+        )
 
         self.assertEqual(result, "summary")
-        create.assert_called_once_with(config)
 
 
 if __name__ == "__main__":

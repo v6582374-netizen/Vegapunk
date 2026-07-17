@@ -11,6 +11,7 @@ import dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from internagent.mas.memory import TaskMemoryLayer
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 dotenv.load_dotenv()
 
@@ -19,18 +20,9 @@ DEFAULT_CONFIG = {
         "memory_dir": "./config/mem_store",
         "label_threshold_percent": 0.0,
         "embedding_mode": "description",
-        "embedding": {
-            "model_type": "local",
-            "model_name": "BAAI/bge-base-en-v1.5",
-        },
     },
     "agents": {
         "exp_analyze": {
-            "model_provider": "openai",
-            "provider": "openai",
-            "model_name": "gpt-5.6-sol",
-            "api_mode": "responses",
-            "api_key": "",
             "temperature": 0.7,
             "reasoning": {
                 "effort": "xhigh",
@@ -51,10 +43,10 @@ def create_memory_from_config(
     task_name: Optional[str] = None,
     memory_dir: Optional[str] = None,
     label_threshold: Optional[float] = None,
-    embedding_model_path: Optional[str] = None
 ) -> TaskMemoryLayer:
     import copy
     config = copy.deepcopy(DEFAULT_CONFIG)
+    config["_runtime"] = UnifiedModelRuntime.from_default_catalog()
 
     if task_name and task_name in TASK_SPECIFIC_CONFIGS:
         task_config = TASK_SPECIFIC_CONFIGS[task_name]
@@ -69,9 +61,6 @@ def create_memory_from_config(
 
     if label_threshold is not None:
         config.setdefault("task_memory", {})["label_threshold_percent"] = label_threshold
-
-    if embedding_model_path:
-        config.setdefault("task_memory", {}).setdefault("embedding", {})["model_name"] = embedding_model_path
 
     return TaskMemoryLayer.from_config(config)
 
@@ -88,7 +77,6 @@ def batch_save_from_traj(
     aggregation: str = "best",
     skip_existing: bool = True,
     label_threshold_percent: float = 0.0,
-    embedding_model_path: Optional[str] = None
 ) -> tuple:
     if not traj_dir.exists():
         print(f"✗ Trajectory directory not found: {traj_dir}")
@@ -101,7 +89,6 @@ def batch_save_from_traj(
         task_name=task_name,
         memory_dir=memory_dir,
         label_threshold=label_threshold_percent,
-        embedding_model_path=embedding_model_path
     )
 
     print(f"Current records: {len(memory.records)}")
@@ -355,7 +342,6 @@ def auto_import_all_tasks(
     memory_dir: Path,
     aggregation: str = "best",
     label_threshold: float = 0.0,
-    embedding_model_path: Optional[str] = None
 ) -> int:
     print(f"\nBatch Task Memory Import")
     print(f"Trajectory: {traj_base}")
@@ -390,7 +376,6 @@ def auto_import_all_tasks(
                 aggregation=aggregation,
                 skip_existing=True,
                 label_threshold_percent=label_threshold,
-                embedding_model_path=embedding_model_path
             )
 
             if failures == 0:
@@ -454,8 +439,6 @@ def main():
                        help="Don't skip ideas already in memory")
     parser.add_argument("--label-threshold", type=float, default=0.0,
                        help="Label threshold percent (0.0 for binary, 5.0 for neutral zone)")
-    parser.add_argument("--embedding-model", type=str, default=None,
-                       help="Override embedding model path")
 
     args = parser.parse_args()
 
@@ -469,7 +452,6 @@ def main():
                 memory_dir=Path(args.memory_dir),
                 aggregation=args.aggregation,
                 label_threshold=args.label_threshold,
-                embedding_model_path=args.embedding_model
             )
             sys.exit(exit_code)
 
@@ -482,7 +464,6 @@ def main():
                 aggregation=args.aggregation,
                 skip_existing=not args.no_skip_existing,
                 label_threshold_percent=args.label_threshold,
-                embedding_model_path=args.embedding_model
             )
             sys.exit(0 if failure_count == 0 else 1)
 

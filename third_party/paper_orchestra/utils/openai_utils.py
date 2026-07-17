@@ -15,7 +15,6 @@
 from typing import Any
 import re
 import json
-import time
 import os
 import base64
 
@@ -92,44 +91,20 @@ def call_openai_models_with_content(
     check_parsed_response_not_none: bool = True,
     system_prompt: str = None,
 ):
-    raw_response = None
-    parsed_response = None
-
-    for attempt in range(max_retries):
-        try:
-            raw_response = call_responses_with_contents(
-                contents=content,
-                model_name=model_name,
-                generation_configs=generation_configs,
-                system_prompt=system_prompt,
-            )
-            parsed_response = result_parsing_func(raw_response)
-
-            if check_parsed_response_not_none:
-                assert (
-                    parsed_response is not None
-                ), f"Parsed response is None, Here is the raw response:\n{raw_response}"
-
-            return {
-                "raw_response": raw_response,
-                "parsed_response": parsed_response,
-            }
-
-        except Exception as e:
-            print(
-                f"Warning: OpenAI API call (model={model_name}) failed on attempt {attempt + 1} of {max_retries}. Error: {e}",
-            )
-
-            if attempt + 1 == max_retries:
-                print(f"Error: All {max_retries} retry attempts failed.")
-                raise e
-
-            delay = base_interval_sec * (2 ** (attempt - 1)) if attempt > 0 else 0
-            print(f"Retrying in {delay} seconds...")
-            if delay > 0:
-                time.sleep(delay)
-
-    print("Error: Exited retry loop unexpectedly.")
+    # Provider retries belong to UnifiedModelRuntime.  Keep the historical
+    # parameters only for source compatibility, but never sleep or retry here.
+    del max_retries, base_interval_sec
+    raw_response = call_responses_with_contents(
+        contents=content,
+        model_name=model_name,
+        generation_configs=generation_configs,
+        system_prompt=system_prompt,
+    )
+    parsed_response = result_parsing_func(raw_response)
+    if check_parsed_response_not_none and parsed_response is None:
+        raise ValueError(
+            f"Parsed response is None, Here is the raw response:\n{raw_response}"
+        )
     return {
         "raw_response": raw_response,
         "parsed_response": parsed_response,

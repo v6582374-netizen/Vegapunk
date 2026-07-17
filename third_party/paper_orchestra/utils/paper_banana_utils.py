@@ -32,6 +32,12 @@ from utils.gemini_utils import (
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 PB_DIR = os.path.join(cur_dir, "../../PaperBanana")
 
+
+def _require_model_identity(model_name: str | None) -> str:
+    if not model_name:
+        raise ValueError("PaperOrchestra requires a catalog-bound model identity")
+    return model_name
+
 # ==========================================
 # PROMPTS
 # ==========================================
@@ -336,11 +342,12 @@ def retrieve_few_shot_examples(
     task_name: str,
     raw_content: str,
     description: str,
-    model_name: str = "gemini-3.1-pro-preview",
+    model_name: str | None = None,
 ) -> List[Dict]:
     """
     Retrieves Top-10 relevant examples from PaperBanana reference dataset.
     """
+    model_name = _require_model_identity(model_name)
     if task_name == "plot":
         system_prompt = PLOT_RETRIEVER_AGENT_SYSTEM_PROMPT
         target_labels = ["Visual Intent", "Raw Data"]
@@ -404,7 +411,7 @@ def generate_figure_caption(
     description: str,
     figure_desc: str,
     base64_image: str = None,
-    model_name: str = "gemini-3.1-pro-preview",
+    model_name: str | None = None,
 ) -> str:
     """
     Generates a caption for the figure based on its final description and context.
@@ -413,6 +420,7 @@ def generate_figure_caption(
     - The caption should NOT contain "Figure X:" prefix, as the latex template will add it automatically.
     - The caption should NOT contain any markdown formatting, it should be a plain text.
     """
+    model_name = _require_model_identity(model_name)
     prompt = f"""
     ## INPUT DATA
     -   Task Type: {task_name}
@@ -470,11 +478,12 @@ def predict_figure_content(
     raw_content: str,
     description: str,
     examples: List[Dict],
-    model_name: str = "gemini-3.1-pro-preview",
+    model_name: str | None = None,
 ) -> str:
     """
     Predicts the detailed figure description using LLM and few-shot examples.
     """
+    model_name = _require_model_identity(model_name)
     if task_name == "plot":
         system_prompt = PLOT_PLANNER_AGENT_SYSTEM_PROMPT
         content_label = "Plot Raw Data"
@@ -537,11 +546,12 @@ def style_figure_content(
     raw_content: str,
     description: str,
     figure_desc: str,
-    model_name: str = "gemini-3.1-pro-preview",
+    model_name: str | None = None,
 ) -> str:
     """
     Refines the basic figure description into a professionally styled description.
     """
+    model_name = _require_model_identity(model_name)
     if task_name == "plot":
         system_prompt = PLOT_STYLIST_AGENT_SYSTEM_PROMPT
         context_labels = ["Raw Data", "Visual Intent of the Desired Plot"]
@@ -581,11 +591,12 @@ def critique_and_revise_figure(
     figure_desc: str,
     base64_image: str,
     round_idx: int,
-    model_name: str = "gemini-3.1-pro-preview",
+    model_name: str | None = None,
 ) -> Tuple[str, str]:
     """
     Critiques the generated figure and provides revised descriptions.
     """
+    model_name = _require_model_identity(model_name)
     if task_name == "plot":
         system_prompt = PLOT_CRITIC_AGENT_SYSTEM_PROMPT
         critique_target = "Target Plot for Critique:"
@@ -647,13 +658,15 @@ def critique_and_revise_figure(
 def generate_figure_visuals(
     task_name: str,
     figure_description: str,
-    model_name: str = "gemini-3.1-pro-preview",
-    image_model_name: str = "gemini-3-pro-image-preview",
+    model_name: str | None = None,
+    image_model_name: str | None = None,
     aspect_ratio: str = "16:9",
 ) -> str:
     """
     Generates the figure based on the task type.
     """
+    model_name = _require_model_identity(model_name)
+    image_model_name = _require_model_identity(image_model_name)
     if task_name == "plot":
         prompt_text = f"Use python matplotlib to generate a statistical plot based on the following detailed description: {figure_description}\n Only provide the code without any explanations. Code:"
         contents = [

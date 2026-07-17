@@ -31,10 +31,12 @@ from utils.paper_banana_utils import (
 def process_single_figure(
     fig_plan,
     raw_materials_dir,
-    model_name="gemini-3.1-pro-preview",
-    image_model_name="gemini-3-pro-image-preview",
+    model_name=None,
+    image_model_name=None,
     max_critic_rounds=3,
 ):
+    if not model_name or not image_model_name:
+        raise ValueError("PaperOrchestra requires catalog-bound model identities")
     print(f"Processing figure: {fig_plan.get('figure_id', 'Unknown')}")
     title = fig_plan.get("title", "")
     plot_type = fig_plan.get("plot_type", "").lower()
@@ -204,8 +206,8 @@ def process_single_figure(
 class PlottingAgent:
     def __init__(
         self,
-        model_name: str = "gemini-3.1-pro-preview",
-        image_model_name: str = "gemini-3-pro-image-preview",
+        model_name: str | None = None,
+        image_model_name: str | None = None,
         max_critic_rounds: int = 3,
     ):
         self.model_name = model_name

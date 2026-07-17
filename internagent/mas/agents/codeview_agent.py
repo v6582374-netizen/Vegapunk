@@ -253,36 +253,15 @@ def _wait_for_runtime(coroutine):
 
 
 def _generate_runtime_text(client_model, system_prompt, prompt, llm_settings):
-    """Route OpenAI-compatible code analysis through the project Model Runtime."""
+    """Route code analysis through the injected catalog Runtime."""
 
-    model_name = client_model.lower()
-    if model_name.startswith("gpt"):
-        from ..models.openai_model import OpenAIModel
-
-        runtime_config = dict(
-            getattr(llm_settings, "runtime_config", None) or {}
+    runtime_config = dict(getattr(llm_settings, "runtime_config", None) or {})
+    runtime = runtime_config.get("runtime")
+    if runtime is None or not hasattr(runtime, "catalog") or not hasattr(runtime, "model_for"):
+        raise ValueError(
+            "CodeView requires the process-owned UnifiedModelRuntime"
         )
-        if not runtime_config.get("base_url"):
-            raise ValueError(
-                "CodeView requires explicit OpenAI runtime config with base_url"
-            )
-        model = OpenAIModel.from_config(runtime_config)
-    elif model_name.startswith("deepseek"):
-        from ..models.r1_model import R1Model
-
-        model = R1Model(
-            api_key=os.environ.get("DS_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY"),
-            base_url=os.environ.get("DS_API_BASE_URL")
-            or os.environ.get("API_BASE"),
-            model_name=client_model,
-        )
-    elif model_name.startswith("intern"):
-        from ..models.s1_model import S1Model
-
-        model = S1Model(model_name=client_model)
-    else:
-        raise ValueError(f"No InternAgent Runtime adapter for {client_model}")
+    model = runtime.model_for(client_model, capability="text")
 
     return _wait_for_runtime(
         model.generate(
@@ -350,35 +329,17 @@ class RepoViewer():
         print(f"-- Generating document for file {file_path}")
         with open(file_path, 'r') as f:
             code = f.read()
-        if client_model.lower().startswith(('gpt', 'deepseek', 'intern')):
-            try:
-                print(f"Using InternAgent Model Runtime with {client_model}")
-                results = _generate_runtime_text(
-                    client_model,
-                    CODE_VIEW_SYS_PROMPT,
-                    CODE_VIEW_PROMPT.format(code=code),
-                    llm_settings,
-                )
-            except Exception as e:
-                print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
-
-        elif client_model.lower().startswith('claude'):
-            try: 
-                import anthropic
-                print(f"Using Anthropic API with model {client_model}")
-                client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-                response = client.completions.create(
-                    model=client_model,
-                    system=CODE_VIEW_SYS_PROMPT,
-                    messages=[
-                        {"role": "user", "content": CODE_VIEW_PROMPT.format(code=code)}
-                    ],
-                    temperature=llm_settings.temperature,
-                    max_tokens_to_sample=llm_settings.max_output_tokens
-                )
-                results = response.completions[0].text
-            except Exception as e:
-                print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
+        try:
+            print(f"Using InternAgent Model Runtime with {client_model}")
+            results = _generate_runtime_text(
+                client_model,
+                CODE_VIEW_SYS_PROMPT,
+                CODE_VIEW_PROMPT.format(code=code),
+                llm_settings,
+            )
+        except Exception as e:
+            print(f"Error during generate doc for file {file_path} using {client_model}.\n{e}")
+            results = str(e)
         try:
             return (dict_path, results)
         except:
@@ -450,35 +411,17 @@ A list of key files that are critical to understanding or implementing the funct
 """
 
 def get_repo_summary(client_model, repo_file_tree, llm_settings):
-    if client_model.lower().startswith(('gpt', 'deepseek', 'intern')):
-        try:
-            print(f"Using InternAgent Model Runtime with {client_model}")
-            return _generate_runtime_text(
-                client_model,
-                REPO_SUMMARY_SYS_PROMPT,
-                REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree),
-                llm_settings,
-            )
-        except Exception as e:
-            print(f"Error during generate summary for repo using {client_model}.\n{e}")
-
-    elif client_model.lower().startswith('claude'):
-        try: 
-            import anthropic
-            print(f"Using Anthropic API with model {client_model}")
-            client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-            response = client.completions.create(
-                model=client_model,
-                system=REPO_SUMMARY_SYS_PROMPT,
-                messages=[
-                    {"role": "user", "content": REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree)}
-                ],
-                temperature=llm_settings.temperature,
-                max_tokens_to_sample=llm_settings.max_output_tokens
-            )
-            return response.completions[0].text
-        except Exception as e:
-            print(f"Error during generate summary for repo using {client_model}.\n{e}")
+    try:
+        print(f"Using InternAgent Model Runtime with {client_model}")
+        return _generate_runtime_text(
+            client_model,
+            REPO_SUMMARY_SYS_PROMPT,
+            REPO_SUMMARY_PROMPT.format(repo_file_tree=repo_file_tree),
+            llm_settings,
+        )
+    except Exception as e:
+        print(f"Error during generate summary for repo using {client_model}.\n{e}")
+        return str(e)
 
 def extract_from_repo_summary(repo_summary):
     pattern_summary = r'<code_repo_func>([\s\S]*?)</code_repo_func>'

@@ -7,7 +7,7 @@ agent instances based on configuration.
 import logging
 from typing import Dict, Any, Type
 
-from ..models.model_factory import ModelFactory
+from ..models.unified_runtime import UnifiedModelRuntime
 from .base_agent import BaseAgent
 from internagent.research_draft import attach_research_draft_hook
 
@@ -77,14 +77,14 @@ class AgentFactory:
     def create_agent(cls, 
                   agent_type: str, 
                   config: Dict[str, Any],
-                  model_factory: 'ModelFactory') -> BaseAgent:
+                  model_runtime: 'UnifiedModelRuntime') -> BaseAgent:
         """
         Create an agent instance of the specified type.
         
         Args:
             agent_type: Type of agent to create
             config: Configuration for the agent
-            model_factory: ModelFactory instance for creating models
+            model_runtime: Process-owned UnifiedModelRuntime instance
             
         Returns:
             Configured agent instance
@@ -107,12 +107,8 @@ class AgentFactory:
         # Get the agent class
         agent_class = cls._agent_registry[agent_type]
         
-        # Create the model instance using model_provider from agent config
-        model_provider = config.get("model_provider", "default")
-        
         try:
-            # Use the model factory to create a model for this agent
-            model = model_factory.create_model_for_agent(agent_type, config)
+            model = model_runtime.create_model_for_agent(agent_type, config)
             
             # Create the agent instance
             agent = agent_class(model, config)
@@ -121,7 +117,7 @@ class AgentFactory:
             # Cache the instance
             cls._agent_cache[cache_key] = agent
             
-            logger.info(f"Created agent instance of type: {agent_type} with provider: {model_provider}")
+            logger.info(f"Created agent instance of type: {agent_type}")
             return agent
         except Exception as e:
             logger.error(f"Error creating agent {agent_type}: {e}")
@@ -130,13 +126,13 @@ class AgentFactory:
     @classmethod
     def create_all_agents(cls, 
                        config: Dict[str, Any],
-                       model_factory: 'ModelFactory') -> Dict[str, BaseAgent]:
+                       model_runtime: 'UnifiedModelRuntime') -> Dict[str, BaseAgent]:
         """
         Create all configured agent instances.
         
         Args:
             config: Configuration dictionary with agent configurations
-            model_factory: ModelFactory instance for creating models
+            model_runtime: Process-owned UnifiedModelRuntime instance
             
         Returns:
             Dictionary mapping agent types to agent instances
@@ -159,7 +155,7 @@ class AgentFactory:
                     agents[agent_type] = cls.create_agent(
                         agent_type=agent_type,
                         config=merged_config,
-                        model_factory=model_factory
+                        model_runtime=model_runtime
                     )
                 except Exception as e:
                     logger.error(f"Error creating agent {agent_type}: {str(e)}")
@@ -195,8 +191,10 @@ class AgentFactory:
         Returns:
             Cache key string
         """
-        # For simplicity, use a combination of agent type and model provider
-        model_config = config.get("model", {})
-        model_provider = model_config.get("provider", "default")
-        
-        return f"{agent_type}_{model_provider}" 
+        runtime = config.get("_runtime")
+        model_id = (
+            runtime.catalog.active_text_model
+            if isinstance(runtime, UnifiedModelRuntime)
+            else "unbound"
+        )
+        return f"{agent_type}_{model_id}"

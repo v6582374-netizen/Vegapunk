@@ -1,12 +1,7 @@
-# PaperOrchestra keeps the upstream pipeline and uses InternAgent's single
-# models.openai relay for text, vision, search-like prompts, and image calls.
+# PaperOrchestra keeps the upstream pipeline and uses InternAgent's catalog
+# bindings for text, vision, search-like prompts, and image calls.
 vendor_root: third_party/paper_orchestra
 template_dir: templates/iclr2025
 use_plotting: true
-writer_model: gpt-5.6-sol
-reflection_model: gpt-5.6-sol
-plotting_model: gpt-5.6-sol
-image_model: gpt-image-2
-max_concurrent_model_requests: 2
 plotting_max_critic_rounds: 3
 research_cutoff: null

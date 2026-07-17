@@ -44,15 +44,17 @@ pip install -r requirements.txt
 
 ```
 OPENAI_API_KEY=        # OpenAI Responses API 密钥
-OPENAI_BASE_URL=       # OpenAI-compatible Relay Provider 基础 URL
-OPENROUTER_API_KEY=    # OpenRouter API 密钥（使用 openrouter provider 时）
+DASHSCOPE_API_KEY=     # 千问 DashScope API 密钥
 ANTHROPIC_API_KEY=     # Anthropic API 密钥（用于基于 Claude 的实验后端）
 ```
 
-如需使用 OpenRouter 作为模型网关，请设置 `OPENROUTER_API_KEY`，并使用
-`config/openrouter_config.yaml` 运行。更多设置细节见 [docs/openrouter.md](docs/openrouter.md)。
+所有模型 Provider、Canonical Model Identity 与能力绑定统一配置于
+`config/model_catalog.yaml`。
+切换 Provider 时只修改该 Catalog 的固定绑定，并设置所选 Provider 的密钥。
 
-原生 OpenAI 推理统一使用 `gpt-5.6-sol` 和 Responses API；默认 reasoning effort 为 `xhigh`，默认不发送 `max_output_tokens`，并启用 `store: true` 与 30 分钟 implicit prompt cache。需要限制单次响应时再显式设置该参数。内置 `ai.cloudyz.top` 端点不支持显式内容断点和 response retrieve API，因此工具续接会在本地重放完整 Responses items，并保留原始 `call_id`。Runtime 仍保留官方 explicit cache 与 server-side state 供兼容端点使用。PaperOrchestra 的文本、视觉理解和图片生成统一使用同一家 OpenAI-compatible Relay Provider；文本角色默认映射到 `gpt-5.6-sol`，图片由同一 base URL 和凭据下的 image endpoint 处理。OpenRouter 只作为其他主发现角色的 Chat-compatible provider。
+默认 Catalog 使用 `qwen/qwen3.7-max` 作为 Active Text Model，`qwen/qwen3.6-plus` 作为 vision binding，`qwen/qwen-image-2.0-pro` 作为 image-generation binding，并使用本地 `BAAI/bge-base-en-v1.5` embedding。
+所有文本和视觉调用都使用声明的 Responses protocol，不会静默降级为 Chat Completions。
+Runtime 统一负责 Provider 并发与有界重试，且不会使用 provider-side background execution。
 
 ### 运行发现实验
 

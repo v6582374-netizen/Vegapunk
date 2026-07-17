@@ -11,7 +11,8 @@ flowchart TB
     Launch --> Discovery["launch_discovery.py::main<br/>自主发现实验流水线"]
 
     subgraph Config["配置与运行参数"]
-        DefaultCfg["config/default_config.yaml<br/>models / memory / agents / workflow / experiment"]
+        DefaultCfg["config/default_config.yaml<br/>memory / agents / workflow / experiment"]
+        Catalog["config/model_catalog.yaml<br/>providers / bindings / capabilities"]
         Env[".env<br/>API keys 和兼容端点"]
         Prompt["tasks/*/prompt.json 或 sci_task 归一化 prompt.json"]
     end
@@ -19,7 +20,7 @@ flowchart TB
     subgraph MAS["InternAgent MAS 核心"]
         Interface["InternAgentInterface<br/>系统生命周期与会话接口"]
         AgentFactory["AgentFactory<br/>创建并缓存业务 agent"]
-        ModelFactory["ModelFactory<br/>按 agent/provider 创建模型"]
+        ModelRuntime["UnifiedModelRuntime<br/>解析 Catalog 并执行请求"]
         Orchestrator["OrchestrationAgent<br/>WorkflowSession 状态机"]
         DataTypes["data_type.py<br/>WorkflowState / Task / Idea / WorkflowSession"]
     end
@@ -38,7 +39,7 @@ flowchart TB
     end
 
     subgraph Infra["模型、工具与记忆基础设施"]
-        Models["BaseModel / OpenAIModel / OpenRouterModel / R1Model / S1Model / EmbeddingModel"]
+        Models["BaseModel / Runtime-bound model / embedding binding"]
         Tools["internagent.mas.tools<br/>literature_search / web_search / memory_retrieval / MCP"]
         Memory["memory<br/>MemoryManager / TaskMemoryLayer / OnlineMemorySaver / MemoryModule / IdeaGraph"]
     end
@@ -57,7 +58,7 @@ flowchart TB
     Discovery --> Stage
     Stage --> Interface
     Interface --> AgentFactory
-    Interface --> ModelFactory
+    Interface --> ModelRuntime
     Interface --> Memory
     Interface --> Orchestrator
     Orchestrator --> DataTypes
@@ -236,7 +237,7 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    QA["launch_qa.py::main<br/>--question / --file / --output / --config"] --> DRA["DRAgent(model='gpt-5.6-sol'<br/>inherits models.openai)"]
+    QA["launch_qa.py::main<br/>--question / --file / --output / --config"] --> DRA["DRAgent<br/>injected UnifiedModelRuntime"]
     DRA --> WF["dr_agents.workflow.main.Workflow.execute()"]
 
     WF --> GP["GlobalPlannerAgent.execute()<br/>自然语言任务 -> nodes/edges 有向图"]
@@ -270,10 +271,10 @@ flowchart TD
 ```mermaid
 flowchart TB
     subgraph ModelLayer["模型层"]
-        MF["ModelFactory.create_model_for_agent()"]
-        Provider["models.default_provider<br/>openai / openrouter / r1 / s1"]
+        MF["UnifiedModelRuntime.model_for()"]
+        Provider["model_catalog.yaml<br/>relay / qwen / local embedding"]
         BM["BaseModel<br/>generate / generate_json / generate_with_messages / embed"]
-        OM["OpenAIModel / OpenRouterModel / R1Model / S1Model"]
+        OM["Declared Responses / image / embedding adapters"]
         EM["EmbeddingModel<br/>local / openai / azure / custom"]
     end
 
@@ -392,7 +393,7 @@ flowchart LR
 | MAS 接口 | `InternAgentInterface` | 加载配置、初始化模型工厂/记忆/agent/编排器、启动本地和 MCP 工具、提供 session API。 |
 | 会话状态机 | `OrchestrationAgent` | 将 `WorkflowSession.state` 分发到生成、反思、证据、进化、排名、方法开发、精炼等阶段。 |
 | 数据结构 | `WorkflowState`, `Task`, `Idea`, `WorkflowSession` | 保存任务、idea、证据、批评、分数、方法详情、top ideas、会话状态和迭代信息。 |
-| Agent 工厂 | `AgentFactory` | 注册 11 类业务 agent，按 config 和 `ModelFactory` 创建并缓存实例。 |
+| Agent 工厂 | `AgentFactory` | 注册 11 类业务 agent，使用注入的 `UnifiedModelRuntime` 创建并缓存实例。 |
 | Agent 基类 | `BaseAgent` | 统一模型调用、JSON schema 输出、重试、工具调用循环和工具执行。 |
 | 生成 Agent | `GenerationAgent.execute` | 生成 hypotheses；使用工具上下文、历史记忆 guidance，并过滤失败相似方案。 |
 | 反思 Agent | `ReflectionAgent.execute` | 对 hypothesis 或 method 生成结构化 critiques、strengths、suggestions。 |
@@ -409,7 +410,7 @@ flowchart LR
 | DR 节点 workflow | `TaskWorkflow.execute` | 规划节点内 subtasks，逐个执行并汇总节点结果。 |
 | DR 工具执行 | `ExecutionAgent.execute` | 子任务级工具调用循环，维护 messages，解析最终 JSON summary。 |
 | DR 合成器 | `SynthesizerAgent.execute` | 从执行图、answer 节点和引用管理器合成最终答案。 |
-| 模型层 | `ModelFactory`, `BaseModel`, `OpenAIModel`, `OpenRouterModel`, `R1Model`, `S1Model` | 统一 text/json/messages/embedding 接口，并按 agent provider 读取配置。 |
+| 模型层 | `UnifiedModelRuntime`, `BaseModel`, `OpenAIModel` | 通过 Catalog 统一 text/json/messages/vision/image/embedding 接口。 |
 | 工具层 | `literature_search.py`, `web_search.py`, `memory_retrieval.py`, `mcp_manager*.py` | 提供学术检索、网页检索、任务记忆检索和远程 MCP 工具接入。 |
 | 上下文记忆 | `MemoryManager`, `FileSystemMemoryManager` | 持久化 session 与 hypothesis JSON。 |
 | 任务记忆 | `TaskMemoryLayer`, `HybridRetriever` | 保存实验结果，计算正/负标签，BM25+向量检索相似记录，生成 guidance prompt。 |

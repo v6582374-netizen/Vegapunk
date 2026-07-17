@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable, List
 
-from .models.model_factory import ModelFactory
+from .models.unified_runtime import UnifiedModelRuntime
 from .agents.agent_factory import AgentFactory
 from .memory.memory_manager import MemoryManager
 from .workflow.orchestration_agent import OrchestrationAgent
@@ -54,8 +54,16 @@ class InternAgentInterface:
         if exp_backend:
             self.config['exp_backend'] = exp_backend
 
-        # 这三个组件分别负责“怎么调用模型”“怎么保存过程”“有哪些专业角色可用”。
-        self.model_factory = ModelFactory()
+        # One Runtime owns Provider resolution and is injected into every agent.
+        catalog_path = self.config.get("model_catalog_path")
+        self.model_runtime = (
+            UnifiedModelRuntime.from_catalog_path(catalog_path)
+            if catalog_path
+            else UnifiedModelRuntime.from_default_catalog()
+        )
+        # Keep the process-local Runtime available to memory and nested
+        # workflows without serializing provider configuration into callers.
+        self.config["_runtime"] = self.model_runtime
         self.memory_manager = self._init_memory_manager()
         self.agent_factory = AgentFactory()
 
@@ -73,7 +81,7 @@ class InternAgentInterface:
         # Create specialized agents
         self.agents = self.agent_factory.create_all_agents(
             config=self.config,
-            model_factory=self.model_factory
+            model_runtime=self.model_runtime
         )
 
         # Initialize orchestration agent
@@ -380,7 +388,7 @@ class InternAgentInterface:
         return OrchestrationAgent(
             config=self.config,
             memory_manager=self.memory_manager,
-            model_factory=self.model_factory,
+            model_runtime=self.model_runtime,
             agent_registry=self.agents
         )
 
@@ -397,7 +405,7 @@ class InternAgentInterface:
         """
         # Use provided config if available
         if config is not None:
-            return config
+            return self._validate_loaded_config(config)
 
         # Load from file if path provided and file exists
         if config_path and os.path.exists(config_path):
@@ -408,12 +416,14 @@ class InternAgentInterface:
                     with open(config_path, 'r') as f:
                         config_data = yaml.safe_load(f)
                     logger.info(f"Successfully loaded YAML config with keys: {list(config_data.keys()) if config_data else 'None'}")
-                    return config_data
+                    return self._validate_loaded_config(config_data)
                 else:
                     with open(config_path, 'r') as f:
                         config_data = json.load(f)
                     logger.info(f"Successfully loaded JSON config with keys: {list(config_data.keys()) if config_data else 'None'}")
-                    return config_data
+                    return self._validate_loaded_config(config_data)
+            except ValueError:
+                raise
             except Exception as e:
                 logger.warning(f"Failed to load config from {config_path}: {str(e)}")
         elif config_path:
@@ -437,7 +447,20 @@ class InternAgentInterface:
             with open(default_config_path, 'r') as f:
                 config_data = yaml.safe_load(f)
             logger.info(f"Successfully loaded default config with keys: {list(config_data.keys()) if config_data else 'None'}")
-            return config_data
+            return self._validate_loaded_config(config_data)
         except Exception as e:
             logger.error(f"Failed to load default config from {default_config_path}: {str(e)}")
             raise RuntimeError(f"Could not load default configuration: {str(e)}")
+
+    @staticmethod
+    def _validate_loaded_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(config_data, dict):
+            raise ValueError("InternAgent configuration must be a mapping")
+        if "models" in config_data:
+            raise ValueError(
+                "Legacy models configuration is rejected; use model_catalog_path"
+            )
+        if not config_data.get("model_catalog_path"):
+            config_data = dict(config_data)
+            config_data["model_catalog_path"] = "config/model_catalog.yaml"
+        return config_data

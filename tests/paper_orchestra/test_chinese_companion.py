@@ -62,10 +62,7 @@ English evidence \citep{Keep2024} and $R^2=0.95$.
 
                 generate_chinese_companion(
                     run_dir=run_dir,
-                    provider_config={
-                        "base_url": "https://relay.example/v1",
-                        "api_key": "secret",
-                    },
+                    runtime=object(),
                     model_name="writer-model",
                 )
 
@@ -132,9 +129,7 @@ English paper.
                 ):
                     generate_chinese_companion(
                         run_dir=run_dir,
-                        provider_config={
-                            "base_url": "https://relay.example/v1"
-                        },
+                        runtime=object(),
                         model_name="writer-model",
                     )
 
@@ -170,7 +165,7 @@ English paper.
                 )
                 generate_chinese_companion(
                     run_dir=run_dir,
-                    provider_config={"base_url": "https://relay.example/v1"},
+                    runtime=object(),
                     model_name="writer-model",
                 )
 

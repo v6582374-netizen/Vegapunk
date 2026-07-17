@@ -28,7 +28,6 @@ When running a discovery experiment, DR is controlled by the `agents.dr` block i
 ```yaml
 agents:
   dr:
-    model_provider: "openai"   # DR is a Responses-native OpenAI path
     enabled: true              # Set to false to disable DR background research entirely
     mode: "simple"             # Which DR config to use: "simple" or "complex"
                                #   simple  → config_simple.yaml (faster, no coordinator)
@@ -37,7 +36,9 @@ agents:
 
 Disabling DR (`enabled: false`) skips background literature grounding during idea generation — useful when running offline or when API rate limits are a concern.
 
-DR inherits `models.openai` from the project config. Every active DR role uses `gpt-5.6-sol` through the Responses API with the global `reasoning.effort: xhigh` policy. Planning stays in standard mode; execution and coordination preserve all-turn reasoning; final synthesis uses Pro mode and background execution. Tool loops always return results under the original `call_id`: server-state endpoints continue with `previous_response_id`, while the built-in gateway uses configured stateless replay because it does not expose response retrieval.
+DR receives the process-owned `UnifiedModelRuntime` and uses the Catalog Active Text Model for all roles.
+The declared Responses protocol supports ordinary `previous_response_id` continuation when the binding declares it.
+Provider-side background execution is disabled.
 
 ---
 
@@ -78,16 +79,19 @@ To override a DR workflow setting programmatically, keep the shared project conf
 ```python
 import yaml
 from internagent.mas.agents.dr_agent import DRAgent
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
 
+runtime = UnifiedModelRuntime.from_catalog_path(project_config["model_catalog_path"])
 agent = DRAgent(
-    model="gpt-5.6-sol",
+    model=runtime.model_for(capability="text"),
     config={
         "mode": "qa",
         "workflow_config": {"main": {"max_iter": 3}},
         "_global_config": project_config,
+        "_runtime": runtime,
     },
 )
 ```
@@ -159,13 +163,15 @@ To invoke `DRAgent` directly (e.g. with a custom config):
 from internagent.mas.agents.dr_agent import DRAgent
 import asyncio
 import yaml
+from internagent.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
 
+runtime = UnifiedModelRuntime.from_catalog_path(project_config["model_catalog_path"])
 agent = DRAgent(
-    model="gpt-5.6-sol",
-    config={"mode": "qa", "_global_config": project_config},
+    model=runtime.model_for(capability="text"),
+    config={"mode": "qa", "_global_config": project_config, "_runtime": runtime},
 )
 answer = asyncio.run(agent.execute({'task': 'Your research question'}, {}))
 print(answer)

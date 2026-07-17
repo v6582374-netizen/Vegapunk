@@ -24,7 +24,7 @@
 1. 最大限度保留 PaperOrchestra 的 Outline、文献写作、章节写作、内容反思、版式审查和 PDF 审查架构。
 2. 除 `launch_discovery.py` 末尾的单一触发调用外，不修改 InternAgent 现有发现、实验、模型、任务配置和产物生成逻辑。
 3. Candidate Experiment 目录对 PaperOrchestra 完全只读。
-4. 所有模型调用统一使用 InternAgent 的 `BaseModel` 和 `ModelFactory`。
+4. 所有模型调用统一使用 InternAgent 的 `UnifiedModelRuntime`。
 5. 标准 `experiment` 模式默认完成 Discovery 到最终论文的同步闭环。
 6. 所有候选选择回退、模型主观判断和随机选择均可审计，并按约定进入论文。
 
@@ -210,7 +210,7 @@ class DossierRunResult:
     error: DossierError | None
 ```
 
-Service 内部通过现有 InternAgent 配置调用 `ModelFactory` 一次，得到一个共享 `BaseModel` 实例，并将同一对象传给所有 ported agents。
+Service 内部构造一个共享 `UnifiedModelRuntime`，并将其传给所有 ported agents。
 
 历史入口：
 

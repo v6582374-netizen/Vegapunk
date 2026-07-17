@@ -126,57 +126,16 @@ def call_gemini_with_contents(
     generation_configs: dict = {},
     check_parsed_response_not_none: bool = True,
 ):
-    """
-    Calls the Gemini API (text-only) with retry logic and exponential backoff.
-    """
-
-    raw_response = None
-    parsed_response = None
-
-    for attempt in range(max_retries):
-        try:
-            raw_response = call_responses_with_contents(
-                contents=contents,
-                model_name=model_name,
-                generation_configs=generation_configs,
-            )
-            parsed_response = result_parsing_func(raw_response)
-
-            if check_parsed_response_not_none:
-                assert (
-                    parsed_response is not None
-                ), f"Parsed response is None, Here is the raw response:\n{raw_response}"
-
-            return {
-                "raw_response": raw_response,
-                "parsed_response": parsed_response,
-            }
-
-        except Exception as e:
-            error_msg = str(e)
-            print(
-                f"Warning: Gemini API call failed on attempt {attempt + 1} of {max_retries}. Error: {error_msg}",
-            )
-
-            if (
-                "maximum number of tokens allowed" in error_msg.lower()
-                or "400 bad request" in error_msg.lower()
-                or "code: 400" in error_msg.lower()
-                or "400 invalid_argument" in error_msg.lower()
-            ):
-                print("Detected input token count exceed. Not retrying.")
-                raise e
-
-            if attempt + 1 == max_retries:
-                print(f"Error: All {max_retries} retry attempts failed.")
-                raise e
-
-            delay = base_interval_sec * (2 ** (attempt - 1)) if attempt > 0 else 0
-            print(f"Retrying in {delay} seconds...")
-            if delay > 0:
-                time.sleep(delay)
-
-    print("Error: Exited retry loop unexpectedly.")
+    """Provider-neutral compatibility wrapper over the Unified Runtime."""
+    del max_retries, base_interval_sec
+    raw_response = call_responses_with_contents(
+        contents=contents,
+        model_name=model_name,
+        generation_configs=generation_configs,
+    )
+    parsed_response = result_parsing_func(raw_response)
+    if check_parsed_response_not_none and parsed_response is None:
+        raise ValueError(f"Parsed response is None, raw response: {raw_response}")
     return {"raw_response": raw_response, "parsed_response": parsed_response}
 
 
@@ -248,33 +207,14 @@ def generate_image_with_gemini(
     if generation_configs is None:
         generation_configs = {}
 
-    for attempt in range(max_retries):
-        try:
-            img_base64 = generate_image_base64(
-                model_name=model_name,
-                prompt=prompt,
-                aspect_ratio=aspect_ratio,
-            )
-            if save_path:
-                try:
-                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                    with open(save_path, "wb") as fh:
-                        fh.write(base64.b64decode(img_base64))
-                    print(f"Image for prompt '{prompt}' saved to {save_path}")
-                except Exception as e:
-                    print(f"Warning: Failed to save image to {save_path}: {e}")
-            return img_base64
-        except Exception as e:
-            print(f"Warning: Gemini API image generation failed {e}.")
-            if attempt + 1 == max_retries:
-                print(
-                    f"Error: All {max_retries} retry attempts failed for image generation."
-                )
-                break
-
-            delay = base_interval_sec * (2 ** (attempt - 1)) if attempt > 0 else 0
-            print(f"Retrying in {delay} seconds...")
-            if delay > 0:
-                time.sleep(delay)
-
-    return None
+    del generation_configs, max_retries, base_interval_sec
+    img_base64 = generate_image_base64(
+        model_name=model_name,
+        prompt=prompt,
+        aspect_ratio=aspect_ratio,
+    )
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "wb") as fh:
+            fh.write(base64.b64decode(img_base64))
+    return img_base64
