@@ -45,6 +45,11 @@ The single in-process execution surface that turns semantic model requests into 
 It owns Catalog resolution, capability validation, adapter selection, telemetry, and error classification; consumers do not create SDK clients or resolve Providers themselves.
 _Avoid_: Paper runtime, DR runtime, caller-local client, second factory
 
+**Responses Content Sequence**:
+The ordered typed content items within one Responses message, including separate text, image, and file inputs when supported by the selected model.
+Its item boundaries and order are part of the requested model context.
+_Avoid_: flattened prompt, provider workaround, text-only message
+
 **Active Provider Set**:
 The generative Model Providers that the project runtime is allowed to resolve for in-process model calls.
 The current generative Active Provider Set contains `relay` and `qwen`; the separately declared `local` embedding implementation is the only non-generative exception.
