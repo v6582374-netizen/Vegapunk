@@ -17,7 +17,14 @@ from admin_console.artifacts import (
     resolve_launch_dir,
 )
 from admin_console.launches import scan_launches
+from admin_console.parameters import (
+    load_values,
+    parameter_catalog,
+    save_values,
+    validate_values,
+)
 from admin_console.queue import LaunchQueue, UnknownTaskError
+from pydantic import ValidationError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
@@ -55,9 +62,11 @@ def create_app(
     tasks_root: Path | None = None,
     config_paths: list[Path] | None = None,
     runner_command: list[str] | None = None,
+    main_config_path: Path | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
     resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
+    resolved_main_config = main_config_path or DEFAULT_CONFIG_PATHS[0]
     queue = LaunchQueue(
         results_root=resolved_results_root,
         tasks_root=resolved_tasks_root,
@@ -107,6 +116,19 @@ def create_app(
         except UnknownTaskError:
             raise HTTPException(status_code=404, detail=f"unknown task: {submission.task}")
         return entry.to_dict()
+
+    @app.get("/api/parameters")
+    def get_parameters() -> dict:
+        return {"catalog": parameter_catalog(), "values": load_values(resolved_main_config)}
+
+    @app.put("/api/parameters")
+    def put_parameters(values: dict) -> dict:
+        try:
+            parameters = validate_values(values)
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail=error.errors(include_url=False))
+        save_values(resolved_main_config, parameters)
+        return {"values": load_values(resolved_main_config)}
 
     def _launch_dir_or_404(launch_id: str) -> Path:
         launch_dir = resolve_launch_dir(resolved_results_root, launch_id)

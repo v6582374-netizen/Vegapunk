@@ -16,13 +16,15 @@ export interface QueueEntry {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
   if (!response.ok) {
-    let detail: string | undefined;
+    let detail: unknown;
     try {
-      detail = ((await response.json()) as { detail?: string }).detail;
+      detail = ((await response.json()) as { detail?: unknown }).detail;
     } catch {
       detail = undefined;
     }
-    throw new Error(detail ?? `Request to ${url} failed: ${response.status}`);
+    const text =
+      typeof detail === "string" ? detail : detail === undefined ? undefined : JSON.stringify(detail);
+    throw new Error(text ?? `Request to ${url} failed: ${response.status}`);
   }
   return (await response.json()) as T;
 }
@@ -49,6 +51,34 @@ export async function submitLaunch(task: string): Promise<QueueEntry> {
 
 export async function cancelQueued(queueId: string): Promise<void> {
   await request<QueueEntry>(`/api/queue/${queueId}`, { method: "DELETE" });
+}
+
+export interface ParameterField {
+  path: string;
+  description: string;
+  type: string;
+  ge?: number;
+  le?: number;
+  gt?: number;
+  lt?: number;
+}
+
+export async function fetchParameters(): Promise<{
+  catalog: ParameterField[];
+  values: Record<string, unknown>;
+}> {
+  return request("/api/parameters");
+}
+
+export async function saveParameters(
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const body = await request<{ values: Record<string, unknown> }>("/api/parameters", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  });
+  return body.values;
 }
 
 export interface ArtifactNode {

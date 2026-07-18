@@ -1,5 +1,6 @@
 import { Layout, Tabs, Typography } from "antd";
 import ArtifactExplorer from "./ArtifactExplorer";
+import ParametersPanel from "./ParametersPanel";
 import QueuePanel from "./QueuePanel";
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
           items={[
             { key: "queue", label: "运行与队列", children: <QueuePanel /> },
             { key: "artifacts", label: "产物浏览", children: <ArtifactExplorer /> },
+            { key: "parameters", label: "运行参数", children: <ParametersPanel /> },
           ]}
         />
       </Layout.Content>
