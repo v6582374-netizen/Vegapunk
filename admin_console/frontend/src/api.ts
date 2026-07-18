@@ -50,3 +50,27 @@ export async function submitLaunch(task: string): Promise<QueueEntry> {
 export async function cancelQueued(queueId: string): Promise<void> {
   await request<QueueEntry>(`/api/queue/${queueId}`, { method: "DELETE" });
 }
+
+export interface ArtifactNode {
+  path: string;
+  name: string;
+  kind: "file" | "directory";
+  size?: number;
+  children?: ArtifactNode[];
+}
+
+export async function fetchArtifactTree(launchId: string): Promise<ArtifactNode[]> {
+  return (await request<{ tree: ArtifactNode[] }>(`/api/artifacts/${launchId}/tree`)).tree;
+}
+
+export function artifactFileUrl(launchId: string, path: string): string {
+  return `/api/artifacts/${launchId}/file?path=${encodeURIComponent(path)}`;
+}
+
+export async function fetchArtifactText(launchId: string, path: string): Promise<string> {
+  const response = await fetch(artifactFileUrl(launchId, path));
+  if (!response.ok) {
+    throw new Error(`Failed to load artifact ${path}: ${response.status}`);
+  }
+  return response.text();
+}

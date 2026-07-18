@@ -6,8 +6,16 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from admin_console.artifacts import (
+    ArtifactPathError,
+    artifact_tree,
+    guess_media_type,
+    resolve_artifact,
+    resolve_launch_dir,
+)
 from admin_console.launches import scan_launches
 from admin_console.queue import LaunchQueue, UnknownTaskError
 
@@ -99,6 +107,27 @@ def create_app(
         except UnknownTaskError:
             raise HTTPException(status_code=404, detail=f"unknown task: {submission.task}")
         return entry.to_dict()
+
+    def _launch_dir_or_404(launch_id: str) -> Path:
+        launch_dir = resolve_launch_dir(resolved_results_root, launch_id)
+        if launch_dir is None:
+            raise HTTPException(status_code=404, detail=f"unknown launch: {launch_id}")
+        return launch_dir
+
+    @app.get("/api/artifacts/{launch_id:path}/tree")
+    def get_artifact_tree(launch_id: str) -> dict:
+        return {"tree": artifact_tree(_launch_dir_or_404(launch_id))}
+
+    @app.get("/api/artifacts/{launch_id:path}/file")
+    def get_artifact_file(launch_id: str, path: str) -> FileResponse:
+        launch_dir = _launch_dir_or_404(launch_id)
+        try:
+            artifact = resolve_artifact(launch_dir, path)
+        except ArtifactPathError:
+            raise HTTPException(status_code=400, detail=f"path escapes launch directory: {path}")
+        if not artifact.is_file():
+            raise HTTPException(status_code=404, detail=f"no such artifact: {path}")
+        return FileResponse(artifact, media_type=guess_media_type(artifact))
 
     @app.delete("/api/queue/{queue_id}")
     def cancel_queued(queue_id: str) -> dict:
