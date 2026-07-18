@@ -20,6 +20,11 @@ from admin_console.artifacts import (
 )
 from admin_console.launches import scan_launches
 from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
+from admin_console.structured_views import (
+    ExperimentRunPathError,
+    build_experiment_run_detail,
+    build_timeline,
+)
 from admin_console.parameters import (
     load_values,
     parameter_catalog,
@@ -254,6 +259,18 @@ def create_app(
         if not artifact.is_file():
             raise HTTPException(status_code=404, detail=f"no such artifact: {path}")
         return FileResponse(artifact, media_type=guess_media_type(artifact))
+
+    @app.get("/api/launches/{launch_id:path}/timeline")
+    def launch_timeline(launch_id: str) -> dict:
+        return build_timeline(_launch_dir_or_404(launch_id))
+
+    @app.get("/api/launches/{launch_id:path}/experiment-run")
+    def experiment_run_detail(launch_id: str, path: str) -> dict:
+        launch_dir = _launch_dir_or_404(launch_id)
+        try:
+            return build_experiment_run_detail(launch_dir, path)
+        except ExperimentRunPathError as error:
+            raise HTTPException(status_code=400, detail=str(error))
 
     @app.get("/api/launches/{launch_id:path}/status")
     def launch_status(launch_id: str) -> dict:

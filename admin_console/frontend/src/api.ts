@@ -192,3 +192,58 @@ export async function fetchArtifactText(launchId: string, path: string): Promise
   }
   return response.text();
 }
+
+export interface TimelineRun {
+  id: string;
+  path: string;
+  outcome: string;
+  metrics_path: string | null;
+  combined_score: number | null;
+}
+
+export interface TimelineCandidate {
+  name: string;
+  path: string;
+  method_path: string | null;
+  runs: TimelineRun[];
+}
+
+export interface TimelineRound {
+  id: string;
+  path: string;
+  ideas_path: string | null;
+  ideas: { name?: string; title?: string; description?: string }[];
+  candidates: TimelineCandidate[];
+}
+
+export interface LaunchTimeline {
+  stage: string;
+  rounds: TimelineRound[];
+  paper: { path: string | null; present: boolean };
+}
+
+export async function fetchLaunchTimeline(launchId: string): Promise<LaunchTimeline> {
+  return request(`/api/launches/${launchId}/timeline`);
+}
+
+export interface ExperimentRunDetail {
+  path: string;
+  id: string;
+  outcome: string;
+  metrics: Record<string, unknown> | null;
+  metrics_path: string | null;
+  log_path: string | null;
+  traceback_path: string | null;
+  log_preview: string;
+  code_files: { path: string; name: string }[];
+  code_diff: string;
+}
+
+export async function fetchExperimentRun(
+  launchId: string,
+  path: string,
+): Promise<ExperimentRunDetail> {
+  return request(
+    `/api/launches/${launchId}/experiment-run?path=${encodeURIComponent(path)}`,
+  );
+}

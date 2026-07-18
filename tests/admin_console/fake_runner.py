@@ -51,9 +51,38 @@ def main() -> int:
     while time.monotonic() < deadline:
         time.sleep(0.05)
 
-    (launch_dir / "ideas.json").write_text(json.dumps([{"idea": "fake"}]))
+    ideas = [{"name": "FakeIdea", "title": "Fake idea", "description": "from fake runner", "method": "n/a"}]
+    (launch_dir / "ideas.json").write_text(json.dumps(ideas))
+
+    # Mirror the historical Discovery layout so structured views can demo
+    # against console-started Launches as well as real result trees.
+    session = launch_dir / "session_1"
+    candidate = session / "20260101_000000_FakeIdea"
+    (candidate / "code").mkdir(parents=True)
+    (session / "ideas.json").write_text(json.dumps(ideas))
+    (candidate / "notes.txt").write_text("# Fake method\n")
+    (candidate / "code" / "experiment.py").write_text("print('candidate')\n")
+
+    run0 = candidate / "run_0"
+    (run0 / "code").mkdir(parents=True)
+    (run0 / "code" / "experiment.py").write_text("print('baseline')\n")
+    (run0 / "final_info.json").write_text(json.dumps({"combined_score": 0.1}))
+    (run0 / "log.txt").write_text("fake run_0 ok\n")
+
+    run1 = candidate / "run_1"
+    (run1 / "code").mkdir(parents=True)
+    (run1 / "code" / "experiment.py").write_text("print('improved')\n")
+    (run1 / "final_info.json").write_text(json.dumps({"combined_score": 0.4}))
+    (run1 / "log.txt").write_text("fake run_1 ok\n")
 
     outcome = os.environ.get("FAKE_RUNNER_OUTCOME", "completed")
+    if outcome == "failed":
+        run_fail = candidate / "run_2"
+        (run_fail / "code").mkdir(parents=True)
+        (run_fail / "code" / "experiment.py").write_text("raise SystemExit(1)\n")
+        (run_fail / "traceback.log").write_text("Traceback: fake failure\n")
+        (run_fail / "log.txt").write_text("fake run_2 failed\n")
+
     (launch_dir / "launch_outcome.json").write_text(json.dumps({"outcome": outcome}))
     write_log(f"fake runner finished with outcome {outcome}")
     return 0 if outcome == "completed" else 1
