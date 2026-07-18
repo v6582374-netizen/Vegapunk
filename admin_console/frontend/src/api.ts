@@ -125,6 +125,35 @@ export async function saveParameters(
   return body.values;
 }
 
+export type ModelCatalog = {
+  version: number;
+  active_text_model: string;
+  capability_models: Record<string, string>;
+  providers: Record<string, Record<string, unknown>>;
+  models: Record<
+    string,
+    {
+      provider: string;
+      model: string;
+      capabilities: string[];
+      protocol?: string;
+    }
+  >;
+  retry?: Record<string, unknown>;
+};
+
+export async function fetchModelCatalog(): Promise<ModelCatalog> {
+  return request<ModelCatalog>("/api/model-catalog");
+}
+
+export async function saveModelCatalog(catalog: ModelCatalog): Promise<ModelCatalog> {
+  return request<ModelCatalog>("/api/model-catalog", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(catalog),
+  });
+}
+
 export interface LaunchStatus {
   state: string;
   stage: string;

@@ -1,6 +1,7 @@
 import { Layout, Tabs, Typography } from "antd";
 import ArtifactExplorer from "./ArtifactExplorer";
 import LivePanel from "./LivePanel";
+import ModelCatalogPanel from "./ModelCatalogPanel";
 import ParametersPanel from "./ParametersPanel";
 import PromptsPanel from "./PromptsPanel";
 import QueuePanel from "./QueuePanel";
@@ -24,6 +25,7 @@ export default function App() {
             { key: "tasks", label: "任务编写", children: <TaskAuthoringPanel /> },
             { key: "prompts", label: "Prompt Library", children: <PromptsPanel /> },
             { key: "parameters", label: "运行参数", children: <ParametersPanel /> },
+            { key: "catalog", label: "模型目录", children: <ModelCatalogPanel /> },
           ]}
         />
       </Layout.Content>

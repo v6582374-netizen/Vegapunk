@@ -34,6 +34,11 @@ from admin_console.tasks import (
     list_tasks as list_task_summaries,
     write_upload_to_temp,
 )
+from admin_console.model_catalog import (
+    load_catalog,
+    save_catalog,
+    validate_catalog,
+)
 from internagent.prompt_library import (
     DEFAULT_LIBRARY_ROOT,
     PromptLibrary,
@@ -82,11 +87,13 @@ def create_app(
     runner_command: list[str] | None = None,
     main_config_path: Path | None = None,
     prompt_library_root: Path | None = None,
+    model_catalog_path: Path | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
     resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
     resolved_main_config = main_config_path or DEFAULT_CONFIG_PATHS[0]
     resolved_prompt_root = prompt_library_root or DEFAULT_LIBRARY_ROOT
+    resolved_catalog_path = model_catalog_path or DEFAULT_CONFIG_PATHS[1]
     prompt_library = PromptLibrary(resolved_prompt_root)
     queue = LaunchQueue(
         results_root=resolved_results_root,
@@ -195,6 +202,24 @@ def create_app(
         except UnknownPromptError:
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
         return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+
+    @app.get("/api/model-catalog")
+    def get_model_catalog() -> dict:
+        return load_catalog(resolved_catalog_path)
+
+    @app.put("/api/model-catalog")
+    def put_model_catalog(values: dict) -> dict:
+        try:
+            document = validate_catalog(values)
+        except ValidationError as error:
+            raise HTTPException(
+                status_code=422,
+                detail=json.loads(error.json()),
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        save_catalog(resolved_catalog_path, document)
+        return load_catalog(resolved_catalog_path)
 
     @app.get("/api/parameters")
     def get_parameters() -> dict:

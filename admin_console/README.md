@@ -36,6 +36,7 @@ npm run build   # 含 tsc 类型检查，产物在 dist/
 - 任务编写：五字段表单 + 可选基线 zip，标注 experiment/report 路径
 - Prompt Library：按阶段分组浏览/编辑；Launch 启动时整库快照
 - 运行参数：Run Parameter Registry 结构化表单与服务端校验
+- 模型目录：Unified Model Catalog 嵌套编辑（绑定 / Provider / 能力声明）
 
 ## 测试
 
