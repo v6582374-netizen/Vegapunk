@@ -860,4 +860,21 @@ def _run_sync(coroutine: Awaitable[Any]) -> Any:
     return result[0]
 
 
-__all__ = ["ModelCatalog", "ModelDefinition", "ProviderDefinition", "RetryPolicy", "UnifiedModelRuntime"]
+def create_model_runtime(
+    config: Mapping[str, Any] | None = None,
+) -> UnifiedModelRuntime:
+    """Construct the process-owned runtime from the active catalog setting."""
+    catalog_path = (config or {}).get("model_catalog_path")
+    if catalog_path:
+        return UnifiedModelRuntime.from_catalog_path(catalog_path)
+    return UnifiedModelRuntime.from_default_catalog()
+
+
+__all__ = [
+    "ModelCatalog",
+    "ModelDefinition",
+    "ProviderDefinition",
+    "RetryPolicy",
+    "UnifiedModelRuntime",
+    "create_model_runtime",
+]

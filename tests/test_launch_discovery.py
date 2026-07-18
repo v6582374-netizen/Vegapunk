@@ -115,6 +115,133 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             called_launch = root / run.call_args.kwargs["launch_dir"]
             self.assertEqual(called_launch.resolve(), launches[0].resolve())
 
+    def test_experiment_launch_shares_one_runtime_with_both_stages(self) -> None:
+        observed_runtimes = []
+
+        class IdeaGenerator:
+            def __init__(
+                self, *_: object, model_runtime: object, **__: object
+            ) -> None:
+                observed_runtimes.append(model_runtime)
+                self.session_id = "session_1"
+
+            async def generate_ideas(self) -> tuple[list[dict[str, str]], str]:
+                return (
+                    [{"refined_method_details": {"name": "measured idea"}}],
+                    "session.json",
+                )
+
+        class ExperimentRunner:
+            def __init__(self, *_: object, model_runtime: object, **__: object) -> None:
+                observed_runtimes.append(model_runtime)
+
+            def run_experiments(self, **_: object) -> list[dict[str, object]]:
+                return [{"idea_name": "measured idea", "success": False}]
+
+        stage_stub = types.ModuleType("internagent.stage")
+        stage_stub.IdeaGenerator = IdeaGenerator
+        stage_stub.ExperimentRunner = ExperimentRunner
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            task_dir = root / "task"
+            task_dir.mkdir()
+            (task_dir / "prompt.json").write_text("{}", encoding="utf-8")
+            runtime = object()
+            arguments = Namespace(
+                resume=None,
+                task=str(task_dir),
+                ref_code_path=None,
+                output_dir="runtime-test",
+                config=None,
+                skip_idea_generation=False,
+                idea_path=None,
+                mode="experiment",
+                exp_backend="claudecode",
+            )
+
+            previous_directory = Path.cwd()
+            os.chdir(root)
+            try:
+                with patch.dict(sys.modules, {"internagent.stage": stage_stub}), patch(
+                    "launch_discovery.parse_arguments", return_value=arguments
+                ), patch(
+                    "launch_discovery.setup_logging",
+                    return_value=logging.getLogger("runtime-launch-test"),
+                ), patch.object(
+                    launch_discovery, "LONG_MEMORY_AVAILABLE", False
+                ), patch.object(
+                    launch_discovery,
+                    "create_model_runtime",
+                    return_value=runtime,
+                ) as create_runtime, patch(
+                    "launch_discovery._handoff_to_paper_orchestra"
+                ):
+                    launch_discovery.main()
+            finally:
+                os.chdir(previous_directory)
+
+        create_runtime.assert_called_once_with({})
+        self.assertEqual(observed_runtimes, [runtime, runtime])
+
+    def test_skipped_idea_generation_still_injects_runtime_into_experiments(self) -> None:
+        observed_runtimes = []
+
+        class ExperimentRunner:
+            def __init__(self, *_: object, model_runtime: object, **__: object) -> None:
+                observed_runtimes.append(model_runtime)
+
+            def run_experiments(self, **_: object) -> list[dict[str, object]]:
+                return [{"idea_name": "reused idea", "success": False}]
+
+        stage_stub = types.ModuleType("internagent.stage")
+        stage_stub.IdeaGenerator = object
+        stage_stub.ExperimentRunner = ExperimentRunner
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            task_dir = root / "task"
+            task_dir.mkdir()
+            (task_dir / "prompt.json").write_text("{}", encoding="utf-8")
+            ideas_path = root / "session_1_ideas.json"
+            ideas_path.write_text(
+                json.dumps([{"name": "reused idea"}]), encoding="utf-8"
+            )
+            runtime = object()
+            arguments = Namespace(
+                resume=None,
+                task=str(task_dir),
+                ref_code_path=None,
+                output_dir="runtime-skip-test",
+                config=None,
+                skip_idea_generation=True,
+                idea_path=str(ideas_path),
+                mode="experiment",
+                exp_backend="claudecode",
+            )
+
+            previous_directory = Path.cwd()
+            os.chdir(root)
+            try:
+                with patch.dict(sys.modules, {"internagent.stage": stage_stub}), patch(
+                    "launch_discovery.parse_arguments", return_value=arguments
+                ), patch(
+                    "launch_discovery.setup_logging",
+                    return_value=logging.getLogger("runtime-skip-launch-test"),
+                ), patch.object(
+                    launch_discovery, "LONG_MEMORY_AVAILABLE", False
+                ), patch(
+                    "launch_discovery.create_model_runtime", return_value=runtime
+                ) as create_runtime, patch(
+                    "launch_discovery._handoff_to_paper_orchestra"
+                ):
+                    launch_discovery.main()
+            finally:
+                os.chdir(previous_directory)
+
+        create_runtime.assert_called_once_with({})
+        self.assertEqual(observed_runtimes, [runtime])
+
     def test_completed_discovery_resumes_paperorchestra_without_opening_draft(
         self,
     ) -> None:

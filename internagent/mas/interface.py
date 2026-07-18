@@ -12,7 +12,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional, Callable, List
 
-from .models.unified_runtime import UnifiedModelRuntime
+from .models.unified_runtime import UnifiedModelRuntime, create_model_runtime
 from .agents.agent_factory import AgentFactory
 from .memory.memory_manager import MemoryManager
 from .workflow.orchestration_agent import OrchestrationAgent
@@ -33,7 +33,7 @@ class InternAgentInterface:
     It serves as the primary entry point for external applications.
     """
 
-    def __init__(self, config_path: str = None, config: Dict[str, Any] = None, work_dir: str = 'example', task_name: str = None, exp_backend: str = None):
+    def __init__(self, config_path: str = None, config: Dict[str, Any] = None, work_dir: str = 'example', task_name: str = None, exp_backend: str = None, model_runtime: Optional[UnifiedModelRuntime] = None):
         """
         Initialize the InternAgent interface.
 
@@ -43,6 +43,7 @@ class InternAgentInterface:
             work_dir: Working directory for the system
             task_name: Name of the task (from --task parameter)
             exp_backend: Experiment backend to use (claudecode, iflow)
+            model_runtime: Process-owned runtime shared with active callers
         """
         self.work_dir = work_dir
         self.task_name = task_name or "DefaultTask"
@@ -55,11 +56,10 @@ class InternAgentInterface:
             self.config['exp_backend'] = exp_backend
 
         # One Runtime owns Provider resolution and is injected into every agent.
-        catalog_path = self.config.get("model_catalog_path")
         self.model_runtime = (
-            UnifiedModelRuntime.from_catalog_path(catalog_path)
-            if catalog_path
-            else UnifiedModelRuntime.from_default_catalog()
+            model_runtime
+            if model_runtime is not None
+            else create_model_runtime(self.config)
         )
         # Keep the process-local Runtime available to memory and nested
         # workflows without serializing provider configuration into callers.

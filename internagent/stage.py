@@ -67,7 +67,7 @@ class Tee:
 class IdeaGenerator:
     """Handles idea generation using MAS"""
 
-    def __init__(self, args, logger, round_num=1, config=None):
+    def __init__(self, args, logger, round_num=1, config=None, model_runtime=None):
         self.args = args
         self.logger = logger
         self.round_num = round_num  # Current loop round number (1-indexed)
@@ -77,7 +77,8 @@ class IdeaGenerator:
             args.config,
             work_dir=args.task_dir,
             task_name=args.task_name,
-            exp_backend=args.exp_backend
+            exp_backend=args.exp_backend,
+            model_runtime=model_runtime,
         )
         self.session_id = None
         self.status = None
@@ -465,13 +466,23 @@ class GPUAllocator:
 class ExperimentRunner:
     """Handles experiment execution with different backends"""
 
-    def __init__(self, args, logger, config=None, session_id=None, base_code_dir=None):
+    def __init__(
+        self,
+        args,
+        logger,
+        config=None,
+        session_id=None,
+        base_code_dir=None,
+        *,
+        model_runtime,
+    ):
         self.args = args
         self.logger = logger
         self.backend = args.exp_backend
         self.config = config or {}
         self.session_id = session_id  # Session ID for organizing results
         self.base_code_dir = base_code_dir or args.task_dir  # Code directory (for incremental mode)
+        self.model_runtime = model_runtime
 
         # Initialize GPU allocator for parallel execution
         self._init_gpu_allocator()
@@ -966,7 +977,7 @@ class ExperimentRunner:
                     task_info=task_info,
                     checklist=checklist,
                     run_timeout=run_timeout,
-                    runtime=self.interface.model_runtime,
+                    runtime=self.model_runtime,
                 )
 
             self.logger.info(f"Claude Code experiment {'succeeded' if success else 'failed'}: {idea_name}")

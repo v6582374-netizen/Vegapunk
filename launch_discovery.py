@@ -16,6 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from typing import List, Dict, Any, Optional
+from internagent.mas.models.unified_runtime import create_model_runtime
 
 # Long memory imports (optional - only if long_memory is available)
 try:
@@ -798,6 +799,7 @@ def _main():
     # Keep completed-launch PaperOrchestra resume independent from optional
     # Discovery-only dependencies such as the experiment toolchain.
     from internagent.stage import IdeaGenerator, ExperimentRunner
+    model_runtime = create_model_runtime(config)
 
     logger.info("=" * 80)
     logger.info("InternAgent Pipeline Started" + (" (RESUMED)" if args.resume else ""))
@@ -920,7 +922,13 @@ def _main():
 
         else:
             logger.info(f"Starting idea generation with MAS (Round {round_num})...")
-            idea_generator = IdeaGenerator(args, logger, round_num=round_num, config=config)
+            idea_generator = IdeaGenerator(
+                args,
+                logger,
+                round_num=round_num,
+                config=config,
+                model_runtime=model_runtime,
+            )
 
             try:
                 top_ideas, session_json = asyncio.run(idea_generator.generate_ideas())
@@ -997,7 +1005,14 @@ def _main():
                 logger.info(f"OpenHands URI prefix: {uri_prefix}")
 
             # 实验执行器负责复制基线目录、分配资源、调用外部后端，并把每个想法的结果收回来。
-            experiment_runner = ExperimentRunner(args, logger, config, session_id=session_id, base_code_dir=base_code_dir)
+            experiment_runner = ExperimentRunner(
+                args,
+                logger,
+                config,
+                session_id=session_id,
+                base_code_dir=base_code_dir,
+                model_runtime=model_runtime,
+            )
 
             # Use session_dir if session_id exists, otherwise use args.output_dir
             if session_id:
