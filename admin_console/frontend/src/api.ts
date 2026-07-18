@@ -13,43 +13,40 @@ export interface QueueEntry {
   launch_id: string | null;
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, init);
   if (!response.ok) {
-    throw new Error(`Request to ${url} failed: ${response.status}`);
+    let detail: string | undefined;
+    try {
+      detail = ((await response.json()) as { detail?: string }).detail;
+    } catch {
+      detail = undefined;
+    }
+    throw new Error(detail ?? `Request to ${url} failed: ${response.status}`);
   }
   return (await response.json()) as T;
 }
 
 export async function fetchLaunches(): Promise<LaunchSummary[]> {
-  return (await getJson<{ launches: LaunchSummary[] }>("/api/launches")).launches;
+  return (await request<{ launches: LaunchSummary[] }>("/api/launches")).launches;
 }
 
 export async function fetchTasks(): Promise<string[]> {
-  return (await getJson<{ tasks: string[] }>("/api/tasks")).tasks;
+  return (await request<{ tasks: string[] }>("/api/tasks")).tasks;
 }
 
 export async function fetchQueue(): Promise<QueueEntry[]> {
-  return (await getJson<{ entries: QueueEntry[] }>("/api/queue")).entries;
+  return (await request<{ entries: QueueEntry[] }>("/api/queue")).entries;
 }
 
 export async function submitLaunch(task: string): Promise<QueueEntry> {
-  const response = await fetch("/api/queue", {
+  return request<QueueEntry>("/api/queue", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task }),
   });
-  if (!response.ok) {
-    const detail = (await response.json()) as { detail?: string };
-    throw new Error(detail.detail ?? `Submit failed: ${response.status}`);
-  }
-  return (await response.json()) as QueueEntry;
 }
 
 export async function cancelQueued(queueId: string): Promise<void> {
-  const response = await fetch(`/api/queue/${queueId}`, { method: "DELETE" });
-  if (!response.ok) {
-    const detail = (await response.json()) as { detail?: string };
-    throw new Error(detail.detail ?? `Cancel failed: ${response.status}`);
-  }
+  await request<QueueEntry>(`/api/queue/${queueId}`, { method: "DELETE" });
 }

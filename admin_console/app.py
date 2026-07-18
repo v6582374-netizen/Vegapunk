@@ -21,8 +21,9 @@ DEFAULT_CONFIG_PATHS = [
 
 # The real launcher tolerates an empty --resume directory (it scans and
 # resumes from round zero), which lets the queue own the launch directory
-# it snapshots into. The backend choice moves to the Run Parameter
-# Registry in a later slice.
+# it snapshots into. --config points at the Launch Configuration Snapshot
+# so the run reads only its snapshot (ADR-0157). The backend choice moves
+# to the Run Parameter Registry in a later slice.
 DEFAULT_RUNNER_COMMAND = [
     sys.executable,
     str(REPOSITORY_ROOT / "launch_discovery.py"),
@@ -30,6 +31,8 @@ DEFAULT_RUNNER_COMMAND = [
     "{task_dir}",
     "--resume",
     "{launch_dir}",
+    "--config",
+    "{snapshot_dir}/default_config.yaml",
     "--exp_backend",
     "claudecode",
 ]
@@ -46,10 +49,10 @@ def create_app(
     runner_command: list[str] | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
-    tasks_root_resolved = tasks_root or (REPOSITORY_ROOT / "tasks")
+    resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
     queue = LaunchQueue(
         results_root=resolved_results_root,
-        tasks_root=tasks_root_resolved,
+        tasks_root=resolved_tasks_root,
         config_paths=config_paths or DEFAULT_CONFIG_PATHS,
         runner_command=runner_command or DEFAULT_RUNNER_COMMAND,
     )
@@ -58,17 +61,31 @@ def create_app(
 
     @app.get("/api/launches")
     def list_launches() -> dict:
+        # The queue knows the authoritative state of console-started
+        # Launches; artifact heuristics only cover pre-console history.
+        queue_states = {
+            entry.launch_id: entry.state
+            for entry in queue.entries()
+            if entry.launch_id is not None
+        }
         launches = scan_launches(resolved_results_root)
-        return {"launches": [launch.to_dict() for launch in launches]}
+        return {
+            "launches": [
+                {**launch.to_dict(), "state": queue_states.get(launch.id, launch.state)}
+                for launch in launches
+            ]
+        }
 
     @app.get("/api/tasks")
     def list_tasks() -> dict:
-        tasks_root = tasks_root_resolved
+        if not resolved_tasks_root.is_dir():
+            return {"tasks": []}
         names = sorted(
             path.name
-            for path in tasks_root.iterdir()
-            if path.is_dir() and ((path / "prompt.json").is_file() or (path / "task_info.json").is_file())
-        ) if tasks_root.is_dir() else []
+            for path in resolved_tasks_root.iterdir()
+            if path.is_dir()
+            and ((path / "prompt.json").is_file() or (path / "task_info.json").is_file())
+        )
         return {"tasks": names}
 
     @app.get("/api/queue")

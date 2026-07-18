@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -12,7 +14,14 @@ from fastapi.testclient import TestClient
 from admin_console.app import create_app
 
 FAKE_RUNNER = Path(__file__).parent / "fake_runner.py"
-FAKE_RUNNER_COMMAND = [sys.executable, str(FAKE_RUNNER), "{task_dir}", "{launch_dir}"]
+FAKE_RUNNER_COMMAND = [
+    sys.executable,
+    str(FAKE_RUNNER),
+    "{task_dir}",
+    "{launch_dir}",
+    "--config",
+    "{snapshot_dir}/default_config.yaml",
+]
 
 
 def _wait_for_state(client: TestClient, queue_id: str, state: str, timeout: float = 10.0) -> dict:
@@ -126,6 +135,50 @@ class LaunchQueueTest(unittest.TestCase):
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_OUTCOME": "failed"}):
             entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
             _wait_for_state(client, entry["queue_id"], "failed")
+
+    def test_runner_is_pointed_at_the_snapshot_config(self) -> None:
+        client = self.env.create_client()
+        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        finished = _wait_for_state(client, entry["queue_id"], "completed")
+
+        launch_dir = self.env.results_root / finished["launch_id"]
+        argv = json.loads((launch_dir / "runner_argv.json").read_text())
+        config_arg = argv[argv.index("--config") + 1]
+        self.assertEqual(
+            Path(config_arg),
+            launch_dir / "config_snapshot" / "default_config.yaml",
+        )
+
+    def test_completed_console_launch_state_appears_in_listing(self) -> None:
+        client = self.env.create_client()
+        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        finished = _wait_for_state(client, entry["queue_id"], "completed")
+
+        launches = client.get("/api/launches").json()["launches"]
+        listed = next(item for item in launches if item["id"] == finished["launch_id"])
+        self.assertEqual(listed["state"], "completed")
+
+    def test_surviving_run_from_previous_service_blocks_the_queue(self) -> None:
+        orphan = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        self.addCleanup(orphan.kill)
+        state_path = self.env.results_root / "launch_queue.json"
+        state_path.write_text(
+            '{"entries": [{"queue_id": "orphan000001", "task": "AutoDemo",'
+            ' "state": "running", "submitted_at": "2026-07-18T00:00:00",'
+            f' "launch_id": "AutoDemo/20260718_000000_launch", "pid": {orphan.pid}}}]}}'
+        )
+
+        client = self.env.create_client()
+        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        time.sleep(0.4)
+        entries = {e["queue_id"]: e for e in client.get("/api/queue").json()["entries"]}
+        self.assertEqual(entries["orphan000001"]["state"], "running")
+        self.assertEqual(entries[entry["queue_id"]]["state"], "queued")
+
+        orphan.kill()
+        orphan.wait()
+        _wait_for_state(client, "orphan000001", "interrupted")
+        _wait_for_state(client, entry["queue_id"], "completed")
 
     def test_queue_state_survives_service_restart(self) -> None:
         client = self.env.create_client()

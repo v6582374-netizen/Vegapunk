@@ -33,7 +33,7 @@ class LaunchSummary:
 
 
 def _derive_state(launch_dir: Path) -> str:
-    if (launch_dir / "manuscript").is_dir():
+    if (launch_dir / "discovery_summary.json").is_file() or (launch_dir / "manuscript").is_dir():
         return "completed"
     return "unknown"
 

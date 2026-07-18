@@ -21,6 +21,7 @@ def main() -> int:
     task_dir = Path(sys.argv[1])
     launch_dir = Path(sys.argv[2])
     launch_dir.mkdir(parents=True, exist_ok=True)
+    (launch_dir / "runner_argv.json").write_text(json.dumps(sys.argv[1:]))
 
     log = launch_dir / "console.log"
     with log.open("a", encoding="utf-8") as stream:

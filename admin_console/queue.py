@@ -11,9 +11,11 @@ not lose it.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -40,6 +42,9 @@ class QueueEntry:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    def copy(self) -> "QueueEntry":
+        return QueueEntry(**self.to_dict())
 
 
 class UnknownTaskError(Exception):
@@ -84,7 +89,7 @@ class LaunchQueue:
 
     def entries(self) -> list[QueueEntry]:
         with self._lock:
-            return [QueueEntry(**entry.to_dict()) for entry in self._entries]
+            return [entry.copy() for entry in self._entries]
 
     def cancel(self, queue_id: str) -> QueueEntry:
         with self._lock:
@@ -95,26 +100,56 @@ class LaunchQueue:
                 raise ValueError(f"only queued entries can be cancelled, state is {entry.state}")
             entry.state = CANCELLED
             self._save()
-            return QueueEntry(**entry.to_dict())
+            return entry.copy()
 
     # ------------------------------------------------------------ worker
 
     def _work_loop(self) -> None:
         while True:
+            adopted = None
             with self._lock:
-                entry = self._next_queued()
-                while entry is None:
-                    self._lock.wait()
+                while True:
+                    adopted = self._running_entry()
+                    if adopted is not None:
+                        break
                     entry = self._next_queued()
-                entry.state = RUNNING
-                launch_dir = self._create_launch_dir(entry.task)
-                entry.launch_id = str(launch_dir.relative_to(self._results_root))
-                self._save()
-            self._execute(entry, launch_dir)
+                    if entry is not None:
+                        break
+                    self._lock.wait()
+                if adopted is None:
+                    entry.state = RUNNING
+                    launch_dir = self._create_launch_dir(entry.task)
+                    entry.launch_id = str(launch_dir.relative_to(self._results_root))
+                    self._save()
+            if adopted is not None:
+                self._watch_adopted_run(adopted)
+            else:
+                self._execute(entry, launch_dir)
+
+    def _watch_adopted_run(self, entry: QueueEntry) -> None:
+        """Track a run started by a previous service process.
+
+        The new process is not its parent, so it can only observe liveness,
+        not the exit code; when the process ends the entry becomes
+        interrupted. While it lives, it holds the single running slot so the
+        serial invariant survives restarts.
+        """
+        while _process_alive(entry.pid):
+            time.sleep(0.1)
+        with self._lock:
+            entry.state = INTERRUPTED
+            entry.pid = None
+            self._save()
+
+    def _running_entry(self) -> QueueEntry | None:
+        return self._first_in_state(RUNNING)
 
     def _next_queued(self) -> QueueEntry | None:
+        return self._first_in_state(QUEUED)
+
+    def _first_in_state(self, state: str) -> QueueEntry | None:
         for entry in self._entries:
-            if entry.state == QUEUED:
+            if entry.state == state:
                 return entry
         return None
 
@@ -128,16 +163,21 @@ class LaunchQueue:
         launch_dir.mkdir(parents=True)
         return launch_dir
 
-    def _snapshot_configuration(self, launch_dir: Path) -> None:
+    def _snapshot_configuration(self, launch_dir: Path) -> Path:
         snapshot_dir = launch_dir / SNAPSHOT_DIR_NAME
         snapshot_dir.mkdir()
         for config_path in self._config_paths:
             shutil.copy2(config_path, snapshot_dir / config_path.name)
+        return snapshot_dir
 
     def _execute(self, entry: QueueEntry, launch_dir: Path) -> None:
-        self._snapshot_configuration(launch_dir)
+        snapshot_dir = self._snapshot_configuration(launch_dir)
         command = [
-            part.format(task_dir=self._tasks_root / entry.task, launch_dir=launch_dir)
+            part.format(
+                task_dir=self._tasks_root / entry.task,
+                launch_dir=launch_dir,
+                snapshot_dir=snapshot_dir,
+            )
             for part in self._runner_command
         ]
         with (launch_dir / "runner.log").open("ab") as log_stream:
@@ -181,8 +221,6 @@ def _process_alive(pid: int | None) -> bool:
     if pid is None:
         return False
     try:
-        import os
-
         os.kill(pid, 0)
     except OSError:
         return False
