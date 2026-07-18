@@ -28,10 +28,20 @@ cd admin_console/frontend
 npm run build   # 含 tsc 类型检查，产物在 dist/
 ```
 
+## 已交付标签页
+
+- 运行与队列：提交 / 取消 / 优雅停止 / 强杀 / 中止后续跑
+- 实时视图：阶段、Discovery Round、产物增量、SSE 日志
+- 产物浏览：完整文件树与多格式查看器
+- 任务编写：五字段表单 + 可选基线 zip，标注 experiment/report 路径
+- 运行参数：Run Parameter Registry 结构化表单与服务端校验
+
 ## 测试
 
 ```bash
-python -m unittest discover tests/admin_console -v
+# 在仓库根目录，InternAgent conda 环境
+python -m unittest discover -s tests/admin_console -t . -v
 ```
 
 测试的主接缝是 HTTP API（FastAPI TestClient），只断言外部可见行为。
+Launch 子进程命令可注入；`tests/admin_console/fake_runner.py` 是假 runner。
