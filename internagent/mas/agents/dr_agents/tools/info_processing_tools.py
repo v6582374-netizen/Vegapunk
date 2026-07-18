@@ -16,6 +16,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models import get_model
 from utils.logger import get_logger
 
+from internagent.prompt_library import prompts as _prompt_library
+
 logger = get_logger(__name__)
 
 import dotenv
@@ -1268,29 +1270,7 @@ def extract_paper_content_to_summary(
     logger.info(f"Paper split into {len(chunks)} chunks")
     
     # Extraction prompt template for each chunk
-    EXTRACTION_PROMPT = """You are a research assistant analyzing academic paper content. Extract detailed information from this paper chunk.
-
-Paper chunk:
-{chunk}
-
-Please carefully extract and return in JSON format:
-{{
-    "problem_and_background": "Provide a comprehensive description (3-5 sentences) of the research problem, motivation, background context, related work, and research gaps being addressed. Include specific challenges and why this research is important. If not found, return None.",
-    "method_and_approach": "Describe in detail all methods, approaches, algorithms, models, frameworks, or techniques used. Include technical details, mathematical formulations, architectures, and implementation specifics. Be thorough and comprehensive. If not found, return None.",
-    "experiments_and_results": "Extract all experimental setups, datasets, evaluation metrics, quantitative results, performance comparisons, ablation studies, and key findings. Include specific numbers, percentages, improvements, and statistical significance. Preserve all data points and comparisons. If not found, return None.",
-    "conclusions_and_insights": "Identify all conclusions, key insights, contributions, implications, and takeaways from the research. Include what was learned, what works well, and the significance of findings. If not found, return None.",
-    "limitations_and_future_work": "Note all limitations, caveats, constraints, failure cases, open problems, and future research directions discussed. Include what didn't work, remaining challenges, and suggested improvements. If not found, return None."
-}}
-
-Important guidelines:
-- Be detailed and comprehensive in your extraction
-- Preserve specific technical terms, numbers, formulas, and metrics
-- Extract complete information, not just summaries
-- Include all quantitative results and comparisons
-- If information exists, provide it in full detail
-- Only return None if the aspect is truly not present in the chunk
-
-Return ONLY the JSON object, no additional text."""
+    EXTRACTION_PROMPT = _prompt_library.get("deep_research.info_extraction")
     
     # Function to extract from a single chunk
     def extract_from_chunk(chunk_idx: int, chunk_text: str) -> Dict[str, Any]:
@@ -1365,29 +1345,7 @@ Return ONLY the JSON object, no additional text."""
         return json.dumps(chunk_extractions[0], ensure_ascii=False, indent=2)
     
     # Otherwise, summarize all chunks
-    SUMMARY_PROMPT = """You are given multiple extractions from different chunks of the same academic paper. Please synthesize them into a single comprehensive and detailed summary.
-
-Chunk extractions:
-{chunk_extractions}
-
-Please synthesize these into a final summary in JSON format:
-{{
-    "problem_and_background": "Comprehensive synthesis of the research problem, motivation, background, related work, and research gaps from all chunks. Include specific challenges and importance (3-5 sentences minimum).",
-    "method_and_approach": "Complete and detailed synthesis of all methods, approaches, algorithms, models, frameworks, and techniques from all chunks. Include technical details, formulations, and implementation specifics. Be thorough and comprehensive.",
-    "experiments_and_results": "Comprehensive compilation of all experimental setups, datasets, metrics, quantitative results, performance comparisons, and findings from all chunks. Preserve all specific numbers, percentages, improvements, and statistical data.",
-    "conclusions_and_insights": "Complete synthesis of all conclusions, key insights, contributions, implications, and takeaways from all chunks. Include what was learned and the significance of findings.",
-    "limitations_and_future_work": "Comprehensive summary of all limitations, constraints, failure cases, open problems, and future research directions from all chunks. Include challenges and suggested improvements."
-}}
-
-Guidelines:
-- Combine ALL information from all chunks - be comprehensive and detailed
-- Organize information logically and coherently
-- Remove redundancy but preserve all unique information
-- Maintain specific technical terms, numbers, formulas, and metrics
-- If an aspect is None in all chunks, keep it as None in the final summary
-- Prioritize completeness and technical detail over brevity
-
-Return ONLY the JSON object, no additional text."""
+    SUMMARY_PROMPT = _prompt_library.get("deep_research.info_summary")
     
     try:
         # Format chunk extractions for summary
@@ -1813,29 +1771,7 @@ def extract_webpage_content_to_summary(
     logger.info(f"Webpage content split into {len(chunks)} chunks")
     
     # Extraction prompt template for each chunk
-    EXTRACTION_PROMPT = """You are a research assistant analyzing webpage content. Extract detailed information from this webpage chunk.
-
-Webpage chunk:
-{chunk}
-
-Please carefully extract and return in JSON format:
-{{
-    "page_overview": "Provide a comprehensive overview (3-5 sentences) of what this page discusses, including the main topic, purpose, and context. If not found, return None.",
-    "main_points": "List all key points, arguments, or findings in detail. Include specific claims, statements, and important information. Be thorough and comprehensive. If not found, return None.",
-    "evidence_and_details": "Extract all supporting evidence, data, statistics, examples, case studies, experimental results, or specific details mentioned. Include numbers, dates, names, and concrete information. If not found, return None.",
-    "conclusions_or_recommendations": "Identify any conclusions, recommendations, suggestions, implications, or actionable insights provided. Include any future directions or practical applications mentioned. If not found, return None.",
-    "limitations_and_bias": "Note any limitations, caveats, disclaimers, potential biases, conflicting information, or uncertainties mentioned or apparent in the content. If not found, return None.",
-    "relevance_to_research_question": "Analyze how this content could be relevant to research questions, what insights it provides, and what aspects might be useful for further investigation. If not found, return None."
-}}
-
-Important guidelines:
-- Be detailed and comprehensive in your extraction
-- Preserve specific facts, numbers, names, and dates
-- Extract complete information, not just summaries
-- If information exists, provide it in full detail
-- Only return None if the aspect is truly not present in the chunk
-
-Return ONLY the JSON object, no additional text."""
+    EXTRACTION_PROMPT = _prompt_library.get("deep_research.info_extraction")
     
     # Function to extract from a single chunk
     def extract_from_chunk(chunk_idx: int, chunk_text: str) -> Dict[str, Any]:
@@ -1913,30 +1849,7 @@ Return ONLY the JSON object, no additional text."""
         return json.dumps(chunk_extractions[0], ensure_ascii=False, indent=2)
     
     # Otherwise, summarize all chunks
-    SUMMARY_PROMPT = """You are given multiple extractions from different chunks of the same webpage. Please synthesize them into a single comprehensive and detailed summary.
-
-Chunk extractions:
-{chunk_extractions}
-
-Please synthesize these into a final summary in JSON format:
-{{
-    "page_overview": "Comprehensive overview synthesizing information from all chunks. Include the main topic, purpose, context, and scope (3-5 sentences minimum).",
-    "main_points": "Complete synthesis of all main points, arguments, and findings from all chunks. Preserve all important information, organize logically, and maintain detail. Be thorough.",
-    "evidence_and_details": "Comprehensive compilation of all evidence, data, statistics, examples, and specific details from all chunks. Preserve all concrete information including numbers, dates, and names.",
-    "conclusions_or_recommendations": "Complete synthesis of all conclusions, recommendations, suggestions, and implications from all chunks. Include all actionable insights and future directions.",
-    "limitations_and_bias": "Comprehensive summary of all limitations, caveats, disclaimers, and potential biases from all chunks.",
-    "relevance_to_research_question": "Detailed analysis of how the entire page content is relevant to research questions, what insights it provides, and what aspects are useful for investigation."
-}}
-
-Guidelines:
-- Combine ALL information from all chunks - be comprehensive and detailed
-- Organize information logically and coherently
-- Remove redundancy but preserve all unique information
-- Maintain specific facts, numbers, names, and dates
-- If an aspect is None in all chunks, keep it as None in the final summary
-- Prioritize completeness and detail over brevity
-
-Return ONLY the JSON object, no additional text."""
+    SUMMARY_PROMPT = _prompt_library.get("deep_research.info_summary")
     
     try:
         # Format chunk extractions for summary

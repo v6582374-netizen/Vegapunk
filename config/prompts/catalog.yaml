@@ -1,74 +1,94 @@
 prompts:
-- id: experiment.coder_mcts_draft
-  name: MCTS draft coder prompt
-  description: Initial MCTS experiment coding instruction
-  stage: experiment
-  file: experiment/coder_mcts_draft.txt
-- id: experiment.coder_openhands
-  name: OpenHands coder prompt
-  description: Baseline-to-idea coding instruction for OpenHands/Claude backends
-  stage: experiment
-  file: experiment/coder_openhands.txt
-- id: experiment.code_structure
-  name: Code structure analysis prompt
-  description: Error-focused code structure analysis before debugging
-  stage: experiment
-  file: experiment/code_structure.txt
-- id: experiment.debug_with_structure
-  name: Debug with structure prompt
-  description: Debugging instruction that uses prior structure analysis
-  stage: experiment
-  file: experiment/debug_with_structure.txt
-- id: experiment.next_experiment
-  name: Next experiment prompt
-  description: Follow-up instruction after a completed experiment run
-  stage: experiment
-  file: experiment/next_experiment.txt
-- id: experiment.coder_sci_task
-  name: Sci-task coder prompt
-  description: Paper reproduction coding instruction
-  stage: experiment
-  file: experiment/coder_sci_task.txt
-- id: experiment.next_experiment_sci
-  name: Sci-task next experiment prompt
-  description: Follow-up after a sci-task experiment run
-  stage: experiment
-  file: experiment/next_experiment_sci.txt
-- id: experiment.mcts_improve
-  name: MCTS improve prompt
-  description: Atomic improvement instruction for MCTS iterations
-  stage: experiment
-  file: experiment/mcts_improve.txt
-- id: discovery.generation.system
-  name: Idea generation system prompt
-  description: System tone for hypothesis generation
+- id: deep_research.execution
+  name: Execution Prompt
+  description: Deep Research prompt formerly EXECUTION_PROMPT
+  stage: deep_research
+  file: deep_research/execution.txt
+- id: deep_research.global_coordinator
+  name: Global Coordinator Prompt
+  description: Deep Research prompt formerly GLOBAL_COORDINATOR_PROMPT
+  stage: deep_research
+  file: deep_research/global_coordinator.txt
+- id: deep_research.global_planner
+  name: Global Planner Prompt
+  description: Deep Research prompt formerly GLOBAL_PLANNER_PROMPT
+  stage: deep_research
+  file: deep_research/global_planner.txt
+- id: deep_research.info_extraction
+  name: Deep Research paper chunk extraction prompt
+  description: Deep Research paper chunk extraction prompt
+  stage: deep_research
+  file: deep_research/info_extraction.txt
+- id: deep_research.info_summary
+  name: Deep Research paper chunk summary prompt
+  description: Deep Research paper chunk summary prompt
+  stage: deep_research
+  file: deep_research/info_summary.txt
+- id: deep_research.introduction_section
+  name: Introduction Section Prompt
+  description: Deep Research prompt formerly INTRODUCTION_SECTION_PROMPT
+  stage: deep_research
+  file: deep_research/introduction_section.txt
+- id: deep_research.outline_generation
+  name: Outline Generation Prompt
+  description: Deep Research prompt formerly OUTLINE_GENERATION_PROMPT
+  stage: deep_research
+  file: deep_research/outline_generation.txt
+- id: deep_research.planner
+  name: Planner Prompt
+  description: Deep Research prompt formerly PLANNER_PROMPT
+  stage: deep_research
+  file: deep_research/planner.txt
+- id: deep_research.qa_synthesizer
+  name: Qa Synthesizer Prompt
+  description: Deep Research prompt formerly QA_SYNTHESIZER_PROMPT
+  stage: deep_research
+  file: deep_research/qa_synthesizer.txt
+- id: deep_research.section_polishing
+  name: Section Polishing Prompt
+  description: Deep Research prompt formerly SECTION_POLISHING_PROMPT
+  stage: deep_research
+  file: deep_research/section_polishing.txt
+- id: deep_research.section_writing
+  name: Section Writing Prompt
+  description: Deep Research prompt formerly SECTION_WRITING_PROMPT
+  stage: deep_research
+  file: deep_research/section_writing.txt
+- id: deep_research.summary
+  name: Summary Prompt
+  description: Deep Research prompt formerly SUMMARY_PROMPT
+  stage: deep_research
+  file: deep_research/summary.txt
+- id: deep_research.task_summary
+  name: Task Summary Prompt
+  description: Deep Research prompt formerly TASK_SUMMARY_PROMPT
+  stage: deep_research
+  file: deep_research/task_summary.txt
+- id: discovery.codeview.claudecode_repo_analysis
+  name: Claudecode Repo Analysis Prompt
+  description: Codeview agent prompt formerly CLAUDECODE_REPO_ANALYSIS_PROMPT
   stage: discovery
-  file: discovery/generation_system.txt
-- id: discovery.reflection.system
-  name: Reflection system prompt
-  description: System prompt for idea criticism
+  file: discovery/codeview_claudecode_repo_analysis.txt
+- id: discovery.codeview.code_view
+  name: Code View Prompt
+  description: Codeview agent prompt formerly CODE_VIEW_PROMPT
   stage: discovery
-  file: discovery/reflection_system.txt
-- id: discovery.method_development.system
-  name: Method development system prompt
-  description: System prompt for method development
+  file: discovery/codeview_code_view.txt
+- id: discovery.codeview.code_view_sys
+  name: Code View System Prompt
+  description: System prompt for the Codeview agent
   stage: discovery
-  file: discovery/method_development_system.txt
-- id: discovery.refinement.system
-  name: Refinement system prompt
-  description: System prompt for method refinement
+  file: discovery/codeview_code_view_sys.txt
+- id: discovery.codeview.repo_summary
+  name: Repo Summary Prompt
+  description: Codeview agent prompt formerly REPO_SUMMARY_PROMPT
   stage: discovery
-  file: discovery/refinement_system.txt
-- id: discovery.ranking.system
-  name: Ranking system prompt
-  description: System prompt for idea ranking
+  file: discovery/codeview_repo_summary.txt
+- id: discovery.evolution.system_balanced
+  name: Evolution system balanced tone
+  description: Appended when 0.3 <= creativity_level < 0.7
   stage: discovery
-  file: discovery/ranking_system.txt
-- id: discovery.reflection.system_method
-  name: Method reflection system prompt
-  description: System prompt when reflecting on methods rather than ideas
-  stage: discovery
-  file: discovery/reflection_system_method.txt
+  file: discovery/evolution_system_balanced.txt
 - id: discovery.evolution.system_base
   name: Evolution system base
   description: Shared base of the evolution system prompt
@@ -79,13 +99,118 @@ prompts:
   description: Appended when creativity_level < 0.3
   stage: discovery
   file: discovery/evolution_system_conservative.txt
-- id: discovery.evolution.system_balanced
-  name: Evolution system balanced tone
-  description: Appended when 0.3 <= creativity_level < 0.7
-  stage: discovery
-  file: discovery/evolution_system_balanced.txt
 - id: discovery.evolution.system_creative
   name: Evolution system creative tone
   description: Appended when creativity_level >= 0.7
   stage: discovery
   file: discovery/evolution_system_creative.txt
+- id: discovery.generation.system
+  name: Idea generation system prompt
+  description: System tone for hypothesis generation
+  stage: discovery
+  file: discovery/generation_system.txt
+- id: discovery.method_development.system
+  name: Method development system prompt
+  description: System prompt for method development
+  stage: discovery
+  file: discovery/method_development_system.txt
+- id: discovery.ranking.system
+  name: Ranking system prompt
+  description: System prompt for idea ranking
+  stage: discovery
+  file: discovery/ranking_system.txt
+- id: discovery.refinement.system
+  name: Refinement system prompt
+  description: System prompt for method refinement
+  stage: discovery
+  file: discovery/refinement_system.txt
+- id: discovery.reflection.system
+  name: Reflection system prompt
+  description: System prompt for idea criticism
+  stage: discovery
+  file: discovery/reflection_system.txt
+- id: discovery.reflection.system_method
+  name: Method reflection system prompt
+  description: System prompt when reflecting on methods rather than ideas
+  stage: discovery
+  file: discovery/reflection_system_method.txt
+- id: experiment.code_structure
+  name: Code structure analysis prompt
+  description: Error-focused code structure analysis before debugging
+  stage: experiment
+  file: experiment/code_structure.txt
+- id: experiment.coder_mcts_draft
+  name: MCTS draft coder prompt
+  description: Initial MCTS experiment coding instruction
+  stage: experiment
+  file: experiment/coder_mcts_draft.txt
+- id: experiment.coder_openhands
+  name: OpenHands coder prompt
+  description: Baseline-to-idea coding instruction for OpenHands/Claude backends
+  stage: experiment
+  file: experiment/coder_openhands.txt
+- id: experiment.coder_sci_task
+  name: Sci-task coder prompt
+  description: Paper reproduction coding instruction
+  stage: experiment
+  file: experiment/coder_sci_task.txt
+- id: experiment.debug_with_structure
+  name: Debug with structure prompt
+  description: Debugging instruction that uses prior structure analysis
+  stage: experiment
+  file: experiment/debug_with_structure.txt
+- id: experiment.mcts_improve
+  name: MCTS improve prompt
+  description: Atomic improvement instruction for MCTS iterations
+  stage: experiment
+  file: experiment/mcts_improve.txt
+- id: experiment.next_experiment
+  name: Next experiment prompt
+  description: Follow-up instruction after a completed experiment run
+  stage: experiment
+  file: experiment/next_experiment.txt
+- id: experiment.next_experiment_sci
+  name: Sci-task next experiment prompt
+  description: Follow-up after a sci-task experiment run
+  stage: experiment
+  file: experiment/next_experiment_sci.txt
+- id: paper.agent_review.agentreview_instructions
+  name: agent_review:AGENTREVIEW_INSTRUCTIONS
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/agent_review.py
+  stage: paper
+  file: paper/agent_review_agentreview_instructions.txt
+- id: paper.agent_review.meta_reviewer_system_prompt
+  name: agent_review:meta_reviewer_system_prompt
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/agent_review.py
+  stage: paper
+  file: paper/agent_review_meta_reviewer_system_prompt.txt
+- id: paper.citation_f1.priority_prompt
+  name: citation_f1:PRIORITY_PROMPT
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/citation_f1.py
+  stage: paper
+  file: paper/citation_f1_priority_prompt.txt
+- id: paper.lit_review_quality_prompts.lit_review_quality_system_prompt
+  name: lit_review_quality_prompts:lit_review_quality_system_prompt
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/lit_review_quality_prompts.py
+  stage: paper
+  file: paper/lit_review_quality_prompts_lit_review_quality_system_prompt.txt
+- id: paper.prompt_utils.universal_no_leakage_prompt
+  name: prompt_utils:UNIVERSAL_NO_LEAKAGE_PROMPT
+  description: PaperOrchestra prompt from third_party/paper_orchestra/utils/prompt_utils.py
+  stage: paper
+  file: paper/prompt_utils_universal_no_leakage_prompt.txt
+- id: paper.sxs_quality_prompts.sxs_lit_review_quality_system_prompt
+  name: sxs_quality_prompts:sxs_lit_review_quality_system_prompt
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/sxs_quality_prompts.py
+  stage: paper
+  file: paper/sxs_quality_prompts_sxs_lit_review_quality_system_prompt.txt
+- id: paper.sxs_quality_prompts.sxs_paper_quality_system_prompt
+  name: sxs_quality_prompts:sxs_paper_quality_system_prompt
+  description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/sxs_quality_prompts.py
+  stage: paper
+  file: paper/sxs_quality_prompts_sxs_paper_quality_system_prompt.txt
+- id: scoring.scorer_system
+  name: Sci Scorer System Prompt
+  description: System prompt for Sci task LLM judging
+  stage: scoring
+  file: scoring/scorer_system.txt

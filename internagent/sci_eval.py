@@ -37,11 +37,9 @@ from internagent.rcb_evaluation.utils import safe_resolve
 logger = logging.getLogger(__name__)
 
 
-SCORER_SYSTEM_PROMPT = (
-    "You are a strict scientific peer reviewer evaluating AI-generated "
-    "research. Score the report against the criterion only — do not "
-    "attempt to solve the research task yourself."
-)
+from internagent.prompt_library import prompts as _prompt_library
+
+SCORER_SYSTEM_PROMPT = _prompt_library.get("scoring.scorer_system")
 
 
 class RuntimeScoringAgent:

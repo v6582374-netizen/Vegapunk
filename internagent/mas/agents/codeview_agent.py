@@ -1,4 +1,5 @@
 import asyncio
+from internagent.prompt_library import prompts as _prompt_library
 import json
 import os
 import re
@@ -202,43 +203,8 @@ def save_repo_structure(result, project_setting):
     with open(os.path.join(project_setting.output_dir, project_setting.output_name), 'w') as f:
         json.dump(result, f, indent=4, ensure_ascii=False)
 
-CODE_VIEW_SYS_PROMPT = "You are an expert code analyst and technical documentation specialist who is specialized in analyzing and describing the functionality of different levels of code (e.g., functions, classes, and files)."
-
-CODE_VIEW_PROMPT = """You are an advanced code analysis assistant. Your task is to analyze the given code and provide a structured analysis report. The code for analysis is:
-
-<code>
-{code}
-</code>
-
-Please provide your analysis in the following aspects:
-
-1. file_overview
-- **File Purpose**: A single-sentence description of the file's main purpose
-- **Key Components**: List of main classes/functions
-- **Main Workflow**: Brief description of how components interact
-
-2. Class-level Analysis: For each class, identify its name and provide a concise description of its purpose. You should also conduct function-level analysis of the functions within the classlist all methods (functions within the class).
-    - Purpose: 1-2 sentences describing the class's responsibility
-    - Methods: method_name: description
-
-3. Function-level Analysis: For each function (both standalone and within classes), identify its name and provide a concise description of its purpose.
-    - function_name: 1-2 describing what the function does
-
-Guidelines for Analysis:
-    - First give a file-level summary and then give the detail description of file, class and function.
-    - Use clear, technical language.
-    - Focus on observable behavior, not implementation assumptions
-    - Output use markdown format
-
-Output format:
-<file_overview>
-The overview of the file.
-</file_overview>
-
-<detailed_analysis>
-The detail analysis of class and function in this file
-</detailed_analysis>
-"""
+CODE_VIEW_SYS_PROMPT = _prompt_library.get("discovery.codeview.code_view_sys")
+CODE_VIEW_PROMPT = _prompt_library.get("discovery.codeview.code_view")
 
 
 def _wait_for_runtime(coroutine):
@@ -388,27 +354,7 @@ def get_file_description_tree(repo_structure, indent=0, prefix=""):
     return result
 
 REPO_SUMMARY_SYS_PROMPT = "You are an expert code analyst and technical documentation specialist who is specialized in analyzing the overall usage of a code repository."
-REPO_SUMMARY_PROMPT = """
-You are an expert code analyst and need to analyze the code structure and find out the overall purpose and functionality of this codebase. You will be given a file tree and descriptions for all files in the file tree. The file tree you need to analyze is as follows:
-
-<file_description_tree>
-{repo_file_tree}
-</file_description_tree>
-
-Please:
-    1. Analyze the main functionality of the code repository: Provide a complete overview of what the repository is designed to do. Avoid overly detailed explanations; focus on delivering a clear and concise summary of its purpose.
-    2. Identify the key files that are critical to understanding or implementing the functionality. Provide brief explanations for why these files are important
-
-Output format:
-<code_repo_func>
-The summarized functionality of the code.
-</code_repo_func>
-
-<code_repo_key_files>
-A list of key files that are critical to understanding or implementing the functionality. Each file should be listed on a new line, and each line should include the file name and a brief explanation of why it is important.
-</code_repo_key_files>
-
-"""
+REPO_SUMMARY_PROMPT = _prompt_library.get("discovery.codeview.repo_summary")
 
 def get_repo_summary(client_model, repo_file_tree, llm_settings):
     try:
@@ -470,29 +416,7 @@ def get_repo_structure(model, project_path, output_dir, output_name, ignore_list
         return repo_structure
 
 
-CLAUDECODE_REPO_ANALYSIS_PROMPT = """Please analyze the codebase in the current directory and provide a comprehensive summary.
-
-Your analysis should include:
-
-1. **Main Functionality**: Provide a complete overview of what the repository is designed to do. Avoid overly detailed explanations; focus on delivering a clear and concise summary of its purpose.
-
-2. **Key Files**: Identify the key files that are critical to understanding or implementing the functionality. Provide brief explanations for why these files are important.
-
-Please structure your response in the following format:
-
-<code_repo_func>
-[Your summary of the main functionality]
-</code_repo_func>
-
-<code_repo_key_files>
-[A list of key files with explanations, one file per line with format: filename - explanation]
-</code_repo_key_files>
-
-Focus on:
-- Methods and Concepts: Describe the main methods and concepts used in the code
-- Model Structure: If applicable, outline the model architecture and design choices
-- Limitations: What are the limitations of the code and how can they be addressed?
-"""
+CLAUDECODE_REPO_ANALYSIS_PROMPT = _prompt_library.get("discovery.codeview.claudecode_repo_analysis")
 
 
 def get_repo_structure_claudecode(project_path, output_dir, output_name, proxy_settings=None, model='claude-sonnet-4-5-20250929'):

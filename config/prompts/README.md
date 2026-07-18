@@ -16,10 +16,17 @@ Disk-backed registry of editable prompts (ADR-0156 / ADR-0157).
 4. Prefer call-time `get`/`render` over import-time string constants so a
    Launch Configuration Snapshot can override the root.
 
-## Stages in this slice (#7)
+## Stages
 
-- `experiment` - former `internagent/prompts.py` bodies
-- `discovery` - MAS idea/method agent system prompts
+- `experiment` - experiment-backend coder / debug prompts
+- `discovery` - MAS idea/method/codeview system prompts
+- `deep_research` - DR planner/coordinator/section/tool prompts
+- `paper` - PaperOrchestra / autorater prompts
+- `scoring` - Sci evaluation prompts
 
-Later slices add Deep Research, vendored, paper, and scoring prompts the
-same way.
+## Exemptions
+
+See `exemptions.yaml` for patterns still allowed to keep inline strings
+(CAMEL vendored unused paths, dynamic user-prompt assembly, some PDF utils).
+The coverage test in `tests/admin_console/test_prompt_externalization_coverage.py`
+enforces this list.

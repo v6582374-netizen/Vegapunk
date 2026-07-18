@@ -1,0 +1,11 @@
+exemptions:
+- pattern: internagent/mas/agents/dr_agents/camel/**
+  reason: Vendored CAMEL framework (datagen/self-instruct/benchmarks). Not on the
+    Discovery Launch path; full migration deferred to avoid upstream merge conflicts.
+- pattern: internagent/mas/agents/*_agent.py dynamic user-prompt assembly
+  reason: 'User prompts are assembled at runtime from goals/literature/code; instructional
+    system prompts already externalized in #7. Fragments remain as control-flow strings,
+    not standalone library entries.'
+- pattern: third_party/paper_orchestra/utils/pdf_utils.py|content_parsing_utils.py|paper_banana_utils.py
+  reason: Utility scaffolding strings mixed with non-prompt content; not author-facing
+    scientific prompts. Listed for a later pass if Admin Console needs them.
