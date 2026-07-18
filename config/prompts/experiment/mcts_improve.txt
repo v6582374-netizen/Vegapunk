@@ -1,0 +1,24 @@
+Previous implementation completed. Here are the results:
+{RESULTS}
+
+Based on these results, implement an improved desigin to improve metric performance. Focus on:
+1. Analyzing what worked and what didn't work in the previous approach
+2. Comparing with baseline results  
+3. Implementing the next improvement, for example focused on performance tuning and hyperparameter optimization based on observed results
+4. Propose a single actionable and specific improvement. This improvement should be atomic so that we can experimentally evaluate the effect of the proposed change
+5. When proposing the design, take the Memory section into account
+6. Ensure the improvement is distinct from previous attempts
+
+We will run the command `bash launcher.sh .` to execute your next experiment. 
+Do NOT modify launcher.sh under any circumstances.
+Do NOT change the schema of final_info.json; only write to the existing means fields and keep the structure identical to the baseline.
+
+**IMPORTANT CONSTRAINTS:**
+1. DO NOT modify `launcher.sh` - it must remain as is. We always run this command.
+2. DO NOT create shell scripts (.sh files) or run_xxx folder, any files will be saved to the current directory (`.`)
+3. Treat the current working directory as the project root; results will be saved to the current directory (`.`)
+YOUR PROPOSED CHANGE MUST USE THIS COMMAND FORMAT, DO NOT ADD ADDITIONAL COMMAND LINE ARGS.
+
+If you believe you have completed all necessary improvements and found the optimal solution, respond with 'ALL_COMPLETED'.
+
+Any modifications to `argparse` parameters (new/updated) **must enforce the improved implementation as the default behavior** unless explicitly designed as optional. Specifically: Set `default=<revised_value>` for all altered arguments to ensure the enhanced logic activates automatically without CLI flags. Ensure the improved functionality should be the default experience without requiring users to specify additional command-line parameters.

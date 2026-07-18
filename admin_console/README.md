@@ -34,6 +34,7 @@ npm run build   # 含 tsc 类型检查，产物在 dist/
 - 实时视图：阶段、Discovery Round、产物增量、SSE 日志
 - 产物浏览：完整文件树与多格式查看器
 - 任务编写：五字段表单 + 可选基线 zip，标注 experiment/report 路径
+- Prompt Library：按阶段分组浏览/编辑；Launch 启动时整库快照
 - 运行参数：Run Parameter Registry 结构化表单与服务端校验
 
 ## 测试

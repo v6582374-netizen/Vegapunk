@@ -61,11 +61,13 @@ class LaunchQueue:
         tasks_root: Path,
         config_paths: list[Path],
         runner_command: list[str],
+        prompt_library_root: Path | None = None,
     ) -> None:
         self._results_root = results_root
         self._tasks_root = tasks_root
         self._config_paths = config_paths
         self._runner_command = runner_command
+        self._prompt_library_root = prompt_library_root
         self._state_path = results_root / "launch_queue.json"
         self._lock = threading.Condition()
         self._entries: list[QueueEntry] = []
@@ -216,6 +218,8 @@ class LaunchQueue:
         snapshot_dir.mkdir()
         for config_path in self._config_paths:
             shutil.copy2(config_path, snapshot_dir / config_path.name)
+        if self._prompt_library_root is not None and self._prompt_library_root.is_dir():
+            shutil.copytree(self._prompt_library_root, snapshot_dir / "prompts")
         return snapshot_dir
 
     def _execute(self, entry: QueueEntry, launch_dir: Path) -> None:
@@ -228,12 +232,17 @@ class LaunchQueue:
             )
             for part in self._runner_command
         ]
+        env = os.environ.copy()
+        snapshot_prompts = launch_dir / SNAPSHOT_DIR_NAME / "prompts"
+        if snapshot_prompts.is_dir():
+            env["INTERNAGENT_PROMPT_LIBRARY_ROOT"] = str(snapshot_prompts)
         with (launch_dir / "runner.log").open("ab") as log_stream:
             process = subprocess.Popen(
                 command,
                 stdout=log_stream,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                env=env,
             )
         with self._lock:
             entry.pid = process.pid

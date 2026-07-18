@@ -414,21 +414,9 @@ class RankingAgent(BaseAgent):
         Returns:
             str: System prompt with evaluation guidelines
         """
-        return """You are a scientific hypothesis evaluator working with a researcher. 
-Your task is to objectively evaluate and rank research hypotheses based on specific criteria.
+        from internagent.prompt_library import prompts
 
-Guidelines:
-- Apply the same evaluation standards consistently across all hypotheses
-- Score each criterion on a scale from 0.0 (lowest) to 10.0 (highest)
-- Calculate overall scores by applying the weights provided for each criterion
-- Provide clear, specific rationales for your scoring decisions
-- Consider both the strengths and weaknesses of each hypothesis
-- Avoid being unduly influenced by writing style over substance
-- Be particularly attentive to scientific merit, testability, and alignment with research goals
-
-Focus on helping the researcher identify the most promising hypotheses to pursue.
-Your evaluation should help guide the research process toward scientifically valuable outcomes.
-""" 
+        return prompts.get("discovery.ranking.system")
 
 #####
 """

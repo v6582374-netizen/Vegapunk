@@ -620,6 +620,15 @@ def _main():
     logger = setup_logging()
     args = parse_arguments()
 
+    # Launch Configuration Snapshot owns prompts for this run (ADR-0157).
+    if args.resume:
+        snapshot_prompts = Path(args.resume) / "config_snapshot" / "prompts"
+        if snapshot_prompts.is_dir():
+            from internagent.prompt_library import configure_prompt_root
+
+            configure_prompt_root(snapshot_prompts)
+            logger.info(f"Using Prompt Library snapshot at {snapshot_prompts}")
+
     # 断点续跑只恢复“已经完成的轮次”和共享目录位置；实际跑几轮仍以当前配置为准，
     # 这样可以在恢复时顺手把总轮数延长。
     # ========================================

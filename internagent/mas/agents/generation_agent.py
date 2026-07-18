@@ -964,21 +964,9 @@ class GenerationAgent(BaseAgent):
             tone = "creative but grounded in scientific principles"
         else:
             tone = "conservative and strictly evidence-based"
-            
-        return f"""You are a creative scientific idea generator. Your task is to generate {tone} scientific hypotheses based on all the information given by the user.
-Ensure that each idea:
-1.Are novel, not obvious from existing literature, and grounded in scientific principles.
-2.Propose specific mechanisms or pathways and include a brief explanation of them.
-3.Are specific, testable, and can be tested experimentally.
-4.Address the research goal directly and have clear scientific significance.
-5.Consider constraints and domain knowledge.
+        from internagent.prompt_library import prompts
 
-Be creative but scientifically rigorous. Propose hypotheses that make unexpected connections between concepts, challenge conventional wisdom, or apply principles from one field to another.
-
-The different scientific hypotheses proposed need to remain separate and cannot be similar.
-
-Your hypotheses should be detailed enough for a scientist in the field to understand and evaluate, but not so detailed that they require specialized knowledge outside the domain. 
-"""
+        return prompts.render("discovery.generation.system", tone=tone)
 
     @classmethod
     def from_config(cls, config: Dict[str, Any], model: 'BaseModel') -> 'GenerationAgent':

@@ -2,6 +2,7 @@ import { Layout, Tabs, Typography } from "antd";
 import ArtifactExplorer from "./ArtifactExplorer";
 import LivePanel from "./LivePanel";
 import ParametersPanel from "./ParametersPanel";
+import PromptsPanel from "./PromptsPanel";
 import QueuePanel from "./QueuePanel";
 import TaskAuthoringPanel from "./TaskAuthoringPanel";
 
@@ -21,6 +22,7 @@ export default function App() {
             { key: "live", label: "实时视图", children: <LivePanel /> },
             { key: "artifacts", label: "产物浏览", children: <ArtifactExplorer /> },
             { key: "tasks", label: "任务编写", children: <TaskAuthoringPanel /> },
+            { key: "prompts", label: "Prompt Library", children: <PromptsPanel /> },
             { key: "parameters", label: "运行参数", children: <ParametersPanel /> },
           ]}
         />

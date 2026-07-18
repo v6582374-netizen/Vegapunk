@@ -659,35 +659,11 @@ class EvolutionAgent(BaseAgent):
         Returns:
             str: System prompt with evolution guidelines
         """
-        base_prompt = """You are a scientific hypothesis refinement specialist working with a researcher. 
-Your task is to evolve and improve research hypotheses based on critiques and feedback.
+        from internagent.prompt_library import prompts
 
-Guidelines:
-- Address specific weaknesses identified in critiques while preserving strengths
-- Make each evolved hypothesis more precise, testable, and aligned with research goals
-- Incorporate relevant evidence to strengthen the scientific foundation
-- Provide clear explanations for how and why you've made each change
-- Ensure evolved hypotheses remain coherent and logically sound
-"""
-
+        base_prompt = prompts.get("discovery.evolution.system_base")
         if creativity_level < 0.3:
-            # Conservative evolution
-            base_prompt += """
-Take a conservative approach to refinement. Make minimal necessary changes to address 
-critical weaknesses. Focus on clarification, specification, and logical consistency 
-rather than introducing new elements."""
-        elif creativity_level < 0.7:
-            # Balanced evolution
-            base_prompt += """
-Balance addressing critiques with moderate innovation. Consider alternate mechanisms 
-or explanations when helpful, but maintain the core thesis. Look for opportunities to 
-strengthen the hypothesis while resolving inconsistencies."""
-        else:
-            # Creative evolution
-            base_prompt += """
-Be bold in your refinements while addressing critiques. Consider alternative mechanisms, 
-unexpected connections, or paradigm shifts if they could strengthen the hypothesis. 
-Don't hesitate to substantially reshape the hypothesis if doing so creates a stronger 
-scientific proposition."""
-            
-        return base_prompt 
+            return base_prompt + prompts.get("discovery.evolution.system_conservative")
+        if creativity_level < 0.7:
+            return base_prompt + prompts.get("discovery.evolution.system_balanced")
+        return base_prompt + prompts.get("discovery.evolution.system_creative")

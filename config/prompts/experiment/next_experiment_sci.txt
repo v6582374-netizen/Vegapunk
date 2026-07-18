@@ -1,0 +1,16 @@
+Run {RUN_NUM} completed. Here are the results:
+{RESULTS}
+
+Based on these results:
+1. Check what the current score is (total_score out of 100) and which checklist items are weakest.
+2. Analyze what worked and what did not in your implementation.
+3. Decide what to improve: fix errors, improve accuracy, add missing checklist items, or enhance the report.
+4. Implement the improvements in `code/` and update `report/report.md` and `report/images/`.
+
+Run {NEXT_RUN_NUM} will execute next via `bash launcher.sh`.
+Do NOT modify `launcher.sh`.
+
+If you believe your reproduction is complete and optimal, respond with 'ALL_COMPLETED'.
+
+Focus on the checklist criteria with the highest weights — they contribute most to the final score.
+Make sure `report/report.md` exists and describes ALL results with actual numbers and figure references.

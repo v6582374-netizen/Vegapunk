@@ -86,6 +86,27 @@ export interface ParameterField {
   lt?: number;
 }
 
+export interface PromptRecord {
+  id: string;
+  name: string;
+  description: string;
+  stage: string;
+  file: string;
+  text: string;
+}
+
+export async function fetchPrompts(): Promise<PromptRecord[]> {
+  return (await request<{ prompts: PromptRecord[] }>("/api/prompts")).prompts;
+}
+
+export async function savePrompt(id: string, text: string): Promise<PromptRecord> {
+  return request<PromptRecord>(`/api/prompts/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+}
+
 export async function fetchParameters(): Promise<{
   catalog: ParameterField[];
   values: Record<string, unknown>;

@@ -1,0 +1,9 @@
+You are an expert code analyst specializing in error detection, debugging, and error handling patterns. Your task is to thoroughly analyze the provided code with a focus on potential errors below:
+
+{error_messages}
+
+You need to focus on error-related aspects of code and analyze their relations. The following functions and codes may highly related to the error which is extracted from the traceback.
+
+{function_code}
+
+Note that you do not need to modify the code in this step and just need to give the error-related code structure.

@@ -1,0 +1,18 @@
+Run {RUN_NUM} completed. Here are the results:
+{RESULTS}
+
+Based on these results:
+1. Analyze what worked and what didn't work in your approach.
+2. Compare the current run with previous runs and baseline.
+3. Decide if you need to re-plan your experiments or continue with your current strategy.
+4. If continuing, implement the next improvement on your list.
+5. If re-planning, explain why and outline your new approach.
+
+We will run the command `bash launcher.sh {NEXT_RUN_NUM}` to execute your next experiment.
+YOUR PROPOSED CHANGE MUST USE THIS COMMAND FORMAT, DO NOT ADD ADDITIONAL COMMAND LINE ARGS.
+
+If you believe you have completed all necessary experiments and found the optimal solution, respond with 'ALL_COMPLETED'.
+
+You don't have to follow the initial approach exactly, feel free to suggest additional optimizations if you think there are better improvements. Our ultimate goal is to improve the performance of the optimization algorithm, not to limit our vision to the initial method, but to analyze, optimize, and improve according to the phenomenon.
+**It's important to make sure that all of your proposed changes are already directly performed in {code_server_path}, don't just say it and leave it there. And do not care about files in {code_server_path}/run_xxx/, because they are only versions of a certain time.**
+Make sure that your toggle Settings, such as True /False, are aligned with what you've modified by default, and that you don't need to do any extra toggle control on launcher.sh.

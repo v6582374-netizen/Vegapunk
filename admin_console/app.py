@@ -34,6 +34,11 @@ from admin_console.tasks import (
     list_tasks as list_task_summaries,
     write_upload_to_temp,
 )
+from internagent.prompt_library import (
+    DEFAULT_LIBRARY_ROOT,
+    PromptLibrary,
+    UnknownPromptError,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
@@ -66,21 +71,29 @@ class QueueSubmission(BaseModel):
     task: str
 
 
+class PromptUpdate(BaseModel):
+    text: str
+
+
 def create_app(
     results_root: Path | None = None,
     tasks_root: Path | None = None,
     config_paths: list[Path] | None = None,
     runner_command: list[str] | None = None,
     main_config_path: Path | None = None,
+    prompt_library_root: Path | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
     resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
     resolved_main_config = main_config_path or DEFAULT_CONFIG_PATHS[0]
+    resolved_prompt_root = prompt_library_root or DEFAULT_LIBRARY_ROOT
+    prompt_library = PromptLibrary(resolved_prompt_root)
     queue = LaunchQueue(
         results_root=resolved_results_root,
         tasks_root=resolved_tasks_root,
         config_paths=config_paths or DEFAULT_CONFIG_PATHS,
         runner_command=runner_command or DEFAULT_RUNNER_COMMAND,
+        prompt_library_root=resolved_prompt_root,
     )
 
     app = FastAPI(title="InternAgent Admin Console")
@@ -157,6 +170,31 @@ def create_app(
         except UnknownTaskError:
             raise HTTPException(status_code=404, detail=f"unknown task: {submission.task}")
         return entry.to_dict()
+
+    @app.get("/api/prompts")
+    def list_prompts() -> dict:
+        return {
+            "prompts": [
+                {**entry.to_dict(), "text": prompt_library.get(entry.id)}
+                for entry in prompt_library.list()
+            ]
+        }
+
+    @app.get("/api/prompts/{prompt_id}")
+    def get_prompt(prompt_id: str) -> dict:
+        try:
+            entry = prompt_library.get_entry(prompt_id)
+            return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+        except UnknownPromptError:
+            raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
+
+    @app.put("/api/prompts/{prompt_id}")
+    def put_prompt(prompt_id: str, update: PromptUpdate) -> dict:
+        try:
+            entry = prompt_library.save(prompt_id, update.text)
+        except UnknownPromptError:
+            raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
+        return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
 
     @app.get("/api/parameters")
     def get_parameters() -> dict:

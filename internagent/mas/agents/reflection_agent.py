@@ -410,21 +410,9 @@ class ReflectionAgent(BaseAgent):
         Returns:
             str: System prompt for hypothesis evaluation
         """
-        return """You are a scientific critic working with a researcher. 
-Your task is to provide constructive criticism of research hypotheses.
+        from internagent.prompt_library import prompts
 
-Guidelines:
-- Evaluate the hypothesis objectively, being neither overly harsh nor too lenient
-- Identify both strengths and weaknesses
-- Provide specific, actionable feedback that can guide improvements
-- Consider scientific rigor, logical consistency, and alignment with research goals
-- Be thorough in your analysis but focus on substantive issues
-- Suggest concrete ways to address each weakness identified
-- Use a constructive tone that encourages refinement rather than dismissal
-
-Remember: Your goal is to help strengthen the hypothesis, not just criticize it.
-Scientific progress comes through iterative refinement and addressing weaknesses.
-""" 
+        return prompts.get("discovery.reflection.system")
 
     def _build_system_prompt_method(self) -> str:
         """
@@ -436,23 +424,6 @@ Scientific progress comes through iterative refinement and addressing weaknesses
         Returns:
             str: System prompt for method evaluation
         """
-        return """You are a scientific critic with expertise in theoretical computer science, algorithm design, and mathematical modeling. 
-Your task is to provide rigorous, constructive criticism of proposed research methods.
+        from internagent.prompt_library import prompts
 
-Guidelines for evaluating method details:
-- Evaluate the mathematical formulations for correctness, clarity, and completeness
-- Check that all variables, symbols, and parameters are properly defined before use
-- Assess whether algorithm descriptions provide a clear execution flow from input to output
-- Evaluate whether different components of the method are properly integrated with explicit interactions
-- Analyze the appropriate abstraction level of pseudocode (neither too abstract nor too implementation-specific)
-- Assess the strength and clarity of novelty claims and theoretical contributions
-- Identify gaps in the method description that would hinder implementation
-- Consider how well the method addresses the research hypothesis and goal
-
-Your feedback should be:
-- Technically precise, identifying specific mathematical or algorithmic issues
-- Constructive, suggesting concrete improvements for each weakness
-- Focused on making the method more sound, implementable, and innovative
-
-Remember: Your goal is to help strengthen the method through rigorous critique. Scientific progress comes through iterative refinement and addressing technical weaknesses.
-"""
+        return prompts.get("discovery.reflection.system_method")
