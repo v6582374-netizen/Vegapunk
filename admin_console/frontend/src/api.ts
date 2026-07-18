@@ -33,8 +33,19 @@ export async function fetchLaunches(): Promise<LaunchSummary[]> {
   return (await request<{ launches: LaunchSummary[] }>("/api/launches")).launches;
 }
 
-export async function fetchTasks(): Promise<string[]> {
-  return (await request<{ tasks: string[] }>("/api/tasks")).tasks;
+export interface TaskSummary {
+  name: string;
+  has_baseline_code: boolean;
+  path_mode: "experiment" | "report";
+  kind: "auto" | "sci";
+}
+
+export async function fetchTasks(): Promise<TaskSummary[]> {
+  return (await request<{ tasks: TaskSummary[] }>("/api/tasks")).tasks;
+}
+
+export async function createTask(form: FormData): Promise<TaskSummary> {
+  return request<TaskSummary>("/api/tasks", { method: "POST", body: form });
 }
 
 export async function fetchQueue(): Promise<QueueEntry[]> {

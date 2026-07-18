@@ -5,9 +5,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import json
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from admin_console.artifacts import (
     ArtifactPathError,
@@ -25,7 +27,13 @@ from admin_console.parameters import (
     validate_values,
 )
 from admin_console.queue import LaunchQueue, UnknownTaskError
-from pydantic import ValidationError
+from admin_console.tasks import (
+    TaskExistsError,
+    TaskNameError,
+    create_task,
+    list_tasks as list_task_summaries,
+    write_upload_to_temp,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
@@ -96,15 +104,47 @@ def create_app(
 
     @app.get("/api/tasks")
     def list_tasks() -> dict:
-        if not resolved_tasks_root.is_dir():
-            return {"tasks": []}
-        names = sorted(
-            path.name
-            for path in resolved_tasks_root.iterdir()
-            if path.is_dir()
-            and ((path / "prompt.json").is_file() or (path / "task_info.json").is_file())
-        )
-        return {"tasks": names}
+        return {"tasks": list_task_summaries(resolved_tasks_root)}
+
+    @app.post("/api/tasks", status_code=201)
+    async def create_task_endpoint(
+        name: str = Form(...),
+        system: str = Form(...),
+        task_description: str = Form(...),
+        domain: str = Form(...),
+        background: str = Form(...),
+        constraints: str = Form("[]"),
+        baseline_code: UploadFile | None = File(None),
+    ) -> dict:
+        try:
+            parsed_constraints = json.loads(constraints)
+            if not isinstance(parsed_constraints, list):
+                raise ValueError("constraints must be a JSON list")
+        except (json.JSONDecodeError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=f"invalid constraints: {error}")
+
+        zip_path = None
+        try:
+            if baseline_code is not None and baseline_code.filename:
+                zip_path = write_upload_to_temp(await baseline_code.read())
+            summary = create_task(
+                tasks_root=resolved_tasks_root,
+                name=name,
+                system=system,
+                task_description=task_description,
+                domain=domain,
+                background=background,
+                constraints=[str(item) for item in parsed_constraints],
+                baseline_zip=zip_path,
+            )
+        except TaskNameError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        except TaskExistsError:
+            raise HTTPException(status_code=409, detail=f"task already exists: {name}")
+        finally:
+            if zip_path is not None:
+                zip_path.unlink(missing_ok=True)
+        return summary
 
     @app.get("/api/queue")
     def list_queue() -> dict:

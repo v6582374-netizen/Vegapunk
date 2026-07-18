@@ -92,7 +92,10 @@ class LaunchQueueTest(unittest.TestCase):
         client = self.env.create_client()
         response = client.get("/api/tasks")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["tasks"], ["AutoDemo"])
+        tasks = response.json()["tasks"]
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "AutoDemo")
+        self.assertEqual(tasks[0]["path_mode"], "report")
 
     def test_unknown_task_is_rejected(self) -> None:
         client = self.env.create_client()

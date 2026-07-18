@@ -3,6 +3,7 @@ import ArtifactExplorer from "./ArtifactExplorer";
 import LivePanel from "./LivePanel";
 import ParametersPanel from "./ParametersPanel";
 import QueuePanel from "./QueuePanel";
+import TaskAuthoringPanel from "./TaskAuthoringPanel";
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             { key: "queue", label: "运行与队列", children: <QueuePanel /> },
             { key: "live", label: "实时视图", children: <LivePanel /> },
             { key: "artifacts", label: "产物浏览", children: <ArtifactExplorer /> },
+            { key: "tasks", label: "任务编写", children: <TaskAuthoringPanel /> },
             { key: "parameters", label: "运行参数", children: <ParametersPanel /> },
           ]}
         />

@@ -13,6 +13,7 @@ import {
   submitLaunch,
   type LaunchSummary,
   type QueueEntry,
+  type TaskSummary,
 } from "./api";
 
 const launchColumns: ColumnsType<LaunchSummary> = [
@@ -35,7 +36,7 @@ const launchColumns: ColumnsType<LaunchSummary> = [
 export default function QueuePanel() {
   const [launches, setLaunches] = useState<LaunchSummary[]>([]);
   const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [tasks, setTasks] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,17 +127,30 @@ export default function QueuePanel() {
       {error !== null && <Alert type="error" message={error} />}
 
       <Card title="提交 Discovery Launch">
-        <Flex gap={12}>
+        <Flex gap={12} align="center">
           <Select
-            style={{ width: 320 }}
+            style={{ width: 360 }}
             placeholder="选择任务"
-            options={tasks.map((task) => ({ value: task, label: task }))}
+            options={tasks.map((task) => ({
+              value: task.name,
+              label: `${task.name} [${task.path_mode}]`,
+            }))}
             value={selectedTask}
             onChange={setSelectedTask}
+            showSearch
           />
           <Button type="primary" disabled={selectedTask === null} onClick={onSubmit}>
             入队
           </Button>
+          {selectedTask !== null &&
+            tasks.find((task) => task.name === selectedTask)?.path_mode === "report" && (
+              <Alert
+                type="warning"
+                showIcon
+                message="该任务无基线代码，仅能走报告路径"
+                style={{ margin: 0 }}
+              />
+            )}
         </Flex>
       </Card>
 
