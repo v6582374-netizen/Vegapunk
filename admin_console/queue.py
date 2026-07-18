@@ -1,0 +1,189 @@
+"""Launch Queue: service-wide serial execution of Discovery Launches.
+
+Exactly one Launch runs at a time (ADR: Launch Queue term in CONTEXT.md);
+submitting enqueues rather than starts. Each Launch runs as a child process
+built from an injectable command template, and captures its Launch
+Configuration Snapshot into its own launch directory before starting
+(ADR-0157). Queue state persists to a JSON file so a service restart does
+not lose it.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import threading
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+SNAPSHOT_DIR_NAME = "config_snapshot"
+
+QUEUED = "queued"
+RUNNING = "running"
+COMPLETED = "completed"
+FAILED = "failed"
+CANCELLED = "cancelled"
+INTERRUPTED = "interrupted"
+
+
+@dataclass
+class QueueEntry:
+    queue_id: str
+    task: str
+    state: str
+    submitted_at: str
+    launch_id: str | None = None
+    pid: int | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+class UnknownTaskError(Exception):
+    pass
+
+
+class LaunchQueue:
+    def __init__(
+        self,
+        results_root: Path,
+        tasks_root: Path,
+        config_paths: list[Path],
+        runner_command: list[str],
+    ) -> None:
+        self._results_root = results_root
+        self._tasks_root = tasks_root
+        self._config_paths = config_paths
+        self._runner_command = runner_command
+        self._state_path = results_root / "launch_queue.json"
+        self._lock = threading.Condition()
+        self._entries: list[QueueEntry] = []
+        self._load()
+        self._worker = threading.Thread(target=self._work_loop, daemon=True)
+        self._worker.start()
+
+    # ------------------------------------------------------------- public
+
+    def submit(self, task: str) -> QueueEntry:
+        if not (self._tasks_root / task).is_dir():
+            raise UnknownTaskError(task)
+        entry = QueueEntry(
+            queue_id=uuid.uuid4().hex[:12],
+            task=task,
+            state=QUEUED,
+            submitted_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        with self._lock:
+            self._entries.append(entry)
+            self._save()
+            self._lock.notify_all()
+        return entry
+
+    def entries(self) -> list[QueueEntry]:
+        with self._lock:
+            return [QueueEntry(**entry.to_dict()) for entry in self._entries]
+
+    def cancel(self, queue_id: str) -> QueueEntry:
+        with self._lock:
+            entry = self._find(queue_id)
+            if entry is None:
+                raise KeyError(queue_id)
+            if entry.state != QUEUED:
+                raise ValueError(f"only queued entries can be cancelled, state is {entry.state}")
+            entry.state = CANCELLED
+            self._save()
+            return QueueEntry(**entry.to_dict())
+
+    # ------------------------------------------------------------ worker
+
+    def _work_loop(self) -> None:
+        while True:
+            with self._lock:
+                entry = self._next_queued()
+                while entry is None:
+                    self._lock.wait()
+                    entry = self._next_queued()
+                entry.state = RUNNING
+                launch_dir = self._create_launch_dir(entry.task)
+                entry.launch_id = str(launch_dir.relative_to(self._results_root))
+                self._save()
+            self._execute(entry, launch_dir)
+
+    def _next_queued(self) -> QueueEntry | None:
+        for entry in self._entries:
+            if entry.state == QUEUED:
+                return entry
+        return None
+
+    def _create_launch_dir(self, task: str) -> Path:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        launch_dir = self._results_root / task / f"{stamp}_launch"
+        suffix = 1
+        while launch_dir.exists():
+            launch_dir = self._results_root / task / f"{stamp}_launch_{suffix}"
+            suffix += 1
+        launch_dir.mkdir(parents=True)
+        return launch_dir
+
+    def _snapshot_configuration(self, launch_dir: Path) -> None:
+        snapshot_dir = launch_dir / SNAPSHOT_DIR_NAME
+        snapshot_dir.mkdir()
+        for config_path in self._config_paths:
+            shutil.copy2(config_path, snapshot_dir / config_path.name)
+
+    def _execute(self, entry: QueueEntry, launch_dir: Path) -> None:
+        self._snapshot_configuration(launch_dir)
+        command = [
+            part.format(task_dir=self._tasks_root / entry.task, launch_dir=launch_dir)
+            for part in self._runner_command
+        ]
+        with (launch_dir / "runner.log").open("ab") as log_stream:
+            process = subprocess.Popen(command, stdout=log_stream, stderr=subprocess.STDOUT)
+        with self._lock:
+            entry.pid = process.pid
+            self._save()
+        exit_code = process.wait()
+        with self._lock:
+            entry.state = COMPLETED if exit_code == 0 else FAILED
+            entry.pid = None
+            self._save()
+
+    # ------------------------------------------------------- persistence
+
+    def _save(self) -> None:
+        payload = {"entries": [entry.to_dict() for entry in self._entries]}
+        self._state_path.write_text(json.dumps(payload, indent=2))
+
+    def _load(self) -> None:
+        if not self._state_path.is_file():
+            return
+        payload = json.loads(self._state_path.read_text())
+        self._entries = [QueueEntry(**item) for item in payload.get("entries", [])]
+        # A restart cannot reattach to a run started by a previous service
+        # process; running entries whose process is gone become interrupted.
+        for entry in self._entries:
+            if entry.state == RUNNING and not _process_alive(entry.pid):
+                entry.state = INTERRUPTED
+                entry.pid = None
+        self._save()
+
+    def _find(self, queue_id: str) -> QueueEntry | None:
+        for entry in self._entries:
+            if entry.queue_id == queue_id:
+                return entry
+        return None
+
+
+def _process_alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        import os
+
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
