@@ -81,6 +81,20 @@ export async function saveParameters(
   return body.values;
 }
 
+export interface LaunchStatus {
+  state: string;
+  rounds: number;
+  recent_artifacts: { path: string; modified_at: number; size: number }[];
+}
+
+export async function fetchLaunchStatus(launchId: string): Promise<LaunchStatus> {
+  return request(`/api/launches/${launchId}/status`);
+}
+
+export function logStreamUrl(launchId: string, file: string): string {
+  return `/api/launches/${launchId}/logs/stream?file=${encodeURIComponent(file)}`;
+}
+
 export interface ArtifactNode {
   path: string;
   name: string;

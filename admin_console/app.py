@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from admin_console.artifacts import (
@@ -17,6 +17,7 @@ from admin_console.artifacts import (
     resolve_launch_dir,
 )
 from admin_console.launches import scan_launches
+from admin_console.live import count_rounds, recent_artifacts, stream_log
 from admin_console.parameters import (
     load_values,
     parameter_catalog,
@@ -150,6 +151,36 @@ def create_app(
         if not artifact.is_file():
             raise HTTPException(status_code=404, detail=f"no such artifact: {path}")
         return FileResponse(artifact, media_type=guess_media_type(artifact))
+
+    @app.get("/api/launches/{launch_id:path}/status")
+    def launch_status(launch_id: str) -> dict:
+        launch_dir = _launch_dir_or_404(launch_id)
+        state = queue.state_for_launch(launch_id)
+        if state is None:
+            state = next(
+                (l.state for l in scan_launches(resolved_results_root) if l.id == launch_id),
+                "unknown",
+            )
+        return {
+            "state": state,
+            "rounds": count_rounds(launch_dir),
+            "recent_artifacts": recent_artifacts(launch_dir),
+        }
+
+    @app.get("/api/launches/{launch_id:path}/logs/stream")
+    def launch_log_stream(launch_id: str, file: str = "runner.log") -> StreamingResponse:
+        launch_dir = _launch_dir_or_404(launch_id)
+        try:
+            log_path = resolve_artifact(launch_dir, file)
+        except ArtifactPathError:
+            raise HTTPException(status_code=400, detail=f"path escapes launch directory: {file}")
+
+        def is_running() -> bool:
+            return queue.state_for_launch(launch_id) == "running"
+
+        return StreamingResponse(
+            stream_log(log_path, is_running), media_type="text/event-stream"
+        )
 
     @app.delete("/api/queue/{queue_id}")
     def cancel_queued(queue_id: str) -> dict:

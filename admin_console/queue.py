@@ -91,6 +91,14 @@ class LaunchQueue:
         with self._lock:
             return [entry.copy() for entry in self._entries]
 
+    def state_for_launch(self, launch_id: str) -> str | None:
+        """Authoritative state for a console-started Launch, else None."""
+        with self._lock:
+            for entry in self._entries:
+                if entry.launch_id == launch_id:
+                    return entry.state
+        return None
+
     def cancel(self, queue_id: str) -> QueueEntry:
         with self._lock:
             entry = self._find(queue_id)
