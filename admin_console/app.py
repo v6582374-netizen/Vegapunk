@@ -19,7 +19,7 @@ from admin_console.artifacts import (
     resolve_launch_dir,
 )
 from admin_console.launches import scan_launches
-from admin_console.live import count_rounds, recent_artifacts, stream_log
+from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
 from admin_console.parameters import (
     load_values,
     parameter_catalog,
@@ -203,6 +203,7 @@ def create_app(
             )
         return {
             "state": state,
+            "stage": infer_stage(launch_dir),
             "rounds": count_rounds(launch_dir),
             "recent_artifacts": recent_artifacts(launch_dir),
         }
@@ -251,11 +252,13 @@ def create_app(
 
     @app.post("/api/launches/{launch_id:path}/resume", status_code=201)
     def resume_launch(launch_id: str) -> dict:
+        # Launch Resume is defined for aborted Launches only (CONTEXT.md).
         _launch_dir_or_404(launch_id)
         state = queue.state_for_launch(launch_id)
-        if state in {"running", "queued"}:
+        if state != "aborted":
             raise HTTPException(
-                status_code=409, detail=f"launch is already {state}: {launch_id}"
+                status_code=409,
+                detail=f"only aborted launches can be resumed, state is {state}",
             )
         task = launch_id.split("/", 1)[0]
         try:

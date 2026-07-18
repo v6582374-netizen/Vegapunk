@@ -106,6 +106,7 @@ export async function saveParameters(
 
 export interface LaunchStatus {
   state: string;
+  stage: string;
   rounds: number;
   recent_artifacts: { path: string; modified_at: number; size: number }[];
 }

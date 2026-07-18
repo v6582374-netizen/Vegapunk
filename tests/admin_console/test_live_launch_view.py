@@ -53,6 +53,7 @@ class LiveLaunchViewTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         status = response.json()
         self.assertEqual(status["state"], "completed")
+        self.assertIn(status["stage"], {"discovery", "starting", "experiment", "paper", "unknown"})
         recent_paths = [artifact["path"] for artifact in status["recent_artifacts"]]
         self.assertIn("ideas.json", recent_paths)
         self.assertIn("launch_outcome.json", recent_paths)

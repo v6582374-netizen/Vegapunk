@@ -16,11 +16,31 @@ _SESSION_DIR_PATTERN = re.compile(r"^session_")
 
 
 def count_rounds(launch_dir: Path) -> int:
+    """Count Discovery Rounds from on-disk session directories.
+
+    The directory name uses the launch layout prefix ``session_``; the
+    domain concept counted here is still a Discovery Round.
+    """
+    if not launch_dir.is_dir():
+        return 0
     return sum(
         1
         for child in launch_dir.iterdir()
         if child.is_dir() and _SESSION_DIR_PATTERN.match(child.name)
     )
+
+
+def infer_stage(launch_dir: Path) -> str:
+    """Best-effort stage label from persisted artifacts for the Live Launch View."""
+    if (launch_dir / "manuscript").is_dir() or (launch_dir / "paper_orchestra_runs").is_dir():
+        return "paper"
+    if next(launch_dir.rglob("final_info.json"), None) is not None:
+        return "experiment"
+    if count_rounds(launch_dir) > 0 or (launch_dir / "ideas.json").is_file():
+        return "discovery"
+    if (launch_dir / "config_snapshot").is_dir():
+        return "starting"
+    return "unknown"
 
 
 def recent_artifacts(launch_dir: Path, limit: int = 50) -> list[dict]:

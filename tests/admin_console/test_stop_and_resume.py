@@ -117,6 +117,12 @@ class StopAndResumeTest(unittest.TestCase):
             self.client.post(f"/api/queue/{running['queue_id']}/kill")
             self._wait(running["queue_id"], "aborted")
 
+    def test_resume_of_completed_launch_is_rejected(self) -> None:
+        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        finished = self._wait(entry["queue_id"], "completed")
+        response = self.client.post(f"/api/launches/{finished['launch_id']}/resume")
+        self.assertEqual(response.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()

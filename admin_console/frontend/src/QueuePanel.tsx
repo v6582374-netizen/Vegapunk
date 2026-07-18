@@ -107,10 +107,7 @@ export default function QueuePanel() {
             </Flex>
           );
         }
-        if (
-          entry.launch_id !== null &&
-          ["aborted", "interrupted", "failed"].includes(entry.state)
-        ) {
+        if (entry.launch_id !== null && entry.state === "aborted") {
           return (
             <Button size="small" onClick={() => act(resumeLaunch(entry.launch_id as string))}>
               续跑（用原快照）

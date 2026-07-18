@@ -71,9 +71,12 @@ export default function TaskAuthoringPanel() {
     }
   };
 
-  const onEnqueue = (name: string) => {
-    submitLaunch(name)
-      .then(() => message.success(`${name} 已入队`))
+  const onEnqueue = (task: TaskSummary) => {
+    if (task.path_mode === "report") {
+      message.warning(`${task.name} 无基线代码，仅能走报告路径`);
+    }
+    submitLaunch(task.name)
+      .then(() => message.success(`${task.name} 已入队`))
       .catch((cause: Error) => setError(cause.message));
   };
 
@@ -157,7 +160,7 @@ export default function TaskAuthoringPanel() {
             {
               title: "操作",
               render: (_, task) => (
-                <Button size="small" onClick={() => onEnqueue(task.name)}>
+                <Button size="small" onClick={() => onEnqueue(task)}>
                   入队
                 </Button>
               ),
