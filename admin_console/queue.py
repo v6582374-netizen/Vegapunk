@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -29,6 +30,7 @@ COMPLETED = "completed"
 FAILED = "failed"
 CANCELLED = "cancelled"
 INTERRUPTED = "interrupted"
+ABORTED = "aborted"
 
 
 @dataclass
@@ -39,6 +41,7 @@ class QueueEntry:
     submitted_at: str
     launch_id: str | None = None
     pid: int | None = None
+    stopped_how: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -72,7 +75,13 @@ class LaunchQueue:
 
     # ------------------------------------------------------------- public
 
-    def submit(self, task: str) -> QueueEntry:
+    def submit(self, task: str, launch_id: str | None = None) -> QueueEntry:
+        """Enqueue a Launch; with launch_id set, this is a Launch Resume.
+
+        A resumed Launch reuses its directory and its original Launch
+        Configuration Snapshot; it never absorbs edits made after its
+        original start (ADR-0157).
+        """
         if not (self._tasks_root / task).is_dir():
             raise UnknownTaskError(task)
         entry = QueueEntry(
@@ -80,12 +89,36 @@ class LaunchQueue:
             task=task,
             state=QUEUED,
             submitted_at=datetime.now().isoformat(timespec="seconds"),
+            launch_id=launch_id,
         )
         with self._lock:
             self._entries.append(entry)
             self._save()
             self._lock.notify_all()
         return entry
+
+    def stop(self, queue_id: str, force: bool = False) -> QueueEntry:
+        """Stop the running Launch: graceful SIGTERM, or SIGKILL when forced.
+
+        Graceful stop lets the runner finish its current smallest unit of
+        work and persist a checkpoint; force kill may leave the workspace
+        inconsistent and takes the whole process group with it.
+        """
+        with self._lock:
+            entry = self._find(queue_id)
+            if entry is None:
+                raise KeyError(queue_id)
+            if entry.state != RUNNING or entry.pid is None:
+                raise ValueError(f"only running entries can be stopped, state is {entry.state}")
+            entry.stopped_how = "force" if force else "graceful"
+            self._save()
+            pid = entry.pid
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL if force else signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        with self._lock:
+            return entry.copy()
 
     def entries(self) -> list[QueueEntry]:
         with self._lock:
@@ -126,8 +159,11 @@ class LaunchQueue:
                     self._lock.wait()
                 if adopted is None:
                     entry.state = RUNNING
-                    launch_dir = self._create_launch_dir(entry.task)
-                    entry.launch_id = str(launch_dir.relative_to(self._results_root))
+                    if entry.launch_id is None:
+                        launch_dir = self._create_launch_dir(entry.task)
+                        entry.launch_id = str(launch_dir.relative_to(self._results_root))
+                    else:
+                        launch_dir = self._results_root / entry.launch_id
                     self._save()
             if adopted is not None:
                 self._watch_adopted_run(adopted)
@@ -173,6 +209,10 @@ class LaunchQueue:
 
     def _snapshot_configuration(self, launch_dir: Path) -> Path:
         snapshot_dir = launch_dir / SNAPSHOT_DIR_NAME
+        if snapshot_dir.is_dir():
+            # Launch Resume: the original snapshot is authoritative and
+            # must not absorb later global edits.
+            return snapshot_dir
         snapshot_dir.mkdir()
         for config_path in self._config_paths:
             shutil.copy2(config_path, snapshot_dir / config_path.name)
@@ -189,13 +229,21 @@ class LaunchQueue:
             for part in self._runner_command
         ]
         with (launch_dir / "runner.log").open("ab") as log_stream:
-            process = subprocess.Popen(command, stdout=log_stream, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(
+                command,
+                stdout=log_stream,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         with self._lock:
             entry.pid = process.pid
             self._save()
         exit_code = process.wait()
         with self._lock:
-            entry.state = COMPLETED if exit_code == 0 else FAILED
+            if entry.stopped_how is not None:
+                entry.state = ABORTED
+            else:
+                entry.state = COMPLETED if exit_code == 0 else FAILED
             entry.pid = None
             self._save()
 

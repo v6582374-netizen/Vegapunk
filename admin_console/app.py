@@ -192,4 +192,36 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error))
         return entry.to_dict()
 
+    def _stop(queue_id: str, force: bool) -> dict:
+        try:
+            entry = queue.stop(queue_id, force=force)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"unknown queue entry: {queue_id}")
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        return entry.to_dict()
+
+    @app.post("/api/queue/{queue_id}/stop")
+    def graceful_stop(queue_id: str) -> dict:
+        return _stop(queue_id, force=False)
+
+    @app.post("/api/queue/{queue_id}/kill")
+    def force_kill(queue_id: str) -> dict:
+        return _stop(queue_id, force=True)
+
+    @app.post("/api/launches/{launch_id:path}/resume", status_code=201)
+    def resume_launch(launch_id: str) -> dict:
+        _launch_dir_or_404(launch_id)
+        state = queue.state_for_launch(launch_id)
+        if state in {"running", "queued"}:
+            raise HTTPException(
+                status_code=409, detail=f"launch is already {state}: {launch_id}"
+            )
+        task = launch_id.split("/", 1)[0]
+        try:
+            entry = queue.submit(task, launch_id=launch_id)
+        except UnknownTaskError:
+            raise HTTPException(status_code=404, detail=f"unknown task for launch: {launch_id}")
+        return entry.to_dict()
+
     return app

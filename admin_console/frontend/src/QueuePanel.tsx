@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Button, Card, Flex, Select, Space, Table } from "antd";
+import { Alert, Button, Card, Flex, Popconfirm, Select, Space, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import StateTag from "./StateTag";
 import {
@@ -7,6 +7,9 @@ import {
   fetchLaunches,
   fetchQueue,
   fetchTasks,
+  forceKill,
+  gracefulStop,
+  resumeLaunch,
   submitLaunch,
   type LaunchSummary,
   type QueueEntry,
@@ -62,12 +65,6 @@ export default function QueuePanel() {
       .catch((cause: Error) => setError(cause.message));
   };
 
-  const onCancel = (queueId: string) => {
-    cancelQueued(queueId)
-      .then(refresh)
-      .catch((cause: Error) => setError(cause.message));
-  };
-
   const queueColumns: ColumnsType<QueueEntry> = [
     { title: "队列 ID", dataIndex: "queue_id", key: "queue_id" },
     { title: "任务", dataIndex: "task", key: "task" },
@@ -82,12 +79,45 @@ export default function QueuePanel() {
     {
       title: "操作",
       key: "actions",
-      render: (_, entry) =>
-        entry.state === "queued" ? (
-          <Button danger size="small" onClick={() => onCancel(entry.queue_id)}>
-            取消
-          </Button>
-        ) : null,
+      render: (_, entry) => {
+        const act = (action: Promise<unknown>) =>
+          action.then(refresh).catch((cause: Error) => setError(cause.message));
+        if (entry.state === "queued") {
+          return (
+            <Button danger size="small" onClick={() => act(cancelQueued(entry.queue_id))}>
+              取消
+            </Button>
+          );
+        }
+        if (entry.state === "running") {
+          return (
+            <Flex gap={8}>
+              <Button size="small" onClick={() => act(gracefulStop(entry.queue_id))}>
+                优雅停止
+              </Button>
+              <Popconfirm
+                title="强杀会直接终止整个进程组，工作区可能不一致。确定？"
+                onConfirm={() => act(forceKill(entry.queue_id))}
+              >
+                <Button danger size="small">
+                  强杀
+                </Button>
+              </Popconfirm>
+            </Flex>
+          );
+        }
+        if (
+          entry.launch_id !== null &&
+          ["aborted", "interrupted", "failed"].includes(entry.state)
+        ) {
+          return (
+            <Button size="small" onClick={() => act(resumeLaunch(entry.launch_id as string))}>
+              续跑（用原快照）
+            </Button>
+          );
+        }
+        return null;
+      },
     },
   ];
 

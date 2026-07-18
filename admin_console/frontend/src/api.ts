@@ -53,6 +53,18 @@ export async function cancelQueued(queueId: string): Promise<void> {
   await request<QueueEntry>(`/api/queue/${queueId}`, { method: "DELETE" });
 }
 
+export async function gracefulStop(queueId: string): Promise<void> {
+  await request<QueueEntry>(`/api/queue/${queueId}/stop`, { method: "POST" });
+}
+
+export async function forceKill(queueId: string): Promise<void> {
+  await request<QueueEntry>(`/api/queue/${queueId}/kill`, { method: "POST" });
+}
+
+export async function resumeLaunch(launchId: string): Promise<QueueEntry> {
+  return request<QueueEntry>(`/api/launches/${launchId}/resume`, { method: "POST" });
+}
+
 export interface ParameterField {
   path: string;
   description: string;
