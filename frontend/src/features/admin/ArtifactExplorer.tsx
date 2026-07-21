@@ -14,7 +14,7 @@ import {
   type LaunchSummary,
   type LaunchTimeline,
   type TimelineRun,
-} from "./api";
+} from "../../shared/adminApi";
 
 function toTreeData(nodes: ArtifactNode[]): DataNode[] {
   return nodes.map((node) => ({

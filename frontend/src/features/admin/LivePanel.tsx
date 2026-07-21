@@ -7,7 +7,7 @@ import {
   fetchQueue,
   logStreamUrl,
   type LaunchStatus,
-} from "./api";
+} from "../../shared/adminApi";
 
 const LOG_FILES = ["runner.log", "console.log"];
 

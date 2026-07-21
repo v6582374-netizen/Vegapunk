@@ -14,7 +14,7 @@ import {
   type LaunchSummary,
   type QueueEntry,
   type TaskSummary,
-} from "./api";
+} from "../../shared/adminApi";
 
 const launchColumns: ColumnsType<LaunchSummary> = [
   { title: "Launch", dataIndex: "id", key: "id" },

@@ -1,1 +1,1 @@
-"""Admin Console: developer-facing web console for Vegapunk (ADR-0156)."""
+"""Admin Console backend for the protected unified Vegapunk frontend."""

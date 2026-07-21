@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -69,7 +69,7 @@ class StructuredViewsTest(unittest.TestCase):
         (self.launch / "manuscript" / "draft.md").write_text("# paper\n")
 
     def test_timeline_lists_rounds_candidates_and_runs_with_jump_paths(self) -> None:
-        response = self.client.get(f"/api/launches/{self.launch_id}/timeline")
+        response = self.client.get(f"/api/admin/launches/{self.launch_id}/timeline")
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["stage"], "paper")
@@ -92,7 +92,7 @@ class StructuredViewsTest(unittest.TestCase):
     def test_experiment_run_detail_includes_metrics_log_and_code_diff(self) -> None:
         run_path = "session_1/20260718_120100_FakeIdea/run_1"
         response = self.client.get(
-            f"/api/launches/{self.launch_id}/experiment-run",
+            f"/api/admin/launches/{self.launch_id}/experiment-run",
             params={"path": run_path},
         )
         self.assertEqual(response.status_code, 200)
@@ -109,7 +109,7 @@ class StructuredViewsTest(unittest.TestCase):
     def test_failed_experiment_run_detail_is_available_without_metrics(self) -> None:
         run_path = "session_1/20260718_120100_FakeIdea/run_2"
         response = self.client.get(
-            f"/api/launches/{self.launch_id}/experiment-run",
+            f"/api/admin/launches/{self.launch_id}/experiment-run",
             params={"path": run_path},
         )
         self.assertEqual(response.status_code, 200)
@@ -120,11 +120,11 @@ class StructuredViewsTest(unittest.TestCase):
         self.assertIn("RuntimeError", body["log_preview"])
 
     def test_unmodeled_files_remain_reachable_via_artifact_explorer(self) -> None:
-        tree = self.client.get(f"/api/artifacts/{self.launch_id}/tree").json()["tree"]
+        tree = self.client.get(f"/api/admin/artifacts/{self.launch_id}/tree").json()["tree"]
         paths = {node["path"] for node in _flatten(tree)}
         self.assertIn("orphan.txt", paths)
         file_response = self.client.get(
-            f"/api/artifacts/{self.launch_id}/file",
+            f"/api/admin/artifacts/{self.launch_id}/file",
             params={"path": "orphan.txt"},
         )
         self.assertEqual(file_response.status_code, 200)
@@ -149,14 +149,14 @@ class StructuredViewsTest(unittest.TestCase):
                 runner_command=FAKE_RUNNER_COMMAND,
             )
         )
-        submitted = client.post("/api/queue", json={"task": "AutoDemo"})
+        submitted = client.post("/api/admin/queue", json={"task": "AutoDemo"})
         self.assertEqual(submitted.status_code, 201)
         queue_id = submitted.json()["queue_id"]
         launch_id = None
         for _ in range(80):
             entry = next(
                 item
-                for item in client.get("/api/queue").json()["entries"]
+                for item in client.get("/api/admin/queue").json()["entries"]
                 if item["queue_id"] == queue_id
             )
             if entry["state"] == "completed" and entry["launch_id"]:
@@ -164,11 +164,11 @@ class StructuredViewsTest(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertIsNotNone(launch_id)
-        timeline = client.get(f"/api/launches/{launch_id}/timeline").json()
+        timeline = client.get(f"/api/admin/launches/{launch_id}/timeline").json()
         self.assertGreaterEqual(len(timeline["rounds"]), 1)
         run_path = timeline["rounds"][0]["candidates"][0]["runs"][1]["path"]
         detail = client.get(
-            f"/api/launches/{launch_id}/experiment-run",
+            f"/api/admin/launches/{launch_id}/experiment-run",
             params={"path": run_path},
         ).json()
         self.assertEqual(detail["outcome"], "completed")

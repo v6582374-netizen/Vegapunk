@@ -16,7 +16,7 @@ import {
   fetchModelCatalog,
   saveModelCatalog,
   type ModelCatalog,
-} from "./api";
+} from "../../shared/adminApi";
 
 const ALL_CAPABILITIES = [
   "text",

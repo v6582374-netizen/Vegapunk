@@ -18,7 +18,7 @@ import {
   fetchTasks,
   submitLaunch,
   type TaskSummary,
-} from "./api";
+} from "../../shared/adminApi";
 
 export default function TaskAuthoringPanel() {
   const [tasks, setTasks] = useState<TaskSummary[]>([]);

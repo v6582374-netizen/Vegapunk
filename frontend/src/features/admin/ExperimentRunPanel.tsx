@@ -1,5 +1,5 @@
 import { Button, Descriptions, Empty, Space, Tag, Typography } from "antd";
-import type { ExperimentRunDetail } from "./api";
+import type { ExperimentRunDetail } from "../../shared/adminApi";
 
 export default function ExperimentRunPanel({
   detail,

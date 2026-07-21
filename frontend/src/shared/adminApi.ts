@@ -14,7 +14,7 @@ export interface QueueEntry {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { credentials: "same-origin", ...init });
   if (!response.ok) {
     let detail: unknown;
     try {
@@ -30,7 +30,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchLaunches(): Promise<LaunchSummary[]> {
-  return (await request<{ launches: LaunchSummary[] }>("/api/launches")).launches;
+  return (await request<{ launches: LaunchSummary[] }>("/api/admin/launches")).launches;
 }
 
 export interface TaskSummary {
@@ -41,19 +41,19 @@ export interface TaskSummary {
 }
 
 export async function fetchTasks(): Promise<TaskSummary[]> {
-  return (await request<{ tasks: TaskSummary[] }>("/api/tasks")).tasks;
+  return (await request<{ tasks: TaskSummary[] }>("/api/admin/tasks")).tasks;
 }
 
 export async function createTask(form: FormData): Promise<TaskSummary> {
-  return request<TaskSummary>("/api/tasks", { method: "POST", body: form });
+  return request<TaskSummary>("/api/admin/tasks", { method: "POST", body: form });
 }
 
 export async function fetchQueue(): Promise<QueueEntry[]> {
-  return (await request<{ entries: QueueEntry[] }>("/api/queue")).entries;
+  return (await request<{ entries: QueueEntry[] }>("/api/admin/queue")).entries;
 }
 
 export async function submitLaunch(task: string): Promise<QueueEntry> {
-  return request<QueueEntry>("/api/queue", {
+  return request<QueueEntry>("/api/admin/queue", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ task }),
@@ -61,19 +61,19 @@ export async function submitLaunch(task: string): Promise<QueueEntry> {
 }
 
 export async function cancelQueued(queueId: string): Promise<void> {
-  await request<QueueEntry>(`/api/queue/${queueId}`, { method: "DELETE" });
+  await request<QueueEntry>(`/api/admin/queue/${queueId}`, { method: "DELETE" });
 }
 
 export async function gracefulStop(queueId: string): Promise<void> {
-  await request<QueueEntry>(`/api/queue/${queueId}/stop`, { method: "POST" });
+  await request<QueueEntry>(`/api/admin/queue/${queueId}/stop`, { method: "POST" });
 }
 
 export async function forceKill(queueId: string): Promise<void> {
-  await request<QueueEntry>(`/api/queue/${queueId}/kill`, { method: "POST" });
+  await request<QueueEntry>(`/api/admin/queue/${queueId}/kill`, { method: "POST" });
 }
 
 export async function resumeLaunch(launchId: string): Promise<QueueEntry> {
-  return request<QueueEntry>(`/api/launches/${launchId}/resume`, { method: "POST" });
+  return request<QueueEntry>(`/api/admin/launches/${launchId}/resume`, { method: "POST" });
 }
 
 export interface ParameterField {
@@ -96,11 +96,11 @@ export interface PromptRecord {
 }
 
 export async function fetchPrompts(): Promise<PromptRecord[]> {
-  return (await request<{ prompts: PromptRecord[] }>("/api/prompts")).prompts;
+  return (await request<{ prompts: PromptRecord[] }>("/api/admin/prompts")).prompts;
 }
 
 export async function savePrompt(id: string, text: string): Promise<PromptRecord> {
-  return request<PromptRecord>(`/api/prompts/${id}`, {
+  return request<PromptRecord>(`/api/admin/prompts/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -111,13 +111,13 @@ export async function fetchParameters(): Promise<{
   catalog: ParameterField[];
   values: Record<string, unknown>;
 }> {
-  return request("/api/parameters");
+  return request("/api/admin/parameters");
 }
 
 export async function saveParameters(
   values: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const body = await request<{ values: Record<string, unknown> }>("/api/parameters", {
+  const body = await request<{ values: Record<string, unknown> }>("/api/admin/parameters", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(values),
@@ -143,11 +143,11 @@ export type ModelCatalog = {
 };
 
 export async function fetchModelCatalog(): Promise<ModelCatalog> {
-  return request<ModelCatalog>("/api/model-catalog");
+  return request<ModelCatalog>("/api/admin/model-catalog");
 }
 
 export async function saveModelCatalog(catalog: ModelCatalog): Promise<ModelCatalog> {
-  return request<ModelCatalog>("/api/model-catalog", {
+  return request<ModelCatalog>("/api/admin/model-catalog", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(catalog),
@@ -162,11 +162,11 @@ export interface LaunchStatus {
 }
 
 export async function fetchLaunchStatus(launchId: string): Promise<LaunchStatus> {
-  return request(`/api/launches/${launchId}/status`);
+  return request(`/api/admin/launches/${launchId}/status`);
 }
 
 export function logStreamUrl(launchId: string, file: string): string {
-  return `/api/launches/${launchId}/logs/stream?file=${encodeURIComponent(file)}`;
+  return `/api/admin/launches/${launchId}/logs/stream?file=${encodeURIComponent(file)}`;
 }
 
 export interface ArtifactNode {
@@ -178,11 +178,11 @@ export interface ArtifactNode {
 }
 
 export async function fetchArtifactTree(launchId: string): Promise<ArtifactNode[]> {
-  return (await request<{ tree: ArtifactNode[] }>(`/api/artifacts/${launchId}/tree`)).tree;
+  return (await request<{ tree: ArtifactNode[] }>(`/api/admin/artifacts/${launchId}/tree`)).tree;
 }
 
 export function artifactFileUrl(launchId: string, path: string): string {
-  return `/api/artifacts/${launchId}/file?path=${encodeURIComponent(path)}`;
+  return `/api/admin/artifacts/${launchId}/file?path=${encodeURIComponent(path)}`;
 }
 
 export async function fetchArtifactText(launchId: string, path: string): Promise<string> {
@@ -223,7 +223,7 @@ export interface LaunchTimeline {
 }
 
 export async function fetchLaunchTimeline(launchId: string): Promise<LaunchTimeline> {
-  return request(`/api/launches/${launchId}/timeline`);
+  return request(`/api/admin/launches/${launchId}/timeline`);
 }
 
 export interface ExperimentRunDetail {
@@ -244,6 +244,6 @@ export async function fetchExperimentRun(
   path: string,
 ): Promise<ExperimentRunDetail> {
   return request(
-    `/api/launches/${launchId}/experiment-run?path=${encodeURIComponent(path)}`,
+    `/api/admin/launches/${launchId}/experiment-run?path=${encodeURIComponent(path)}`,
   );
 }

@@ -7,10 +7,23 @@ from pathlib import Path
 
 import json
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from admin_console.auth import AdminAuth
 from admin_console.artifacts import (
     ArtifactPathError,
     artifact_tree,
@@ -85,6 +98,11 @@ class PromptUpdate(BaseModel):
     text: str
 
 
+class AdminLogin(BaseModel):
+    username: str
+    password: str
+
+
 def create_app(
     results_root: Path | None = None,
     tasks_root: Path | None = None,
@@ -93,13 +111,21 @@ def create_app(
     main_config_path: Path | None = None,
     prompt_library_root: Path | None = None,
     model_catalog_path: Path | None = None,
+    auth_db_path: Path | None = None,
+    admin_password: str | None = None,
+    frontend_dist: Path | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
     resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
     resolved_main_config = main_config_path or DEFAULT_CONFIG_PATHS[0]
     resolved_prompt_root = prompt_library_root or DEFAULT_LIBRARY_ROOT
     resolved_catalog_path = model_catalog_path or DEFAULT_CONFIG_PATHS[1]
+    resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
+    resolved_auth_db = auth_db_path or (
+        resolved_results_root.parent / ".vegapunk" / "admin-auth.sqlite3"
+    )
     prompt_library = PromptLibrary(resolved_prompt_root)
+    auth = AdminAuth(resolved_auth_db, password=admin_password)
     queue = LaunchQueue(
         results_root=resolved_results_root,
         tasks_root=resolved_tasks_root,
@@ -108,9 +134,65 @@ def create_app(
         prompt_library_root=resolved_prompt_root,
     )
 
-    app = FastAPI(title="Vegapunk Admin Console")
+    app = FastAPI(title="Vegapunk")
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["127.0.0.1", "localhost", "::1", "[::1]", "testserver"],
+    )
 
-    @app.get("/api/launches")
+    @app.middleware("http")
+    async def same_origin_api_requests(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            expected_origin = str(request.base_url).rstrip("/")
+            if origin.rstrip("/") != expected_origin:
+                return JSONResponse(
+                    {"detail": "cross-origin API requests are not allowed"},
+                    status_code=403,
+                )
+        return await call_next(request)
+
+    def require_admin(request: Request) -> str:
+        username = auth.session_username(request.cookies.get(auth.cookie_name))
+        if username is None:
+            raise HTTPException(status_code=401, detail="administrator authentication required")
+        return username
+
+    admin_router = APIRouter(
+        prefix="/api/admin",
+        dependencies=[Depends(require_admin)],
+    )
+
+    @app.post("/api/auth/login")
+    def login(credentials: AdminLogin, response: Response) -> dict:
+        token = auth.login(credentials.username, credentials.password)
+        if token is None:
+            raise HTTPException(status_code=401, detail="invalid administrator credentials")
+        response.set_cookie(
+            key=auth.cookie_name,
+            value=token,
+            httponly=True,
+            samesite="strict",
+            secure=False,
+            max_age=auth.absolute_seconds,
+            path="/",
+        )
+        return {"authenticated": True, "username": credentials.username}
+
+    @app.get("/api/auth/me")
+    def current_session(request: Request) -> dict:
+        username = auth.session_username(request.cookies.get(auth.cookie_name))
+        if username is None:
+            return {"authenticated": False}
+        return {"authenticated": True, "username": username}
+
+    @app.post("/api/auth/logout")
+    def logout(request: Request, response: Response) -> dict:
+        auth.logout(request.cookies.get(auth.cookie_name))
+        response.delete_cookie(auth.cookie_name, path="/")
+        return {"authenticated": False}
+
+    @admin_router.get("/launches")
     def list_launches() -> dict:
         # The queue knows the authoritative state of console-started
         # Launches; artifact heuristics only cover pre-console history.
@@ -127,11 +209,11 @@ def create_app(
             ]
         }
 
-    @app.get("/api/tasks")
+    @admin_router.get("/tasks")
     def list_tasks() -> dict:
         return {"tasks": list_task_summaries(resolved_tasks_root)}
 
-    @app.post("/api/tasks", status_code=201)
+    @admin_router.post("/tasks", status_code=201)
     async def create_task_endpoint(
         name: str = Form(...),
         system: str = Form(...),
@@ -171,11 +253,11 @@ def create_app(
                 zip_path.unlink(missing_ok=True)
         return summary
 
-    @app.get("/api/queue")
+    @admin_router.get("/queue")
     def list_queue() -> dict:
         return {"entries": [entry.to_dict() for entry in queue.entries()]}
 
-    @app.post("/api/queue", status_code=201)
+    @admin_router.post("/queue", status_code=201)
     def submit_launch(submission: QueueSubmission) -> dict:
         try:
             entry = queue.submit(submission.task)
@@ -183,7 +265,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown task: {submission.task}")
         return entry.to_dict()
 
-    @app.get("/api/prompts")
+    @admin_router.get("/prompts")
     def list_prompts() -> dict:
         return {
             "prompts": [
@@ -192,7 +274,7 @@ def create_app(
             ]
         }
 
-    @app.get("/api/prompts/{prompt_id}")
+    @admin_router.get("/prompts/{prompt_id}")
     def get_prompt(prompt_id: str) -> dict:
         try:
             entry = prompt_library.get_entry(prompt_id)
@@ -200,7 +282,7 @@ def create_app(
         except UnknownPromptError:
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
 
-    @app.put("/api/prompts/{prompt_id}")
+    @admin_router.put("/prompts/{prompt_id}")
     def put_prompt(prompt_id: str, update: PromptUpdate) -> dict:
         try:
             entry = prompt_library.save(prompt_id, update.text)
@@ -208,11 +290,11 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
         return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
 
-    @app.get("/api/model-catalog")
+    @admin_router.get("/model-catalog")
     def get_model_catalog() -> dict:
         return load_catalog(resolved_catalog_path)
 
-    @app.put("/api/model-catalog")
+    @admin_router.put("/model-catalog")
     def put_model_catalog(values: dict) -> dict:
         try:
             document = validate_catalog(values)
@@ -226,11 +308,11 @@ def create_app(
         save_catalog(resolved_catalog_path, document)
         return load_catalog(resolved_catalog_path)
 
-    @app.get("/api/parameters")
+    @admin_router.get("/parameters")
     def get_parameters() -> dict:
         return {"catalog": parameter_catalog(), "values": load_values(resolved_main_config)}
 
-    @app.put("/api/parameters")
+    @admin_router.put("/parameters")
     def put_parameters(values: dict) -> dict:
         try:
             parameters = validate_values(values)
@@ -245,11 +327,11 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown launch: {launch_id}")
         return launch_dir
 
-    @app.get("/api/artifacts/{launch_id:path}/tree")
+    @admin_router.get("/artifacts/{launch_id:path}/tree")
     def get_artifact_tree(launch_id: str) -> dict:
         return {"tree": artifact_tree(_launch_dir_or_404(launch_id))}
 
-    @app.get("/api/artifacts/{launch_id:path}/file")
+    @admin_router.get("/artifacts/{launch_id:path}/file")
     def get_artifact_file(launch_id: str, path: str) -> FileResponse:
         launch_dir = _launch_dir_or_404(launch_id)
         try:
@@ -260,11 +342,11 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"no such artifact: {path}")
         return FileResponse(artifact, media_type=guess_media_type(artifact))
 
-    @app.get("/api/launches/{launch_id:path}/timeline")
+    @admin_router.get("/launches/{launch_id:path}/timeline")
     def launch_timeline(launch_id: str) -> dict:
         return build_timeline(_launch_dir_or_404(launch_id))
 
-    @app.get("/api/launches/{launch_id:path}/experiment-run")
+    @admin_router.get("/launches/{launch_id:path}/experiment-run")
     def experiment_run_detail(launch_id: str, path: str) -> dict:
         launch_dir = _launch_dir_or_404(launch_id)
         try:
@@ -272,7 +354,7 @@ def create_app(
         except ExperimentRunPathError as error:
             raise HTTPException(status_code=400, detail=str(error))
 
-    @app.get("/api/launches/{launch_id:path}/status")
+    @admin_router.get("/launches/{launch_id:path}/status")
     def launch_status(launch_id: str) -> dict:
         launch_dir = _launch_dir_or_404(launch_id)
         state = queue.state_for_launch(launch_id)
@@ -288,7 +370,7 @@ def create_app(
             "recent_artifacts": recent_artifacts(launch_dir),
         }
 
-    @app.get("/api/launches/{launch_id:path}/logs/stream")
+    @admin_router.get("/launches/{launch_id:path}/logs/stream")
     def launch_log_stream(launch_id: str, file: str = "runner.log") -> StreamingResponse:
         launch_dir = _launch_dir_or_404(launch_id)
         try:
@@ -303,7 +385,7 @@ def create_app(
             stream_log(log_path, is_running), media_type="text/event-stream"
         )
 
-    @app.delete("/api/queue/{queue_id}")
+    @admin_router.delete("/queue/{queue_id}")
     def cancel_queued(queue_id: str) -> dict:
         try:
             entry = queue.cancel(queue_id)
@@ -322,15 +404,15 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error))
         return entry.to_dict()
 
-    @app.post("/api/queue/{queue_id}/stop")
+    @admin_router.post("/queue/{queue_id}/stop")
     def graceful_stop(queue_id: str) -> dict:
         return _stop(queue_id, force=False)
 
-    @app.post("/api/queue/{queue_id}/kill")
+    @admin_router.post("/queue/{queue_id}/kill")
     def force_kill(queue_id: str) -> dict:
         return _stop(queue_id, force=True)
 
-    @app.post("/api/launches/{launch_id:path}/resume", status_code=201)
+    @admin_router.post("/launches/{launch_id:path}/resume", status_code=201)
     def resume_launch(launch_id: str) -> dict:
         # Launch Resume is defined for aborted Launches only (CONTEXT.md).
         _launch_dir_or_404(launch_id)
@@ -346,5 +428,33 @@ def create_app(
         except UnknownTaskError:
             raise HTTPException(status_code=404, detail=f"unknown task for launch: {launch_id}")
         return entry.to_dict()
+
+    app.include_router(admin_router)
+
+    if resolved_frontend_dist.is_dir():
+        assets_root = resolved_frontend_dist / "assets"
+        if assets_root.is_dir():
+            app.mount(
+                "/assets",
+                StaticFiles(directory=assets_root),
+                name="frontend-assets",
+            )
+
+        index_path = resolved_frontend_dist / "index.html"
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def frontend_entry(full_path: str) -> FileResponse:
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="not found")
+            candidate = (resolved_frontend_dist / full_path).resolve()
+            try:
+                candidate.relative_to(resolved_frontend_dist.resolve())
+            except ValueError:
+                raise HTTPException(status_code=404, detail="not found")
+            if candidate.is_file():
+                return FileResponse(candidate)
+            if index_path.is_file():
+                return FileResponse(index_path)
+            raise HTTPException(status_code=404, detail="frontend entry not found")
 
     return app

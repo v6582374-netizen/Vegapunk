@@ -9,7 +9,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -27,7 +27,7 @@ FAKE_RUNNER_COMMAND = [
 def _wait_for_state(client: TestClient, queue_id: str, state: str, timeout: float = 10.0) -> dict:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        entries = client.get("/api/queue").json()["entries"]
+        entries = client.get("/api/admin/queue").json()["entries"]
         entry = next(item for item in entries if item["queue_id"] == queue_id)
         if entry["state"] == state:
             return entry
@@ -71,7 +71,7 @@ class LaunchQueueTest(unittest.TestCase):
     def test_submitted_launch_runs_to_completion_with_snapshot(self) -> None:
         client = self.env.create_client()
 
-        response = client.post("/api/queue", json={"task": "AutoDemo"})
+        response = client.post("/api/admin/queue", json={"task": "AutoDemo"})
         self.assertEqual(response.status_code, 201)
         entry = response.json()
         queue_id = entry["queue_id"]
@@ -90,7 +90,7 @@ class LaunchQueueTest(unittest.TestCase):
 
     def test_available_tasks_are_listed(self) -> None:
         client = self.env.create_client()
-        response = client.get("/api/tasks")
+        response = client.get("/api/admin/tasks")
         self.assertEqual(response.status_code, 200)
         tasks = response.json()["tasks"]
         self.assertEqual(len(tasks), 1)
@@ -99,17 +99,17 @@ class LaunchQueueTest(unittest.TestCase):
 
     def test_unknown_task_is_rejected(self) -> None:
         client = self.env.create_client()
-        response = client.post("/api/queue", json={"task": "NoSuchTask"})
+        response = client.post("/api/admin/queue", json={"task": "NoSuchTask"})
         self.assertEqual(response.status_code, 404)
 
     def test_second_launch_waits_until_first_finishes(self) -> None:
         client = self.env.create_client()
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "0.4"}):
-            first = client.post("/api/queue", json={"task": "AutoDemo"}).json()
-            second = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+            first = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
+            second = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
 
             _wait_for_state(client, first["queue_id"], "running")
-            entries = {e["queue_id"]: e for e in client.get("/api/queue").json()["entries"]}
+            entries = {e["queue_id"]: e for e in client.get("/api/admin/queue").json()["entries"]}
             self.assertEqual(entries[second["queue_id"]]["state"], "queued")
 
         _wait_for_state(client, first["queue_id"], "completed")
@@ -118,30 +118,30 @@ class LaunchQueueTest(unittest.TestCase):
     def test_queued_launch_can_be_cancelled_but_running_cannot(self) -> None:
         client = self.env.create_client()
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "0.4"}):
-            first = client.post("/api/queue", json={"task": "AutoDemo"}).json()
-            second = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+            first = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
+            second = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
             _wait_for_state(client, first["queue_id"], "running")
 
-            cancelled = client.delete(f"/api/queue/{second['queue_id']}")
+            cancelled = client.delete(f"/api/admin/queue/{second['queue_id']}")
             self.assertEqual(cancelled.status_code, 200)
             self.assertEqual(cancelled.json()["state"], "cancelled")
 
-            running_cancel = client.delete(f"/api/queue/{first['queue_id']}")
+            running_cancel = client.delete(f"/api/admin/queue/{first['queue_id']}")
             self.assertEqual(running_cancel.status_code, 409)
 
         _wait_for_state(client, first["queue_id"], "completed")
-        entries = {e["queue_id"]: e for e in client.get("/api/queue").json()["entries"]}
+        entries = {e["queue_id"]: e for e in client.get("/api/admin/queue").json()["entries"]}
         self.assertEqual(entries[second["queue_id"]]["state"], "cancelled")
 
     def test_failed_runner_marks_launch_failed(self) -> None:
         client = self.env.create_client()
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_OUTCOME": "failed"}):
-            entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+            entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
             _wait_for_state(client, entry["queue_id"], "failed")
 
     def test_runner_is_pointed_at_the_snapshot_config(self) -> None:
         client = self.env.create_client()
-        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         finished = _wait_for_state(client, entry["queue_id"], "completed")
 
         launch_dir = self.env.results_root / finished["launch_id"]
@@ -154,10 +154,10 @@ class LaunchQueueTest(unittest.TestCase):
 
     def test_completed_console_launch_state_appears_in_listing(self) -> None:
         client = self.env.create_client()
-        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         finished = _wait_for_state(client, entry["queue_id"], "completed")
 
-        launches = client.get("/api/launches").json()["launches"]
+        launches = client.get("/api/admin/launches").json()["launches"]
         listed = next(item for item in launches if item["id"] == finished["launch_id"])
         self.assertEqual(listed["state"], "completed")
 
@@ -172,9 +172,9 @@ class LaunchQueueTest(unittest.TestCase):
         )
 
         client = self.env.create_client()
-        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         time.sleep(0.4)
-        entries = {e["queue_id"]: e for e in client.get("/api/queue").json()["entries"]}
+        entries = {e["queue_id"]: e for e in client.get("/api/admin/queue").json()["entries"]}
         self.assertEqual(entries["orphan000001"]["state"], "running")
         self.assertEqual(entries[entry["queue_id"]]["state"], "queued")
 
@@ -185,11 +185,11 @@ class LaunchQueueTest(unittest.TestCase):
 
     def test_queue_state_survives_service_restart(self) -> None:
         client = self.env.create_client()
-        entry = client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         _wait_for_state(client, entry["queue_id"], "completed")
 
         restarted = self.env.create_client()
-        entries = {e["queue_id"]: e for e in restarted.get("/api/queue").json()["entries"]}
+        entries = {e["queue_id"]: e for e in restarted.get("/api/admin/queue").json()["entries"]}
         self.assertEqual(entries[entry["queue_id"]]["state"], "completed")
 
     def test_stale_running_entry_becomes_interrupted_after_restart(self) -> None:
@@ -200,7 +200,7 @@ class LaunchQueueTest(unittest.TestCase):
             ' "launch_id": "AutoDemo/20260718_000000_launch", "pid": 999999999}]}'
         )
         client = self.env.create_client()
-        entries = client.get("/api/queue").json()["entries"]
+        entries = client.get("/api/admin/queue").json()["entries"]
         self.assertEqual(entries[0]["state"], "interrupted")
 
 

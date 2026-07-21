@@ -7,7 +7,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -46,7 +46,7 @@ class StopAndResumeTest(unittest.TestCase):
     def _wait(self, queue_id: str, state: str, timeout: float = 10.0) -> dict:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            entries = self.client.get("/api/queue").json()["entries"]
+            entries = self.client.get("/api/admin/queue").json()["entries"]
             entry = next(e for e in entries if e["queue_id"] == queue_id)
             if entry["state"] == state:
                 return entry
@@ -54,13 +54,13 @@ class StopAndResumeTest(unittest.TestCase):
         raise AssertionError(f"entry {queue_id} never reached {state}: {entry}")
 
     def _submit_running(self) -> dict:
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         running = self._wait(entry["queue_id"], "running")
         launch_dir = self.results_root / running["launch_id"]
         log_path = launch_dir / "console.log"
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
-            entries = self.client.get("/api/queue").json()["entries"]
+            entries = self.client.get("/api/admin/queue").json()["entries"]
             running = next(item for item in entries if item["queue_id"] == entry["queue_id"])
             if (
                 running["pid"] is not None
@@ -74,7 +74,7 @@ class StopAndResumeTest(unittest.TestCase):
     def test_graceful_stop_checkpoints_and_marks_aborted(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "30"}):
             running = self._submit_running()
-            response = self.client.post(f"/api/queue/{running['queue_id']}/stop")
+            response = self.client.post(f"/api/admin/queue/{running['queue_id']}/stop")
             self.assertEqual(response.status_code, 200)
             aborted = self._wait(running["queue_id"], "aborted")
 
@@ -87,29 +87,29 @@ class StopAndResumeTest(unittest.TestCase):
             "os.environ", {"FAKE_RUNNER_SLEEP": "30", "FAKE_RUNNER_IGNORE_SIGTERM": "1"}
         ):
             running = self._submit_running()
-            self.client.post(f"/api/queue/{running['queue_id']}/stop")
+            self.client.post(f"/api/admin/queue/{running['queue_id']}/stop")
             time.sleep(0.5)
-            response = self.client.post(f"/api/queue/{running['queue_id']}/kill")
+            response = self.client.post(f"/api/admin/queue/{running['queue_id']}/kill")
             self.assertEqual(response.status_code, 200)
             aborted = self._wait(running["queue_id"], "aborted")
         self.assertEqual(aborted["stopped_how"], "force")
 
     def test_stop_rejected_when_not_running(self) -> None:
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         self._wait(entry["queue_id"], "completed")
-        response = self.client.post(f"/api/queue/{entry['queue_id']}/stop")
+        response = self.client.post(f"/api/admin/queue/{entry['queue_id']}/stop")
         self.assertEqual(response.status_code, 409)
 
     def test_resume_reuses_launch_dir_and_original_snapshot(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "30"}):
             running = self._submit_running()
-            self.client.post(f"/api/queue/{running['queue_id']}/stop")
+            self.client.post(f"/api/admin/queue/{running['queue_id']}/stop")
             aborted = self._wait(running["queue_id"], "aborted")
 
         # Edit the global config after the abort; resume must NOT absorb it.
         self.config_path.write_text("workflow:\n  loop_rounds: 99\n")
 
-        response = self.client.post(f"/api/launches/{aborted['launch_id']}/resume")
+        response = self.client.post(f"/api/admin/launches/{aborted['launch_id']}/resume")
         self.assertEqual(response.status_code, 201)
         resumed = response.json()
         self.assertEqual(resumed["launch_id"], aborted["launch_id"])
@@ -123,15 +123,15 @@ class StopAndResumeTest(unittest.TestCase):
     def test_resume_of_running_launch_is_rejected(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "30"}):
             running = self._submit_running()
-            response = self.client.post(f"/api/launches/{running['launch_id']}/resume")
+            response = self.client.post(f"/api/admin/launches/{running['launch_id']}/resume")
             self.assertEqual(response.status_code, 409)
-            self.client.post(f"/api/queue/{running['queue_id']}/kill")
+            self.client.post(f"/api/admin/queue/{running['queue_id']}/kill")
             self._wait(running["queue_id"], "aborted")
 
     def test_resume_of_completed_launch_is_rejected(self) -> None:
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         finished = self._wait(entry["queue_id"], "completed")
-        response = self.client.post(f"/api/launches/{finished['launch_id']}/resume")
+        response = self.client.post(f"/api/admin/launches/{finished['launch_id']}/resume")
         self.assertEqual(response.status_code, 409)
 
 

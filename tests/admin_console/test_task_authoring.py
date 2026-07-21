@@ -9,7 +9,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -44,7 +44,7 @@ class TaskAuthoringTest(unittest.TestCase):
 
     def test_create_task_writes_prompt_json_and_lists_it(self) -> None:
         response = self.client.post(
-            "/api/tasks",
+            "/api/admin/tasks",
             data={
                 "name": "MyNewTask",
                 "system": "You are a researcher.",
@@ -67,7 +67,7 @@ class TaskAuthoringTest(unittest.TestCase):
         self.assertEqual(prompt["background"], "Background text.")
         self.assertEqual(prompt["constraints"], ["no data change"])
 
-        tasks = self.client.get("/api/tasks").json()["tasks"]
+        tasks = self.client.get("/api/admin/tasks").json()["tasks"]
         names = {t["name"] if isinstance(t, dict) else t for t in tasks}
         self.assertIn("MyNewTask", names)
 
@@ -79,7 +79,7 @@ class TaskAuthoringTest(unittest.TestCase):
         buffer.seek(0)
 
         response = self.client.post(
-            "/api/tasks",
+            "/api/admin/tasks",
             data={
                 "name": "CodedTask",
                 "system": "s",
@@ -106,12 +106,12 @@ class TaskAuthoringTest(unittest.TestCase):
             "background": "b",
             "constraints": "[]",
         }
-        response = self.client.post("/api/tasks", data=payload)
+        response = self.client.post("/api/admin/tasks", data=payload)
         self.assertEqual(response.status_code, 409)
 
     def test_invalid_name_is_rejected(self) -> None:
         response = self.client.post(
-            "/api/tasks",
+            "/api/admin/tasks",
             data={
                 "name": "../escape",
                 "system": "s",
@@ -126,7 +126,7 @@ class TaskAuthoringTest(unittest.TestCase):
     def test_tasks_list_includes_path_mode_for_existing(self) -> None:
         (self.tasks_root / "ExistingAuto" / "code").mkdir()
         (self.tasks_root / "ExistingAuto" / "code" / "experiment.py").write_text("x")
-        response = self.client.get("/api/tasks")
+        response = self.client.get("/api/admin/tasks")
         self.assertEqual(response.status_code, 200)
         by_name = {t["name"]: t for t in response.json()["tasks"]}
         self.assertEqual(by_name["ExistingAuto"]["path_mode"], "experiment")
@@ -134,7 +134,7 @@ class TaskAuthoringTest(unittest.TestCase):
 
     def test_created_task_can_be_enqueued(self) -> None:
         self.client.post(
-            "/api/tasks",
+            "/api/admin/tasks",
             data={
                 "name": "EnqueueMe",
                 "system": "s",
@@ -144,12 +144,12 @@ class TaskAuthoringTest(unittest.TestCase):
                 "constraints": "[]",
             },
         )
-        entry = self.client.post("/api/queue", json={"task": "EnqueueMe"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "EnqueueMe"}).json()
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = next(
                 e
-                for e in self.client.get("/api/queue").json()["entries"]
+                for e in self.client.get("/api/admin/queue").json()["entries"]
                 if e["queue_id"] == entry["queue_id"]
             )
             if state["state"] == "completed":

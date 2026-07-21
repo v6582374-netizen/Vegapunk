@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -23,7 +23,7 @@ class ArtifactExplorerTest(unittest.TestCase):
         self.launch_id = "AutoDemo/20260718_000000_launch"
 
     def test_tree_lists_every_file_and_directory(self) -> None:
-        response = self.client.get(f"/api/artifacts/{self.launch_id}/tree")
+        response = self.client.get(f"/api/admin/artifacts/{self.launch_id}/tree")
         self.assertEqual(response.status_code, 200)
         tree = response.json()["tree"]
         names = {node["path"] for node in _flatten(tree)}
@@ -40,14 +40,14 @@ class ArtifactExplorerTest(unittest.TestCase):
 
     def test_text_file_content_is_returned_with_kind(self) -> None:
         response = self.client.get(
-            f"/api/artifacts/{self.launch_id}/file", params={"path": "console.log"}
+            f"/api/admin/artifacts/{self.launch_id}/file", params={"path": "console.log"}
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn("line one", response.text)
 
     def test_binary_file_is_served_with_content_type(self) -> None:
         response = self.client.get(
-            f"/api/artifacts/{self.launch_id}/file", params={"path": "figure.png"}
+            f"/api/admin/artifacts/{self.launch_id}/file", params={"path": "figure.png"}
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["content-type"], "image/png")
@@ -57,12 +57,12 @@ class ArtifactExplorerTest(unittest.TestCase):
         secret = self.results_root / "secret.txt"
         secret.write_text("do not leak")
         response = self.client.get(
-            f"/api/artifacts/{self.launch_id}/file", params={"path": "../../secret.txt"}
+            f"/api/admin/artifacts/{self.launch_id}/file", params={"path": "../../secret.txt"}
         )
         self.assertEqual(response.status_code, 400)
 
     def test_unknown_launch_returns_404(self) -> None:
-        response = self.client.get("/api/artifacts/NoTask/20990101_000000_launch/tree")
+        response = self.client.get("/api/admin/artifacts/NoTask/20990101_000000_launch/tree")
         self.assertEqual(response.status_code, 404)
 
 

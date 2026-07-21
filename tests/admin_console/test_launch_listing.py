@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -24,7 +24,7 @@ class LaunchListingTest(unittest.TestCase):
             _make_launch_dir(results_root, "AutoChem", "20260701_090000")
 
             client = TestClient(create_app(results_root=results_root))
-            response = client.get("/api/launches")
+            response = client.get("/api/admin/launches")
 
             self.assertEqual(response.status_code, 200)
             launches = response.json()["launches"]
@@ -47,7 +47,7 @@ class LaunchListingTest(unittest.TestCase):
             _make_launch_dir(results_root, "AutoDebug", "20260714_131406")
 
             client = TestClient(create_app(results_root=results_root))
-            launches = client.get("/api/launches").json()["launches"]
+            launches = client.get("/api/admin/launches").json()["launches"]
 
             self.assertEqual(
                 [item["id"] for item in launches],
@@ -66,7 +66,7 @@ class LaunchListingTest(unittest.TestCase):
             (results_root / "launch_queue.json").write_text("{}")
 
             client = TestClient(create_app(results_root=results_root))
-            launches = client.get("/api/launches").json()["launches"]
+            launches = client.get("/api/admin/launches").json()["launches"]
 
             self.assertEqual(len(launches), 1)
 

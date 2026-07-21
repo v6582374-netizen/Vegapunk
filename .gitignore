@@ -186,6 +186,7 @@ tasks/AutoScale2/*
 IA15_traj/
 mem_store/
 .codebase-memory/
+.vegapunk/
 
 # Large data files
 tasks/AutoEAP/code/data/Sequences_activity_all.txt

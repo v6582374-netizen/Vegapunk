@@ -7,7 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import REPOSITORY_ROOT, create_app
 from vegapunk.prompt_library import (
@@ -72,7 +72,7 @@ class PromptLibraryApiTest(unittest.TestCase):
         )
 
     def test_list_prompts_grouped_metadata_and_text(self) -> None:
-        response = self.client.get("/api/prompts")
+        response = self.client.get("/api/admin/prompts")
         self.assertEqual(response.status_code, 200)
         items = response.json()["prompts"]
         self.assertGreaterEqual(len(items), 10)
@@ -84,20 +84,20 @@ class PromptLibraryApiTest(unittest.TestCase):
 
     def test_edit_is_persisted_and_snapshotted_into_next_launch(self) -> None:
         marker = "PROMPT_LIBRARY_TEST_MARKER_XYZ"
-        original = self.client.get("/api/prompts/experiment.coder_openhands").json()["text"]
+        original = self.client.get("/api/admin/prompts/experiment.coder_openhands").json()["text"]
         edited = original + "\n" + marker + "\n"
         response = self.client.put(
-            "/api/prompts/experiment.coder_openhands", json={"text": edited}
+            "/api/admin/prompts/experiment.coder_openhands", json={"text": edited}
         )
         self.assertEqual(response.status_code, 200)
         self.assertIn(marker, (self.prompt_root / "experiment" / "coder_openhands.txt").read_text())
 
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = next(
                 e
-                for e in self.client.get("/api/queue").json()["entries"]
+                for e in self.client.get("/api/admin/queue").json()["entries"]
                 if e["queue_id"] == entry["queue_id"]
             )
             if state["state"] == "completed":
@@ -119,7 +119,7 @@ class PromptLibraryApiTest(unittest.TestCase):
 
         # Global edit after start would not affect an already-written snapshot.
         self.client.put(
-            "/api/prompts/experiment.coder_openhands",
+            "/api/admin/prompts/experiment.coder_openhands",
             json={"text": original + "\nAFTER_START\n"},
         )
         self.assertNotIn("AFTER_START", snapshot.read_text())

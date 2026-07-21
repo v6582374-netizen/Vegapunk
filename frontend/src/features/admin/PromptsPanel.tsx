@@ -10,7 +10,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { fetchPrompts, savePrompt, type PromptRecord } from "./api";
+import { fetchPrompts, savePrompt, type PromptRecord } from "../../shared/adminApi";
 
 export default function PromptsPanel() {
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);

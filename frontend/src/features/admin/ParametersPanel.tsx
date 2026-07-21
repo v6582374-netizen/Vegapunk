@@ -13,7 +13,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { fetchParameters, saveParameters, type ParameterField } from "./api";
+import { fetchParameters, saveParameters, type ParameterField } from "../../shared/adminApi";
 
 type Values = Record<string, unknown>;
 

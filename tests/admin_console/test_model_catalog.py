@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 import yaml
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import REPOSITORY_ROOT, create_app
 
@@ -42,7 +42,7 @@ class ModelCatalogApiTest(unittest.TestCase):
         )
 
     def test_get_returns_nested_catalog(self) -> None:
-        response = self.client.get("/api/model-catalog")
+        response = self.client.get("/api/admin/model-catalog")
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["active_text_model"], "relay/gpt-5.6-sol")
@@ -51,32 +51,32 @@ class ModelCatalogApiTest(unittest.TestCase):
         self.assertIn("text", body["models"]["relay/gpt-5.6-sol"]["capabilities"])
 
     def test_rejects_cross_provider_text_and_image_binding(self) -> None:
-        catalog = self.client.get("/api/model-catalog").json()
+        catalog = self.client.get("/api/admin/model-catalog").json()
         catalog["capability_models"]["image_generation"] = "qwen/qwen-image-2.0-pro"
-        response = self.client.put("/api/model-catalog", json=catalog)
+        response = self.client.put("/api/admin/model-catalog", json=catalog)
         self.assertEqual(response.status_code, 422)
         self.assertIn("provider", str(response.json()).lower())
 
     def test_rejects_unknown_model_identity(self) -> None:
-        catalog = self.client.get("/api/model-catalog").json()
+        catalog = self.client.get("/api/admin/model-catalog").json()
         catalog["active_text_model"] = "relay/does-not-exist"
-        response = self.client.put("/api/model-catalog", json=catalog)
+        response = self.client.put("/api/admin/model-catalog", json=catalog)
         self.assertEqual(response.status_code, 422)
 
     def test_valid_edit_persists_and_reaches_snapshot(self) -> None:
-        catalog = self.client.get("/api/model-catalog").json()
+        catalog = self.client.get("/api/admin/model-catalog").json()
         catalog["providers"]["relay"]["timeout"] = 777
-        response = self.client.put("/api/model-catalog", json=catalog)
+        response = self.client.put("/api/admin/model-catalog", json=catalog)
         self.assertEqual(response.status_code, 200)
         persisted = yaml.safe_load(self.catalog_path.read_text())
         self.assertEqual(persisted["providers"]["relay"]["timeout"], 777)
 
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             state = next(
                 e
-                for e in self.client.get("/api/queue").json()["entries"]
+                for e in self.client.get("/api/admin/queue").json()["entries"]
                 if e["queue_id"] == entry["queue_id"]
             )
             if state["state"] == "completed":

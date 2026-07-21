@@ -1,5 +1,5 @@
 import { Button, Empty, Space, Tag, Typography } from "antd";
-import type { LaunchTimeline, TimelineRun } from "./api";
+import type { LaunchTimeline, TimelineRun } from "../../shared/adminApi";
 
 export default function LaunchTimelinePanel({
   timeline,

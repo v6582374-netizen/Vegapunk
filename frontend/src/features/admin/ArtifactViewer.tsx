@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Empty, Spin, Typography } from "antd";
 import ReactMarkdown from "react-markdown";
-import { artifactFileUrl, fetchArtifactText } from "./api";
+import { artifactFileUrl, fetchArtifactText } from "../../shared/adminApi";
 
 const TEXT_EXTENSIONS = new Set([
   "txt", "log", "json", "yaml", "yml", "py", "ts", "tsx", "js", "sh",

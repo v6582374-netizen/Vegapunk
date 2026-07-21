@@ -8,18 +8,20 @@ Vegapunk coordinates LLM-backed agents for research, discovery, memory, and expe
 
 **Admin Console**:
 The current Desktop Web Console deliverable: a developer-facing administration interface that exposes every prompt, run parameter, and runtime artifact of Vegapunk for testing and modification.
-It serves the project developer, has no accounts, and is not the future end-user product; a user-facing console with a curated surface is a separate later deliverable.
+It is hosted inside the unified Researcher Workspace under the protected `/admin` route and is intended for the project developer.
+It retains a separate dense navigation and full-exposure surface even though it shares the frontend application and same-origin server with the curated product routes.
 _Avoid_: end-user console, public product, curated interface
 
 **Sole Researcher**:
 The one person allowed to use the Version 1 product's curated research capabilities.
-Every Version 1 request is implicitly theirs; the product has no authentication, invitation, registration, account-management, or multi-user flows, and product access remains distinct from Admin Console privileges.
-_Avoid_: Invited Researcher, authenticated principal, anonymous public user, multi-user account
+Every Version 1 request is implicitly theirs; the product has no user registration, invitation, account-management, or multi-user flows.
+The protected Admin Console session verifies the same local operator before exposing advanced configuration and diagnostics.
+_Avoid_: Invited Researcher, public user, multi-user account
 
 **Local Product Boundary**:
 The Version 1 access boundary that confines the product and its API to the Sole Researcher's own machine and same-origin browser context.
-It excludes LAN and public access; remote access requires a later authentication decision.
-_Avoid_: public deployment, LAN service, unauthenticated remote access
+It excludes LAN and public access; the local Admin Console uses a cookie session, while a future remote deployment requires a separate identity and authorization decision.
+_Avoid_: public deployment, LAN service, remote account
 
 **Desktop Web Console**:
 The browser-based product interface through which a researcher configures, starts, observes, and reviews research work from a desktop operating system.

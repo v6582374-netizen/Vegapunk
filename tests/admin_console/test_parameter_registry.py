@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 import yaml
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import REPOSITORY_ROOT, create_app
 
@@ -39,7 +39,7 @@ class ParameterRegistryTest(unittest.TestCase):
         )
 
     def test_every_parameter_appears_in_catalog_with_description(self) -> None:
-        response = self.client.get("/api/parameters")
+        response = self.client.get("/api/admin/parameters")
         self.assertEqual(response.status_code, 200)
         body = response.json()
 
@@ -64,9 +64,9 @@ class ParameterRegistryTest(unittest.TestCase):
         self.assertEqual(_dig(values, "workflow.loop_rounds"), 10)
 
     def test_invalid_value_is_rejected_with_reason(self) -> None:
-        current = self.client.get("/api/parameters").json()["values"]
+        current = self.client.get("/api/admin/parameters").json()["values"]
         current["memory"]["task_memory"]["top_k"] = "not-a-number"
-        response = self.client.put("/api/parameters", json=current)
+        response = self.client.put("/api/admin/parameters", json=current)
         self.assertEqual(response.status_code, 422)
         detail = str(response.json())
         self.assertIn("top_k", detail)
@@ -75,18 +75,18 @@ class ParameterRegistryTest(unittest.TestCase):
         self.assertEqual(persisted["memory"]["task_memory"]["top_k"], 5)
 
     def test_valid_edit_is_persisted_and_reaches_next_launch_snapshot(self) -> None:
-        current = self.client.get("/api/parameters").json()["values"]
+        current = self.client.get("/api/admin/parameters").json()["values"]
         current["workflow"]["loop_rounds"] = 3
-        response = self.client.put("/api/parameters", json=current)
+        response = self.client.put("/api/admin/parameters", json=current)
         self.assertEqual(response.status_code, 200)
 
         persisted = yaml.safe_load(self.config_path.read_text())
         self.assertEqual(persisted["workflow"]["loop_rounds"], 3)
 
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            entries = self.client.get("/api/queue").json()["entries"]
+            entries = self.client.get("/api/admin/queue").json()["entries"]
             state = next(e for e in entries if e["queue_id"] == entry["queue_id"])
             if state["state"] == "completed":
                 break
@@ -95,9 +95,9 @@ class ParameterRegistryTest(unittest.TestCase):
         self.assertEqual(yaml.safe_load(snapshot.read_text())["workflow"]["loop_rounds"], 3)
 
     def test_out_of_range_value_is_rejected(self) -> None:
-        current = self.client.get("/api/parameters").json()["values"]
+        current = self.client.get("/api/admin/parameters").json()["values"]
         current["memory"]["task_memory"]["alpha"] = 2.5
-        response = self.client.put("/api/parameters", json=current)
+        response = self.client.put("/api/admin/parameters", json=current)
         self.assertEqual(response.status_code, 422)
 
 

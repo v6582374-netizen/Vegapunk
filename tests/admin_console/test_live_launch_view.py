@@ -7,7 +7,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from tests.admin_console.client import TestClient
 
 from admin_console.app import create_app
 
@@ -37,10 +37,10 @@ class LiveLaunchViewTest(unittest.TestCase):
         )
 
     def _submit_and_wait(self, timeout: float = 10.0) -> dict:
-        entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+        entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            entries = self.client.get("/api/queue").json()["entries"]
+            entries = self.client.get("/api/admin/queue").json()["entries"]
             state = next(e for e in entries if e["queue_id"] == entry["queue_id"])
             if state["state"] in {"completed", "failed"}:
                 return state
@@ -49,7 +49,7 @@ class LiveLaunchViewTest(unittest.TestCase):
 
     def test_status_reports_state_and_recent_artifacts(self) -> None:
         finished = self._submit_and_wait()
-        response = self.client.get(f"/api/launches/{finished['launch_id']}/status")
+        response = self.client.get(f"/api/admin/launches/{finished['launch_id']}/status")
         self.assertEqual(response.status_code, 200)
         status = response.json()
         self.assertEqual(status["state"], "completed")
@@ -62,16 +62,16 @@ class LiveLaunchViewTest(unittest.TestCase):
         launch_dir = self.results_root / "AutoDemo" / "20260718_000000_launch"
         (launch_dir / "session_1").mkdir(parents=True)
         (launch_dir / "session_2").mkdir()
-        response = self.client.get("/api/launches/AutoDemo/20260718_000000_launch/status")
+        response = self.client.get("/api/admin/launches/AutoDemo/20260718_000000_launch/status")
         self.assertEqual(response.json()["rounds"], 2)
 
     def test_log_stream_delivers_runner_output_until_completion(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "0.4"}):
-            entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
+            entry = self.client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
             deadline = time.monotonic() + 10
             launch_id = None
             while time.monotonic() < deadline and launch_id is None:
-                entries = self.client.get("/api/queue").json()["entries"]
+                entries = self.client.get("/api/admin/queue").json()["entries"]
                 launch_id = next(
                     e for e in entries if e["queue_id"] == entry["queue_id"]
                 )["launch_id"]
@@ -79,7 +79,7 @@ class LiveLaunchViewTest(unittest.TestCase):
 
             received = []
             with self.client.stream(
-                "GET", f"/api/launches/{launch_id}/logs/stream", params={"file": "console.log"}
+                "GET", f"/api/admin/launches/{launch_id}/logs/stream", params={"file": "console.log"}
             ) as response:
                 self.assertEqual(response.status_code, 200)
                 for line in response.iter_lines():
@@ -97,7 +97,7 @@ class LiveLaunchViewTest(unittest.TestCase):
         received = []
         with self.client.stream(
             "GET",
-            "/api/launches/AutoDemo/20260718_000000_launch/logs/stream",
+            "/api/admin/launches/AutoDemo/20260718_000000_launch/logs/stream",
             params={"file": "console.log"},
         ) as response:
             for line in response.iter_lines():
