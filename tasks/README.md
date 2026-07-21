@@ -1,6 +1,6 @@
 # sci_tasks: 科研论文复现任务
 
-用 InternAgent 自动复现论文成果的任务集，评分对齐 [ResearchClawBench](https://github.com/ResearchClawBench)。
+用 Vegapunk 自动复现论文成果的任务集，评分对齐 [ResearchClawBench](https://github.com/ResearchClawBench)。
 
 ---
 
@@ -150,7 +150,7 @@ results/Life_000/20260415_130021_launch/
 }
 ```
 
-评分完全复用 [ResearchClawBench](https://github.com/ResearchClawBench) `evaluation/score.py`（项目里 symlink 成 `internagent/rcb_evaluation/`），判官会看：
+评分完全复用 [ResearchClawBench](https://github.com/ResearchClawBench) `evaluation/score.py`（项目里 symlink 成 `vegapunk/rcb_evaluation/`），判官会看：
 
 1. **报告原文** (`report/report.md`)
 2. **生成图** (`report/images/`, `outputs/*.png`)
@@ -173,7 +173,7 @@ rubric 分两种模式：
 ```python
 from dotenv import load_dotenv
 load_dotenv()
-from internagent.sci_eval import score_run, write_final_info
+from vegapunk.sci_eval import score_run, write_final_info
 
 run_dir = "results/Life_000/.../run_1"
 checklist = f"{run_dir}/target_study/checklist.json"

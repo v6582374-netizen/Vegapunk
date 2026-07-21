@@ -8,8 +8,8 @@ from types import ModuleType
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from internagent.mas.agents.tool_loop import ModelToolLoop
-from internagent.mas.models.runtime import (
+from vegapunk.mas.agents.tool_loop import ModelToolLoop
+from vegapunk.mas.models.runtime import (
     FunctionCall,
     FunctionCallOutput,
     FunctionTool,
@@ -18,14 +18,14 @@ from internagent.mas.models.runtime import (
     OutputText,
     ReasoningConfig,
 )
-from internagent.research_draft import ResearchDraft
+from vegapunk.research_draft import ResearchDraft
 
 
 def _load_codeview_runtime():
     easydict = ModuleType("easydict")
     easydict.EasyDict = lambda **values: SimpleNamespace(**values)
     with patch.dict(sys.modules, {"easydict": easydict}):
-        from internagent.mas.agents.codeview_agent import _generate_runtime_text
+        from vegapunk.mas.agents.codeview_agent import _generate_runtime_text
 
     return _generate_runtime_text
 

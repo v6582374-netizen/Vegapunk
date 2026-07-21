@@ -8,7 +8,7 @@ Living Manuscript execution requires every Agent backend participating in a Disc
 
 The source backend performs the context fork because it still owns the live conversation or session state. Discovery Launch installs the same Sculptor hook, canonical manuscript path, dedicated prompt, and validation contract into each backend but does not collect, normalize, summarize, or relay the research content itself. Native session fork or continuation is preferred; an exact in-memory clone of the runtime's observable messages and tool events is also valid when it introduces no summarization or selection. A final response, `stdout`, log file, research summary, or artifact path alone is not an equivalent context fork.
 
-InternAgent creates and awaits only the top-level Sculptor Invocation. ADR-0074 leaves any native Multi-Agent execution within that invocation to the backend that owns it.
+Vegapunk creates and awaits only the top-level Sculptor Invocation. ADR-0074 leaves any native Multi-Agent execution within that invocation to the backend that owns it.
 
 For Claude Code, support means capturing the completed source session ID and immediately using the backend's native resume-and-fork facility to start the Sculptor with its dedicated prompt and canonical TeX path. The project does not wrap that direct call in another content-transfer or control protocol.
 

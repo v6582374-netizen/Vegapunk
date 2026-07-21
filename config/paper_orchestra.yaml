@@ -1,4 +1,4 @@
-# PaperOrchestra keeps the upstream pipeline and uses InternAgent's catalog
+# PaperOrchestra keeps the upstream pipeline and uses Vegapunk's catalog
 # bindings for text, vision, search-like prompts, and image calls.
 vendor_root: third_party/paper_orchestra
 template_dir: templates/iclr2025

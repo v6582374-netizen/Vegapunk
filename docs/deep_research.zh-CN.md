@@ -1,6 +1,6 @@
 ## 深度研究
 
-FlowSearch：深度研究（Deep Research，DR）模块是 InternAgent 内置的文献与网络研究流水线。给定一个问题或研究主题后，它会将任务分解为子任务，并行地从学术数据库和网络中收集信息，再将发现综合为结构化答案或报告。它是 QA 模式的核心支撑，也会在发现实验的想法生成阶段使用，帮助基于已有文献构建假设。
+FlowSearch：深度研究（Deep Research，DR）模块是 Vegapunk 内置的文献与网络研究流水线。给定一个问题或研究主题后，它会将任务分解为子任务，并行地从学术数据库和网络中收集信息，再将发现综合为结构化答案或报告。它是 QA 模式的核心支撑，也会在发现实验的想法生成阶段使用，帮助基于已有文献构建假设。
 
 **什么时候有用？**
 
@@ -44,7 +44,7 @@ Provider-side background execution 已禁用。
 
 ### 配置
 
-`internagent/mas/agents/dr_agents/` 下提供了三份预置配置：
+`vegapunk/mas/agents/dr_agents/` 下提供了三份预置配置：
 
 | 配置文件 | 模式 | 协调器 | 润色 | 最适合 |
 |---|---|---|---|---|
@@ -78,8 +78,8 @@ synthesizer:
 
 ```python
 import yaml
-from internagent.mas.agents.dr_agent import DRAgent
-from internagent.mas.models.unified_runtime import UnifiedModelRuntime
+from vegapunk.mas.agents.dr_agent import DRAgent
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
@@ -160,10 +160,10 @@ python launch_qa.py --question "What methodology does this paper use?" \
 直接调用 `DRAgent`（例如使用自定义配置）：
 
 ```python
-from internagent.mas.agents.dr_agent import DRAgent
+from vegapunk.mas.agents.dr_agent import DRAgent
 import asyncio
 import yaml
-from internagent.mas.models.unified_runtime import UnifiedModelRuntime
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from internagent.paper_orchestra.config import load_paper_config
+from vegapunk.paper_orchestra.config import load_paper_config
 
 
 class PaperConfigTest(unittest.TestCase):

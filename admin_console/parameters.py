@@ -243,7 +243,7 @@ class ExperimentConfig(_Section):
 
 
 class RunParameters(_Section):
-    """The full run parameter tree of the main InternAgent config file."""
+    """The full run parameter tree of the main Vegapunk config file."""
 
     version: str = Field("2.0.0", description="配置文件版本号")
     model_catalog_path: str = Field(

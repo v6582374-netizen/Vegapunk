@@ -1,6 +1,6 @@
 ## Memory Module
 
-The memory module is a new feature in InternAgent 1.5. It maintains a persistent record of past experiments across sessions — each completed idea is stored with its metrics and a label (positive / neutral / negative relative to baseline). During idea generation, the agent queries this history to avoid repeating approaches that have already failed and to build on directions that have worked.
+The memory module is a new feature in Vegapunk 1.5. It maintains a persistent record of past experiments across sessions — each completed idea is stored with its metrics and a label (positive / neutral / negative relative to baseline). During idea generation, the agent queries this history to avoid repeating approaches that have already failed and to build on directions that have worked.
 
 The module has two independent components:
 
@@ -96,7 +96,7 @@ The memory store is written to `memory_dir` (default: `./config/mem_store`) and 
 
 ### Long Memory (IdeaGraph and PromptEvolver)
 
-In addition to task memory and online memory, InternAgent 1.5 includes a long memory component that tracks the full history of ideas and automatically evolves the generation prompt over time.
+In addition to task memory and online memory, Vegapunk 1.5 includes a long memory component that tracks the full history of ideas and automatically evolves the generation prompt over time.
 
 It has two sub-components:
 
@@ -123,8 +123,8 @@ Long memory requires the same embedding model as task memory. If no embedding mo
 ## 📝 Citation
 
 ```bibtex
-@article{feng2026internagent,
-  title={InternAgent-1.5: A Unified Agentic Framework for Long-Horizon Autonomous Scientific Discovery},
+@article{feng2026vegapunk,
+  title={Vegapunk-1.5: A Unified Agentic Framework for Long-Horizon Autonomous Scientific Discovery},
   author={Shiyang Feng and Runmin Ma and Xiangchao Yan and Yue Fan and Yusong Hu and Songtao Huang and Shuaiyu Zhang and Zongsheng Cao and Tianshuo Peng and Jiakang Yuan and Zijie Guo and Zhijie Zhong and Shangheng Du and Weida Wang and Jinxin Shi and Yuhao Zhou and Xiaohan He and Zhiyin Yu and Fangchen Yu and Bihao Zhan and Qihao Zheng and Jiamin Wu and Mianxin Liu and Chi Zhang and Shaowei Hou and Shuya Li and Yankai Jiang and Wenjie Lou and Lilong Wang and Zifu Wang and Jiong Wang and Wanghan Xu and Yue Deng and Dongrui Liu and Yiheng Wang and Wenlong Zhang and Fenghua Ling and Shufei Zhang and Xiaosong Wang and Shuangjia Zheng and Xun Huang and Siqi Sun and Shuyue Hu and Peng Ye and Chunfeng Song and Bin Wang and Conghui He and Yihao Liu and Xin Li and Qibin Hou and Tao Chen and Xiangyu Yue and Bin Wang and Liang He and Dahua Lin and Bowen Zhou and Bo Zhang and Lei Bai},
   journal={arXiv preprint arXiv:2602.08990},
   year={2026}

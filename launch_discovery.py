@@ -1,5 +1,5 @@
 """
-Launch InternAgent 
+Launch Vegapunk
 """
 import os
 import os.path as osp
@@ -16,11 +16,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from typing import List, Dict, Any, Optional
-from internagent.mas.models.unified_runtime import create_model_runtime
+from vegapunk.mas.models.unified_runtime import create_model_runtime
 
 # Long memory imports (optional - only if long_memory is available)
 try:
-    from internagent.mas.memory.long_memory import MemoryModule, ExperienceGenerator
+    from vegapunk.mas.memory.long_memory import MemoryModule, ExperienceGenerator
     LONG_MEMORY_AVAILABLE = True
 except ImportError:
     LONG_MEMORY_AVAILABLE = False
@@ -50,7 +50,7 @@ def detect_task_type(task_dir: str) -> str:
 def normalize_sci_task(task_dir: str, output_path: str) -> dict:
     """
     Read task_info.json + checklist.json from a sci_task directory and produce
-    a synthetic prompt.json compatible with InternAgent's MAS pipeline.
+    a synthetic prompt.json compatible with Vegapunk's MAS pipeline.
 
     Args:
         task_dir: Path to the sci_task directory (e.g., tasks/sci_tasks/Chemistry_000)
@@ -267,7 +267,7 @@ def _generate_experiences_for_round(args, memory, session_id, logger) -> bool:
         return False
 
     try:
-        from internagent.mas.memory.long_memory import ExperienceGenerator
+        from vegapunk.mas.memory.long_memory import ExperienceGenerator
     except ImportError:
         logger.warning("Long memory not available, skipping experience generation")
         return False
@@ -326,7 +326,7 @@ def setup_logging():
     """Setup logging configuration"""
     log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)
-    log_file = osp.join(log_dir, f'{datetime.now().strftime("%Y%m%d_%H%M%S")}_internagent.log')
+    log_file = osp.join(log_dir, f'{datetime.now().strftime("%Y%m%d_%H%M%S")}_vegapunk.log')
     
     logging.basicConfig(
         level=logging.INFO,
@@ -337,7 +337,7 @@ def setup_logging():
         ]
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    return logging.getLogger("InternAgent")
+    return logging.getLogger("Vegapunk")
 
 
 def _run_paper_orchestra(
@@ -349,12 +349,12 @@ def _run_paper_orchestra(
 ) -> None:
     """Continue the launch into its automatic PaperOrchestra Run."""
 
-    from internagent.paper_orchestra import run_paper_orchestra
+    from vegapunk.paper_orchestra import run_paper_orchestra
 
     result = asyncio.run(
         run_paper_orchestra(
             launch_dir=launch_dir,
-            internagent_config=config,
+            vegapunk_config=config,
             paper_config_path=repository_root / "config" / "paper_orchestra.yaml",
         )
     )
@@ -394,7 +394,7 @@ def _handoff_to_paper_orchestra(
 # ============================================================================
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Integrated InternAgent Pipeline: Idea Generation + Experiment Execution"
+        description="Integrated Vegapunk Pipeline: Idea Generation + Experiment Execution"
     )
     
     # ========================================
@@ -625,7 +625,7 @@ def _main():
     if args.resume:
         snapshot_prompts = Path(args.resume) / "config_snapshot" / "prompts"
         if snapshot_prompts.is_dir():
-            from internagent.prompt_library import configure_prompt_root
+            from vegapunk.prompt_library import configure_prompt_root
 
             configure_prompt_root(snapshot_prompts)
             logger.info(f"Using Prompt Library snapshot at {snapshot_prompts}")
@@ -798,11 +798,11 @@ def _main():
 
     # Keep completed-launch PaperOrchestra resume independent from optional
     # Discovery-only dependencies such as the experiment toolchain.
-    from internagent.stage import IdeaGenerator, ExperimentRunner
+    from vegapunk.stage import IdeaGenerator, ExperimentRunner
     model_runtime = create_model_runtime(config)
 
     logger.info("=" * 80)
-    logger.info("InternAgent Pipeline Started" + (" (RESUMED)" if args.resume else ""))
+    logger.info("Vegapunk Pipeline Started" + (" (RESUMED)" if args.resume else ""))
     logger.info(f"Task: {args.task_name}")
     logger.info(f"Task Type: {args.task_type.upper()}")
     logger.info(f"Task Directory: {args.task_dir}")
@@ -954,7 +954,7 @@ def _main():
 
             # Clear memory cache after idea generation to free GPU memory
             try:
-                from internagent.mas.tools.memory_retrieval import clear_memory_cache
+                from vegapunk.mas.tools.memory_retrieval import clear_memory_cache
                 clear_memory_cache()
             except Exception as e:
                 logger.warning(f"Failed to clear memory cache: {e}")
@@ -968,7 +968,7 @@ def _main():
             logger.info(f"Reports will be saved to: {args.output_dir}")
             logger.info("=" * 80)
 
-            from internagent.stage import ReportWriter
+            from vegapunk.stage import ReportWriter
 
             report_writer = ReportWriter(args, logger, config)
 

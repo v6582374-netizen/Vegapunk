@@ -1,14 +1,14 @@
 ## Scientific Paper Reproduction Tasks
 
-InternAgent can take a published scientific paper, the data it used, and attempt to reproduce its key findings autonomously — writing the analysis code, running it, iterating on errors, and producing a written report. This is what a *sci_task* is.
+Vegapunk can take a published scientific paper, the data it used, and attempt to reproduce its key findings autonomously — writing the analysis code, running it, iterating on errors, and producing a written report. This is what a *sci_task* is.
 
-You do not need to know anything about AI or machine learning to run one. You provide the scientific materials; InternAgent does the coding and analysis.
+You do not need to know anything about AI or machine learning to run one. You provide the scientific materials; Vegapunk does the coding and analysis.
 
 ---
 
 ### What the agent does
 
-Given a task, InternAgent will:
+Given a task, Vegapunk will:
 
 1. Read the task description and understand what findings need to be reproduced
 2. Write analysis code from scratch, informed by the provided data and any related literature
@@ -134,9 +134,9 @@ bash scripts/run_sci.sh <your_task_name>
 ## 📝 Citation
 
 ```bibtex
-@article{team2025internagent,
-  title={InternAgent: When Agent Becomes the Scientist--Building Closed-Loop System from Hypothesis to Verification},
-  author={Team, InternAgent and Zhang, Bo and Feng, Shiyang and Yan, Xiangchao and Yuan, Jiakang and Ma, Runmin and Hu, Yusong and Yu, Zhiyin and He, Xiaohan and Huang, Songtao and others},
+@article{team2025vegapunk,
+  title={Vegapunk: When Agent Becomes the Scientist--Building Closed-Loop System from Hypothesis to Verification},
+  author={Team, Vegapunk and Zhang, Bo and Feng, Shiyang and Yan, Xiangchao and Yuan, Jiakang and Ma, Runmin and Hu, Yusong and Yu, Zhiyin and He, Xiaohan and Huang, Songtao and others},
   journal={arXiv e-prints},
   pages={arXiv--2505},
   year={2025}

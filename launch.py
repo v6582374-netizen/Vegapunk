@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""InternAgent — master launcher."""
+"""Vegapunk — master launcher."""
 
 import argparse
 import sys
@@ -14,7 +14,7 @@ load_dotenv(override=True)
 # 真正重的初始化会留给下游脚本，避免每次启动都加载全部依赖。
 def main():
     parser = argparse.ArgumentParser(
-        description='InternAgent',
+        description='Vegapunk',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "QA mode:        python launch.py --mode qa --question '...' [--output out.md]\n"

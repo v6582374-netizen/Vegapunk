@@ -1,4 +1,4 @@
-# Default configuration for InternAgent
+# Default configuration for Vegapunk
 # This file is loaded when no specific config path is provided
 
 version: "2.0.0"

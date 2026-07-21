@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-InternAgent currently has several overlapping model-resolution paths across discovery, Deep Research, Sci evaluator, memory, and PaperOrchestra.
+Vegapunk currently has several overlapping model-resolution paths across discovery, Deep Research, Sci evaluator, memory, and PaperOrchestra.
 
 Provider names, model names, protocol choices, credentials, retry behavior, concurrency limits, and capability assumptions are distributed across configuration files, factories, adapters, and caller-local branches.
 

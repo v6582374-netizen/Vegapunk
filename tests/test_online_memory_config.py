@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from typing import Any
 
-from internagent.mas.memory.online_memory import OnlineMemorySaver
+from vegapunk.mas.memory.online_memory import OnlineMemorySaver
 
 
 class _Embedding:

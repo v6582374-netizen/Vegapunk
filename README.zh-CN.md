@@ -1,28 +1,13 @@
-# InternAgent-1.5：面向长程自主科学发现的统一智能体框架
-> *跨越所有科学领域的自主发现*
-- **论文**：[InternAgent 1.0](https://arxiv.org/abs/2505.16938) | [InternAgent 1.5](https://huggingface.co/papers/2602.08990)
-- **链接**：[官网](https://discovery.intern-ai.org.cn) | [HuggingFace](https://huggingface.co/collections/InternScience/internagent)
+# Vegapunk：面向长程自主科学发现的统一智能体框架
+> *从科研问题、假设生成和实验验证，到可审查论文的端到端闭环系统*
 
+Vegapunk 是一个面向长程自主科学发现的多智能体框架。
+系统能够围绕一个研究任务完成背景调研、假设生成、反思与演化、方法设计、实验执行、结果评估和跨轮次记忆。
 
-## 🔥 最新动态
-- **2026.5.07**：🔥🔥 我们已开源 InternAgent-1.5，并提供多项高级功能，包括增强型算法发现任务、自主科学论文复现、记忆模块，以及用于应对复杂研究挑战的深度研究能力。
-
-- **2026.3.17**：🚀🚀 我们向公众开放了 InternAgent 深度研究能力的[访问入口](https://scphub.intern-ai.org.cn/detail/28)，帮助开发者和研究人员将其先进的深度研究功能无缝集成到自己的工作流中。
-
-- **2026.2.14**：❤️‍🔥❤️‍🔥 我们开源了 **[MLEvolve](https://github.com/InternScience/MLEvolve)**，它是 InternAgent 面向算法设计任务的方案优化子系统的核心实现。作为在 **MLEBench 上取得第一名**的**开源方法**，MLEvolve 展示了在有界假设空间中进行方案优化的强大能力。
-
-- **2026.2.10**：🔥 [InternAgent 1.5 技术报告](https://huggingface.co/papers/2602.08990)正式发布。InternAgent 1.5 在包括 **GAIA、HLE、GPQA 和 FrontierScience** 在内的科学推理基准上取得领先表现，并支持跨 **物理、生物、地球和生命科学领域**的端到端自主科学发现任务，可同时支持算法发现与实证发现（干实验/湿实验）。
-
-- **2025.10.13**：InternAgent-1.0 代码已完全开源，支持 12 项科学研究任务中的端到端自动化和自主进化。
-
-<details>
-<summary>更多...</summary>
-
-- **2025.07.17**：InternAgent 的源代码已部分开源。InternAgent 完整版本（覆盖 12 类自主科学研究任务）将很快开源。该代码仓库可用于从假设生成到自动化实验执行的全周期自主科学研究。
-
-- **2025.07.10**：*NovelSeek* 已更名为 **InternAgent**。这一更名体现了我们对自主科学研究框架的美好愿景，也希望它能帮助所有研究人员取得重要科学发现。
-
-</details>
+论文与历史来源：
+[InternAgent 1.0](https://arxiv.org/abs/2505.16938)、
+[InternAgent 1.5](https://huggingface.co/papers/2602.08990) 和
+[ResearchClawBench](https://github.com/InternScience/ResearchClawBench)。
 
 ---
 
@@ -31,8 +16,8 @@
 ### 安装
 
 ```bash
-conda create -n InternAgent python=3.11
-conda activate InternAgent
+conda create -n Vegapunk python=3.11
+conda activate Vegapunk
 pip install -r requirements.txt
 ```
 
@@ -88,7 +73,7 @@ python launch_paper.py \
 
 ### 运行 QA 查询
 
-QA 模式使用 InternAgent 的深度研究流水线直接回答研究问题，不运行实验循环，而是基于文献综合生成答案。
+QA 模式使用 Vegapunk 的深度研究流水线直接回答研究问题，不运行实验循环，而是基于文献综合生成答案。
 
 ```bash
 python launch_qa.py --question "What are recent advances in memory-augmented LLMs?"
@@ -116,7 +101,9 @@ python launch.py --mode qa --question "What are recent advances in memory-augmen
 
 **算法发现任务**位于 `tasks/` 下。每个任务都包含 `prompt.json`（任务描述）、基线 `code/` 和 `launcher.sh`。不同任务所需的数据集和环境相关设置各不相同，请参考各任务目录中的代码。
 
-**科学论文复现任务**（`sci_tasks`）是一种独立模式：InternAgent 会获得一篇已发表论文及其数据，并被要求自主复现关键发现。这些任务位于 `sci_tasks/tasks/` 下，来自 [ResearchClawBench](https://github.com/InternScience/ResearchClawBench) 基准。完整指南见 [docs/sci_tasks.md](docs/sci_tasks.md)。
+**科学论文复现任务**（`sci_tasks`）是一种独立模式：Vegapunk 会获得一篇已发表论文及其数据，并被要求自主复现关键发现。
+这些任务位于 `sci_tasks/tasks/` 下，来自 [ResearchClawBench](https://github.com/InternScience/ResearchClawBench) 基准。
+完整指南见 [docs/sci_tasks.md](docs/sci_tasks.md)。
 
 ### 快速启动脚本
 
@@ -135,7 +122,8 @@ python launch.py --mode qa --question "What are recent advances in memory-augmen
 
 ### 记忆模块
 
-InternAgent 1.5 包含一个持久化记忆模块，可跨会话记录实验结果，帮助智能体避开此前失败的方向，并在成功经验基础上继续推进。配置和设置见 [docs/memory_module.md](docs/memory_module.md)。
+Vegapunk 包含一个持久化记忆模块，可跨会话记录实验结果，帮助智能体避开此前失败的方向，并在成功经验基础上继续推进。
+配置和设置见 [docs/memory_module.md](docs/memory_module.md)。
 
 ### 深度研究
 

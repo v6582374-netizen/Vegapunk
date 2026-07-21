@@ -21,7 +21,7 @@ import time
 import os
 import base64
 
-from utils.internagent_adapter import (
+from utils.vegapunk_adapter import (
     call_responses_with_contents,
     generate_image_base64,
 )

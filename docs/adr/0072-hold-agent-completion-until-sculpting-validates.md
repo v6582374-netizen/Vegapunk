@@ -8,7 +8,7 @@ Every Agent Task Completion enters a synchronous Sculptor Completion Barrier. Th
 
 The barrier serializes only top-level Sculptor Invocations and canonical manuscript mutations. Other Agents whose tasks are still executing may continue research concurrently; when they complete, they wait at their own barriers without discarding their source contexts. Each Sculptor therefore reads the latest validated manuscript state and cannot race another Sculptor, overwrite concurrent editorial changes, or require a later reconciliation pass. Internal Multi-Agent work used by one invocation remains inside that barrier under ADR-0074.
 
-This synchronous design deliberately accepts additional task-completion latency. InternAgent will not let source tasks return immediately and place summaries, paths, context snapshots, or writing jobs into an asynchronous queue, because doing so would reintroduce an intermediate representation, crash-recovery protocol, ordering policy, and final queue-drain phase between research and writing.
+This synchronous design deliberately accepts additional task-completion latency. Vegapunk will not let source tasks return immediately and place summaries, paths, context snapshots, or writing jobs into an asynchronous queue, because doing so would reintroduce an intermediate representation, crash-recovery protocol, ordering policy, and final queue-drain phase between research and writing.
 
 **Considered Options**
 

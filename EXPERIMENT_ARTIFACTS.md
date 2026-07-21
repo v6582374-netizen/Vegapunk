@@ -1,6 +1,6 @@
-# InternAgent 当前实验自然产物说明
+# Vegapunk 当前实验自然产物说明
 
-本文档说明 InternAgent 在现有 discovery / experiment 流程中自然产生的文件和目录。这里的“自然产物”指当前代码已经稳定或半稳定留下的执行痕迹，不包括未来要新增的论文生成 pipeline。
+本文档说明 Vegapunk 在现有 discovery / experiment 流程中自然产生的文件和目录。这里的“自然产物”指当前代码已经稳定或半稳定留下的执行痕迹，不包括未来要新增的论文生成 pipeline。
 
 ## 1. 总体输出结构
 

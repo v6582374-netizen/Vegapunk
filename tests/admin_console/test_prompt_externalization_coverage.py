@@ -1,6 +1,6 @@
 """Systematic check that instructional prompts live in the Prompt Library.
 
-Module-level prompt-like string constants under ``internagent/`` and selected
+Module-level prompt-like string constants under ``vegapunk/`` and selected
 ``third_party/paper_orchestra`` prompt modules must either resolve through the
 catalog or appear in ``config/prompts/exemptions.yaml`` with a reason.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from internagent.prompt_library import DEFAULT_LIBRARY_ROOT, prompts
+from vegapunk.prompt_library import DEFAULT_LIBRARY_ROOT, prompts
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -73,7 +73,7 @@ class PromptExternalizationCoverageTest(unittest.TestCase):
         patterns = [item["pattern"] for item in exemptions["exemptions"]]
 
         scan_roots = [
-            REPOSITORY_ROOT / "internagent",
+            REPOSITORY_ROOT / "vegapunk",
             REPOSITORY_ROOT / "third_party" / "paper_orchestra" / "autoraters",
             REPOSITORY_ROOT / "third_party" / "paper_orchestra" / "utils" / "prompt_utils.py",
         ]
@@ -98,7 +98,7 @@ class PromptExternalizationCoverageTest(unittest.TestCase):
         )
 
     def test_deep_research_facade_loads_from_library(self) -> None:
-        from internagent.mas.agents.dr_agents.prompts import default_prompts
+        from vegapunk.mas.agents.dr_agents.prompts import default_prompts
 
         text = default_prompts.GLOBAL_PLANNER_PROMPT
         self.assertEqual(text, prompts.get("deep_research.global_planner"))

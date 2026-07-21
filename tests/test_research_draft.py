@@ -11,7 +11,7 @@ from pathlib import Path
 from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
 
-from internagent.research_draft import (
+from vegapunk.research_draft import (
     ResearchDraft,
     attach_research_draft_hook,
     attach_sync_research_draft_hook,
@@ -19,9 +19,9 @@ from internagent.research_draft import (
     start_research_draft_capture,
     stop_research_draft_capture,
 )
-from internagent.mas.models.base_model import BaseModel
-from internagent.mas.models.runtime import ModelRunRequest, ModelRunResult, OutputText
-from internagent.experiments_utils_claude import ClaudeCodeRunner
+from vegapunk.mas.models.base_model import BaseModel
+from vegapunk.mas.models.runtime import ModelRunRequest, ModelRunResult, OutputText
+from vegapunk.experiments_utils_claude import ClaudeCodeRunner
 
 
 class ResearchDraftTest(unittest.TestCase):
@@ -212,7 +212,7 @@ class ClaudeCodeDraftCaptureTest(unittest.TestCase):
             )
 
             with draft.activate(), patch(
-                "internagent.experiments_utils_claude.subprocess.run",
+                "vegapunk.experiments_utils_claude.subprocess.run",
                 return_value=completed,
             ) as run_command:
                 output = ClaudeCodeRunner(model="claude-test").run(
@@ -239,7 +239,7 @@ class ClaudeCodeDraftCaptureTest(unittest.TestCase):
         )
 
         with patch(
-            "internagent.experiments_utils_claude.subprocess.run",
+            "vegapunk.experiments_utils_claude.subprocess.run",
             return_value=completed,
         ):
             with self.assertRaises(CalledProcessError) as raised:

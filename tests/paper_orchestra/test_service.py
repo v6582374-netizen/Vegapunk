@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from internagent.paper_orchestra import run_paper_orchestra
+from vegapunk.paper_orchestra import run_paper_orchestra
 from tests.paper_orchestra.test_vendored_service import (
     _write_config,
     _write_fake_vendor,
@@ -74,7 +74,7 @@ class PaperOrchestraServiceTest(unittest.TestCase):
             config_path = _write_config(root, vendor_root)
 
             with patch(
-                "internagent.paper_orchestra.service.select_candidate",
+                "vegapunk.paper_orchestra.service.select_candidate",
                 side_effect=RuntimeError("selection backend unavailable"),
             ):
                 result = _run(launch_dir, config_path)
@@ -88,12 +88,12 @@ def _run(launch_dir: Path, config_path: Path):
         os.environ,
         {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
     ), patch(
-        "internagent.paper_orchestra.service.generate_chinese_companion"
+        "vegapunk.paper_orchestra.service.generate_chinese_companion"
     ):
         return asyncio.run(
             run_paper_orchestra(
                 launch_dir=launch_dir,
-                internagent_config={
+                vegapunk_config={
                     "models": {
                         "openai": {
                             "base_url": "https://relay.example/v1",

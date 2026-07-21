@@ -6,14 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from internagent.mas.models.base_model import ServiceUnavailableError
-from internagent.mas.models.runtime import (
+from vegapunk.mas.models.base_model import ServiceUnavailableError
+from vegapunk.mas.models.runtime import (
     Message,
     ModelRunRequest,
     ModelRunResult,
     OutputText,
 )
-from internagent.mas.models.unified_runtime import (
+from vegapunk.mas.models.unified_runtime import (
     ModelCatalog,
     UnifiedModelRuntime,
 )

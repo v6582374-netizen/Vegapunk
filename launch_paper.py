@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-from internagent.paper_orchestra import run_paper_orchestra
+from vegapunk.paper_orchestra import run_paper_orchestra
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -27,7 +27,7 @@ def parse_arguments() -> argparse.Namespace:
         "--config",
         type=Path,
         default=Path("config/default_config.yaml"),
-        help="InternAgent configuration containing the relay provider.",
+        help="Vegapunk configuration containing the relay provider.",
     )
     parser.add_argument(
         "--paper-config",
@@ -55,7 +55,7 @@ def main() -> int:
     result = asyncio.run(
         run_paper_orchestra(
             launch_dir=args.launch_dir,
-            internagent_config=load_config(args.config),
+            vegapunk_config=load_config(args.config),
             paper_config_path=args.paper_config,
         )
     )

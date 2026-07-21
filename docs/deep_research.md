@@ -1,6 +1,6 @@
 ## Deep Research
 
-FlowSearch: The Deep Research (DR) module is InternAgent's built-in literature and web research pipeline. Given a question or research topic, it decomposes the task into subtasks, gathers information in parallel from academic databases and the web, and synthesizes the findings into a structured answer or report. It is the backbone of QA mode and is also used during idea generation in discovery runs to ground hypotheses in existing literature.
+FlowSearch: The Deep Research (DR) module is Vegapunk's built-in literature and web research pipeline. Given a question or research topic, it decomposes the task into subtasks, gathers information in parallel from academic databases and the web, and synthesizes the findings into a structured answer or report. It is the backbone of QA mode and is also used during idea generation in discovery runs to ground hypotheses in existing literature.
 
 **When is it useful?**
 
@@ -44,7 +44,7 @@ Provider-side background execution is disabled.
 
 ### Configuration
 
-Three pre-built configs are provided under `internagent/mas/agents/dr_agents/`:
+Three pre-built configs are provided under `vegapunk/mas/agents/dr_agents/`:
 
 | Config file | Mode | Coordinator | Polish | Best for |
 |---|---|---|---|---|
@@ -78,8 +78,8 @@ To override a DR workflow setting programmatically, keep the shared project conf
 
 ```python
 import yaml
-from internagent.mas.agents.dr_agent import DRAgent
-from internagent.mas.models.unified_runtime import UnifiedModelRuntime
+from vegapunk.mas.agents.dr_agent import DRAgent
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)
@@ -160,10 +160,10 @@ python launch_qa.py --question "What methodology does this paper use?" \
 To invoke `DRAgent` directly (e.g. with a custom config):
 
 ```python
-from internagent.mas.agents.dr_agent import DRAgent
+from vegapunk.mas.agents.dr_agent import DRAgent
 import asyncio
 import yaml
-from internagent.mas.models.unified_runtime import UnifiedModelRuntime
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 with open("config/default_config.yaml", encoding="utf-8") as file:
     project_config = yaml.safe_load(file)

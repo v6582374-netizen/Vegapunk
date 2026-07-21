@@ -12,7 +12,7 @@ This supersedes ADR-0061's path-first input contract while preserving its single
 
 ADR-0073 makes this fork a mandatory Agent-runtime capability rather than a best-effort optimization with a path-only fallback.
 
-For a Claude Code source task, the complete core handoff is a native fork of the source session identified by its session ID, followed by injection of the dedicated Manuscript Sculptor Prompt and the canonical TeX absolute path. InternAgent awaits that top-level invocation and validates its file result; validation diagnostics resume the same Sculptor under ADR-0063. No additional handoff schema, summary, queue, edit mode, permission layer, or project-managed Multi-Agent protocol sits between the two sessions.
+For a Claude Code source task, the complete core handoff is a native fork of the source session identified by its session ID, followed by injection of the dedicated Manuscript Sculptor Prompt and the canonical TeX absolute path. Vegapunk awaits that top-level invocation and validates its file result; validation diagnostics resume the same Sculptor under ADR-0063. No additional handoff schema, summary, queue, edit mode, permission layer, or project-managed Multi-Agent protocol sits between the two sessions.
 
 ADR-0076 defines the sole non-fork exception: Terminal Candidate Selection is an authoritative system decision that may have no source Agent session, so its exact in-memory result directly triggers the final Sculptor Invocation.
 

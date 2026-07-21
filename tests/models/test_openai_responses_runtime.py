@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from internagent.mas.models.openai_model import OpenAIModel
-from internagent.mas.models.runtime import (
+from vegapunk.mas.models.openai_model import OpenAIModel
+from vegapunk.mas.models.runtime import (
     FunctionCallOutput,
     FunctionTool,
     Message,
@@ -190,7 +190,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
             ),
             response_format="json_object",
             previous_response_id="resp_previous",
-            prompt_cache_key="internagent:generation:prompt-v1",
+            prompt_cache_key="vegapunk:generation:prompt-v1",
             reasoning=ReasoningConfig(mode="pro"),
         )
 
@@ -210,7 +210,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
             sent["prompt_cache_options"], {"mode": "explicit", "ttl": "30m"}
         )
         self.assertEqual(
-            sent["prompt_cache_key"], "internagent:generation:prompt-v1"
+            sent["prompt_cache_key"], "vegapunk:generation:prompt-v1"
         )
         self.assertEqual(sent["text"], {"format": {"type": "json_object"}})
         self.assertEqual(

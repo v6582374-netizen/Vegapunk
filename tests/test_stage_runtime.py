@@ -7,7 +7,7 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from internagent.stage import ExperimentRunner, IdeaGenerator
+from vegapunk.stage import ExperimentRunner, IdeaGenerator
 
 
 class ExperimentRunnerRuntimeTest(unittest.TestCase):
@@ -43,7 +43,7 @@ class ExperimentRunnerRuntimeTest(unittest.TestCase):
             )
 
             with patch(
-                "internagent.stage.perform_experiments_claudecode",
+                "vegapunk.stage.perform_experiments_claudecode",
                 return_value=False,
             ) as perform_experiments:
                 success, _ = runner.run_claude_experiment(
@@ -71,8 +71,8 @@ class IdeaGeneratorRuntimeTest(unittest.TestCase):
             task_name="AutoClsSST",
         )
 
-        with patch("internagent.stage.LONG_MEMORY_AVAILABLE", False), patch(
-            "internagent.stage.InternAgentInterface"
+        with patch("vegapunk.stage.LONG_MEMORY_AVAILABLE", False), patch(
+            "vegapunk.stage.VegapunkInterface"
         ) as interface:
             IdeaGenerator(
                 args,

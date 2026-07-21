@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from internagent.mas.agents.dr_agents.models import get_model
-from internagent.mas.models.runtime import Message, ModelRunRequest, ModelRunResult, OutputText
+from vegapunk.mas.agents.dr_agents.models import get_model
+from vegapunk.mas.models.runtime import Message, ModelRunRequest, ModelRunResult, OutputText
 
 
 class _Catalog:

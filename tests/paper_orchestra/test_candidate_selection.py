@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from internagent.paper_orchestra.candidate_selection import select_candidate
-from internagent.paper_orchestra.data_types import PaperOrchestraStageError
+from vegapunk.paper_orchestra.candidate_selection import select_candidate
+from vegapunk.paper_orchestra.data_types import PaperOrchestraStageError
 
 
 class CandidateSelectionTest(unittest.TestCase):
@@ -778,7 +778,7 @@ class CandidateSelectionTest(unittest.TestCase):
 
             self.assertEqual(raised.exception.code, "invalid_candidate_selection")
 
-    def test_resolves_internagent_repo_relative_candidate_folder(self) -> None:
+    def test_resolves_vegapunk_repo_relative_candidate_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             launch_dir = Path(temporary_directory) / "launch"
             (launch_dir / "session_1" / "candidate-a").mkdir(parents=True)

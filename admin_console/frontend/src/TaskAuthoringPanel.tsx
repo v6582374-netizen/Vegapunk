@@ -81,7 +81,7 @@ export default function TaskAuthoringPanel() {
   };
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {error !== null && <Alert type="error" message={error} />}
 
       <Card title="Task Authoring Form（表单直填，无 LLM 辅助）">

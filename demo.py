@@ -6,10 +6,10 @@ import logging
 from typing import Dict, Any, List
 from dotenv import load_dotenv
 
-from internagent.mas.agents.base_agent import BaseAgent
-from internagent.mas.models.base_model import BaseModel
-from internagent.mas.models.openai_model import OpenAIModel
-from internagent.mas.tools import get_registry
+from vegapunk.mas.agents.base_agent import BaseAgent
+from vegapunk.mas.models.base_model import BaseModel
+from vegapunk.mas.models.openai_model import OpenAIModel
+from vegapunk.mas.tools import get_registry
 
 
 load_dotenv()

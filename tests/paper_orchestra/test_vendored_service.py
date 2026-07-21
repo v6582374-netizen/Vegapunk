@@ -11,7 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from internagent.paper_orchestra import run_paper_orchestra
+from vegapunk.paper_orchestra import run_paper_orchestra
 
 
 class VendoredPaperOrchestraServiceTest(unittest.TestCase):
@@ -46,7 +46,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                     },
                 ),
                 mock.patch(
-                    "internagent.paper_orchestra.service."
+                    "vegapunk.paper_orchestra.service."
                     "generate_chinese_companion",
                     side_effect=generate_chinese_companion,
                 ),
@@ -56,7 +56,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 result = asyncio.run(
                     run_paper_orchestra(
                         launch_dir=launch_dir,
-                        internagent_config={},
+                        vegapunk_config={},
                         paper_config_path=config_path,
                     )
                 )
@@ -125,7 +125,7 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
             self.assertEqual(observation["argv"][plotting_index + 1], "true")
 
             runtime_config = json.loads(
-                (result.run_dir / "internagent_runtime.json").read_text(
+                (result.run_dir / "vegapunk_runtime.json").read_text(
                     encoding="utf-8"
                 )
             )
@@ -155,14 +155,14 @@ class VendoredPaperOrchestraServiceTest(unittest.TestCase):
                 os.environ,
                 {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
             ), mock.patch(
-                "internagent.paper_orchestra.service."
+                "vegapunk.paper_orchestra.service."
                 "generate_chinese_companion",
                 side_effect=RuntimeError("translation unavailable"),
             ):
                 result = asyncio.run(
                     run_paper_orchestra(
                         launch_dir=launch_dir,
-                        internagent_config={},
+                        vegapunk_config={},
                         paper_config_path=config_path,
                     )
                 )

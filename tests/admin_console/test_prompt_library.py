@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from admin_console.app import REPOSITORY_ROOT, create_app
-from internagent.prompt_library import (
+from vegapunk.prompt_library import (
     DEFAULT_LIBRARY_ROOT,
     PromptLibrary,
     configure_prompt_root,
@@ -24,7 +24,7 @@ FAKE_RUNNER_COMMAND = [sys.executable, str(FAKE_RUNNER), "{task_dir}", "{launch_
 class PromptLibraryUnitTest(unittest.TestCase):
     def test_experiment_prompt_matches_library_file(self) -> None:
         configure_prompt_root(DEFAULT_LIBRARY_ROOT)
-        from internagent import prompts as legacy
+        from vegapunk import prompts as legacy
 
         self.assertEqual(
             legacy.CODER_PROMPT_OPENHANDS,
@@ -33,7 +33,7 @@ class PromptLibraryUnitTest(unittest.TestCase):
 
     def test_generation_system_prompt_reads_from_library(self) -> None:
         configure_prompt_root(DEFAULT_LIBRARY_ROOT)
-        from internagent.mas.agents.generation_agent import GenerationAgent
+        from vegapunk.mas.agents.generation_agent import GenerationAgent
 
         agent = GenerationAgent.__new__(GenerationAgent)
         text = GenerationAgent._build_system_prompt(agent, creativity=0.9)

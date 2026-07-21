@@ -120,7 +120,7 @@ export default function QueuePanel() {
   ];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: "100%" }}>
+    <Space orientation="vertical" size="large" style={{ width: "100%" }}>
       {error !== null && <Alert type="error" message={error} />}
 
       <Card title="提交 Discovery Launch">

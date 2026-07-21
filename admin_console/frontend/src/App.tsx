@@ -12,7 +12,7 @@ export default function App() {
     <Layout style={{ minHeight: "100vh" }}>
       <Layout.Header>
         <Typography.Title level={4} style={{ color: "white", margin: 0, lineHeight: "64px" }}>
-          InternAgent Admin Console
+          Vegapunk Admin Console
         </Typography.Title>
       </Layout.Header>
       <Layout.Content style={{ padding: 24 }}>

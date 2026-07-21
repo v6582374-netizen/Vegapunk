@@ -6,11 +6,11 @@ import sys
 from typing import List, Dict, Any, Union
 from dotenv import load_dotenv
 
-from internagent.mas.agents.base_agent import BaseAgent
-from internagent.mas.models.base_model import BaseModel
-from internagent.mas.models.openai_model import OpenAIModel
-from internagent.mas.tools import get_registry, init_mcp_tools, cleanup_mcp, init_tools
-from internagent.mas.tools.utils import get_related_tools
+from vegapunk.mas.agents.base_agent import BaseAgent
+from vegapunk.mas.models.base_model import BaseModel
+from vegapunk.mas.models.openai_model import OpenAIModel
+from vegapunk.mas.tools import get_registry, init_mcp_tools, cleanup_mcp, init_tools
+from vegapunk.mas.tools.utils import get_related_tools
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity

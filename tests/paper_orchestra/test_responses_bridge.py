@@ -4,8 +4,8 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from internagent.mas.models.runtime import ImageContent, ModelRunResult, OutputText, TextContent
-from internagent.paper_orchestra.responses_runtime import PaperOrchestraResponsesRuntime
+from vegapunk.mas.models.runtime import ImageContent, ModelRunResult, OutputText, TextContent
+from vegapunk.paper_orchestra.responses_runtime import PaperOrchestraResponsesRuntime
 
 
 class _Catalog:

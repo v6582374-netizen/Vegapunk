@@ -1,1 +1,1 @@
-"""Admin Console: developer-facing web console for InternAgent (ADR-0156)."""
+"""Admin Console: developer-facing web console for Vegapunk (ADR-0156)."""

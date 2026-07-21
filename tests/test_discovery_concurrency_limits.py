@@ -37,10 +37,10 @@ def _module_assignments(path: Path) -> dict[str, object]:
 class DiscoveryConcurrencyLimitTest(unittest.TestCase):
     def test_llm_and_search_limits_are_distinct(self) -> None:
         orchestration = _module_assignments(
-            REPOSITORY_ROOT / "internagent/mas/workflow/orchestration_agent.py"
+            REPOSITORY_ROOT / "vegapunk/mas/workflow/orchestration_agent.py"
         )
         survey = _module_assignments(
-            REPOSITORY_ROOT / "internagent/mas/agents/survey_agent.py"
+            REPOSITORY_ROOT / "vegapunk/mas/agents/survey_agent.py"
         )
 
         self.assertEqual(orchestration["MAX_CONCURRENT_LLM_TASKS"], 2)

@@ -56,9 +56,20 @@ class StopAndResumeTest(unittest.TestCase):
     def _submit_running(self) -> dict:
         entry = self.client.post("/api/queue", json={"task": "AutoDemo"}).json()
         running = self._wait(entry["queue_id"], "running")
-        # Give the runner a moment to install its signal handler.
-        time.sleep(0.3)
-        return running
+        launch_dir = self.results_root / running["launch_id"]
+        log_path = launch_dir / "console.log"
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            entries = self.client.get("/api/queue").json()["entries"]
+            running = next(item for item in entries if item["queue_id"] == entry["queue_id"])
+            if (
+                running["pid"] is not None
+                and log_path.is_file()
+                and "fake runner started" in log_path.read_text()
+            ):
+                return running
+            time.sleep(0.05)
+        raise AssertionError(f"runner {entry['queue_id']} did not become signal-ready")
 
     def test_graceful_stop_checkpoints_and_marks_aborted(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "30"}):

@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-import internagent
+import vegapunk
 
-from internagent.mas.models.runtime import ImageContent, ModelRunResult, OutputText
-from internagent.sci_eval import RuntimeScoringAgent
+from vegapunk.mas.models.runtime import ImageContent, ModelRunResult, OutputText
+from vegapunk.sci_eval import RuntimeScoringAgent
 
 
 class _Model:
@@ -80,7 +80,7 @@ class RuntimeScoringAgentTest(unittest.TestCase):
             RuntimeScoringAgent(runtime=_Runtime(), model_name="qwen3.7-max")
 
     def test_rcb_evaluation_is_a_cross_platform_package_bridge(self) -> None:
-        package_path = Path(internagent.__file__).parent / "rcb_evaluation"
+        package_path = Path(vegapunk.__file__).parent / "rcb_evaluation"
         self.assertTrue(package_path.is_dir())
         self.assertFalse(package_path.is_symlink())
 

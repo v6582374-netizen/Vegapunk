@@ -11,7 +11,7 @@ Disk-backed registry of editable prompts (ADR-0156 / ADR-0157).
 
 1. Write the text file under the right stage directory.
 2. Append an entry to `catalog.yaml`.
-3. Read it with `from internagent.prompt_library import prompts` then
+3. Read it with `from vegapunk.prompt_library import prompts` then
    `prompts.get("your.id")` or `prompts.render("your.id", key=value)`.
 4. Prefer call-time `get`/`render` over import-time string constants so a
    Launch Configuration Snapshot can override the root.

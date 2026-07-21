@@ -11,4 +11,4 @@ An intentionally fresh paper-generation attempt must use a different explicit Do
 **Considered Options**
 
 - Generate a new timestamp ID on every automatic invocation. Rejected because resuming the same Discovery Launch could create multiple abandoned writing attempts instead of continuing the interrupted one.
-- Store the generated ID in existing InternAgent state. Rejected because a stable launch-local ID removes that additional integration change.
+- Store the generated ID in existing Vegapunk state. Rejected because a stable launch-local ID removes that additional integration change.

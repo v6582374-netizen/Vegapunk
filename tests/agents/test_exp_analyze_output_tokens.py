@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from internagent.mas.agents.exp_analyze_agent import ExpAnalyzeAgent
+from vegapunk.mas.agents.exp_analyze_agent import ExpAnalyzeAgent
 
 
 class _RecordingModel:

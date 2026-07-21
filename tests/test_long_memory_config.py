@@ -12,7 +12,7 @@ import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 LONG_MEMORY_PATH = (
-    REPOSITORY_ROOT / "internagent" / "mas" / "memory" / "long_memory.py"
+    REPOSITORY_ROOT / "vegapunk" / "mas" / "memory" / "long_memory.py"
 )
 
 
@@ -33,7 +33,7 @@ def _load_long_memory_module() -> types.ModuleType:
         embedding_functions=types.SimpleNamespace(OpenAIEmbeddingFunction=object),
     )
     agent_factory = _stub_module(
-        "internagent.mas.agents.agent_factory", AgentFactory=object
+        "vegapunk.mas.agents.agent_factory", AgentFactory=object
     )
 
     module_name = "_long_memory_config_test"
@@ -47,7 +47,7 @@ def _load_long_memory_module() -> types.ModuleType:
         "chromadb": chromadb,
         "chromadb.config": chromadb_config,
         "chromadb.utils": chromadb_utils,
-        "internagent.mas.agents.agent_factory": agent_factory,
+        "vegapunk.mas.agents.agent_factory": agent_factory,
         module_name: module,
     }
     with patch.dict(sys.modules, stubs):

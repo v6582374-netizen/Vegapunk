@@ -1,4 +1,4 @@
-# InternAgent 项目流程架构
+# Vegapunk 项目流程架构
 
 本文档基于当前代码图谱和源码实现整理，重点覆盖启动入口、发现实验主循环、多智能体编排、深度研究 QA、模型/工具/记忆、实验执行、MCTS 和任务目录结构。
 
@@ -17,8 +17,8 @@ flowchart TB
         Prompt["tasks/*/prompt.json 或 sci_task 归一化 prompt.json"]
     end
 
-    subgraph MAS["InternAgent MAS 核心"]
-        Interface["InternAgentInterface<br/>系统生命周期与会话接口"]
+    subgraph MAS["Vegapunk MAS 核心"]
+        Interface["VegapunkInterface<br/>系统生命周期与会话接口"]
         AgentFactory["AgentFactory<br/>创建并缓存业务 agent"]
         ModelRuntime["UnifiedModelRuntime<br/>解析 Catalog 并执行请求"]
         Orchestrator["OrchestrationAgent<br/>WorkflowSession 状态机"]
@@ -40,7 +40,7 @@ flowchart TB
 
     subgraph Infra["模型、工具与记忆基础设施"]
         Models["BaseModel / Runtime-bound model / embedding binding"]
-        Tools["internagent.mas.tools<br/>literature_search / web_search / memory_retrieval / MCP"]
+        Tools["vegapunk.mas.tools<br/>literature_search / web_search / memory_retrieval / MCP"]
         Memory["memory<br/>MemoryManager / TaskMemoryLayer / OnlineMemorySaver / MemoryModule / IdeaGraph"]
     end
 
@@ -389,8 +389,8 @@ flowchart LR
 | 统一入口 | `launch.py::main` | 解析 `--mode`，把参数转交 `launch_qa.py` 或 `launch_discovery.py`。 |
 | QA 入口 | `launch_qa.py::main` | 构造 `DRAgent`，执行 `agent.execute({'task', 'file_path'})`，打印或写出答案。 |
 | 发现入口 | `launch_discovery.py::main` | 处理 resume、任务识别、配置、长记忆、多轮 discovery、实验/报告、incremental baseline、最终 summary。 |
-| Idea 生成阶段 | `stage.py::IdeaGenerator.generate_ideas` | 启动 `InternAgentInterface` 会话，循环驱动状态机，处理 feedback，获取 top ideas，保存轨迹和可视化。 |
-| MAS 接口 | `InternAgentInterface` | 加载配置、初始化模型工厂/记忆/agent/编排器、启动本地和 MCP 工具、提供 session API。 |
+| Idea 生成阶段 | `stage.py::IdeaGenerator.generate_ideas` | 启动 `VegapunkInterface` 会话，循环驱动状态机，处理 feedback，获取 top ideas，保存轨迹和可视化。 |
+| MAS 接口 | `VegapunkInterface` | 加载配置、初始化模型工厂/记忆/agent/编排器、启动本地和 MCP 工具、提供 session API。 |
 | 会话状态机 | `OrchestrationAgent` | 将 `WorkflowSession.state` 分发到生成、反思、证据、进化、排名、方法开发、精炼等阶段。 |
 | 数据结构 | `WorkflowState`, `Task`, `Idea`, `WorkflowSession` | 保存任务、idea、证据、批评、分数、方法详情、top ideas、会话状态和迭代信息。 |
 | Agent 工厂 | `AgentFactory` | 注册 11 类业务 agent，使用注入的 `UnifiedModelRuntime` 创建并缓存实例。 |
@@ -423,7 +423,7 @@ flowchart LR
 
 ## 关键运行路径
 
-1. 发现实验：`launch.py --mode discovery` -> `launch_discovery.main()` -> `IdeaGenerator.generate_ideas()` -> `InternAgentInterface` -> `OrchestrationAgent` -> top ideas -> `ExperimentRunner.run_experiments()` -> `tasks/*/code` -> `final_info.json` -> `OnlineMemorySaver` -> `discovery_summary.json`。
+1. 发现实验：`launch.py --mode discovery` -> `launch_discovery.main()` -> `IdeaGenerator.generate_ideas()` -> `VegapunkInterface` -> `OrchestrationAgent` -> top ideas -> `ExperimentRunner.run_experiments()` -> `tasks/*/code` -> `final_info.json` -> `OnlineMemorySaver` -> `discovery_summary.json`。
 2. QA：`launch.py --mode qa` 或 `launch_qa.py` -> `DRAgent.execute()` -> `Workflow.execute()` -> `GlobalPlannerAgent` -> `GlobalExecutionAgent` -> `TaskWorkflow`/`ExecutionAgent` -> `SynthesizerAgent` -> answer。
 3. 增量多轮：每轮实验结束后，`_find_best_experiment_result()` 选择最优代码路径；下一轮在 `loop_mode=incremental` 时用该路径作为 baseline。
 4. 记忆闭环：实验结果进入 `TaskMemoryLayer`；下一轮 `GenerationAgent` 和 `EvolutionAgent` 通过 memory guidance/failed-similarity filtering 避开失败方向并复用成功模式。

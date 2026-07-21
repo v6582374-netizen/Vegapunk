@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import fitz
 
-from internagent.mas.models.runtime import ImageContent, TextContent
+from vegapunk.mas.models.runtime import ImageContent, TextContent
 
 
 VENDOR_ROOT = Path(__file__).resolve().parents[2] / "third_party/paper_orchestra"
@@ -16,7 +16,7 @@ if str(VENDOR_ROOT) not in sys.path:
 
 from utils import genai_types as types  # noqa: E402
 from utils.gemini_utils import call_gemini_with_contents  # noqa: E402
-from utils.internagent_adapter import call_responses_with_contents  # noqa: E402
+from utils.vegapunk_adapter import call_responses_with_contents  # noqa: E402
 
 
 class VendoredModelHelperTest(unittest.TestCase):
@@ -42,7 +42,7 @@ class VendoredModelHelperTest(unittest.TestCase):
         image_bytes = b"not-decoded-by-the-adapter"
 
         with patch(
-            "utils.internagent_adapter.generate_text_from_environment",
+            "utils.vegapunk_adapter.generate_text_from_environment",
             return_value="ok",
         ) as generate:
             response = call_responses_with_contents(

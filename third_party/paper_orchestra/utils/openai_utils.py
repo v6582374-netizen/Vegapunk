@@ -18,7 +18,7 @@ import json
 import os
 import base64
 
-from utils.internagent_adapter import call_responses_with_contents
+from utils.vegapunk_adapter import call_responses_with_contents
 
 
 def parse_openai_json_results(response: str):

@@ -4,7 +4,7 @@ status: superseded by ADR-0098
 
 # Render the Selected Candidate Idea as PaperOrchestra idea.md
 
-PaperOrchestra's `idea.md` will be a deterministic Markdown rendering of the complete InternAgent Idea record belonging to the Selected Research Candidate. The renderer may arrange explicit fields under stable headings but may not call a model, summarize, supplement, or infer missing content. The method presented to PaperOrchestra must follow the same precedence as InternAgent's experiment executor: non-empty `refined_method_details`, then `method_details`, then the supported flat idea fields, so the narrative describes the method that was actually handed to the experiment backend.
+PaperOrchestra's `idea.md` will be a deterministic Markdown rendering of the complete Vegapunk Idea record belonging to the Selected Research Candidate. The renderer may arrange explicit fields under stable headings but may not call a model, summarize, supplement, or infer missing content. The method presented to PaperOrchestra must follow the same precedence as Vegapunk's experiment executor: non-empty `refined_method_details`, then `method_details`, then the supported flat idea fields, so the narrative describes the method that was actually handed to the experiment backend.
 
 The session-level `ideas.json` and the reduced online-memory record will not be used as substitutes: the former contains multiple candidates and currently retains only refined method details, while the latter intentionally omits parts of the Idea record.
 

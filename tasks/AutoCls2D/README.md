@@ -49,7 +49,7 @@ conda activate autocls2d
 pip install -r requirements.txt
 ```
 
-The `requirements.txt` is consistent with [InternAgent/requirements.txt](https://github.com/InternScience/InternAgent/blob/main/requirements.txt).
+The `requirements.txt` is consistent with [Vegapunk/requirements.txt](https://github.com/v6582374-netizen/Vegapunk/blob/main/requirements.txt).
 
 ### 3. Configure the Python path in launcher.sh
 

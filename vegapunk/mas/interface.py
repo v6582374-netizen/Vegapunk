@@ -1,0 +1,466 @@
+"""
+Vegapunk Interface
+
+This module implements the main interface for the Vegapunk system.
+The VegapunkInterface manages system lifecycle, session coordination,
+and provides a clean API for research workflow interactions.
+"""
+
+import json
+import logging
+import os
+from datetime import datetime
+from typing import Dict, Any, Optional, Callable, List
+
+from .models.unified_runtime import UnifiedModelRuntime, create_model_runtime
+from .agents.agent_factory import AgentFactory
+from .memory.memory_manager import MemoryManager
+from .workflow.orchestration_agent import OrchestrationAgent
+from .workflow.data_type import WorkflowState
+from .tools import get_registry, init_mcp_tools, cleanup_mcp, init_tools
+
+logger = logging.getLogger(__name__)
+
+
+# 这一层是外部脚本和内部多代理系统之间的门面：外部只需要创建会话、推进会话、
+# 查询结果；模型、记忆、工具和状态机都在这里组装好。
+class VegapunkInterface:
+    """
+    Main interface for the Vegapunk system.
+
+    This class provides a high-level API for managing the research workflow system,
+    including session management, orchestration agent coordination, and system lifecycle.
+    It serves as the primary entry point for external applications.
+    """
+
+    def __init__(self, config_path: str = None, config: Dict[str, Any] = None, work_dir: str = 'example', task_name: str = None, exp_backend: str = None, model_runtime: Optional[UnifiedModelRuntime] = None):
+        """
+        Initialize the Vegapunk interface.
+
+        Args:
+            config_path: Path to the configuration file
+            config: Configuration dictionary (takes precedence over config_path)
+            work_dir: Working directory for the system
+            task_name: Name of the task (from --task parameter)
+            exp_backend: Experiment backend to use (claudecode, iflow)
+            model_runtime: Process-owned runtime shared with active callers
+        """
+        self.work_dir = work_dir
+        self.task_name = task_name or "DefaultTask"
+        self.config = self._load_config(config_path, config)
+        self.config['config_path'] = config_path
+        self.config['work_dir'] = self.work_dir
+        self.config['task_name'] = self.task_name
+        # Store exp_backend in config so agents can access it
+        if exp_backend:
+            self.config['exp_backend'] = exp_backend
+
+        # One Runtime owns Provider resolution and is injected into every agent.
+        self.model_runtime = (
+            model_runtime
+            if model_runtime is not None
+            else create_model_runtime(self.config)
+        )
+        # Keep the process-local Runtime available to memory and nested
+        # workflows without serializing provider configuration into callers.
+        self.config["_runtime"] = self.model_runtime
+        self.memory_manager = self._init_memory_manager()
+        self.agent_factory = AgentFactory()
+
+        # Store tools configuration for later initialization
+        self.sci_tools = self.config.get("sci_tools", {})
+
+        # 本地工具是普通函数，启动时直接注册；远程工具需要异步连接，留到 startup 里做。
+        if self.sci_tools.get("local", True):  # Default to True for backward compatibility
+            logger.info("Loading local function-based tools...")
+            init_tools()
+            logger.info("Local tools initialized")
+        else:
+            logger.info("Local tools disabled by configuration")
+
+        # Create specialized agents
+        self.agents = self.agent_factory.create_all_agents(
+            config=self.config,
+            model_runtime=self.model_runtime
+        )
+
+        # Initialize orchestration agent
+        self.orchestration_agent = self._init_orchestration_agent()
+
+        # Session tracking
+        self.active_sessions = {}
+
+        # System state
+        self.system_ready = False
+
+        logger.info("Vegapunk interface initialized")
+
+    async def startup(self) -> None:
+        """Initialize system components and mark as ready."""
+        try:
+            # 远程工具连接成功后才把系统标记为可用，避免会话跑到一半才发现工具不可达。
+            if self.sci_tools.get("remote", None):
+                logger.info(f"Found {len(self.sci_tools['remote'])} remote MCP server(s) in config:")
+                for tool in self.sci_tools['remote']:
+                    logger.info(f"  - {tool['id']}: {tool['url']}")
+                await init_mcp_tools(remote_servers=self.sci_tools['remote'])
+
+            # Log total tools registered
+            tools_registry = get_registry()
+            logger.info(f"  - Tool names: {tools_registry.get_all_names()}")
+            logger.info(f"  - Function tools: {len(tools_registry)}")
+            logger.info(f"  - MCP tools: {tools_registry.total_tool_count() - len(tools_registry)}")
+            logger.info(f"Total tools registered: {tools_registry.total_tool_count()}")
+
+            await self.memory_manager.startup()
+            self.system_ready = True
+            logger.info("Vegapunk system started successfully")
+        except Exception as e:
+            self.system_ready = False
+            logger.error(f"Error during system startup: {str(e)}")
+            raise
+
+    async def shutdown(self) -> None:
+        """Clean shutdown of system components."""
+        try:
+            # Cleanup MCP connections if initialized
+            await cleanup_mcp()
+
+            if hasattr(self.memory_manager, 'shutdown'):
+                await self.memory_manager.shutdown()
+            self.system_ready = False
+            logger.info("Vegapunk system shut down successfully")
+        except Exception as e:
+            logger.error(f"Error during system shutdown: {str(e)}")
+            raise
+
+    async def create_session(self,
+                           goal_description: str,
+                           domain: str,
+                           background: str = "",
+                           ref_code_path: str = "",
+                           constraints: List[str] = None) -> str:
+        """
+        Create a new research session.
+
+        Args:
+            goal_description: Description of the research goal
+            domain: Scientific domain for the research
+            background: Background information for context
+            ref_code_path: Path to reference code (optional)
+            constraints: List of constraints for the session
+
+        Returns:
+            Session ID for the created session
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+
+        # 会话创建会把人的研究目标变成内部任务对象，并交给状态机保存初始状态。
+        session_id = await self.orchestration_agent.create_session(
+            goal_description=goal_description,
+            domain=domain,
+            background=background,
+            ref_code_path=ref_code_path,
+            constraints=constraints or []
+        )
+
+        # 这里的跟踪信息面向外部调用者，真正完整状态仍由工作流和记忆管理器保存。
+        self._track_session(session_id, goal_description, domain, ref_code_path)
+
+        logger.info(f"Created session {session_id}: {goal_description}")
+        return session_id
+
+    async def run_session(self,
+                        session_id: str,
+                        status_callback: Optional[Callable[[str, str, str], None]] = None) -> Dict[str, Any]:
+        """
+        Execute a research session.
+
+        Args:
+            session_id: ID of the session to run
+            status_callback: Optional callback for state change notifications
+                           Signature: (session_id, old_state, new_state) -> None
+
+        Returns:
+            Current session status
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+
+        # 状态回调把内部推进过程同步给调用者；即使回调失败，也不让它中断主流程。
+        async def on_state_change(session, old_state, new_state):
+            self._update_session_tracking(session_id, new_state.value)
+
+            if status_callback:
+                try:
+                    await status_callback(session_id, old_state.value, new_state.value)
+                except Exception as e:
+                    logger.error(f"Error in status callback: {str(e)}")
+
+        # Execute session
+        await self.orchestration_agent.run_session(
+            session_id=session_id,
+            on_state_change=on_state_change
+        )
+
+        return await self.get_session_status(session_id)
+
+    async def add_feedback(self,
+                         session_id: str,
+                         feedback: dict,
+                         target_idea_ids: List[str] = None,
+                         auto_resume: bool = True) -> Dict[str, Any]:
+        """
+        Add feedback to a session and optionally resume execution.
+
+        Args:
+            session_id: Session ID
+            feedback: Feedback content
+            target_idea_ids: Specific ideas the feedback applies to
+            auto_resume: Whether to automatically resume session after feedback
+
+        Returns:
+            Updated session status
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+
+        await self.orchestration_agent.add_feedback(
+            session_id=session_id,
+            feedback=feedback,
+            target_idea_ids=target_idea_ids
+        )
+
+        self._update_session_tracking(session_id)
+
+        # 反馈通常是为了让暂停的研究继续走下去，所以默认在可继续时自动推进。
+        if auto_resume:
+            status = await self.get_session_status(session_id)
+            if status.get("state") == WorkflowState.REFLECTING.value:
+                await self.resume_session(session_id)
+
+        return await self.get_session_status(session_id)
+
+    async def resume_session(self, session_id: str) -> Dict[str, Any]:
+        """
+        Resume a paused session.
+
+        Args:
+            session_id: Session ID to resume
+
+        Returns:
+            Updated session status
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+
+        await self.orchestration_agent.run_session(session_id)
+        self._update_session_tracking(session_id)
+
+        return await self.get_session_status(session_id)
+
+    async def get_session_status(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get current status of a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            Status dictionary with session information
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+        return await self.orchestration_agent.get_session_status(session_id)
+
+    async def get_top_ideas(self,
+                               session_id: str,
+                               include_all: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get top ideas from a session.
+
+        Args:
+            session_id: Session ID
+            include_all: Whether to include ideas from all iterations
+
+        Returns:
+            List of hypothesis dictionaries
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+        return await self.orchestration_agent.get_top_ideas(
+            session_id=session_id,
+            include_all=include_all
+        )
+
+    async def get_all_ideas(self,
+                               session_id: str,
+                               limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get all ideas from a session.
+
+        Args:
+            session_id: Session ID
+            limit: Maximum number of ideas to return
+
+        Returns:
+            List of hypothesis dictionaries
+
+        Raises:
+            RuntimeError: If system is not ready
+        """
+        self._ensure_system_ready()
+        return await self.orchestration_agent.get_ideas(
+            session_id=session_id,
+            limit=limit,
+            include_all=True
+        )
+
+    def list_active_sessions(self) -> List[Dict[str, Any]]:
+        """
+        Get list of all active sessions.
+
+        Returns:
+            List of session information dictionaries
+        """
+        return list(self.active_sessions.values())
+
+    def get_system_info(self) -> Dict[str, Any]:
+        """
+        Get system information and status.
+
+        Returns:
+            System information dictionary
+        """
+        return {
+            "ready": self.system_ready,
+            "work_dir": self.work_dir,
+            "active_sessions": len(self.active_sessions),
+            "agents_loaded": len(self.agents),
+            "config_version": self.config.get("version", "unknown")
+        }
+
+    # Private helper methods
+    def _ensure_system_ready(self) -> None:
+        """Ensure system is ready for operations."""
+        if not self.system_ready:
+            raise RuntimeError("System is not ready. Call startup() first.")
+
+    def _track_session(self, session_id: str, goal: str, domain: str, ref_code_path: str) -> None:
+        """Add session to tracking."""
+        self.active_sessions[session_id] = {
+            "id": session_id,
+            "goal": goal,
+            "domain": domain,
+            "ref_code_path": ref_code_path,
+            "created_at": datetime.now().isoformat(),
+            "last_updated": datetime.now().isoformat(),
+            "state": WorkflowState.INITIAL.value
+        }
+
+    def _update_session_tracking(self, session_id: str, state: str = None) -> None:
+        """Update session tracking information."""
+        if session_id in self.active_sessions:
+            self.active_sessions[session_id]["last_updated"] = datetime.now().isoformat()
+            if state:
+                self.active_sessions[session_id]["state"] = state
+
+    def _init_memory_manager(self) -> MemoryManager:
+        """Initialize memory manager from configuration."""
+        from .memory.memory_manager import create_memory_manager
+        return create_memory_manager(self.config)
+
+    def _init_orchestration_agent(self) -> OrchestrationAgent:
+        """Initialize orchestration agent with all components."""
+        return OrchestrationAgent(
+            config=self.config,
+            memory_manager=self.memory_manager,
+            model_runtime=self.model_runtime,
+            agent_registry=self.agents
+        )
+
+    def _load_config(self, config_path: Optional[str], config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Load configuration from file or dictionary.
+
+        Args:
+            config_path: Path to configuration file
+            config: Configuration dictionary
+
+        Returns:
+            Loaded configuration dictionary
+        """
+        # Use provided config if available
+        if config is not None:
+            return self._validate_loaded_config(config)
+
+        # Load from file if path provided and file exists
+        if config_path and os.path.exists(config_path):
+            logger.info(f"Attempting to load config from: {config_path}")
+            try:
+                if config_path.endswith(('.yaml', '.yml')):
+                    import yaml
+                    with open(config_path, 'r') as f:
+                        config_data = yaml.safe_load(f)
+                    logger.info(f"Successfully loaded YAML config with keys: {list(config_data.keys()) if config_data else 'None'}")
+                    return self._validate_loaded_config(config_data)
+                else:
+                    with open(config_path, 'r') as f:
+                        config_data = json.load(f)
+                    logger.info(f"Successfully loaded JSON config with keys: {list(config_data.keys()) if config_data else 'None'}")
+                    return self._validate_loaded_config(config_data)
+            except ValueError:
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to load config from {config_path}: {str(e)}")
+        elif config_path:
+            logger.warning(f"Config path provided but file doesn't exist: {config_path}")
+        else:
+            logger.info("No config path provided")
+
+        # Load default configuration
+        default_config_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "config",
+            "default_config.yaml",
+        )
+        default_config_path = os.path.abspath(default_config_path)
+        logger.info(f"Loading default configuration from: {default_config_path}")
+
+        try:
+            import yaml
+            with open(default_config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
+            logger.info(f"Successfully loaded default config with keys: {list(config_data.keys()) if config_data else 'None'}")
+            return self._validate_loaded_config(config_data)
+        except Exception as e:
+            logger.error(f"Failed to load default config from {default_config_path}: {str(e)}")
+            raise RuntimeError(f"Could not load default configuration: {str(e)}")
+
+    @staticmethod
+    def _validate_loaded_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(config_data, dict):
+            raise ValueError("Vegapunk configuration must be a mapping")
+        if "models" in config_data:
+            raise ValueError(
+                "Legacy models configuration is rejected; use model_catalog_path"
+            )
+        if not config_data.get("model_catalog_path"):
+            config_data = dict(config_data)
+            config_data["model_catalog_path"] = "config/model_catalog.yaml"
+        return config_data

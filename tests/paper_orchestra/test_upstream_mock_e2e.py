@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import yaml
 
-from internagent.paper_orchestra import run_paper_orchestra
+from vegapunk.paper_orchestra import run_paper_orchestra
 from tests.paper_orchestra.test_vendored_service import _write_launch
 
 
@@ -156,7 +156,7 @@ research_cutoff: 2025-01
                 result = asyncio.run(
                     run_paper_orchestra(
                         launch_dir=launch_dir,
-                        internagent_config={"model_catalog_path": str(catalog_path)},
+                        vegapunk_config={"model_catalog_path": str(catalog_path)},
                         paper_config_path=config_path,
                     )
                 )

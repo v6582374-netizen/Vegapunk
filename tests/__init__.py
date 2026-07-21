@@ -1,1 +1,1 @@
-"""InternAgent's repository-local test suite."""
+"""Vegapunk's repository-local test suite."""

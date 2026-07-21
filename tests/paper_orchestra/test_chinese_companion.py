@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from internagent.paper_orchestra.chinese_companion import (
+from vegapunk.paper_orchestra.chinese_companion import (
     generate_chinese_companion,
 )
 
@@ -50,10 +50,10 @@ English evidence \citep{Keep2024} and $R^2=0.95$.
                 return subprocess.CompletedProcess(command, 0, "", "")
 
             with mock.patch(
-                "internagent.paper_orchestra.chinese_companion."
+                "vegapunk.paper_orchestra.chinese_companion."
                 "PaperOrchestraResponsesRuntime"
             ) as runtime_type, mock.patch(
-                "internagent.paper_orchestra.chinese_companion.subprocess.run",
+                "vegapunk.paper_orchestra.chinese_companion.subprocess.run",
                 side_effect=run_command,
             ):
                 runtime_type.return_value.generate_text.return_value = (
@@ -109,10 +109,10 @@ English paper.
                 )
 
             with mock.patch(
-                "internagent.paper_orchestra.chinese_companion."
+                "vegapunk.paper_orchestra.chinese_companion."
                 "PaperOrchestraResponsesRuntime"
             ) as runtime_type, mock.patch(
-                "internagent.paper_orchestra.chinese_companion.subprocess.run",
+                "vegapunk.paper_orchestra.chinese_companion.subprocess.run",
                 side_effect=fail_xelatex,
             ):
                 runtime_type.return_value.generate_text.return_value = (
@@ -157,7 +157,7 @@ English paper.
 """
 
             with mock.patch(
-                "internagent.paper_orchestra.chinese_companion."
+                "vegapunk.paper_orchestra.chinese_companion."
                 "PaperOrchestraResponsesRuntime"
             ) as runtime_type:
                 runtime_type.return_value.generate_text.return_value = (

@@ -1,8 +1,124 @@
-# InternAgent
+# Vegapunk
 
-InternAgent coordinates LLM-backed agents for research, discovery, memory, and experiment evaluation.
+Vegapunk coordinates LLM-backed agents for research, discovery, memory, and experiment evaluation.
 
 ## Language
+
+## Product Experience
+
+**Admin Console**:
+The current Desktop Web Console deliverable: a developer-facing administration interface that exposes every prompt, run parameter, and runtime artifact of Vegapunk for testing and modification.
+It serves the project developer, has no accounts, and is not the future end-user product; a user-facing console with a curated surface is a separate later deliverable.
+_Avoid_: end-user console, public product, curated interface
+
+**Sole Researcher**:
+The one person allowed to use the Version 1 product's curated research capabilities.
+Every Version 1 request is implicitly theirs; the product has no authentication, invitation, registration, account-management, or multi-user flows, and product access remains distinct from Admin Console privileges.
+_Avoid_: Invited Researcher, authenticated principal, anonymous public user, multi-user account
+
+**Local Product Boundary**:
+The Version 1 access boundary that confines the product and its API to the Sole Researcher's own machine and same-origin browser context.
+It excludes LAN and public access; remote access requires a later authentication decision.
+_Avoid_: public deployment, LAN service, unauthenticated remote access
+
+**Desktop Web Console**:
+The browser-based product interface through which a researcher configures, starts, observes, and reviews research work from a desktop operating system.
+It excludes a mobile client and does not imply that research execution runs on the user's device.
+_Avoid_: mobile app, local CLI, execution node
+
+**Deep Research Run**:
+A bounded investigation of one research question that gathers evidence and produces a cited report without entering the Discovery experiment loop or Paper Handoff.
+A stopped, interrupted, or failed Deep Research Run is repeated only by creating a new Run because it has no resumable Workflow Progress checkpoints.
+_Avoid_: QA session, Discovery Launch, chat
+
+**Research Submission**:
+The goal, domain, constraints, reference materials, datasets, and optional baseline code supplied by the Sole Researcher to start a Discovery Launch.
+It remains distinct from generated artifacts and the Paper Input Bundle.
+_Avoid_: Task Authoring Form, Paper Input Bundle, Launch Workspace
+
+**Staged Research Upload**:
+A temporary input file stored before one Deep Research Run or Discovery Launch claims it during creation.
+It may be claimed once, while an unclaimed upload expires; it is neither a reusable file library nor a research artifact.
+_Avoid_: attachment library, permanent upload, research artifact, shared input
+
+**Prompt Library**:
+The single service-wide collection of every editable prompt text in the system, including scientific-behavior prompts and infrastructure/scaffolding prompts. A Discovery Launch reads it when it starts; edits affect Launches that start afterwards and never change a running Launch. There are no per-Launch prompt overrides.
+_Avoid_: per-Launch prompt snapshot, mid-run prompt edit, hardcoded prompt, curated prompt subset
+
+**Run Parameter Registry**:
+The service-wide catalog of every run parameter and its default, description, type, and validation rule, edited through structured forms in the Admin Console.
+An allowlisted subset may be supplied as Researcher Run Settings without granting access to the Registry or changing its defaults.
+_Avoid_: raw config file editing, unrestricted researcher override, mid-run change, undocumented parameter
+
+**Researcher Run Setting**:
+An allowlisted execution choice the Sole Researcher supplies when creating one Deep Research Run or Discovery Launch, such as the Discovery loop-round limit.
+It affects only that work and is captured with its effective configuration.
+_Avoid_: Run Parameter Registry, global default, arbitrary config override, mid-run change
+
+**Launch Configuration Snapshot**:
+The complete copy of the Prompt Library and effective run parameters, including Researcher Run Settings, that a Discovery Launch captures into its own results directory at start.
+The Launch and any Launch Resume read only this snapshot, and it is the authoritative record of the configuration behind that Launch's results.
+_Avoid_: live global config, implicit defaults, post-hoc reconstruction
+
+**Launch Queue**:
+The service-wide first-in-first-out order in which submitted Discovery Launches wait to execute. Exactly one Launch runs at a time; submitting a Launch enqueues it rather than starting it immediately.
+_Avoid_: parallel launches, per-user queue, immediate start
+
+**Graceful Stop**:
+The default way to stop running research work: it finishes its current smallest unit, persists any supported checkpoint, and exits with the work marked stopped without triggering later stages.
+A stopped Discovery Launch may resume, while a stopped Deep Research Run requires a new Run; force kill remains an Admin-only fallback.
+_Avoid_: default hard kill, pause, wait-for-round-completion
+
+**Interrupted Launch**:
+A Discovery Launch whose execution ended without a trustworthy terminal outcome.
+Its durable progress is reconciled first; if it did not complete, the Sole Researcher may explicitly resume it, but the product never resumes it automatically.
+_Avoid_: failed Launch, aborted Launch, automatic resume
+
+**Launch Resume**:
+Re-enqueueing a stopped or reconciled-incomplete Interrupted Launch to continue from its Workflow Progress checkpoints using exactly the prompts and parameters captured at its original start.
+It requires an explicit researcher action, preserves earlier Execution Attempts, adds a new attempt at the current milestone, and never absorbs later configuration edits.
+_Avoid_: new Launch, automatic resume, mixed-configuration continuation, edit absorption on resume
+
+**Research Progress Timeline**:
+The durable ordered chain of core milestones through which the product presents one Deep Research Run or Discovery Launch.
+Milestone state changes are the product's persisted progress events, so live and reopened views share one record while detailed operational output remains in the Research Activity Stream.
+_Avoid_: transient progress, raw internal trace, replacement for activity output
+
+**Research Activity Stream**:
+The bounded durable terminal-style sequence of curated and redacted operational messages for one Deep Research Run or Discovery Launch.
+It complements the Research Progress Timeline, resumes after reconnect, may discard its oldest messages at the product limit, and never exposes raw Admin logs, hidden prompts, or internal reasoning.
+_Avoid_: raw Admin log, internal trace, replacement for progress milestones
+
+**Execution Attempt**:
+One contiguous execution of a Research Progress Timeline milestone.
+A Discovery Launch Resume adds an attempt while preserving earlier attempts; an Execution Attempt is not an Experiment Run.
+_Avoid_: Experiment Run, resumed Launch, overwritten attempt
+
+**Live Launch View**:
+The Admin Console view that follows the currently running Discovery Launch in real time: its current stage and round, each runtime artifact as soon as it is persisted, and streaming key logs. It does not wait for stage or Launch completion.
+_Avoid_: post-hoc report, final-artifact-only view, completed-Launch browser
+
+**Artifact Explorer**:
+The Admin Console surface that exposes every file a Launch persists as a browsable tree with content viewers, guaranteeing that all runtime artifacts are reachable. Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to an artifact.
+_Avoid_: curated artifact list, final-only gallery, unmodeled-file blind spot
+
+**Curated Research Artifact**:
+A stable product-visible output selected from one Deep Research Run or Discovery Launch and addressed by an opaque artifact identity rather than a filesystem path.
+It excludes raw logs, hidden prompts, internal configuration, temporary files, and unrestricted workspace content.
+_Avoid_: Artifact Explorer entry, arbitrary file path, raw runtime artifact
+
+**Reproducibility Bundle**:
+The sanitized downloadable package of code, effective non-secret settings, metrics, and instructions needed to reproduce a completed Discovery Launch's selected experimental result.
+It is a Curated Research Artifact rather than a copy of the complete Launch workspace.
+_Avoid_: full workspace archive, raw artifact dump, configuration snapshot
+
+**Task Authoring Form**:
+The Admin Console form through which the developer directly composes a research task's structured fields (system, task description, domain, background, constraints) and uploads its baseline code package. It performs no LLM assistance; a task without baseline code can only take the report path, not the experiment path.
+_Avoid_: Task Builder, automatic task generation, topic-only quick start
+
+**Task Builder**:
+The planned later capability that turns a research topic plus uploaded reference materials into a draft task via model assistance, for developer review before enqueueing. It is not part of the first Admin Console delivery.
+_Avoid_: Task Authoring Form, fully automatic launch, current capability
 
 **Discovery Launch**:
 A bounded research effort that may contain multiple Discovery Rounds and Candidate Experiments. It may automatically produce at most one Paper after its configured Discovery work is complete; research intended to produce another Paper begins as a new Launch.
@@ -36,9 +152,14 @@ It is never a compatibility alias for another model and never determines a Provi
 _Avoid_: legacy model alias, display model name, inferred provider
 
 **Provider Configuration**:
-The centrally managed endpoint, credential reference, headers, timeout, protocol, and capability metadata for one Model Provider.
-Callers select Canonical Model Identities but do not override Provider Configuration locally.
-_Avoid_: caller-local provider settings, agent credential, Paper-specific provider
+The centrally managed endpoint, supported credential slot, headers, timeout, protocol, and capability metadata for one Model Provider.
+A Researcher Model Credential may supply its API key, but callers do not override the remaining Provider Configuration.
+_Avoid_: caller-local endpoint, caller-local protocol, arbitrary provider settings, Paper-specific provider
+
+**Researcher Model Credential**:
+A Provider-scoped API key the Sole Researcher stores for an administrator-approved Model Provider and selects for their work.
+It does not define an endpoint, protocol, or model identity and remains distinct from research artifacts and configuration snapshots.
+_Avoid_: arbitrary Provider Configuration, model catalog entry, service credential, artifact
 
 **Unified Model Runtime**:
 The single in-process execution surface that turns semantic model requests into Provider calls for every active consumer.
@@ -202,7 +323,7 @@ The PaperOrchestra role that autonomously plans, generates, captions, critiques,
 _Avoid_: Discovery Agent, experiment backend, figure copier
 
 **Relay Provider**:
-The current external OpenAI-compatible Model Provider used by InternAgent and PaperOrchestra.
+The current external OpenAI-compatible Model Provider used by Vegapunk and PaperOrchestra.
 It is one selectable provider alongside the Qwen Model Provider, not a PaperOrchestra-specific service boundary.
 _Avoid_: OpenAI provider when the configured base URL is a relay, separate Paper provider
 

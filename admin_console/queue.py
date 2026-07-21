@@ -235,7 +235,7 @@ class LaunchQueue:
         env = os.environ.copy()
         snapshot_prompts = launch_dir / SNAPSHOT_DIR_NAME / "prompts"
         if snapshot_prompts.is_dir():
-            env["INTERNAGENT_PROMPT_LIBRARY_ROOT"] = str(snapshot_prompts)
+            env["VEGAPUNK_PROMPT_LIBRARY_ROOT"] = str(snapshot_prompts)
         with (launch_dir / "runner.log").open("ab") as log_stream:
             process = subprocess.Popen(
                 command,

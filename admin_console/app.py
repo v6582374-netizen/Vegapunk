@@ -44,7 +44,7 @@ from admin_console.model_catalog import (
     save_catalog,
     validate_catalog,
 )
-from internagent.prompt_library import (
+from vegapunk.prompt_library import (
     DEFAULT_LIBRARY_ROOT,
     PromptLibrary,
     UnknownPromptError,
@@ -108,7 +108,7 @@ def create_app(
         prompt_library_root=resolved_prompt_root,
     )
 
-    app = FastAPI(title="InternAgent Admin Console")
+    app = FastAPI(title="Vegapunk Admin Console")
 
     @app.get("/api/launches")
     def list_launches() -> dict:

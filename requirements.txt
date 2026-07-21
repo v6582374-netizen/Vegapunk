@@ -376,7 +376,7 @@ yarl==1.20.1
 youtube-transcript-api==1.0.3
 zipp==3.23.0
 
-# InternResearch dependencies (not previously in IA)
+# InternResearch dependencies (not previously in Vegapunk)
 redis
 ffmpeg-python==0.2.0
 astor

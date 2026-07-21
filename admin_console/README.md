@@ -1,11 +1,11 @@
 # Admin Console
 
-InternAgent 的开发者管理后台（Desktop Web Console，见 ADR-0156）。
+Vegapunk 的开发者管理后台（Desktop Web Console，见 ADR-0156）。
 后端是 FastAPI 常驻服务，前端是 React + TypeScript + Vite + Ant Design。
 
 ## 本地开发
 
-后端（在仓库根目录，使用 `InternAgent` conda 环境）：
+后端（在仓库根目录，使用 `Vegapunk` conda 环境）：
 
 ```bash
 python -m uvicorn admin_console.app:create_app --factory --reload --port 8000
@@ -41,7 +41,7 @@ npm run build   # 含 tsc 类型检查，产物在 dist/
 ## 测试
 
 ```bash
-# 在仓库根目录，InternAgent conda 环境
+# 在仓库根目录，Vegapunk conda 环境
 python -m unittest discover -s tests/admin_console -t . -v
 ```
 

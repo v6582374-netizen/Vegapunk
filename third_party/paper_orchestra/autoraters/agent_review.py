@@ -1,4 +1,4 @@
-from internagent.prompt_library import prompts as _prompt_library
+from vegapunk.prompt_library import prompts as _prompt_library
 # Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");

@@ -1,5 +1,5 @@
 """
-AutoDebug: A lightweight debug task for testing the InternAgent pipeline.
+AutoDebug: A lightweight debug task for testing the Vegapunk pipeline.
 Uses synthetic regression data with a simple MLP model.
 Training completes in ~5 seconds on GPU, ~10 seconds on CPU.
 """

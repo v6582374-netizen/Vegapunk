@@ -3,7 +3,7 @@ AutoPlanetaryMagnetosphere baseline experiment.
 
 This is a deterministic, dependency-free surrogate benchmark for induced
 magnetosphere responses around Mars-like and Venus-like terrestrial planets.
-It is designed as an InternAgent discovery task input, not as a validated
+It is designed as an Vegapunk discovery task input, not as a validated
 planetary plasma simulation.
 """
 

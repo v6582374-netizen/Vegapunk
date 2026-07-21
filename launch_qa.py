@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""InternAgent QA mode — direct one-shot question answering."""
+"""Vegapunk QA mode — direct one-shot question answering."""
 
 import argparse
 import asyncio
@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from internagent.mas.agents.dr_agent import DRAgent
-from internagent.mas.models.unified_runtime import UnifiedModelRuntime
+from vegapunk.mas.agents.dr_agent import DRAgent
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 
 def _load_qa_config(path: str) -> tuple[UnifiedModelRuntime, dict]:
@@ -23,7 +23,7 @@ def _load_qa_config(path: str) -> tuple[UnifiedModelRuntime, dict]:
     with Path(path).open("r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
     if not isinstance(config, dict):
-        raise ValueError("InternAgent config must contain a mapping")
+        raise ValueError("Vegapunk config must contain a mapping")
     catalog_path = config.get("model_catalog_path")
     repository_root = Path(__file__).resolve().parent
     if catalog_path is None:
@@ -43,14 +43,14 @@ def _load_qa_config(path: str) -> tuple[UnifiedModelRuntime, dict]:
 # 问答模式是一条短路径：把问题交给调研工作流，拿到一次性回答后打印或写文件。
 # 它不会创建多轮实验目录，也不会进入发现流程里的想法筛选和实验执行。
 def main():
-    parser = argparse.ArgumentParser(description='InternAgent QA — one-shot question answering')
+    parser = argparse.ArgumentParser(description='Vegapunk QA — one-shot question answering')
     parser.add_argument('--question', '-q', required=True, help='Research question to answer')
     parser.add_argument('--file', '-f', default=None, help='Optional file attachment')
     parser.add_argument('--output', '-o', default=None, help='Write answer to this file path')
     parser.add_argument(
         '--config',
         default='config/default_config.yaml',
-        help='InternAgent YAML config (default: config/default_config.yaml)',
+        help='Vegapunk YAML config (default: config/default_config.yaml)',
     )
     args = parser.parse_args()
 

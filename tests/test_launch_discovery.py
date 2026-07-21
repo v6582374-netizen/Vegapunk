@@ -61,7 +61,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                     }
                 ]
 
-        stage_stub = types.ModuleType("internagent.stage")
+        stage_stub = types.ModuleType("vegapunk.stage")
         stage_stub.IdeaGenerator = object
         stage_stub.ExperimentRunner = object
         stage_stub.ReportWriter = ReportWriter
@@ -93,7 +93,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"internagent.stage": stage_stub}), patch(
+                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",
@@ -138,7 +138,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             def run_experiments(self, **_: object) -> list[dict[str, object]]:
                 return [{"idea_name": "measured idea", "success": False}]
 
-        stage_stub = types.ModuleType("internagent.stage")
+        stage_stub = types.ModuleType("vegapunk.stage")
         stage_stub.IdeaGenerator = IdeaGenerator
         stage_stub.ExperimentRunner = ExperimentRunner
 
@@ -163,7 +163,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"internagent.stage": stage_stub}), patch(
+                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",
@@ -194,7 +194,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             def run_experiments(self, **_: object) -> list[dict[str, object]]:
                 return [{"idea_name": "reused idea", "success": False}]
 
-        stage_stub = types.ModuleType("internagent.stage")
+        stage_stub = types.ModuleType("vegapunk.stage")
         stage_stub.IdeaGenerator = object
         stage_stub.ExperimentRunner = ExperimentRunner
 
@@ -223,7 +223,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"internagent.stage": stage_stub}), patch(
+                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",

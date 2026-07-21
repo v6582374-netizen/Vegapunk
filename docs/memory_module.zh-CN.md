@@ -1,6 +1,6 @@
 ## 记忆模块
 
-记忆模块是 InternAgent 1.5 的一项新功能。它会跨会话维护过往实验的持久化记录：每个已完成的想法都会连同其指标和标签一起存储（相对基线为正向/中性/负向）。在想法生成阶段，智能体会查询这些历史记录，避免重复已经失败的方法，并在有效方向的基础上继续推进。
+记忆模块是 Vegapunk 1.5 的一项新功能。它会跨会话维护过往实验的持久化记录：每个已完成的想法都会连同其指标和标签一起存储（相对基线为正向/中性/负向）。在想法生成阶段，智能体会查询这些历史记录，避免重复已经失败的方法，并在有效方向的基础上继续推进。
 
 该模块包含两个彼此独立的组件：
 
@@ -96,7 +96,7 @@ memory:
 
 ### 长期记忆（IdeaGraph 和 PromptEvolver）
 
-除任务记忆和在线记忆外，InternAgent 1.5 还包含一个长期记忆组件，用于跟踪完整的想法历史，并随着时间自动演化生成提示词。
+除任务记忆和在线记忆外，Vegapunk 1.5 还包含一个长期记忆组件，用于跟踪完整的想法历史，并随着时间自动演化生成提示词。
 
 它包含两个子组件：
 
@@ -123,8 +123,8 @@ memory:
 ## 📝 引用
 
 ```bibtex
-@article{feng2026internagent,
-  title={InternAgent-1.5: A Unified Agentic Framework for Long-Horizon Autonomous Scientific Discovery},
+@article{feng2026vegapunk,
+  title={Vegapunk-1.5: A Unified Agentic Framework for Long-Horizon Autonomous Scientific Discovery},
   author={Shiyang Feng and Runmin Ma and Xiangchao Yan and Yue Fan and Yusong Hu and Songtao Huang and Shuaiyu Zhang and Zongsheng Cao and Tianshuo Peng and Jiakang Yuan and Zijie Guo and Zhijie Zhong and Shangheng Du and Weida Wang and Jinxin Shi and Yuhao Zhou and Xiaohan He and Zhiyin Yu and Fangchen Yu and Bihao Zhan and Qihao Zheng and Jiamin Wu and Mianxin Liu and Chi Zhang and Shaowei Hou and Shuya Li and Yankai Jiang and Wenjie Lou and Lilong Wang and Zifu Wang and Jiong Wang and Wanghan Xu and Yue Deng and Dongrui Liu and Yiheng Wang and Wenlong Zhang and Fenghua Ling and Shufei Zhang and Xiaosong Wang and Shuangjia Zheng and Xun Huang and Siqi Sun and Shuyue Hu and Peng Ye and Chunfeng Song and Bin Wang and Conghui He and Yihao Liu and Xin Li and Qibin Hou and Tao Chen and Xiangyu Yue and Bin Wang and Liang He and Dahua Lin and Bowen Zhou and Bo Zhang and Lei Bai},
   journal={arXiv preprint arXiv:2602.08990},
   year={2026}
