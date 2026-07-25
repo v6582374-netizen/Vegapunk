@@ -9,9 +9,11 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+import yaml
+
 from tests.admin_console.client import TestClient
 
-from admin_console.app import create_app
+from admin_console.app import DEFAULT_RUNNER_COMMAND, create_app
 
 FAKE_RUNNER = Path(__file__).parent / "fake_runner.py"
 FAKE_RUNNER_COMMAND = [
@@ -115,6 +117,42 @@ class LaunchQueueTest(unittest.TestCase):
         _wait_for_state(client, first["queue_id"], "completed")
         _wait_for_state(client, second["queue_id"], "completed")
 
+    def test_queued_launch_snapshots_latest_configuration_when_it_starts(self) -> None:
+        client = self.env.create_client()
+        config_path = self.env.config_dir / "default_config.yaml"
+        with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "0.4"}):
+            first = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
+            second = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
+            _wait_for_state(client, first["queue_id"], "running")
+            config_path.write_text("system:\n  debug: true\n")
+
+        _wait_for_state(client, first["queue_id"], "completed")
+        finished = _wait_for_state(client, second["queue_id"], "completed")
+        snapshot = (
+            self.env.results_root
+            / finished["launch_id"]
+            / "config_snapshot"
+            / "default_config.yaml"
+        )
+        self.assertTrue(yaml.safe_load(snapshot.read_text())["system"]["debug"])
+
+    def test_snapshot_rewrites_model_catalog_path_to_its_own_copy(self) -> None:
+        config_path = self.env.config_dir / "default_config.yaml"
+        config_path.write_text(
+            "system:\n  debug: false\nmodel_catalog_path: config/model_catalog.yaml\n"
+        )
+        client = self.env.create_client()
+
+        entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()
+        finished = _wait_for_state(client, entry["queue_id"], "completed")
+
+        snapshot_dir = self.env.results_root / finished["launch_id"] / "config_snapshot"
+        config = yaml.safe_load((snapshot_dir / "default_config.yaml").read_text())
+        self.assertEqual(
+            Path(config["model_catalog_path"]).resolve(),
+            (snapshot_dir / "model_catalog.yaml").resolve(),
+        )
+
     def test_queued_launch_can_be_cancelled_but_running_cannot(self) -> None:
         client = self.env.create_client()
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "0.4"}):
@@ -151,6 +189,11 @@ class LaunchQueueTest(unittest.TestCase):
             Path(config_arg),
             launch_dir / "config_snapshot" / "default_config.yaml",
         )
+
+    def test_default_runner_uses_the_preflight_runtime_configuration(self) -> None:
+        config_arg = DEFAULT_RUNNER_COMMAND[DEFAULT_RUNNER_COMMAND.index("--config") + 1]
+
+        self.assertEqual(config_arg, "{runtime_config}")
 
     def test_completed_console_launch_state_appears_in_listing(self) -> None:
         client = self.env.create_client()

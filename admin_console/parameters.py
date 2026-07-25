@@ -9,11 +9,73 @@ Launches that start afterwards because a Launch reads its own snapshot.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+
+REGISTERED_PARAMETER_PATHS = frozenset(
+    {
+        "system.debug",
+        "system.log_level",
+        "memory.task_memory.enabled",
+        "memory.task_memory.top_k",
+        "memory.task_memory.alpha",
+        "memory.task_memory.include_details",
+        "memory.task_memory.embedding_mode",
+        "memory.online_memory.enabled",
+        "memory.online_memory.aggregation",
+        "memory.long_memory.enabled",
+        "memory.long_memory.idea_graph.similarity_threshold",
+        "memory.long_memory.prompt_evolver.enabled",
+        "memory.long_memory.prompt_evolver.evolution_interval",
+        "sci_tools.local",
+        "tools.web_search.max_results",
+        "tools.literature_search.timeout",
+        "agents.generation.generation_count",
+        "agents.generation.creativity",
+        "agents.generation.do_survey",
+        "agents.generation.use_memory",
+        "agents.generation.filter_failed_ideas",
+        "agents.generation.failed_similarity_threshold",
+        "agents.generation.max_regeneration_attempts",
+        "agents.reflection.count",
+        "agents.reflection.detail_level",
+        "agents.evolution.evolution_count",
+        "agents.evolution.creativity_level",
+        "agents.evolution.temperature",
+        "agents.evolution.use_memory",
+        "agents.evolution.filter_failed_ideas",
+        "agents.evolution.failed_similarity_threshold",
+        "agents.evolution.max_regeneration_attempts",
+        "agents.ranking.criteria",
+        "agents.ranking.strategy",
+        "agents.scholar.search_depth",
+        "agents.scholar.sources",
+        "agents.survey.max_papers",
+        "agents.survey.sources",
+        "agents.dr.enabled",
+        "agents.dr.mode",
+        "agents.exp_analyze.temperature",
+        "agents.exp_analyze.timeout",
+        "agents.exp_analyze.use_llm_for_metric_direction",
+        "agents.exp_analyze.use_llm_for_primary_metric",
+        "workflow.max_iterations",
+        "workflow.top_ideas_count",
+        "workflow.top_ideas_evo",
+        "workflow.max_concurrent_tasks",
+        "workflow.loop_rounds",
+        "workflow.loop_mode",
+        "sci_task.evaluation_mode",
+        "experiment.model",
+        "experiment.use_mcts",
+        "experiment.max_runs",
+        "experiment.max_parallel_experiments",
+        "experiment.gpu_per_experiment",
+    }
+)
 
 
 class _Section(BaseModel):
@@ -292,6 +354,63 @@ def parameter_catalog() -> list[dict]:
 
     walk(RunParameters, "")
     return entries
+
+
+def registered_parameter_catalog() -> list[dict]:
+    return [
+        entry for entry in parameter_catalog() if entry["path"] in REGISTERED_PARAMETER_PATHS
+    ]
+
+
+def load_registered_values(config_path: Path) -> dict:
+    values = load_values(config_path)
+    registered: dict = {}
+    for path in REGISTERED_PARAMETER_PATHS:
+        _set_path(registered, path, _get_path(values, path))
+    return registered
+
+
+def validate_registered_values(config_path: Path, values: dict) -> RunParameters:
+    for path in REGISTERED_PARAMETER_PATHS:
+        try:
+            _get_path(values, path)
+        except (KeyError, TypeError) as error:
+            raise ValueError(f"missing registered parameter: {path}") from error
+
+    def reject_unknown(node: Any, prefix: str = "") -> None:
+        if prefix in REGISTERED_PARAMETER_PATHS:
+            return
+        if not isinstance(node, dict):
+            raise ValueError(f"unknown registered parameter: {prefix}")
+        for key, value in node.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if not any(
+                candidate == path or candidate.startswith(f"{path}.")
+                for candidate in REGISTERED_PARAMETER_PATHS
+            ):
+                raise ValueError(f"unknown registered parameter: {path}")
+            reject_unknown(value, path)
+
+    reject_unknown(values)
+    merged = copy.deepcopy(load_values(config_path))
+    for path in REGISTERED_PARAMETER_PATHS:
+        _set_path(merged, path, _get_path(values, path))
+    return validate_values(merged)
+
+
+def _get_path(values: dict, path: str) -> Any:
+    node: Any = values
+    for part in path.split("."):
+        node = node[part]
+    return node
+
+
+def _set_path(values: dict, path: str, value: Any) -> None:
+    parts = path.split(".")
+    node = values
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
 
 
 def load_values(config_path: Path) -> dict:

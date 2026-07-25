@@ -22,7 +22,6 @@ class FrontendHostingTest(unittest.TestCase):
             create_app(
                 results_root=root / "results",
                 tasks_root=root / "tasks",
-                auth_db_path=root / "admin-auth.sqlite3",
                 frontend_dist=self.dist,
             )
         )
@@ -37,12 +36,12 @@ class FrontendHostingTest(unittest.TestCase):
 
     def test_frontend_assets_are_served_without_shadowing_api_routes(self) -> None:
         asset = self.client.get("/assets/app.js")
-        api = self.client.get("/api/auth/me")
+        api = self.client.get("/api/admin/launches")
 
         self.assertEqual(asset.status_code, 200)
         self.assertIn("console.log", asset.text)
         self.assertEqual(api.status_code, 200)
-        self.assertEqual(api.json(), {"authenticated": False})
+        self.assertEqual(api.json(), {"launches": []})
 
 
 if __name__ == "__main__":

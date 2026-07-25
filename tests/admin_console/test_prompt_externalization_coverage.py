@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import fnmatch
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,6 +63,76 @@ def _module_level_prompts(path: Path) -> list[tuple[str, int]]:
     return found
 
 
+def _runtime_prompt_ids(path: Path) -> set[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError:
+        return set()
+    library_names = {"prompts", "prompt_library", "_prompt_library", "_library"}
+    accessor_functions: set[str] = set()
+
+    def library_call(node: ast.AST) -> ast.Call | None:
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            return None
+        receiver = node.func.value
+        receiver_name = (
+            receiver.id
+            if isinstance(receiver, ast.Name)
+            else receiver.attr
+            if isinstance(receiver, ast.Attribute)
+            else None
+        )
+        if receiver_name in library_names and node.func.attr in {"get", "render"}:
+            return node
+        return None
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        argument_names = {argument.arg for argument in node.args.args}
+        if any(
+            call.args
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id in argument_names
+            for child in ast.walk(node)
+            if (call := library_call(child)) is not None
+        ):
+            accessor_functions.add(node.name)
+
+    prompt_ids: set[str] = set()
+    mapping_names: set[str] = set()
+    for node in ast.walk(tree):
+        call = library_call(node)
+        if call is None and (
+            not isinstance(node, ast.Call)
+            or not isinstance(node.func, ast.Name)
+            or node.func.id not in accessor_functions
+        ):
+            continue
+        if not node.args:
+            continue
+        argument = node.args[0]
+        if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+            prompt_ids.add(argument.value)
+        elif isinstance(argument, ast.Subscript) and isinstance(argument.value, ast.Name):
+            mapping_names.add(argument.value.id)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id in mapping_names
+            for target in node.targets
+        ):
+            continue
+        prompt_ids.update(
+            value.value
+            for value in node.value.values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        )
+    return prompt_ids
+
+
 class PromptExternalizationCoverageTest(unittest.TestCase):
     def test_catalog_entries_are_readable(self) -> None:
         for entry in prompts.list():
@@ -96,6 +167,51 @@ class PromptExternalizationCoverageTest(unittest.TestCase):
             [],
             msg="Unexternalized module-level prompts:\n" + "\n".join(leftovers),
         )
+
+    def test_runtime_prompt_ids_are_registered(self) -> None:
+        runtime_ids: set[str] = set()
+        scan_roots = [
+            REPOSITORY_ROOT / "vegapunk",
+            REPOSITORY_ROOT / "third_party" / "paper_orchestra" / "autoraters",
+            REPOSITORY_ROOT / "third_party" / "paper_orchestra" / "utils" / "prompt_utils.py",
+        ]
+        for root in scan_roots:
+            paths = [root] if root.is_file() else root.rglob("*.py")
+            for path in paths:
+                if "__pycache__" not in path.parts:
+                    runtime_ids.update(_runtime_prompt_ids(path))
+
+        catalog_ids = {entry.id for entry in prompts.list()}
+        self.assertEqual(
+            sorted(runtime_ids - catalog_ids),
+            [],
+            msg="Unregistered runtime Prompt IDs",
+        )
+
+    def test_runtime_prompt_id_detection_follows_library_mappings(self) -> None:
+        source = '''
+from vegapunk.prompt_library import prompts as _library
+
+_PROMPT_IDS = {"first": "test.direct_mapping"}
+unrelated = {"mode": "not-a-prompt-id"}
+
+def _load(prompt_id):
+    return _library.get(prompt_id)
+
+def direct(name):
+    return _library.get(_PROMPT_IDS[name])
+
+def wrapped(name):
+    mapping = {"second": "test.wrapped_mapping"}
+    return _load(mapping[name])
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prompts.py"
+            path.write_text(source, encoding="utf-8")
+            self.assertEqual(
+                _runtime_prompt_ids(path),
+                {"test.direct_mapping", "test.wrapped_mapping"},
+            )
 
     def test_deep_research_facade_loads_from_library(self) -> None:
         from vegapunk.mas.agents.dr_agents.prompts import default_prompts

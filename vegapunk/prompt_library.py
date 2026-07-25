@@ -18,10 +18,13 @@ Override the root for tests or for a Launch snapshot via
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from string import Formatter
+from tempfile import NamedTemporaryFile
 from typing import Iterator
 
 import yaml
@@ -30,6 +33,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LIBRARY_ROOT = REPOSITORY_ROOT / "config" / "prompts"
 CATALOG_NAME = "catalog.yaml"
 ENV_LIBRARY_ROOT = "VEGAPUNK_PROMPT_LIBRARY_ROOT"
+TEMPLATE_FIELD_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:[.\[].*)?$")
 
 
 @dataclass(frozen=True)
@@ -37,7 +41,13 @@ class PromptEntry:
     id: str
     name: str
     description: str
+    workflow: str
     stage: str
+    order: int
+    invocation_type: str
+    mutual_exclusion_group: str | None
+    template_variables: tuple[str, ...]
+    required_template_variables: tuple[str, ...]
     file: str
 
     def to_dict(self) -> dict:
@@ -45,12 +55,22 @@ class PromptEntry:
             "id": self.id,
             "name": self.name,
             "description": self.description,
+            "workflow": self.workflow,
             "stage": self.stage,
+            "order": self.order,
+            "invocation_type": self.invocation_type,
+            "mutual_exclusion_group": self.mutual_exclusion_group,
+            "template_variables": list(self.template_variables),
+            "required_template_variables": list(self.required_template_variables),
             "file": self.file,
         }
 
 
 class UnknownPromptError(KeyError):
+    pass
+
+
+class InvalidPromptError(ValueError):
     pass
 
 
@@ -79,7 +99,13 @@ class PromptLibrary:
                 id=item["id"],
                 name=item["name"],
                 description=item.get("description", ""),
+                workflow=item["workflow"],
                 stage=item["stage"],
+                order=item["order"],
+                invocation_type=item["invocation_type"],
+                mutual_exclusion_group=item["mutual_exclusion_group"],
+                template_variables=tuple(item["template_variables"]),
+                required_template_variables=tuple(item["required_template_variables"]),
                 file=item["file"],
             )
             entries[entry.id] = entry
@@ -92,7 +118,10 @@ class PromptLibrary:
             return self._entries
 
     def list(self) -> list[PromptEntry]:
-        return sorted(self._catalog().values(), key=lambda e: (e.stage, e.id))
+        return sorted(
+            self._catalog().values(),
+            key=lambda entry: (entry.workflow, entry.stage, entry.order, entry.id),
+        )
 
     def stages(self) -> list[str]:
         return sorted({entry.stage for entry in self._catalog().values()})
@@ -113,13 +142,77 @@ class PromptLibrary:
 
     def save(self, prompt_id: str, text: str) -> PromptEntry:
         entry = self.get_entry(prompt_id)
+        self._validate_text(entry, text)
         path = self._root / entry.file
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-        with self._lock:
-            # Text is already on disk; catalog metadata unchanged.
-            pass
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary.write(text)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+                temporary_path = Path(temporary.name)
+            os.replace(temporary_path, path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         return entry
+
+    @staticmethod
+    def _validate_text(entry: PromptEntry, text: str) -> None:
+        if not text.strip():
+            raise InvalidPromptError("prompt text must not be empty")
+
+        fields: set[str] = set()
+        try:
+            for _, field_name, format_spec, _ in Formatter().parse(text):
+                if field_name is not None:
+                    if not field_name:
+                        raise InvalidPromptError(
+                            "anonymous template variables are not supported"
+                        )
+                    if not TEMPLATE_FIELD_PATTERN.fullmatch(field_name):
+                        raise InvalidPromptError(
+                            f"invalid template variable: {field_name}"
+                        )
+                    fields.add(field_name.split(".", 1)[0].split("[", 1)[0])
+                if format_spec:
+                    for _, nested_name, _, _ in Formatter().parse(format_spec):
+                        if nested_name is None:
+                            continue
+                        if not nested_name:
+                            raise InvalidPromptError(
+                                "anonymous template variables are not supported"
+                            )
+                        if not TEMPLATE_FIELD_PATTERN.fullmatch(nested_name):
+                            raise InvalidPromptError(
+                                f"invalid template variable: {nested_name}"
+                            )
+                        fields.add(
+                            nested_name.split(".", 1)[0].split("[", 1)[0]
+                        )
+        except ValueError as error:
+            raise InvalidPromptError(f"malformed template syntax: {error}") from error
+
+        allowed = set(entry.template_variables)
+        unknown = sorted(fields - allowed)
+        if unknown:
+            raise InvalidPromptError(
+                f"unknown template variable(s): {', '.join(unknown)}"
+            )
+
+        missing = sorted(set(entry.required_template_variables) - fields)
+        if missing:
+            raise InvalidPromptError(
+                f"required template variable(s) removed: {', '.join(missing)}"
+            )
 
     def copy_to(self, destination: Path) -> None:
         """Copy the entire library tree into ``destination`` (for snapshots)."""

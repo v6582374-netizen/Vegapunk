@@ -21,6 +21,12 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import yaml
+
+from admin_console.configuration_files import source_configuration_transaction
+from admin_console.runtime_configuration import ExecutionPreparer, PreparedExecution
 
 SNAPSHOT_DIR_NAME = "config_snapshot"
 
@@ -62,12 +68,14 @@ class LaunchQueue:
         config_paths: list[Path],
         runner_command: list[str],
         prompt_library_root: Path | None = None,
+        execution_preparer: ExecutionPreparer | None = None,
     ) -> None:
         self._results_root = results_root
         self._tasks_root = tasks_root
         self._config_paths = config_paths
         self._runner_command = runner_command
         self._prompt_library_root = prompt_library_root
+        self._execution_preparer = execution_preparer
         self._state_path = results_root / "launch_queue.json"
         self._lock = threading.Condition()
         self._entries: list[QueueEntry] = []
@@ -129,7 +137,7 @@ class LaunchQueue:
     def state_for_launch(self, launch_id: str) -> str | None:
         """Authoritative state for a console-started Launch, else None."""
         with self._lock:
-            for entry in self._entries:
+            for entry in reversed(self._entries):
                 if entry.launch_id == launch_id:
                     return entry.state
         return None
@@ -215,39 +223,79 @@ class LaunchQueue:
             # Launch Resume: the original snapshot is authoritative and
             # must not absorb later global edits.
             return snapshot_dir
-        snapshot_dir.mkdir()
-        for config_path in self._config_paths:
-            shutil.copy2(config_path, snapshot_dir / config_path.name)
-        if self._prompt_library_root is not None and self._prompt_library_root.is_dir():
-            shutil.copytree(self._prompt_library_root, snapshot_dir / "prompts")
+        temporary_dir = launch_dir / f".{SNAPSHOT_DIR_NAME}.{uuid.uuid4().hex}"
+        temporary_dir.mkdir()
+        try:
+            with source_configuration_transaction():
+                for config_path in self._config_paths:
+                    shutil.copy2(config_path, temporary_dir / config_path.name)
+            if self._prompt_library_root is not None and self._prompt_library_root.is_dir():
+                shutil.copytree(self._prompt_library_root, temporary_dir / "prompts")
+            self._make_snapshot_self_contained(temporary_dir, snapshot_dir)
+            os.replace(temporary_dir, snapshot_dir)
+        finally:
+            shutil.rmtree(temporary_dir, ignore_errors=True)
         return snapshot_dir
 
+    @staticmethod
+    def _make_snapshot_self_contained(
+        source_dir: Path, destination_dir: Path
+    ) -> None:
+        config_path = source_dir / "default_config.yaml"
+        catalog_path = source_dir / "model_catalog.yaml"
+        if not config_path.is_file() or not catalog_path.is_file():
+            return
+        config = yaml.safe_load(config_path.read_text()) or {}
+        if not isinstance(config, dict) or "model_catalog_path" not in config:
+            return
+        config["model_catalog_path"] = str(
+            (destination_dir / "model_catalog.yaml").resolve()
+        )
+        config_path.write_text(
+            yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
+        )
+
     def _execute(self, entry: QueueEntry, launch_dir: Path) -> None:
-        snapshot_dir = self._snapshot_configuration(launch_dir)
-        command = [
-            part.format(
-                task_dir=self._tasks_root / entry.task,
-                launch_dir=launch_dir,
-                snapshot_dir=snapshot_dir,
-            )
-            for part in self._runner_command
-        ]
-        env = os.environ.copy()
-        snapshot_prompts = launch_dir / SNAPSHOT_DIR_NAME / "prompts"
-        if snapshot_prompts.is_dir():
-            env["VEGAPUNK_PROMPT_LIBRARY_ROOT"] = str(snapshot_prompts)
-        with (launch_dir / "runner.log").open("ab") as log_stream:
-            process = subprocess.Popen(
-                command,
-                stdout=log_stream,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-                env=env,
-            )
-        with self._lock:
-            entry.pid = process.pid
-            self._save()
-        exit_code = process.wait()
+        try:
+            snapshot_dir = self._snapshot_configuration(launch_dir)
+            with TemporaryDirectory(prefix="vegapunk-runtime-") as temporary:
+                prepared = PreparedExecution(
+                    snapshot_dir / "default_config.yaml", {}
+                )
+                if self._execution_preparer is not None:
+                    prepared = self._execution_preparer.prepare(
+                        snapshot_dir, Path(temporary) / "configuration"
+                    )
+                command = [
+                    part.format(
+                        task_dir=self._tasks_root / entry.task,
+                        launch_dir=launch_dir,
+                        snapshot_dir=snapshot_dir,
+                        runtime_config=prepared.config_path,
+                    )
+                    for part in self._runner_command
+                ]
+                env = os.environ.copy()
+                env.update(prepared.environment)
+                snapshot_prompts = snapshot_dir / "prompts"
+                if snapshot_prompts.is_dir():
+                    env["VEGAPUNK_PROMPT_LIBRARY_ROOT"] = str(snapshot_prompts)
+                with (launch_dir / "runner.log").open("ab") as log_stream:
+                    process = subprocess.Popen(
+                        command,
+                        stdout=log_stream,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        env=env,
+                    )
+                with self._lock:
+                    entry.pid = process.pid
+                    self._save()
+                exit_code = process.wait()
+        except Exception as error:
+            with (launch_dir / "runner.log").open("a", encoding="utf-8") as log_stream:
+                log_stream.write(f"Launch startup failed: {error}\n")
+            exit_code = 1
         with self._lock:
             if entry.stopped_how is not None:
                 entry.state = ABORTED

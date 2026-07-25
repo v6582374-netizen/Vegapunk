@@ -119,6 +119,10 @@ class StopAndResumeTest(unittest.TestCase):
         snapshot = (launch_dir / "config_snapshot" / "default_config.yaml").read_text()
         self.assertIn("loop_rounds: 10", snapshot)
         self.assertNotIn("loop_rounds: 99", snapshot)
+        status = self.client.get(
+            f"/api/admin/launches/{finished['launch_id']}/status"
+        )
+        self.assertEqual(status.json()["state"], "completed")
 
     def test_resume_of_running_launch_is_rejected(self) -> None:
         with unittest.mock.patch.dict("os.environ", {"FAKE_RUNNER_SLEEP": "30"}):

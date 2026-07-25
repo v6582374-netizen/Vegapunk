@@ -1,8 +1,8 @@
-# Admin Console 后端
+# Vegapunk 本地工作台后端
 
-Admin Console 的 Python 模块提供队列、任务、Prompt、模型目录、运行参数和产物诊断能力。
+该 Python 模块提供队列、任务、Prompt、模型目录、运行参数和产物诊断能力。
 
-统一前端位于仓库根目录的 `frontend/`，管理员页面通过 `/admin` 路由进入。
+统一前端位于仓库根目录的 `frontend/`，不再区分管理员和用户侧页面。
 
 ## 本地运行
 
@@ -24,9 +24,9 @@ npm run dev
 
 开发服务器会把 `/api` 代理到 `127.0.0.1:8000`。
 
-默认管理员账号是 `admin`，默认密码是 `admin`。
+本地工作台不使用认证。
 
-管理员 API 使用 `/api/admin/*`，旧的未认证 `/api/*` 管理员入口已移除。
+现有 API 使用 `/api/admin/*` 命名空间，后续会在各模块接入时收敛为产品 API。
 
 ## 测试
 
@@ -34,4 +34,4 @@ npm run dev
 python -m unittest discover -s tests/admin_console -t . -v
 ```
 
-测试通过 HTTP 接口验证认证、管理员 API、队列、任务和产物行为。
+测试通过 HTTP 接口验证本地 API、队列、任务和产物行为。

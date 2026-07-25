@@ -2,9 +2,8 @@
 
 这是统一的 React、TypeScript、Vite 前端入口。
 
-用户侧工作区是默认入口。
-
-管理员页面位于受保护的 `/admin` 路由下，并保留完整的高级配置能力。
+Vegapunk 以统一工作台作为唯一入口。
+初版使用左侧模块导航、中央工作区和按需出现的产物预览区域。
 
 ## 本地开发
 
@@ -24,10 +23,6 @@ npm run dev
 
 开发服务器会把 `/api` 请求代理到 `127.0.0.1:8000`。
 
-默认管理员账号是 `admin`，默认密码是 `admin`。
-
-可通过 `VEGAPUNK_ADMIN_PASSWORD` 覆盖首次初始化的管理员密码。
-
 ## 构建和正式运行
 
 ```bash
@@ -37,9 +32,9 @@ cd ..
 python -m uvicorn admin_console.app:create_app --factory --port 8000
 ```
 
-FastAPI 会从 `frontend/dist` 同源托管构建产物，并为用户侧和管理员侧路由返回同一个 SPA 入口。
+FastAPI 会从 `frontend/dist` 同源托管构建产物，并为工作台路径返回同一个 SPA 入口。
 
-管理员接口统一位于 `/api/admin/*`，登录接口位于 `/api/auth/*`。
+本地 API 当前位于 `/api/admin/*`，后续会随各工作台模块逐步收敛命名和产品接口。
 
 ## 检查
 

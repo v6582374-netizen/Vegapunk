@@ -2,215 +2,473 @@ prompts:
 - id: deep_research.execution
   name: Execution Prompt
   description: Deep Research prompt formerly EXECUTION_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: task_execution
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [task, query, file_path, history_subtasks, subtask, knowledge_info]
+  required_template_variables: [task, query, file_path, history_subtasks, subtask, knowledge_info]
   file: deep_research/execution.txt
 - id: deep_research.global_coordinator
   name: Global Coordinator Prompt
   description: Deep Research prompt formerly GLOBAL_COORDINATOR_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: global_planning
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [graph, query, additional_info, tools]
+  required_template_variables: [graph, query, additional_info, tools]
   file: deep_research/global_coordinator.txt
 - id: deep_research.global_planner
   name: Global Planner Prompt
   description: Deep Research prompt formerly GLOBAL_PLANNER_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: global_planning
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [max_iter, current_iter, max_nodes, graph, question, additional_info]
+  required_template_variables: [max_iter, current_iter, max_nodes, graph, question, additional_info]
   file: deep_research/global_planner.txt
 - id: deep_research.info_extraction
   name: Deep Research paper chunk extraction prompt
   description: Deep Research paper chunk extraction prompt
-  stage: deep_research
+  workflow: deep_research
+  stage: evidence_synthesis
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [chunk]
+  required_template_variables: [chunk]
   file: deep_research/info_extraction.txt
 - id: deep_research.info_summary
   name: Deep Research paper chunk summary prompt
   description: Deep Research paper chunk summary prompt
-  stage: deep_research
+  workflow: deep_research
+  stage: evidence_synthesis
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [chunk_extractions]
+  required_template_variables: [chunk_extractions]
   file: deep_research/info_summary.txt
 - id: deep_research.introduction_section
   name: Introduction Section Prompt
   description: Deep Research prompt formerly INTRODUCTION_SECTION_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: report_writing
+  order: 20
+  invocation_type: single
+  mutual_exclusion_group: null
+  template_variables: [question, section_outline, full_outline, graph_dict]
+  required_template_variables: [question, section_outline, full_outline, graph_dict]
   file: deep_research/introduction_section.txt
 - id: deep_research.outline_generation
   name: Outline Generation Prompt
   description: Deep Research prompt formerly OUTLINE_GENERATION_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: report_writing
+  order: 10
+  invocation_type: single
+  mutual_exclusion_group: null
+  template_variables: [question, graph_dict]
+  required_template_variables: [question, graph_dict]
   file: deep_research/outline_generation.txt
 - id: deep_research.planner
   name: Planner Prompt
   description: Deep Research prompt formerly PLANNER_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: task_execution
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [task, query, additional_info, knowledge_info, tools, max_subtasks]
+  required_template_variables: [task, query, additional_info, knowledge_info, tools, max_subtasks]
   file: deep_research/planner.txt
 - id: deep_research.qa_synthesizer
   name: Qa Synthesizer Prompt
   description: Deep Research prompt formerly QA_SYNTHESIZER_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: task_execution
+  order: 50
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: [question, additional_info, graph_dict, dependent_node_ids]
+  required_template_variables: [question, additional_info, graph_dict, dependent_node_ids]
   file: deep_research/qa_synthesizer.txt
 - id: deep_research.section_polishing
   name: Section Polishing Prompt
   description: Deep Research prompt formerly SECTION_POLISHING_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: report_writing
+  order: 40
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [introduction_content, previous_sections, current_section]
+  required_template_variables: [introduction_content, previous_sections, current_section]
   file: deep_research/section_polishing.txt
 - id: deep_research.section_writing
   name: Section Writing Prompt
   description: Deep Research prompt formerly SECTION_WRITING_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: report_writing
+  order: 30
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [question, section_outline, graph_dict]
+  required_template_variables: [question, section_outline, graph_dict]
   file: deep_research/section_writing.txt
 - id: deep_research.summary
   name: Summary Prompt
   description: Deep Research prompt formerly SUMMARY_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: task_execution
+  order: 30
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [subtask, messages, knowledge_info]
+  required_template_variables: [subtask, messages, knowledge_info]
   file: deep_research/summary.txt
 - id: deep_research.task_summary
   name: Task Summary Prompt
   description: Deep Research prompt formerly TASK_SUMMARY_PROMPT
-  stage: deep_research
+  workflow: deep_research
+  stage: task_execution
+  order: 40
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [task, subtask_trace]
+  required_template_variables: [task, subtask_trace]
   file: deep_research/task_summary.txt
 - id: discovery.codeview.claudecode_repo_analysis
   name: Claudecode Repo Analysis Prompt
   description: Codeview agent prompt formerly CLAUDECODE_REPO_ANALYSIS_PROMPT
-  stage: discovery
+  workflow: discovery
+  stage: code_understanding
+  order: 30
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/codeview_claudecode_repo_analysis.txt
 - id: discovery.codeview.code_view
   name: Code View Prompt
   description: Codeview agent prompt formerly CODE_VIEW_PROMPT
-  stage: discovery
+  workflow: discovery
+  stage: code_understanding
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [code]
+  required_template_variables: [code]
   file: discovery/codeview_code_view.txt
 - id: discovery.codeview.code_view_sys
   name: Code View System Prompt
   description: System prompt for the Codeview agent
-  stage: discovery
+  workflow: discovery
+  stage: code_understanding
+  order: 10
+  invocation_type: single
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/codeview_code_view_sys.txt
 - id: discovery.codeview.repo_summary
   name: Repo Summary Prompt
   description: Codeview agent prompt formerly REPO_SUMMARY_PROMPT
-  stage: discovery
+  workflow: discovery
+  stage: code_understanding
+  order: 40
+  invocation_type: single
+  mutual_exclusion_group: null
+  template_variables: [repo_file_tree]
+  required_template_variables: [repo_file_tree]
   file: discovery/codeview_repo_summary.txt
 - id: discovery.evolution.system_balanced
   name: Evolution system balanced tone
   description: Appended when 0.3 <= creativity_level < 0.7
-  stage: discovery
+  workflow: discovery
+  stage: evolution
+  order: 20
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: evolution_tone
+  template_variables: []
+  required_template_variables: []
   file: discovery/evolution_system_balanced.txt
 - id: discovery.evolution.system_base
   name: Evolution system base
   description: Shared base of the evolution system prompt
-  stage: discovery
+  workflow: discovery
+  stage: evolution
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/evolution_system_base.txt
 - id: discovery.evolution.system_conservative
   name: Evolution system conservative tone
   description: Appended when creativity_level < 0.3
-  stage: discovery
+  workflow: discovery
+  stage: evolution
+  order: 20
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: evolution_tone
+  template_variables: []
+  required_template_variables: []
   file: discovery/evolution_system_conservative.txt
 - id: discovery.evolution.system_creative
   name: Evolution system creative tone
   description: Appended when creativity_level >= 0.7
-  stage: discovery
+  workflow: discovery
+  stage: evolution
+  order: 20
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: evolution_tone
+  template_variables: []
+  required_template_variables: []
   file: discovery/evolution_system_creative.txt
 - id: discovery.generation.system
   name: Idea generation system prompt
   description: System tone for hypothesis generation
-  stage: discovery
+  workflow: discovery
+  stage: generation
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [tone]
+  required_template_variables: [tone]
   file: discovery/generation_system.txt
 - id: discovery.method_development.system
   name: Method development system prompt
   description: System prompt for method development
-  stage: discovery
+  workflow: discovery
+  stage: method_development
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/method_development_system.txt
 - id: discovery.ranking.system
   name: Ranking system prompt
   description: System prompt for idea ranking
-  stage: discovery
+  workflow: discovery
+  stage: ranking
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/ranking_system.txt
 - id: discovery.refinement.system
   name: Refinement system prompt
   description: System prompt for method refinement
-  stage: discovery
+  workflow: discovery
+  stage: method_development
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: discovery/refinement_system.txt
 - id: discovery.reflection.system
   name: Reflection system prompt
   description: System prompt for idea criticism
-  stage: discovery
+  workflow: discovery
+  stage: reflection
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: reflection_target
+  template_variables: []
+  required_template_variables: []
   file: discovery/reflection_system.txt
 - id: discovery.reflection.system_method
   name: Method reflection system prompt
   description: System prompt when reflecting on methods rather than ideas
-  stage: discovery
+  workflow: discovery
+  stage: reflection
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: reflection_target
+  template_variables: []
+  required_template_variables: []
   file: discovery/reflection_system_method.txt
 - id: experiment.code_structure
   name: Code structure analysis prompt
   description: Error-focused code structure analysis before debugging
-  stage: experiment
+  workflow: experiment
+  stage: debugging
+  order: 10
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: [error_messages, function_code]
+  required_template_variables: [error_messages, function_code]
   file: experiment/code_structure.txt
 - id: experiment.coder_mcts_draft
   name: MCTS draft coder prompt
   description: Initial MCTS experiment coding instruction
-  stage: experiment
+  workflow: experiment
+  stage: implementation
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_coder
+  template_variables: [idea, method, baseline_results]
+  required_template_variables: [idea, method, baseline_results]
   file: experiment/coder_mcts_draft.txt
 - id: experiment.coder_openhands
   name: OpenHands coder prompt
   description: Baseline-to-idea coding instruction for OpenHands/Claude backends
-  stage: experiment
+  workflow: experiment
+  stage: implementation
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_coder
+  template_variables: [idea_description, code_server_path, max_runs, method]
+  required_template_variables: [idea_description, code_server_path, max_runs, method]
   file: experiment/coder_openhands.txt
 - id: experiment.coder_sci_task
   name: Sci-task coder prompt
   description: Paper reproduction coding instruction
-  stage: experiment
+  workflow: experiment
+  stage: implementation
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_coder
+  template_variables: [idea_description, method, task_description, data_manifest, checklist_count, checklist_summary, max_runs]
+  required_template_variables: [idea_description, method, task_description, data_manifest, checklist_count, checklist_summary, max_runs]
   file: experiment/coder_sci_task.txt
 - id: experiment.debug_with_structure
   name: Debug with structure prompt
   description: Debugging instruction that uses prior structure analysis
-  stage: experiment
+  workflow: experiment
+  stage: debugging
+  order: 20
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: [error_messages, code_structure]
+  required_template_variables: [error_messages, code_structure]
   file: experiment/debug_with_structure.txt
 - id: experiment.mcts_improve
   name: MCTS improve prompt
   description: Atomic improvement instruction for MCTS iterations
-  stage: experiment
+  workflow: experiment
+  stage: iteration
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_iteration
+  template_variables: [RESULTS]
+  required_template_variables: [RESULTS]
   file: experiment/mcts_improve.txt
 - id: experiment.next_experiment
   name: Next experiment prompt
   description: Follow-up instruction after a completed experiment run
-  stage: experiment
+  workflow: experiment
+  stage: iteration
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_iteration
+  template_variables: [RUN_NUM, RESULTS, NEXT_RUN_NUM, code_server_path]
+  required_template_variables: [RUN_NUM, RESULTS, NEXT_RUN_NUM, code_server_path]
   file: experiment/next_experiment.txt
 - id: experiment.next_experiment_sci
   name: Sci-task next experiment prompt
   description: Follow-up after a sci-task experiment run
-  stage: experiment
+  workflow: experiment
+  stage: iteration
+  order: 10
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_iteration
+  template_variables: [RUN_NUM, RESULTS, NEXT_RUN_NUM]
+  required_template_variables: [RUN_NUM, RESULTS, NEXT_RUN_NUM]
   file: experiment/next_experiment_sci.txt
 - id: paper.agent_review.agentreview_instructions
   name: agent_review:AGENTREVIEW_INSTRUCTIONS
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/agent_review.py
-  stage: paper
+  workflow: paper
+  stage: paper_review
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: paper/agent_review_agentreview_instructions.txt
 - id: paper.agent_review.meta_reviewer_system_prompt
   name: agent_review:meta_reviewer_system_prompt
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/agent_review.py
-  stage: paper
+  workflow: paper
+  stage: paper_review
+  order: 30
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [reviewer_count]
+  required_template_variables: [reviewer_count]
   file: paper/agent_review_meta_reviewer_system_prompt.txt
 - id: paper.citation_f1.priority_prompt
   name: citation_f1:PRIORITY_PROMPT
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/citation_f1.py
-  stage: paper
+  workflow: paper
+  stage: citation_review
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [paper_text, references_str]
+  required_template_variables: [paper_text, references_str]
   file: paper/citation_f1_priority_prompt.txt
 - id: paper.lit_review_quality_prompts.lit_review_quality_system_prompt
   name: lit_review_quality_prompts:lit_review_quality_system_prompt
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/lit_review_quality_prompts.py
-  stage: paper
+  workflow: paper
+  stage: literature_review
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [avg_citation_count]
+  required_template_variables: [avg_citation_count]
   file: paper/lit_review_quality_prompts_lit_review_quality_system_prompt.txt
 - id: paper.prompt_utils.universal_no_leakage_prompt
   name: prompt_utils:UNIVERSAL_NO_LEAKAGE_PROMPT
   description: PaperOrchestra prompt from third_party/paper_orchestra/utils/prompt_utils.py
-  stage: paper
+  workflow: paper
+  stage: safeguards
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: paper/prompt_utils_universal_no_leakage_prompt.txt
 - id: paper.sxs_quality_prompts.sxs_lit_review_quality_system_prompt
   name: sxs_quality_prompts:sxs_lit_review_quality_system_prompt
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/sxs_quality_prompts.py
-  stage: paper
+  workflow: paper
+  stage: literature_review
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: paper/sxs_quality_prompts_sxs_lit_review_quality_system_prompt.txt
 - id: paper.sxs_quality_prompts.sxs_paper_quality_system_prompt
   name: sxs_quality_prompts:sxs_paper_quality_system_prompt
   description: PaperOrchestra prompt from third_party/paper_orchestra/autoraters/prompts/sxs_quality_prompts.py
-  stage: paper
+  workflow: paper
+  stage: paper_review
+  order: 20
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: paper/sxs_quality_prompts_sxs_paper_quality_system_prompt.txt
 - id: scoring.scorer_system
   name: Sci Scorer System Prompt
   description: System prompt for Sci task LLM judging
-  stage: scoring
+  workflow: scoring
+  stage: evaluation
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: []
+  required_template_variables: []
   file: scoring/scorer_system.txt

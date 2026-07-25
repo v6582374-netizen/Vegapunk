@@ -90,7 +90,13 @@ export interface PromptRecord {
   id: string;
   name: string;
   description: string;
+  workflow: string;
   stage: string;
+  order: number;
+  invocation_type: "single" | "repeated" | "conditional" | "mutually_exclusive";
+  mutual_exclusion_group: string | null;
+  template_variables: string[];
+  required_template_variables: string[];
   file: string;
   text: string;
 }
@@ -104,6 +110,97 @@ export async function savePrompt(id: string, text: string): Promise<PromptRecord
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
+  });
+}
+
+export type VerificationStatus =
+  | "unverified"
+  | "valid"
+  | "authentication_failed"
+  | "unreachable";
+
+export interface ProviderConnection {
+  provider: "relay" | "qwen";
+  name: string;
+  base_url: string;
+  base_url_configurable: boolean;
+  credential_configured: boolean;
+  credential_source: "vault" | "environment" | "missing";
+  environment_variable: string | null;
+  verification_status: VerificationStatus;
+  model_count: number;
+}
+
+export async function fetchProviderConnections(): Promise<ProviderConnection[]> {
+  return (
+    await request<{ connections: ProviderConnection[] }>(
+      "/api/admin/provider-connections",
+    )
+  ).connections;
+}
+
+export async function saveProviderConnection(
+  provider: string,
+  values: { api_key?: string; base_url?: string },
+): Promise<ProviderConnection> {
+  return request(`/api/admin/provider-connections/${provider}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  });
+}
+
+export async function verifyProviderConnection(
+  provider: string,
+): Promise<ProviderConnection> {
+  return request(`/api/admin/provider-connections/${provider}/verify`, {
+    method: "POST",
+  });
+}
+
+export async function deleteProviderCredential(
+  provider: string,
+): Promise<ProviderConnection> {
+  return request(`/api/admin/provider-connections/${provider}/credential`, {
+    method: "DELETE",
+  });
+}
+
+export interface ModelOption {
+  id: string;
+  provider: string;
+  model: string;
+  capabilities: string[];
+}
+
+export interface DefaultConfiguration {
+  revision: string;
+  bindings: {
+    active_text_model: string;
+    image_model: string;
+    embedding_model: string;
+  };
+  models: ModelOption[];
+  parameter_catalog: ParameterField[];
+  parameters: Record<string, unknown>;
+  readiness: {
+    ready: boolean;
+    connections: ProviderConnection[];
+  };
+}
+
+export async function fetchDefaultConfiguration(): Promise<DefaultConfiguration> {
+  return request("/api/admin/default-configuration");
+}
+
+export async function saveDefaultConfiguration(values: {
+  bindings: DefaultConfiguration["bindings"];
+  parameters: Record<string, unknown>;
+}): Promise<DefaultConfiguration> {
+  return request("/api/admin/default-configuration", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
   });
 }
 

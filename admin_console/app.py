@@ -9,13 +9,11 @@ import json
 
 from fastapi import (
     APIRouter,
-    Depends,
     FastAPI,
     File,
     Form,
     HTTPException,
     Request,
-    Response,
     UploadFile,
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -23,13 +21,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from admin_console.auth import AdminAuth
 from admin_console.artifacts import (
     ArtifactPathError,
     artifact_tree,
     guess_media_type,
     resolve_artifact,
     resolve_launch_dir,
+)
+from admin_console.configuration_files import source_configuration_transaction
+from admin_console.default_configuration import (
+    read_default_configuration,
+    save_default_configuration,
 )
 from admin_console.launches import scan_launches
 from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
@@ -44,7 +46,20 @@ from admin_console.parameters import (
     save_values,
     validate_values,
 )
+from admin_console.provider_connections import (
+    InvalidProviderConnectionError,
+    KeyringSecretStore,
+    ProviderProbe,
+    ProviderConnectionService,
+    SecretStoreUnavailableError,
+    SecretStore,
+    UnknownProviderError,
+)
 from admin_console.queue import LaunchQueue, UnknownTaskError
+from admin_console.runtime_configuration import (
+    CapabilityPreflight,
+    ExecutionPreparer,
+)
 from admin_console.tasks import (
     TaskExistsError,
     TaskNameError,
@@ -59,6 +74,7 @@ from admin_console.model_catalog import (
 )
 from vegapunk.prompt_library import (
     DEFAULT_LIBRARY_ROOT,
+    InvalidPromptError,
     PromptLibrary,
     UnknownPromptError,
 )
@@ -73,9 +89,10 @@ DEFAULT_CONFIG_PATHS = [
 
 # The real launcher tolerates an empty --resume directory (it scans and
 # resumes from round zero), which lets the queue own the launch directory
-# it snapshots into. --config points at the Launch Configuration Snapshot
-# so the run reads only its snapshot (ADR-0157). The backend choice moves
-# to the Run Parameter Registry in a later slice.
+# it snapshots into. --config points at the preflight runtime copy, which
+# keeps the Launch snapshot bindings while injecting current Provider
+# connections. The backend choice moves to the Run Parameter Registry in a
+# later slice.
 DEFAULT_RUNNER_COMMAND = [
     sys.executable,
     str(REPOSITORY_ROOT / "launch_discovery.py"),
@@ -84,7 +101,7 @@ DEFAULT_RUNNER_COMMAND = [
     "--resume",
     "{launch_dir}",
     "--config",
-    "{snapshot_dir}/default_config.yaml",
+    "{runtime_config}",
     "--exp_backend",
     "claudecode",
 ]
@@ -98,9 +115,14 @@ class PromptUpdate(BaseModel):
     text: str
 
 
-class AdminLogin(BaseModel):
-    username: str
-    password: str
+class ProviderConnectionUpdate(BaseModel):
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+class DefaultConfigurationUpdate(BaseModel):
+    bindings: dict[str, str]
+    parameters: dict
 
 
 def create_app(
@@ -111,9 +133,10 @@ def create_app(
     main_config_path: Path | None = None,
     prompt_library_root: Path | None = None,
     model_catalog_path: Path | None = None,
-    auth_db_path: Path | None = None,
-    admin_password: str | None = None,
     frontend_dist: Path | None = None,
+    secret_store: SecretStore | None = None,
+    provider_probe: ProviderProbe | None = None,
+    execution_preparer: ExecutionPreparer | None = None,
 ) -> FastAPI:
     resolved_results_root = results_root or (REPOSITORY_ROOT / "results")
     resolved_tasks_root = tasks_root or (REPOSITORY_ROOT / "tasks")
@@ -121,17 +144,30 @@ def create_app(
     resolved_prompt_root = prompt_library_root or DEFAULT_LIBRARY_ROOT
     resolved_catalog_path = model_catalog_path or DEFAULT_CONFIG_PATHS[1]
     resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
-    resolved_auth_db = auth_db_path or (
-        resolved_results_root.parent / ".vegapunk" / "admin-auth.sqlite3"
-    )
     prompt_library = PromptLibrary(resolved_prompt_root)
-    auth = AdminAuth(resolved_auth_db, password=admin_password)
+    provider_connections = ProviderConnectionService(
+        resolved_catalog_path,
+        secret_store or KeyringSecretStore(),
+        **({"probe": provider_probe} if provider_probe is not None else {}),
+    )
+    resolved_config_paths = config_paths if config_paths is not None else [
+        resolved_main_config,
+        resolved_catalog_path,
+        DEFAULT_CONFIG_PATHS[2],
+    ]
+    resolved_runner_command = (
+        runner_command if runner_command is not None else DEFAULT_RUNNER_COMMAND
+    )
+    resolved_execution_preparer = execution_preparer
+    if resolved_execution_preparer is None and runner_command is None:
+        resolved_execution_preparer = CapabilityPreflight(provider_connections)
     queue = LaunchQueue(
         results_root=resolved_results_root,
         tasks_root=resolved_tasks_root,
-        config_paths=config_paths or DEFAULT_CONFIG_PATHS,
-        runner_command=runner_command or DEFAULT_RUNNER_COMMAND,
+        config_paths=resolved_config_paths,
+        runner_command=resolved_runner_command,
         prompt_library_root=resolved_prompt_root,
+        execution_preparer=resolved_execution_preparer,
     )
 
     app = FastAPI(title="Vegapunk")
@@ -152,45 +188,7 @@ def create_app(
                 )
         return await call_next(request)
 
-    def require_admin(request: Request) -> str:
-        username = auth.session_username(request.cookies.get(auth.cookie_name))
-        if username is None:
-            raise HTTPException(status_code=401, detail="administrator authentication required")
-        return username
-
-    admin_router = APIRouter(
-        prefix="/api/admin",
-        dependencies=[Depends(require_admin)],
-    )
-
-    @app.post("/api/auth/login")
-    def login(credentials: AdminLogin, response: Response) -> dict:
-        token = auth.login(credentials.username, credentials.password)
-        if token is None:
-            raise HTTPException(status_code=401, detail="invalid administrator credentials")
-        response.set_cookie(
-            key=auth.cookie_name,
-            value=token,
-            httponly=True,
-            samesite="strict",
-            secure=False,
-            max_age=auth.absolute_seconds,
-            path="/",
-        )
-        return {"authenticated": True, "username": credentials.username}
-
-    @app.get("/api/auth/me")
-    def current_session(request: Request) -> dict:
-        username = auth.session_username(request.cookies.get(auth.cookie_name))
-        if username is None:
-            return {"authenticated": False}
-        return {"authenticated": True, "username": username}
-
-    @app.post("/api/auth/logout")
-    def logout(request: Request, response: Response) -> dict:
-        auth.logout(request.cookies.get(auth.cookie_name))
-        response.delete_cookie(auth.cookie_name, path="/")
-        return {"authenticated": False}
+    admin_router = APIRouter(prefix="/api/admin")
 
     @admin_router.get("/launches")
     def list_launches() -> dict:
@@ -288,11 +286,80 @@ def create_app(
             entry = prompt_library.save(prompt_id, update.text)
         except UnknownPromptError:
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
+        except InvalidPromptError as error:
+            raise HTTPException(status_code=422, detail=str(error))
         return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+
+    @admin_router.get("/provider-connections")
+    def list_provider_connections() -> dict:
+        try:
+            return {"connections": provider_connections.list()}
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
+
+    @admin_router.put("/provider-connections/{provider}")
+    def put_provider_connection(
+        provider: str, update: ProviderConnectionUpdate
+    ) -> dict:
+        try:
+            return provider_connections.update(
+                provider, api_key=update.api_key, base_url=update.base_url
+            )
+        except UnknownProviderError:
+            raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
+        except InvalidProviderConnectionError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
+
+    @admin_router.post("/provider-connections/{provider}/verify")
+    def verify_provider_connection(provider: str) -> dict:
+        try:
+            return provider_connections.verify(provider)
+        except UnknownProviderError:
+            raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
+
+    @admin_router.delete("/provider-connections/{provider}/credential")
+    def delete_provider_credential(provider: str) -> dict:
+        try:
+            return provider_connections.delete_credential(provider)
+        except UnknownProviderError:
+            raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
 
     @admin_router.get("/model-catalog")
     def get_model_catalog() -> dict:
-        return load_catalog(resolved_catalog_path)
+        with source_configuration_transaction():
+            return load_catalog(resolved_catalog_path)
+
+    @admin_router.get("/default-configuration")
+    def get_default_configuration() -> dict:
+        try:
+            return read_default_configuration(
+                resolved_main_config, resolved_catalog_path, provider_connections
+            )
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
+
+    @admin_router.put("/default-configuration")
+    def put_default_configuration(update: DefaultConfigurationUpdate) -> dict:
+        try:
+            return save_default_configuration(
+                resolved_main_config,
+                resolved_catalog_path,
+                provider_connections,
+                update.bindings,
+                update.parameters,
+            )
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail=json.loads(error.json()))
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
 
     @admin_router.put("/model-catalog")
     def put_model_catalog(values: dict) -> dict:
@@ -305,12 +372,17 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error))
-        save_catalog(resolved_catalog_path, document)
-        return load_catalog(resolved_catalog_path)
+        with source_configuration_transaction():
+            save_catalog(resolved_catalog_path, document)
+            return load_catalog(resolved_catalog_path)
 
     @admin_router.get("/parameters")
     def get_parameters() -> dict:
-        return {"catalog": parameter_catalog(), "values": load_values(resolved_main_config)}
+        with source_configuration_transaction():
+            return {
+                "catalog": parameter_catalog(),
+                "values": load_values(resolved_main_config),
+            }
 
     @admin_router.put("/parameters")
     def put_parameters(values: dict) -> dict:
@@ -318,8 +390,9 @@ def create_app(
             parameters = validate_values(values)
         except ValidationError as error:
             raise HTTPException(status_code=422, detail=error.errors(include_url=False))
-        save_values(resolved_main_config, parameters)
-        return {"values": load_values(resolved_main_config)}
+        with source_configuration_transaction():
+            save_values(resolved_main_config, parameters)
+            return {"values": load_values(resolved_main_config)}
 
     def _launch_dir_or_404(launch_id: str) -> Path:
         launch_dir = resolve_launch_dir(resolved_results_root, launch_id)
