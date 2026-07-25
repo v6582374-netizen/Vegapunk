@@ -13,5 +13,13 @@
     "theme_axes": "light / geometric-sans / cool",
     "enrichment": "seeded 2D Canvas point cloud",
     "brief": "Vegapunk light-field Swiss research workspace"
+  },
+  {
+    "date": "2026-07-26",
+    "macrostructure": "Workbench Field",
+    "theme": "custom",
+    "theme_axes": "light / geometric-sans / cool",
+    "enrichment": "distributed static particle texture",
+    "brief": "Vegapunk distributed state-particle research workspace"
   }
 ]

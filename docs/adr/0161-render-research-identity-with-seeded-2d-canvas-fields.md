@@ -1,4 +1,4 @@
-Status: accepted
+Status: superseded by ADR-0162
 
 # Render Research Identity with Seeded 2D Canvas Fields
 

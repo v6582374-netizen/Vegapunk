@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { IdentityField } from "./features/researcher/IdentityField";
 import { SystemSettings } from "./features/settings/SystemSettings";
 
 type ModuleId = "chat" | "skills" | "projects" | "settings";
@@ -67,10 +66,6 @@ function ProjectSpace({
             <span>本地工作区</span>
           </div>
         </div>
-        <IdentityField
-          className="project-identity-field reveal"
-          seed="project:traceable-context-reasoning"
-        />
       </div>
 
       <div className="project-ledger reveal" style={{ "--i": 1 } as React.CSSProperties}>
@@ -237,8 +232,13 @@ export default function App() {
     if (module !== "projects") setPreviewOpen(false);
   };
 
+  const openPreview = () => {
+    setPreviewOpen(true);
+    window.scrollTo(0, 0);
+  };
+
   return (
-    <div className={`workspace ${previewOpen ? "has-preview" : ""}`}>
+    <div className={`workspace workspace--${activeModule} ${previewOpen ? "has-preview" : ""}`}>
       <aside className="workspace-sidebar">
         <div className="brand-lockup">
           <span className="brand-mark"><Atom aria-hidden="true" /></span>
@@ -273,7 +273,7 @@ export default function App() {
         </nav>
 
         <div className="sidebar-footnote">
-          <span>LOCAL / 01</span>
+          <span>INTRANET / 01</span>
           <p>研究仍在现场。</p>
         </div>
       </aside>
@@ -284,10 +284,10 @@ export default function App() {
             <p className="workspace-location">工作区 / {active.label}</p>
             <span>{activeModule === "settings" ? "配置与运行控制" : "初版交互演示"}</span>
           </div>
-          <div className="header-status"><i className="status-dot" aria-hidden="true" />本地运行</div>
+          <div className="header-status"><i className="status-dot" aria-hidden="true" />内网运行</div>
         </header>
         {activeModule === "projects" ? (
-          <ProjectSpace previewOpen={previewOpen} onOpenPreview={() => setPreviewOpen(true)} />
+          <ProjectSpace previewOpen={previewOpen} onOpenPreview={openPreview} />
         ) : activeModule === "settings" ? (
           <SystemSettings />
         ) : (

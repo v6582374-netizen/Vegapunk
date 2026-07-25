@@ -1,7 +1,7 @@
-/* Hallmark · macrostructure: Marquee Hero · route: custom (tuned) · tone: technical editorial
- * vibe: "light-field research exhibition" · paper: oklch(98.5% 0.007 240) · accent: oklch(55% 0.17 250)
+/* Hallmark · macrostructure: Workbench Field · route: custom (tuned) · tone: technical editorial
+ * vibe: "grid-aware computational research paper" · paper: oklch(98.5% 0.007 240) · accent: oklch(55% 0.17 250)
  * display: Space Grotesk Variable · body: IBM Plex Sans Variable · axes: light / geometric-sans / cool
- * enrichment: seeded 2D Canvas point cloud · nav: N9 Edge-Aligned · footer: none · studied: no
+ * enrichment: distributed static particle texture · nav: N9 Edge-Aligned · footer: none · studied: no
  * pre-emit critique: P5 H5 E5 S5 R5 V5 */
 @import "@fontsource-variable/space-grotesk";
 @import "@fontsource-variable/ibm-plex-sans";
@@ -1759,6 +1759,17 @@ svg {
   }
 }
 
+@media (min-width: 60rem) and (max-width: 75.999rem) {
+  .workspace.has-preview {
+    grid-template-areas: "sidebar preview";
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  }
+
+  .workspace.has-preview .workspace-main {
+    display: none;
+  }
+}
+
 @media (min-width: 76rem) {
   .prompt-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1871,8 +1882,7 @@ svg {
 
 .workspace-location,
 .project-kicker,
-.section-label,
-.identity-field-corners {
+.section-label {
   color: var(--color-label);
 }
 
@@ -1944,60 +1954,6 @@ svg {
   color: var(--color-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-
-.identity-field {
-  position: relative;
-  min-height: 17rem;
-  overflow: hidden;
-  isolation: isolate;
-  background: var(--color-paper-2);
-  border: var(--rule-hair) solid var(--color-rule);
-}
-
-.identity-field-grid,
-.identity-field-grid::before,
-.identity-field-grid::after {
-  position: absolute;
-  inset: var(--space-md);
-  z-index: -1;
-  content: "";
-  pointer-events: none;
-}
-
-.identity-field-grid {
-  border: var(--rule-hair) solid var(--color-identity-grid);
-}
-
-.identity-field-grid::before {
-  inset: 0 auto 0 33.333%;
-  width: var(--rule-hair);
-  background: var(--color-identity-grid);
-}
-
-.identity-field-grid::after {
-  inset: 50% 0 auto;
-  height: var(--rule-hair);
-  background: var(--color-identity-grid);
-}
-
-.identity-field-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.identity-field-corners {
-  position: absolute;
-  inset: var(--space-sm) var(--space-md) auto;
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  pointer-events: none;
 }
 
 .project-ledger,
@@ -2151,9 +2107,6 @@ svg {
     transform: none;
   }
 
-  .identity-field:hover .identity-field-canvas {
-    opacity: 0.86;
-  }
 }
 
 @media (min-width: 60rem) {
@@ -2171,15 +2124,6 @@ svg {
 
   .module-nav button.is-active {
     border-inline-start-color: var(--color-accent);
-  }
-
-  .project-hero {
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-    min-height: 31rem;
-  }
-
-  .identity-field {
-    min-height: 100%;
   }
 
   .project-space {
@@ -2206,7 +2150,380 @@ svg {
     padding-inline: clamp(var(--space-3xl), 7vw, 9rem);
   }
 
+}
+
+/* Distributed state-particle research identity revision. */
+.workspace {
+  --module-particle-shadow:
+    6rem 5rem 0 0 var(--color-particle-faint),
+    18rem 10rem 0 0 var(--color-particle-faint),
+    33rem 4rem 0 0 var(--color-particle-faint),
+    46rem 19rem 0 0 var(--color-particle-faint),
+    15rem 31rem 0 0 var(--color-particle-faint),
+    59rem 43rem 0 0 var(--color-particle-faint),
+    27rem 57rem 0 0 var(--color-particle-faint),
+    8rem 76rem 0 0 var(--color-particle-faint),
+    48rem 89rem 0 0 var(--color-particle-faint),
+    31rem 112rem 0 0 var(--color-particle-faint);
+}
+
+.workspace--projects {
+  --module-particle-shadow:
+    5rem 4rem 0 0 var(--color-particle-soft),
+    14rem 10rem 0 0 var(--color-particle-faint),
+    27rem 6rem 0 0 var(--color-particle-soft),
+    41rem 17rem 0 0 var(--color-particle-faint),
+    55rem 8rem 0 0 var(--color-particle-soft),
+    66rem 23rem 0 0 var(--color-particle-faint),
+    8rem 34rem 0 0 var(--color-particle-faint),
+    20rem 43rem 0 0 var(--color-particle-soft),
+    37rem 39rem 0 0 var(--color-particle-faint),
+    52rem 51rem 0 0 var(--color-particle-soft),
+    63rem 63rem 0 0 var(--color-particle-faint),
+    12rem 74rem 0 0 var(--color-particle-faint),
+    29rem 89rem 0 0 var(--color-particle-soft),
+    46rem 101rem 0 0 var(--color-particle-faint),
+    60rem 121rem 0 0 var(--color-particle-soft);
+}
+
+.workspace--skills,
+.workspace--chat {
+  --module-particle-shadow:
+    8rem 7rem 0 0 var(--color-particle-soft),
+    24rem 14rem 0 0 var(--color-particle-faint),
+    40rem 9rem 0 0 var(--color-particle-soft),
+    16rem 32rem 0 0 var(--color-particle-faint),
+    53rem 43rem 0 0 var(--color-particle-soft),
+    30rem 65rem 0 0 var(--color-particle-faint);
+}
+
+.workspace-main {
+  position: relative;
+  isolation: isolate;
+}
+
+.workspace-main::before {
+  position: absolute;
+  z-index: 0;
+  top: 5rem;
+  left: var(--space-lg);
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-faint);
+  box-shadow: var(--module-particle-shadow);
+}
+
+.workspace-main > * {
+  position: relative;
+  z-index: 1;
+}
+
+.project-hero {
+  position: relative;
+  min-height: 0;
+  max-width: 66rem;
+  padding: var(--space-xl) 0 var(--space-2xl) var(--space-lg);
+  border-top: var(--rule-hair) solid var(--color-texture-rule);
+}
+
+.project-hero::before,
+.project-hero::after,
+.project-ledger::after,
+.artifact-section::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.project-hero::before {
+  top: 0;
+  left: 0;
+  width: 7rem;
+  height: 4rem;
+  border-top: var(--rule-hair) solid var(--color-texture-rule);
+  border-inline-start: var(--rule-hair) solid var(--color-texture-rule);
+}
+
+.project-hero::after {
+  top: var(--space-lg);
+  right: var(--space-xl);
+  width: var(--particle-dot);
+  height: var(--particle-dot);
+  background: var(--color-particle-strong);
+  box-shadow:
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * -3) calc(var(--particle-cluster-offset) * 4) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * 2) calc(var(--particle-cluster-offset) * 5) 0 0 var(--color-particle-faint);
+}
+
+.project-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.project-intro h1 {
+  max-width: 15ch;
+}
+
+.project-ledger,
+.artifact-section,
+.prompt-workflow,
+.settings-intro,
+.provider-row,
+.parameter-row,
+.settings-tabs button,
+.module-nav button,
+.artifact-row {
+  position: relative;
+}
+
+.project-ledger::after,
+.artifact-section::after {
+  top: var(--space-lg);
+  right: var(--space-sm);
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  background: var(--color-particle-soft);
+  box-shadow:
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-soft);
+}
+
+.module-nav button.is-active::after,
+.settings-tabs button.is-active::after {
+  position: absolute;
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-strong);
+  box-shadow:
+    var(--particle-cluster-offset) 0 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * 2) var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * 3) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint);
+}
+
+.module-nav button.is-active::after {
+  top: var(--space-sm);
+  right: var(--space-md);
+}
+
+.settings-tabs button.is-active::after {
+  right: var(--space-lg);
+  bottom: var(--space-xs);
+}
+
+.research-path li.is-active::after,
+.artifact-row-button.is-selected::after {
+  position: absolute;
+  width: var(--particle-dot);
+  height: var(--particle-dot);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-strong);
+  box-shadow:
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-soft);
+}
+
+.research-path li.is-active::after {
+  top: var(--space-md);
+  right: var(--space-sm);
+}
+
+.artifact-row-button.is-selected::after {
+  top: var(--space-sm);
+  right: var(--space-xs);
+}
+
+.settings-intro::after {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-xs);
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-faint);
+  box-shadow:
+    calc(var(--particle-cluster-offset) * -1) 0 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -2) 0 0 0 var(--color-particle-faint),
+    0 var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -2) var(--particle-cluster-offset) 0 0 var(--color-particle-faint);
+}
+
+.prompt-workflow {
+  --workflow-particle-shadow:
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-soft);
+}
+
+.prompt-workflow[data-particle-identity="discovery"] {
+  --workflow-particle-shadow:
+    calc(var(--particle-cluster-offset) * -2) 0 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -1) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-soft),
+    var(--particle-cluster-offset) var(--particle-cluster-offset) 0 0 var(--color-particle-faint);
+}
+
+.prompt-workflow[data-particle-identity="experiment"] {
+  --workflow-particle-shadow:
+    calc(var(--particle-cluster-offset) * -3) var(--particle-cluster-offset) 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -1) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 4) 0 0 var(--color-particle-soft);
+}
+
+.prompt-workflow[data-particle-identity="paper"] {
+  --workflow-particle-shadow:
+    calc(var(--particle-cluster-offset) * -1) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 4) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) var(--particle-cluster-offset) 0 0 var(--color-particle-faint);
+}
+
+.prompt-workflow[data-particle-identity="scoring"] {
+  --workflow-particle-shadow:
+    calc(var(--particle-cluster-offset) * -3) 0 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-soft),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-faint);
+}
+
+.prompt-workflow::before {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-md);
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-soft);
+  box-shadow: var(--workflow-particle-shadow);
+}
+
+.prompt-card {
+  position: relative;
+  border-color: var(--color-texture-rule);
+}
+
+.prompt-card::before {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  width: var(--space-md);
+  height: var(--space-md);
+  content: "";
+  pointer-events: none;
+  border-top: var(--rule-hair) solid var(--color-texture-soft);
+  border-inline-end: var(--rule-hair) solid var(--color-texture-soft);
+}
+
+.prompt-card::after {
+  position: absolute;
+  right: var(--space-lg);
+  bottom: var(--space-lg);
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-faint);
+  box-shadow:
+    var(--particle-cluster-offset) 0 0 0 var(--color-particle-faint),
+    calc(var(--particle-cluster-offset) * 2) var(--particle-cluster-offset) 0 0 var(--color-particle-faint);
+  transition: opacity var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.prompt-card:hover::after,
+.prompt-card:focus-visible::after {
+  opacity: 1;
+  background: var(--color-particle-strong);
+  transform: translateY(calc(var(--space-3xs) * -1));
+}
+
+.provider-fields label,
+.binding-grid label,
+.parameter-map label {
+  position: relative;
+}
+
+.provider-fields label::after,
+.binding-grid label::after,
+.parameter-map label::after,
+.parameter-row::after {
+  position: absolute;
+  width: var(--particle-dot-small);
+  height: var(--particle-dot-small);
+  content: "";
+  pointer-events: none;
+  opacity: 0;
+  background: var(--color-particle-focus);
+  box-shadow:
+    var(--particle-cluster-offset) 0 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * 2) var(--particle-cluster-offset) 0 0 var(--color-particle-faint);
+  transform: scale(0.75);
+  transition: opacity var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.provider-fields label::after,
+.binding-grid label::after,
+.parameter-map label::after {
+  right: var(--space-sm);
+  bottom: var(--space-sm);
+}
+
+.parameter-row::after {
+  top: var(--space-md);
+  right: var(--space-xs);
+}
+
+.provider-fields label:focus-within::after,
+.binding-grid label:focus-within::after,
+.parameter-map label:focus-within::after,
+.parameter-row:has(:is(input, select, textarea):focus-visible)::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.provider-row:has(.is-spinning)::before {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-sm);
+  width: var(--particle-dot);
+  height: var(--particle-dot);
+  content: "";
+  pointer-events: none;
+  background: var(--color-particle-strong);
+  box-shadow:
+    calc(var(--particle-cluster-offset) * -1) var(--particle-cluster-offset) 0 0 var(--color-particle-soft),
+    calc(var(--particle-cluster-offset) * -2) calc(var(--particle-cluster-offset) * 2) 0 0 var(--color-particle-faint),
+    var(--particle-cluster-offset) calc(var(--particle-cluster-offset) * 3) 0 0 var(--color-particle-soft);
+  animation: particle-action var(--dur-long) var(--ease-out) both;
+}
+
+@keyframes particle-action {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+
+  to {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+}
+
+@media (min-width: 64rem) {
   .project-hero {
-    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    padding-inline-start: var(--space-xl);
   }
 }

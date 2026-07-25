@@ -375,7 +375,7 @@ function PromptLibraryView({
 
       <div className="prompt-catalogue">
         {[...workflows].map(([workflow, stages]) => (
-          <section className="prompt-workflow" key={workflow}>
+          <section className="prompt-workflow" data-particle-identity={workflow} key={workflow}>
             <header>
               <span>{workflow}</span>
               <h2>{WORKFLOW_LABELS[workflow] ?? workflow}</h2>

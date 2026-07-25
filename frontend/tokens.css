@@ -24,10 +24,12 @@
   --color-rail-ink: oklch(20% 0.02 252);
   --color-rail-muted: oklch(50% 0.018 246);
   --color-rail-rule: oklch(84% 0.02 240);
-  --color-identity-deep: oklch(44% 0.15 252);
-  --color-identity-mid: oklch(62% 0.17 245);
-  --color-identity-light: oklch(82% 0.13 230);
-  --color-identity-grid: oklch(91% 0.04 235);
+  --color-particle-faint: oklch(72% 0.095 238 / 0.16);
+  --color-particle-soft: oklch(62% 0.13 242 / 0.28);
+  --color-particle-strong: oklch(52% 0.16 248 / 0.62);
+  --color-particle-focus: oklch(56% 0.17 250 / 0.72);
+  --color-texture-rule: oklch(76% 0.075 238 / 0.56);
+  --color-texture-soft: oklch(83% 0.06 235 / 0.42);
   --color-pdf-paper: oklch(99% 0.006 240);
   --color-pdf-ink: oklch(23% 0.018 252);
   --color-pdf-neutral: oklch(40% 0.016 248);
@@ -70,7 +72,10 @@
   --radius-round: 999px;
   --rule-hair: 1px;
   --rule-focus: 3px;
-  --shadow-sheet: 0 1.5rem 3rem oklch(25% 0.014 145 / 0.11);
+  --particle-dot: 0.1875rem;
+  --particle-dot-small: 0.125rem;
+  --particle-cluster-offset: 0.5625rem;
+  --shadow-sheet: 0 1.5rem 3rem oklch(25% 0.014 252 / 0.11);
 
   --dur-micro: 120ms;
   --dur-short: 220ms;
