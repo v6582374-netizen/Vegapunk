@@ -1,0 +1,17 @@
+[
+  {
+    "date": "2026-07-24",
+    "macrostructure": "Workbench",
+    "theme": "Studio",
+    "enrichment": "none",
+    "brief": "Vegapunk unified three-column research workspace demo"
+  },
+  {
+    "date": "2026-07-26",
+    "macrostructure": "Marquee Hero",
+    "theme": "custom",
+    "theme_axes": "light / geometric-sans / cool",
+    "enrichment": "seeded 2D Canvas point cloud",
+    "brief": "Vegapunk light-field Swiss research workspace"
+  }
+]

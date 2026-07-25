@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { IdentityField } from "./features/researcher/IdentityField";
 import { SystemSettings } from "./features/settings/SystemSettings";
 
 type ModuleId = "chat" | "skills" | "projects" | "settings";
@@ -48,22 +49,28 @@ function ProjectSpace({
 }) {
   return (
     <section className="project-space" aria-labelledby="project-title">
-      <div className="project-intro reveal" style={{ "--i": 0 } as React.CSSProperties}>
-        <div className="project-kicker">
-          <span>当前课题</span>
-          <span className="project-kicker-rule" aria-hidden="true" />
-          <span>研究中</span>
+      <div className="project-hero">
+        <div className="project-intro reveal" style={{ "--i": 0 } as React.CSSProperties}>
+          <div className="project-kicker">
+            <span>当前课题</span>
+            <span className="project-kicker-rule" aria-hidden="true" />
+            <span>研究中</span>
+          </div>
+          <h1 id="project-title">让长上下文推理的<br className="preview-title-break" />证据可追溯。</h1>
+          <p>
+            这是一个用于讨论证据链、检验路径和论文产物的课题空间示例。
+            初版只呈现工作台结构，不连接真实研究任务。
+          </p>
+          <div className="project-meta" aria-label="课题状态">
+            <span><i className="status-dot" aria-hidden="true" />探索阶段</span>
+            <span>第 03 轮</span>
+            <span>本地工作区</span>
+          </div>
         </div>
-        <h1 id="project-title">让长上下文推理的<br className="preview-title-break" />证据可追溯。</h1>
-        <p>
-          这是一个用于讨论证据链、检验路径和论文产物的课题空间示例。
-          初版只呈现工作台结构，不连接真实研究任务。
-        </p>
-        <div className="project-meta" aria-label="课题状态">
-          <span><i className="status-dot" aria-hidden="true" />探索阶段</span>
-          <span>第 03 轮</span>
-          <span>本地工作区</span>
-        </div>
+        <IdentityField
+          className="project-identity-field reveal"
+          seed="project:traceable-context-reasoning"
+        />
       </div>
 
       <div className="project-ledger reveal" style={{ "--i": 1 } as React.CSSProperties}>
