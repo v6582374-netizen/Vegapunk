@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   KeyRound,
   Library,
+  Languages,
   LoaderCircle,
   Pencil,
   RefreshCw,
@@ -18,23 +19,27 @@ import {
   deleteProviderCredential,
   fetchDefaultConfiguration,
   fetchPrompts,
+  fetchPromptTranslationInstruction,
   fetchProviderConnections,
   saveDefaultConfiguration,
   savePrompt,
+  savePromptTranslationInstruction,
   saveProviderConnection,
   verifyProviderConnection,
   type DefaultConfiguration,
   type ParameterField,
   type PromptRecord,
+  type PromptTranslationInstruction,
   type ProviderConnection,
 } from "../../shared/adminApi";
 
-type SettingsSection = "providers" | "prompts" | "defaults";
+type SettingsSection = "providers" | "prompts" | "translation" | "defaults";
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 const SECTIONS = [
   { id: "providers" as const, label: "API 配置", icon: KeyRound },
   { id: "prompts" as const, label: "Prompt 库", icon: Library },
+  { id: "translation" as const, label: "翻译指令", icon: Languages },
   { id: "defaults" as const, label: "默认参数", icon: SlidersHorizontal },
 ];
 
@@ -489,6 +494,121 @@ function PromptLibraryView({
   );
 }
 
+function PromptTranslationInstructionView({
+  translationInstruction,
+  configuration,
+  onChange,
+  onNotice,
+}: {
+  translationInstruction: PromptTranslationInstruction;
+  configuration: DefaultConfiguration;
+  onChange: (instruction: PromptTranslationInstruction) => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [draft, setDraft] = useState(translationInstruction.instruction);
+  const [saving, setSaving] = useState(false);
+  const activeTextModel = configuration.models.find(
+    (model) => model.id === configuration.bindings.active_text_model,
+  );
+  const textModelConnection = configuration.readiness.connections.find(
+    (connection) => connection.provider === activeTextModel?.provider,
+  );
+  const defaultTextModelReady = activeTextModel?.provider === "local" ||
+    textModelConnection?.verification_status === "valid";
+  const dirty = draft !== translationInstruction.instruction;
+
+  const save = async () => {
+    setSaving(true);
+    onNotice(null);
+    try {
+      const updated = await savePromptTranslationInstruction(draft);
+      onChange(updated);
+      setDraft(updated.instruction);
+      onNotice({ kind: "success", text: "Prompt 翻译指令已保存" });
+    } catch (error) {
+      onNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="translation-instruction-editor">
+      <section aria-labelledby="translation-instruction-title">
+        <header className="settings-section-heading">
+          <div>
+            <span>TRANSLATION CONFIGURATION</span>
+            <h2 id="translation-instruction-title">Prompt 翻译指令</h2>
+          </div>
+          <span>{translationInstruction.configured ? "已配置" : "未配置"}</span>
+        </header>
+        <p className="translation-instruction-copy">
+          仅供未来的 Prompt 中英同步操作调用。它不是 Prompt 库条目，也不会进入 Discovery 运行时或启动快照。
+        </p>
+        <label className="translation-instruction-field" htmlFor="prompt-translation-instruction">
+          <span>Prompt 翻译指令</span>
+          <textarea
+            id="prompt-translation-instruction"
+            value={draft}
+            rows={12}
+            spellCheck={false}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        </label>
+      </section>
+
+      <section className="translation-readiness" aria-labelledby="translation-readiness-title">
+        <header className="settings-section-heading">
+          <div>
+            <span>AVAILABILITY</span>
+            <h2 id="translation-readiness-title">同步准备状态</h2>
+          </div>
+          <span>{translationInstruction.configured && defaultTextModelReady ? "可用" : "不可用"}</span>
+        </header>
+        <dl>
+          <div>
+            <dt>翻译指令</dt>
+            <dd className={translationInstruction.configured ? "is-ready" : ""}>
+              {translationInstruction.configured ? "已配置" : "尚未配置 Prompt 翻译指令"}
+            </dd>
+          </div>
+          <div>
+            <dt>默认文本模型</dt>
+            <dd className={defaultTextModelReady ? "is-ready" : ""}>
+              {defaultTextModelReady
+                ? `${activeTextModel?.id} 已验证`
+                : "默认文本模型尚不可用"}
+            </dd>
+          </div>
+        </dl>
+        <p className={translationInstruction.configured && defaultTextModelReady ? "is-ready" : ""}>
+          {translationInstruction.configured && defaultTextModelReady
+            ? "翻译操作可用"
+            : "完成以上两项配置后，才能执行 Prompt 同步。"}
+        </p>
+      </section>
+
+      <div className="settings-save-dock">
+        <span>{draft.length.toLocaleString()} 字符</span>
+        <div>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={!dirty || saving}
+            onClick={() => setDraft(translationInstruction.instruction)}
+          >
+            放弃修改
+          </button>
+          <button type="button" className="button-primary" disabled={!dirty || saving} onClick={save}>
+            {saving ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            保存翻译指令
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getAtPath(values: Record<string, unknown>, path: string): unknown {
   let current: unknown = values;
   for (const part of path.split(".")) {
@@ -724,6 +844,7 @@ export function SystemSettings() {
   const [section, setSection] = useState<SettingsSection>("providers");
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
+  const [translationInstruction, setTranslationInstruction] = useState<PromptTranslationInstruction | null>(null);
   const [configuration, setConfiguration] = useState<DefaultConfiguration | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -734,12 +855,14 @@ export function SystemSettings() {
     Promise.all([
       fetchProviderConnections(),
       fetchPrompts(),
+      fetchPromptTranslationInstruction(),
       fetchDefaultConfiguration(),
     ])
-      .then(([providerConnections, registeredPrompts, defaults]) => {
+      .then(([providerConnections, registeredPrompts, translation, defaults]) => {
         if (!active) return;
         setConnections(providerConnections);
         setPrompts(registeredPrompts);
+        setTranslationInstruction(translation);
         setConfiguration(defaults);
       })
       .catch((error: unknown) => active && setLoadError(errorMessage(error)))
@@ -820,6 +943,14 @@ export function SystemSettings() {
             <PromptLibraryView
               prompts={prompts}
               onChange={(updated) => setPrompts((current) => current.map((prompt) => prompt.id === updated.id ? updated : prompt))}
+              onNotice={setNotice}
+            />
+          ) : null}
+          {section === "translation" && translationInstruction && configuration ? (
+            <PromptTranslationInstructionView
+              translationInstruction={translationInstruction}
+              configuration={configuration}
+              onChange={setTranslationInstruction}
               onNotice={setNotice}
             />
           ) : null}

@@ -568,7 +568,7 @@ svg {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-top: var(--space-xl);
   border-block: var(--rule-hair) solid var(--color-rule);
 }
@@ -617,6 +617,80 @@ svg {
 .settings-body {
   min-width: 0;
   margin-top: var(--space-xl);
+}
+
+.translation-instruction-editor {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.translation-instruction-editor > section {
+  padding-bottom: var(--space-xl);
+  border-bottom: var(--rule-hair) solid var(--color-rule-strong);
+}
+
+.translation-instruction-copy {
+  max-width: 48rem;
+  margin: var(--space-md) 0 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.translation-instruction-field {
+  display: grid;
+  gap: var(--space-xs);
+  margin-top: var(--space-lg);
+  color: var(--color-neutral);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.translation-instruction-field textarea {
+  width: 100%;
+  min-height: 16rem;
+  padding: var(--space-sm);
+  resize: vertical;
+  line-height: var(--leading-body);
+}
+
+.translation-readiness dl {
+  display: grid;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 0;
+}
+
+.translation-readiness dl > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr);
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+
+.translation-readiness dt,
+.translation-readiness dd,
+.translation-readiness > p {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.translation-readiness dt {
+  color: var(--color-muted);
+}
+
+.translation-readiness dd,
+.translation-readiness > p {
+  color: var(--color-danger);
+}
+
+.translation-readiness dd.is-ready,
+.translation-readiness > p.is-ready {
+  color: var(--color-accent);
+}
+
+.translation-readiness > p {
+  margin-top: var(--space-md);
 }
 
 .settings-loading,
@@ -1274,6 +1348,16 @@ svg {
 
 .settings-save-dock .button-primary {
   width: 100%;
+}
+
+.translation-instruction-editor .settings-save-dock > div {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+.translation-instruction-editor .settings-save-dock .button-primary {
+  width: auto;
 }
 
 .is-spinning {

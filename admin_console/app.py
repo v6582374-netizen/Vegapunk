@@ -33,6 +33,10 @@ from admin_console.default_configuration import (
     read_default_configuration,
     save_default_configuration,
 )
+from admin_console.prompt_translation_instruction import (
+    read_prompt_translation_instruction,
+    save_prompt_translation_instruction,
+)
 from admin_console.launches import scan_launches
 from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
 from admin_console.structured_views import (
@@ -86,6 +90,9 @@ DEFAULT_CONFIG_PATHS = [
     REPOSITORY_ROOT / "config" / "model_catalog.yaml",
     REPOSITORY_ROOT / "config" / "paper_orchestra.yaml",
 ]
+DEFAULT_PROMPT_TRANSLATION_INSTRUCTION_PATH = (
+    REPOSITORY_ROOT / "config" / "prompt_translation_instruction.yaml"
+)
 
 # The real launcher tolerates an empty --resume directory (it scans and
 # resumes from round zero), which lets the queue own the launch directory
@@ -125,6 +132,10 @@ class DefaultConfigurationUpdate(BaseModel):
     parameters: dict
 
 
+class PromptTranslationInstructionUpdate(BaseModel):
+    instruction: str
+
+
 def create_app(
     results_root: Path | None = None,
     tasks_root: Path | None = None,
@@ -133,6 +144,7 @@ def create_app(
     main_config_path: Path | None = None,
     prompt_library_root: Path | None = None,
     model_catalog_path: Path | None = None,
+    prompt_translation_instruction_path: Path | None = None,
     frontend_dist: Path | None = None,
     secret_store: SecretStore | None = None,
     provider_probe: ProviderProbe | None = None,
@@ -143,6 +155,10 @@ def create_app(
     resolved_main_config = main_config_path or DEFAULT_CONFIG_PATHS[0]
     resolved_prompt_root = prompt_library_root or DEFAULT_LIBRARY_ROOT
     resolved_catalog_path = model_catalog_path or DEFAULT_CONFIG_PATHS[1]
+    resolved_prompt_translation_instruction_path = (
+        prompt_translation_instruction_path
+        or DEFAULT_PROMPT_TRANSLATION_INSTRUCTION_PATH
+    )
     resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
     prompt_library = PromptLibrary(resolved_prompt_root)
     provider_connections = ProviderConnectionService(
@@ -289,6 +305,27 @@ def create_app(
         except InvalidPromptError as error:
             raise HTTPException(status_code=422, detail=str(error))
         return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+
+    @admin_router.get("/prompt-translation-instruction")
+    def get_prompt_translation_instruction() -> dict:
+        try:
+            return read_prompt_translation_instruction(
+                resolved_prompt_translation_instruction_path
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    @admin_router.put("/prompt-translation-instruction")
+    def put_prompt_translation_instruction(
+        update: PromptTranslationInstructionUpdate,
+    ) -> dict:
+        try:
+            return save_prompt_translation_instruction(
+                resolved_prompt_translation_instruction_path,
+                update.instruction,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
 
     @admin_router.get("/provider-connections")
     def list_provider_connections() -> dict:

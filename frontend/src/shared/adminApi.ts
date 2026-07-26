@@ -113,6 +113,25 @@ export async function savePrompt(id: string, text: string): Promise<PromptRecord
   });
 }
 
+export interface PromptTranslationInstruction {
+  instruction: string;
+  configured: boolean;
+}
+
+export async function fetchPromptTranslationInstruction(): Promise<PromptTranslationInstruction> {
+  return request("/api/admin/prompt-translation-instruction");
+}
+
+export async function savePromptTranslationInstruction(
+  instruction: string,
+): Promise<PromptTranslationInstruction> {
+  return request("/api/admin/prompt-translation-instruction", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+}
+
 export type VerificationStatus =
   | "unverified"
   | "valid"

@@ -27,7 +27,18 @@ const promptFixtures = Array.from({ length: 43 }, (_, index) => ({
   text: longPromptText,
 }));
 
-async function mockSystemSettingsRequests(page: Page) {
+type TranslationSettingsFixture = {
+  instruction?: string;
+  defaultTextModelReady?: boolean;
+};
+
+async function mockSystemSettingsRequests(
+  page: Page,
+  { instruction = "", defaultTextModelReady = false }: TranslationSettingsFixture = {},
+) {
+  let savedInstruction = instruction;
+  let savedPayload: { instruction: string } | null = null;
+  const textModel = "relay/test";
   await page.route("**/api/admin/provider-connections", (route) =>
     route.fulfill({ json: { connections: [] } }),
   );
@@ -39,17 +50,51 @@ async function mockSystemSettingsRequests(page: Page) {
       json: {
         revision: "test-revision",
         bindings: {
-          active_text_model: "relay/test",
+          active_text_model: textModel,
           image_model: "relay/test",
           embedding_model: "relay/test",
         },
-        models: [],
+        models: [{ id: textModel, provider: "relay", model: "test", capabilities: ["text"] }],
         parameter_catalog: [],
         parameters: {},
-        readiness: { ready: false, connections: [] },
+        readiness: {
+          ready: defaultTextModelReady,
+          connections: defaultTextModelReady
+            ? [{
+                provider: "relay",
+                name: "Relay",
+                base_url: "",
+                base_url_configurable: false,
+                credential_configured: true,
+                credential_source: "vault",
+                environment_variable: null,
+                verification_status: "valid",
+                model_count: 1,
+              }]
+            : [],
+        },
       },
     }),
   );
+  await page.route("**/api/admin/prompt-translation-instruction", async (route) => {
+    if (route.request().method() === "PUT") {
+      savedPayload = route.request().postDataJSON() as { instruction: string };
+      if (!savedPayload.instruction.trim()) {
+        await route.fulfill({
+          status: 422,
+          json: { detail: "Prompt Translation Instruction must not be empty" },
+        });
+        return;
+      }
+      savedInstruction = savedPayload.instruction;
+    }
+    await route.fulfill({
+      json: { instruction: savedInstruction, configured: Boolean(savedInstruction.trim()) },
+    });
+  });
+  return {
+    savedPayload: () => savedPayload,
+  };
 }
 
 test("preserves the workspace controls while the substrate stays behind content", async ({ page }) => {
@@ -154,6 +199,58 @@ test("contains prompt editor scrolling and removes the nested browser focus fram
   await page.mouse.wheel(0, 1_000);
   await expect.poll(() => page.evaluate(() => document.scrollingElement?.scrollTop ?? 0))
     .toBeGreaterThan(pageScrollBeforeOverscroll);
+});
+
+test("manages the independent Prompt Translation Instruction without model controls", async ({ page }) => {
+  const settings = await mockSystemSettingsRequests(page, {
+    instruction: "Translate the English source prompt into precise Chinese.",
+    defaultTextModelReady: true,
+  });
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "工作区模块" })
+    .getByRole("button", { name: "系统设置" })
+    .click();
+  await page.getByRole("navigation", { name: "系统设置分类" })
+    .getByRole("button", { name: "翻译指令" })
+    .click();
+
+  await expect(page.getByRole("heading", { name: "Prompt 翻译指令" })).toBeVisible();
+  await expect(page.getByText("relay/test 已验证", { exact: true })).toBeVisible();
+  await expect(page.getByText("翻译操作可用")).toBeVisible();
+  await expect(page.getByText("API Key", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".translation-instruction-editor select")).toHaveCount(0);
+
+  const editor = page.getByRole("textbox", { name: "Prompt 翻译指令" });
+  await editor.fill("Draft that should be discarded.");
+  await page.getByRole("button", { name: "放弃修改" }).click();
+  await expect(editor).toHaveValue("Translate the English source prompt into precise Chinese.");
+
+  await editor.fill("Use terminology appropriate for AI scientists.");
+  await page.getByRole("button", { name: "保存翻译指令" }).click();
+  await expect(page.getByText("Prompt 翻译指令已保存")).toBeVisible();
+  expect(settings.savedPayload()).toEqual({
+    instruction: "Use terminology appropriate for AI scientists.",
+  });
+
+  await editor.fill("  \n");
+  await page.getByRole("button", { name: "保存翻译指令" }).click();
+  await expect(page.getByRole("alert")).toContainText("must not be empty");
+});
+
+test("explains why translation is unavailable when its prerequisites are missing", async ({ page }) => {
+  await mockSystemSettingsRequests(page);
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "工作区模块" })
+    .getByRole("button", { name: "系统设置" })
+    .click();
+  await page.getByRole("navigation", { name: "系统设置分类" })
+    .getByRole("button", { name: "翻译指令" })
+    .click();
+
+  await expect(page.getByText("尚未配置 Prompt 翻译指令")).toBeVisible();
+  await expect(page.getByText("默认文本模型尚不可用")).toBeVisible();
 });
 
 for (const viewport of desktopViewports) {
