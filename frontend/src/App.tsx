@@ -11,6 +11,7 @@ import {
 import { useState } from "react";
 
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
+import { DiscoveryPreparation } from "./features/discovery/DiscoveryPreparation";
 import {
   OccludedPointCloudSubstrate,
   type MaterialExpressionProfile,
@@ -64,14 +65,10 @@ const INITIAL_MODULES: Record<WorkspaceSpaceId, ModuleId> = {
   "autonomous-discovery": "discovery-preparation",
 };
 
-const PLACEHOLDER_COPY: Record<"skills" | "discovery-preparation" | "discovery-launch-archive", { title: string; body: string }> = {
+const PLACEHOLDER_COPY: Record<"skills" | "discovery-launch-archive", { title: string; body: string }> = {
   skills: {
     title: "Skill 管理",
     body: "在这里浏览、启用与编排研究技能。初版先呈现工作区结构，不修改运行时配置。",
-  },
-  "discovery-preparation": {
-    title: "Discovery Preparation",
-    body: "在这里准备原始研究资料，并在后续流程中将其转换为可保存、可复用的 Discovery 输入。",
   },
   "discovery-launch-archive": {
     title: "Discovery Launch Archive",
@@ -79,7 +76,7 @@ const PLACEHOLDER_COPY: Record<"skills" | "discovery-preparation" | "discovery-l
   },
 };
 
-function PlaceholderModule({ module }: { module: "skills" | "discovery-preparation" | "discovery-launch-archive" }) {
+function PlaceholderModule({ module }: { module: "skills" | "discovery-launch-archive" }) {
   const copy = PLACEHOLDER_COPY[module];
   const item = Object.values(SPACES)
     .flatMap((space) => space.modules)
@@ -207,6 +204,8 @@ export default function App() {
           <PaperTools />
         ) : activeModule.id === "embodied" ? (
           <EmbodiedIntelligence />
+        ) : activeModule.id === "discovery-preparation" ? (
+          <DiscoveryPreparation />
         ) : (
           <PlaceholderModule module={activeModule.id} />
         )}

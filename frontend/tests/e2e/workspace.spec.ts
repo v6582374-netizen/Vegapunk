@@ -317,6 +317,63 @@ test("switches between Space-specific module navigation without leaving the Unif
     .toHaveAttribute("aria-current", "page");
 });
 
+test("creates a reusable Discovery Preparation and surfaces unsupported source errors", async ({ page }) => {
+  const createdPreparation = {
+    id: "prep-1",
+    created_at: "2026-07-26T08:00:00+00:00",
+    research_text: "What controls the material transition?",
+    sources: [{ name: "observations.md", kind: "reference", extension: ".md" }],
+  };
+  let savedPreparations: typeof createdPreparation[] = [];
+
+  await page.route("**/api/workspace/discovery-preparations", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { preparations: savedPreparations } });
+      return;
+    }
+
+    const requestBody = route.request().postDataBuffer()?.toString() ?? "";
+    if (requestBody.includes("unsupported.exe")) {
+      await route.fulfill({
+        status: 422,
+        json: { detail: "unsupported source type: unsupported.exe" },
+      });
+      return;
+    }
+
+    savedPreparations = [createdPreparation];
+    await route.fulfill({ status: 201, json: createdPreparation });
+  });
+
+  await page.goto("/");
+  await page.getByRole("radiogroup", { name: "工作区空间" })
+    .getByRole("radio", { name: "自主发现空间" })
+    .click();
+
+  await expect(page.getByRole("heading", { name: "Discovery Preparation" })).toBeVisible();
+  await page.getByRole("textbox", { name: "原始课题资料" })
+    .fill("What controls the material transition?");
+  await page.getByLabel("上传研究资料").setInputFiles({
+    name: "observations.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Observations"),
+  });
+  await expect(page.getByText("observations.md", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "保存为新的 Preparation" }).click();
+  await expect(page.getByText("Preparation 已保存")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "已保存的 Preparation" })).toBeVisible();
+  await expect(page.getByText("observations.md", { exact: true })).toHaveCount(1);
+
+  await page.getByLabel("上传研究资料").setInputFiles({
+    name: "unsupported.exe",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("not a supported source"),
+  });
+  await page.getByRole("button", { name: "保存为新的 Preparation" }).click();
+  await expect(page.getByRole("alert")).toContainText("unsupported source type: unsupported.exe");
+});
+
 for (const viewport of desktopViewports) {
   test(`keeps the desktop composition within ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);

@@ -57,6 +57,11 @@ from admin_console.parameters import (
     save_values,
     validate_values,
 )
+from admin_console.preparations import (
+    DiscoveryPreparationStore,
+    InvalidPreparationError,
+    UnknownPreparationError,
+)
 from admin_console.provider_connections import (
     InvalidProviderConnectionError,
     KeyringSecretStore,
@@ -199,6 +204,7 @@ def create_app(
         prompt_library_root=resolved_prompt_root,
         execution_preparer=resolved_execution_preparer,
     )
+    preparation_store = DiscoveryPreparationStore(resolved_results_root)
 
     app = FastAPI(title="Vegapunk")
     app.add_middleware(
@@ -217,6 +223,34 @@ def create_app(
                     status_code=403,
                 )
         return await call_next(request)
+
+    workspace_router = APIRouter(prefix="/api/workspace")
+
+    @workspace_router.get("/discovery-preparations")
+    def list_discovery_preparations() -> dict:
+        return {"preparations": preparation_store.list()}
+
+    @workspace_router.get("/discovery-preparations/{preparation_id}")
+    def get_discovery_preparation(preparation_id: str) -> dict:
+        try:
+            return preparation_store.get(preparation_id)
+        except UnknownPreparationError:
+            raise HTTPException(status_code=404, detail="unknown discovery preparation")
+
+    @workspace_router.post("/discovery-preparations", status_code=201)
+    async def create_discovery_preparation(
+        research_text: str = Form(""),
+        sources: list[UploadFile] = File([]),
+    ) -> dict:
+        try:
+            return preparation_store.create(
+                research_text,
+                [(source.filename or "", await source.read()) for source in sources],
+            )
+        except InvalidPreparationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    app.include_router(workspace_router)
 
     admin_router = APIRouter(prefix="/api/admin")
 
