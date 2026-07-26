@@ -55,6 +55,9 @@ async function mockPromptMirrorBatchRequests(page: Page) {
   await page.route("**/api/admin/prompt-translation-instruction", (route) =>
     route.fulfill({ json: { instruction: "Translate faithfully.", configured: true } }),
   );
+  await page.route("**/api/admin/discovery-input-conversion-prompt", (route) =>
+    route.fulfill({ json: { instruction: "", configured: false } }),
+  );
   await page.route("**/api/admin/default-configuration", (route) =>
     route.fulfill({
       json: {

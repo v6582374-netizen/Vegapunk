@@ -33,6 +33,19 @@ from admin_console.default_configuration import (
     read_default_configuration,
     save_default_configuration,
 )
+from admin_console.discovery_conversion import (
+    ConversionResult,
+    DefaultDiscoveryInputConverter,
+    DiscoveryConversionError,
+    DiscoveryInputConversionRequest,
+    DiscoveryInputConverter,
+    DiscoverySourceContentError,
+    source_materials,
+)
+from admin_console.discovery_input_conversion_prompt import (
+    read_discovery_input_conversion_prompt,
+    save_discovery_input_conversion_prompt,
+)
 from admin_console.prompt_translation_instruction import (
     read_prompt_translation_instruction,
     save_prompt_translation_instruction,
@@ -111,6 +124,9 @@ DEFAULT_CONFIG_PATHS = [
 DEFAULT_PROMPT_TRANSLATION_INSTRUCTION_PATH = (
     REPOSITORY_ROOT / "config" / "prompt_translation_instruction.yaml"
 )
+DEFAULT_DISCOVERY_INPUT_CONVERSION_PROMPT_PATH = (
+    REPOSITORY_ROOT / "config" / "discovery_input_conversion_prompt.yaml"
+)
 
 # The real launcher tolerates an empty --resume directory (it scans and
 # resumes from round zero), which lets the queue own the launch directory
@@ -159,6 +175,14 @@ class PromptTranslationInstructionUpdate(BaseModel):
     instruction: str
 
 
+class DiscoveryInputConversionPromptUpdate(BaseModel):
+    instruction: str
+
+
+class FormattedDiscoveryInputRevisionUpdate(BaseModel):
+    formatted_input: str
+
+
 def create_app(
     results_root: Path | None = None,
     tasks_root: Path | None = None,
@@ -169,6 +193,8 @@ def create_app(
     model_catalog_path: Path | None = None,
     prompt_translation_instruction_path: Path | None = None,
     prompt_mirror_translator: PromptMirrorTranslator | None = None,
+    discovery_input_conversion_prompt_path: Path | None = None,
+    discovery_input_converter: DiscoveryInputConverter | None = None,
     frontend_dist: Path | None = None,
     secret_store: SecretStore | None = None,
     provider_probe: ProviderProbe | None = None,
@@ -182,6 +208,10 @@ def create_app(
     resolved_prompt_translation_instruction_path = (
         prompt_translation_instruction_path
         or DEFAULT_PROMPT_TRANSLATION_INSTRUCTION_PATH
+    )
+    resolved_discovery_input_conversion_prompt_path = (
+        discovery_input_conversion_prompt_path
+        or DEFAULT_DISCOVERY_INPUT_CONVERSION_PROMPT_PATH
     )
     resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
     prompt_library = PromptLibrary(resolved_prompt_root)
@@ -203,6 +233,10 @@ def create_app(
         prompt_library,
         resolved_prompt_translation_instruction_path,
         resolved_prompt_mirror_translator,
+    )
+    resolved_discovery_input_converter = (
+        discovery_input_converter
+        or DefaultDiscoveryInputConverter(resolved_catalog_path, provider_connections)
     )
     resolved_config_paths = config_paths if config_paths is not None else [
         resolved_main_config,
@@ -255,6 +289,57 @@ def create_app(
             return preparation_store.get(preparation_id)
         except UnknownPreparationError:
             raise HTTPException(status_code=404, detail="unknown discovery preparation")
+
+    @workspace_router.post("/discovery-preparations/{preparation_id}/conversion")
+    def convert_discovery_preparation(preparation_id: str) -> dict:
+        prompt = read_discovery_input_conversion_prompt(
+            resolved_discovery_input_conversion_prompt_path
+        )
+        if not prompt["configured"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Discovery Input Conversion Prompt is not configured",
+            )
+        try:
+            preparation = preparation_store.get(preparation_id)
+            result: ConversionResult = resolved_discovery_input_converter.convert(
+                DiscoveryInputConversionRequest(
+                    instruction=prompt["instruction"],
+                    research_text=preparation["research_text"],
+                    sources=source_materials(preparation_store.source_files(preparation_id)),
+                )
+            )
+        except UnknownPreparationError:
+            raise HTTPException(status_code=404, detail="unknown discovery preparation")
+        except InvalidPreparationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        except DiscoverySourceContentError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        except DiscoveryConversionError as error:
+            raise HTTPException(status_code=502, detail=str(error))
+        return {
+            "preparation_id": preparation_id,
+            "formatted_input": result.formatted_input,
+            "model_id": result.model_id,
+        }
+
+    @workspace_router.post(
+        "/discovery-preparations/{preparation_id}/revisions",
+        status_code=201,
+    )
+    def save_formatted_discovery_input_revision(
+        preparation_id: str,
+        update: FormattedDiscoveryInputRevisionUpdate,
+    ) -> dict:
+        try:
+            return preparation_store.save_revision(
+                preparation_id,
+                update.formatted_input,
+            )
+        except UnknownPreparationError:
+            raise HTTPException(status_code=404, detail="unknown discovery preparation")
+        except InvalidPreparationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
 
     @workspace_router.post("/discovery-preparations", status_code=201)
     async def create_discovery_preparation(
@@ -411,6 +496,27 @@ def create_app(
         try:
             return save_prompt_translation_instruction(
                 resolved_prompt_translation_instruction_path,
+                update.instruction,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    @admin_router.get("/discovery-input-conversion-prompt")
+    def get_discovery_input_conversion_prompt() -> dict:
+        try:
+            return read_discovery_input_conversion_prompt(
+                resolved_discovery_input_conversion_prompt_path
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    @admin_router.put("/discovery-input-conversion-prompt")
+    def put_discovery_input_conversion_prompt(
+        update: DiscoveryInputConversionPromptUpdate,
+    ) -> dict:
+        try:
+            return save_discovery_input_conversion_prompt(
+                resolved_discovery_input_conversion_prompt_path,
                 update.instruction,
             )
         except ValueError as error:

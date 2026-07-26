@@ -29,15 +29,18 @@ const promptFixtures = Array.from({ length: 43 }, (_, index) => ({
 
 type TranslationSettingsFixture = {
   instruction?: string;
+  conversionInstruction?: string;
   defaultTextModelReady?: boolean;
 };
 
 async function mockSystemSettingsRequests(
   page: Page,
-  { instruction = "", defaultTextModelReady = false }: TranslationSettingsFixture = {},
+  { instruction = "", conversionInstruction = "", defaultTextModelReady = false }: TranslationSettingsFixture = {},
 ) {
   let savedInstruction = instruction;
   let savedPayload: { instruction: string } | null = null;
+  let savedConversionInstruction = conversionInstruction;
+  let savedConversionPayload: { instruction: string } | null = null;
   const textModel = "relay/test";
   await page.route("**/api/admin/provider-connections", (route) =>
     route.fulfill({ json: { connections: [] } }),
@@ -101,8 +104,28 @@ async function mockSystemSettingsRequests(
       json: { instruction: savedInstruction, configured: Boolean(savedInstruction.trim()) },
     });
   });
+  await page.route("**/api/admin/discovery-input-conversion-prompt", async (route) => {
+    if (route.request().method() === "PUT") {
+      savedConversionPayload = route.request().postDataJSON() as { instruction: string };
+      if (!savedConversionPayload.instruction.trim()) {
+        await route.fulfill({
+          status: 422,
+          json: { detail: "Discovery Input Conversion Prompt must not be empty" },
+        });
+        return;
+      }
+      savedConversionInstruction = savedConversionPayload.instruction;
+    }
+    await route.fulfill({
+      json: {
+        instruction: savedConversionInstruction,
+        configured: Boolean(savedConversionInstruction.trim()),
+      },
+    });
+  });
   return {
     savedPayload: () => savedPayload,
+    savedConversionPayload: () => savedConversionPayload,
   };
 }
 
@@ -212,6 +235,25 @@ test("contains prompt editor scrolling and removes the nested browser focus fram
     .toBeGreaterThan(pageScrollBeforeOverscroll);
 });
 
+test("keeps the workspace switcher visible at the bottom of the fixed sidebar", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 650 });
+  await mockSystemSettingsRequests(page);
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "系统设置" }).click();
+  await page.getByRole("navigation", { name: "系统设置分类" })
+    .getByRole("button", { name: "Prompt 库" })
+    .click();
+  await expect.poll(() => page.evaluate(() => document.scrollingElement?.scrollHeight ?? 0))
+    .toBeGreaterThan(650);
+
+  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+  await expect(spaceSwitcher).toBeInViewport();
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect(spaceSwitcher).toBeInViewport();
+  await expect(page.locator(".workspace-sidebar")).toHaveCSS("position", "sticky");
+});
+
 test("manages the independent Prompt Translation Instruction without model controls", async ({ page }) => {
   const settings = await mockSystemSettingsRequests(page, {
     instruction: "Translate the English source prompt into precise Chinese.",
@@ -262,6 +304,31 @@ test("explains why translation is unavailable when its prerequisites are missing
 
   await expect(page.getByText("尚未配置 Prompt 翻译指令")).toBeVisible();
   await expect(page.getByText("默认文本模型尚不可用")).toBeVisible();
+});
+
+test("maintains the independent Discovery Input Conversion Prompt outside the Prompt Library", async ({ page }) => {
+  const settings = await mockSystemSettingsRequests(page, {
+    conversionInstruction: "Transform any research material into a Discovery-ready input.",
+  });
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "协作空间模块" })
+    .getByRole("button", { name: "系统设置" })
+    .click();
+  await page.getByRole("navigation", { name: "系统设置分类" })
+    .getByRole("button", { name: "转换指令" })
+    .click();
+
+  const field = page.getByRole("textbox", { name: "Discovery Input 转换指令" });
+  await expect(field).toHaveValue("Transform any research material into a Discovery-ready input.");
+  await expect(page.getByText("它不是 Prompt 库条目", { exact: false })).toBeVisible();
+
+  await field.fill("Turn loose research notes into a structured Discovery input.");
+  await page.getByRole("button", { name: "保存转换指令" }).click();
+  await expect(page.getByText("Discovery Input 转换指令已保存")).toBeVisible();
+  expect(settings.savedConversionPayload()).toEqual({
+    instruction: "Turn loose research notes into a structured Discovery input.",
+  });
 });
 
 test("switches between Space-specific module navigation without leaving the Unified Workspace", async ({ page }) => {
@@ -325,6 +392,7 @@ test("creates a reusable Discovery Preparation and surfaces unsupported source e
     created_at: "2026-07-26T08:00:00+00:00",
     research_text: "What controls the material transition?",
     sources: [{ name: "observations.md", kind: "reference", extension: ".md" }],
+    revisions: [],
   };
   let savedPreparations: typeof createdPreparation[] = [];
 
@@ -374,6 +442,61 @@ test("creates a reusable Discovery Preparation and surfaces unsupported source e
   });
   await page.getByRole("button", { name: "保存为新的 Preparation" }).click();
   await expect(page.getByRole("alert")).toContainText("unsupported source type: unsupported.exe");
+});
+
+test("converts a Preparation into a right-side editable draft and saves only on request", async ({ page }) => {
+  const preparation = {
+    id: "prep-convert-1",
+    created_at: "2026-07-26T08:00:00+00:00",
+    research_text: "What controls the observed transition?",
+    sources: [],
+    revisions: [],
+  };
+  let savedRevision: { formatted_input: string } | null = null;
+
+  await page.route("**/api/workspace/discovery-preparations", (route) =>
+    route.fulfill({ json: { preparations: [preparation] } }),
+  );
+  await page.route(`**/api/workspace/discovery-preparations/${preparation.id}/conversion`, (route) =>
+    route.fulfill({
+      json: {
+        preparation_id: preparation.id,
+        formatted_input: "# Formatted Discovery Input\n\nInitial draft.",
+        model_id: "relay/test",
+      },
+    }),
+  );
+  await page.route(`**/api/workspace/discovery-preparations/${preparation.id}/revisions`, (route) => {
+    savedRevision = route.request().postDataJSON() as { formatted_input: string };
+    return route.fulfill({
+      status: 201,
+      json: {
+        id: "revision-1",
+        created_at: "2026-07-26T08:05:00+00:00",
+        formatted_input: savedRevision.formatted_input,
+      },
+    });
+  });
+
+  await page.goto("/");
+  await page.getByRole("radiogroup", { name: "工作区空间" })
+    .getByRole("radio", { name: "自主发现空间" })
+    .click();
+  await page.getByRole("button", { name: "转换为格式化输入" }).click();
+
+  const editor = page.getByRole("dialog", { name: "转换草稿" });
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveCSS("position", "fixed");
+  await expect(editor).toHaveCSS("right", "0px");
+  const draft = editor.getByRole("textbox", { name: "Formatted Discovery Input" });
+  await expect(draft).toHaveValue("# Formatted Discovery Input\n\nInitial draft.");
+  await draft.fill("# Formatted Discovery Input\n\nEdited draft.");
+  await editor.getByRole("button", { name: "保存为新的输入修订版" }).click();
+
+  await expect(editor).toBeHidden();
+  await expect(page.getByText("已保存新的输入修订版")).toBeVisible();
+  await expect(page.getByText("1 个输入修订版")).toBeVisible();
+  expect(savedRevision).toEqual({ formatted_input: "# Formatted Discovery Input\n\nEdited draft." });
 });
 
 for (const viewport of desktopViewports) {

@@ -141,6 +141,11 @@ export interface PromptTranslationInstruction {
   configured: boolean;
 }
 
+export interface DiscoveryInputConversionPrompt {
+  instruction: string;
+  configured: boolean;
+}
+
 export async function fetchPromptTranslationInstruction(): Promise<PromptTranslationInstruction> {
   return request("/api/admin/prompt-translation-instruction");
 }
@@ -149,6 +154,20 @@ export async function savePromptTranslationInstruction(
   instruction: string,
 ): Promise<PromptTranslationInstruction> {
   return request("/api/admin/prompt-translation-instruction", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+}
+
+export async function fetchDiscoveryInputConversionPrompt(): Promise<DiscoveryInputConversionPrompt> {
+  return request("/api/admin/discovery-input-conversion-prompt");
+}
+
+export async function saveDiscoveryInputConversionPrompt(
+  instruction: string,
+): Promise<DiscoveryInputConversionPrompt> {
+  return request("/api/admin/discovery-input-conversion-prompt", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ instruction }),

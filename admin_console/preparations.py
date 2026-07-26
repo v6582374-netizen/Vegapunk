@@ -67,6 +67,7 @@ class DiscoveryPreparationStore:
             "created_at": created_at,
             "research_text": research_text,
             "sources": source_metadata,
+            "revisions": [],
         }
 
         self._root.mkdir(parents=True, exist_ok=True)
@@ -94,6 +95,39 @@ class DiscoveryPreparationStore:
         if not document_path.is_file():
             raise UnknownPreparationError(preparation_id)
         return json.loads(document_path.read_text(encoding="utf-8"))
+
+    def source_files(self, preparation_id: str) -> list[dict]:
+        preparation = self._read(preparation_id)
+        source_dir = self._root / preparation_id / "sources"
+        source_files: list[dict] = []
+        for index, source in enumerate(preparation["sources"], start=1):
+            source_path = source_dir / f"{index:03d}{source['extension']}"
+            if not source_path.is_file():
+                raise InvalidPreparationError(f"missing saved source: {source['name']}")
+            source_files.append({**source, "content": source_path.read_bytes()})
+        return source_files
+
+    def save_revision(self, preparation_id: str, formatted_input: str) -> dict:
+        if not formatted_input.strip():
+            raise InvalidPreparationError("Formatted Discovery Input must not be empty")
+        preparation = self._read(preparation_id)
+        revision = {
+            "id": uuid4().hex,
+            "created_at": datetime.now(UTC).isoformat(),
+            "formatted_input": formatted_input,
+        }
+        preparation.setdefault("revisions", []).append(revision)
+        document_path = self._root / preparation_id / "preparation.json"
+        temporary_path = document_path.with_name(f".{document_path.name}.tmp")
+        try:
+            temporary_path.write_text(
+                json.dumps(preparation, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary_path.replace(document_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return revision
 
     @staticmethod
     def _validate_sources(sources: list[tuple[str, bytes]]) -> list[dict]:

@@ -9,6 +9,19 @@ export interface DiscoveryPreparationRecord {
   created_at: string;
   research_text: string;
   sources: DiscoverySource[];
+  revisions?: FormattedDiscoveryInputRevision[];
+}
+
+export interface FormattedDiscoveryInputRevision {
+  id: string;
+  created_at: string;
+  formatted_input: string;
+}
+
+export interface DiscoveryInputConversion {
+  preparation_id: string;
+  formatted_input: string;
+  model_id: string;
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -47,4 +60,27 @@ export async function createDiscoveryPreparation(
     method: "POST",
     body: form,
   });
+}
+
+export async function convertDiscoveryPreparation(
+  preparationId: string,
+): Promise<DiscoveryInputConversion> {
+  return request<DiscoveryInputConversion>(
+    `/api/workspace/discovery-preparations/${preparationId}/conversion`,
+    { method: "POST" },
+  );
+}
+
+export async function saveFormattedDiscoveryInputRevision(
+  preparationId: string,
+  formattedInput: string,
+): Promise<FormattedDiscoveryInputRevision> {
+  return request<FormattedDiscoveryInputRevision>(
+    `/api/workspace/discovery-preparations/${preparationId}/revisions`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ formatted_input: formattedInput }),
+    },
+  );
 }

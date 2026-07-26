@@ -1,9 +1,11 @@
-import { FilePlus2, FileText, PackageOpen, Save, Upload } from "lucide-react";
+import { FilePlus2, FileText, PackageOpen, Save, Upload, WandSparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
   createDiscoveryPreparation,
+  convertDiscoveryPreparation,
   fetchDiscoveryPreparations,
+  saveFormattedDiscoveryInputRevision,
   type DiscoveryPreparationRecord,
   type DiscoverySource,
 } from "../../shared/workspaceApi";
@@ -46,6 +48,13 @@ export function DiscoveryPreparation() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [isSaving, setIsSaving] = useState(false);
+  const [convertingPreparationId, setConvertingPreparationId] = useState<string>();
+  const [editor, setEditor] = useState<{
+    preparation: DiscoveryPreparationRecord;
+    draft: string;
+    modelId: string;
+  }>();
+  const [isSavingRevision, setIsSavingRevision] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -83,6 +92,47 @@ export function DiscoveryPreparation() {
       setError(saveError instanceof Error ? saveError.message : "无法保存 Preparation");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const convertPreparation = async (preparation: DiscoveryPreparationRecord) => {
+    setError(undefined);
+    setNotice(undefined);
+    setConvertingPreparationId(preparation.id);
+    try {
+      const converted = await convertDiscoveryPreparation(preparation.id);
+      setEditor({
+        preparation,
+        draft: converted.formatted_input,
+        modelId: converted.model_id,
+      });
+    } catch (conversionError) {
+      setError(conversionError instanceof Error ? conversionError.message : "无法转换 Preparation");
+    } finally {
+      setConvertingPreparationId(undefined);
+    }
+  };
+
+  const saveRevision = async () => {
+    if (!editor || !editor.draft.trim()) return;
+    setError(undefined);
+    setIsSavingRevision(true);
+    try {
+      const revision = await saveFormattedDiscoveryInputRevision(
+        editor.preparation.id,
+        editor.draft,
+      );
+      setPreparations((records) => records.map((preparation) => (
+        preparation.id === editor.preparation.id
+          ? { ...preparation, revisions: [...(preparation.revisions ?? []), revision] }
+          : preparation
+      )));
+      setEditor(undefined);
+      setNotice("已保存新的输入修订版");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "无法保存输入修订版");
+    } finally {
+      setIsSavingRevision(false);
     }
   };
 
@@ -189,6 +239,18 @@ export function DiscoveryPreparation() {
                   </header>
                   {preparation.research_text ? <p>{preparation.research_text}</p> : null}
                   <PreparationSources sources={preparation.sources} />
+                  <footer className="discovery-preparation-record-footer">
+                    <span>{preparation.revisions?.length ?? 0} 个输入修订版</span>
+                    <button
+                      type="button"
+                      className="discovery-convert-button"
+                      disabled={convertingPreparationId === preparation.id}
+                      onClick={() => void convertPreparation(preparation)}
+                    >
+                      <WandSparkles aria-hidden="true" />
+                      {convertingPreparationId === preparation.id ? "正在转换…" : "转换为格式化输入"}
+                    </button>
+                  </footer>
                 </article>
               ))}
             </div>
@@ -197,6 +259,66 @@ export function DiscoveryPreparation() {
           )}
         </section>
       </div>
+
+      {editor ? (
+        <aside
+          className="discovery-input-drawer"
+          role="dialog"
+          aria-labelledby="formatted-discovery-input-title"
+        >
+          <header>
+            <div>
+              <p className="section-label">FORMATTED DISCOVERY INPUT</p>
+              <h2 id="formatted-discovery-input-title">转换草稿</h2>
+              <p>由 {editor.modelId} 生成。关闭而不保存会丢弃此草稿。</p>
+            </div>
+            <button
+              type="button"
+              className="discovery-drawer-close"
+              aria-label="关闭格式化输入编辑器"
+              disabled={isSavingRevision}
+              onClick={() => setEditor(undefined)}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </header>
+          <label className="discovery-drawer-field" htmlFor="formatted-discovery-input">
+            <span>Formatted Discovery Input</span>
+            <textarea
+              id="formatted-discovery-input"
+              value={editor.draft}
+              spellCheck={false}
+              autoFocus
+              onChange={(event) => setEditor((current) => current && {
+                ...current,
+                draft: event.target.value,
+              })}
+            />
+          </label>
+          <footer>
+            <span>{editor.draft.length.toLocaleString()} 字符</span>
+            <div>
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={isSavingRevision}
+                onClick={() => setEditor(undefined)}
+              >
+                丢弃草稿
+              </button>
+              <button
+                type="button"
+                className="button-primary"
+                disabled={isSavingRevision || !editor.draft.trim()}
+                onClick={() => void saveRevision()}
+              >
+                <Save aria-hidden="true" />
+                {isSavingRevision ? "正在保存…" : "保存为新的输入修订版"}
+              </button>
+            </div>
+          </footer>
+        </aside>
+      ) : null}
     </section>
   );
 }

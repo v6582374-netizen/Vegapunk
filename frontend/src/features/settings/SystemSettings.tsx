@@ -20,12 +20,14 @@ import "./PromptMirrors.css";
 import {
   deleteProviderCredential,
   fetchDefaultConfiguration,
+  fetchDiscoveryInputConversionPrompt,
   fetchPromptMirrorBatch,
   fetchPromptMirrorBatchAvailability,
   fetchPrompts,
   fetchPromptTranslationInstruction,
   fetchProviderConnections,
   saveDefaultConfiguration,
+  saveDiscoveryInputConversionPrompt,
   savePrompt,
   savePromptTranslationInstruction,
   saveProviderConnection,
@@ -34,6 +36,7 @@ import {
   retryPromptMirrorBatch,
   verifyProviderConnection,
   type DefaultConfiguration,
+  type DiscoveryInputConversionPrompt,
   type ParameterField,
   type ChinesePromptMirror,
   type PromptMirrorBatch,
@@ -43,7 +46,7 @@ import {
   type ProviderConnection,
 } from "../../shared/adminApi";
 
-type SettingsSection = "providers" | "prompts" | "translation" | "defaults";
+type SettingsSection = "providers" | "prompts" | "translation" | "conversion" | "defaults";
 type Notice = { kind: "success" | "error"; text: string } | null;
 type PromptLanguage = "en" | "zh";
 type SelectedPrompt = { prompt: PromptRecord; language: PromptLanguage };
@@ -52,6 +55,7 @@ const SECTIONS = [
   { id: "providers" as const, label: "API 配置", icon: KeyRound },
   { id: "prompts" as const, label: "Prompt 库", icon: Library },
   { id: "translation" as const, label: "翻译指令", icon: Languages },
+  { id: "conversion" as const, label: "转换指令", icon: Pencil },
   { id: "defaults" as const, label: "默认参数", icon: SlidersHorizontal },
 ];
 
@@ -860,6 +864,112 @@ function PromptTranslationInstructionView({
   );
 }
 
+function DiscoveryInputConversionPromptView({
+  conversionPrompt,
+  configuration,
+  onChange,
+  onNotice,
+}: {
+  conversionPrompt: DiscoveryInputConversionPrompt;
+  configuration: DefaultConfiguration;
+  onChange: (prompt: DiscoveryInputConversionPrompt) => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [draft, setDraft] = useState(conversionPrompt.instruction);
+  const [saving, setSaving] = useState(false);
+  const activeTextModel = configuration.models.find(
+    (model) => model.id === configuration.bindings.active_text_model,
+  );
+  const dirty = draft !== conversionPrompt.instruction;
+
+  const save = async () => {
+    setSaving(true);
+    onNotice(null);
+    try {
+      const updated = await saveDiscoveryInputConversionPrompt(draft);
+      onChange(updated);
+      setDraft(updated.instruction);
+      onNotice({ kind: "success", text: "Discovery Input 转换指令已保存" });
+    } catch (error) {
+      onNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="translation-instruction-editor discovery-input-conversion-prompt-editor">
+      <section aria-labelledby="discovery-input-conversion-prompt-title">
+        <header className="settings-section-heading">
+          <div>
+            <span>DISCOVERY INPUT CONFIGURATION</span>
+            <h2 id="discovery-input-conversion-prompt-title">Discovery Input 转换指令</h2>
+          </div>
+          <span>{conversionPrompt.configured ? "已配置" : "未配置"}</span>
+        </header>
+        <p className="translation-instruction-copy">
+          仅供自主发现空间中的显式转换调用。它不是 Prompt 库条目，不会自动保存转换草稿，也不会启动 Discovery 流程。
+        </p>
+        <label className="translation-instruction-field" htmlFor="discovery-input-conversion-prompt">
+          <span>Discovery Input 转换指令</span>
+          <textarea
+            id="discovery-input-conversion-prompt"
+            value={draft}
+            rows={12}
+            spellCheck={false}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+        </label>
+      </section>
+
+      <section className="translation-readiness" aria-labelledby="discovery-input-conversion-details-title">
+        <header className="settings-section-heading">
+          <div>
+            <span>EXECUTION DETAILS</span>
+            <h2 id="discovery-input-conversion-details-title">转换方式</h2>
+          </div>
+          <span>{conversionPrompt.configured ? "可配置" : "待配置"}</span>
+        </header>
+        <dl>
+          <div>
+            <dt>调用方式</dt>
+            <dd>在已保存的 Preparation 中手动点击转换</dd>
+          </div>
+          <div>
+            <dt>文本模型</dt>
+            <dd className={activeTextModel ? "is-ready" : ""}>
+              {activeTextModel?.id ?? "默认文本模型未指定"}
+            </dd>
+          </div>
+        </dl>
+        <p className={conversionPrompt.configured ? "is-ready" : ""}>
+          {conversionPrompt.configured
+            ? "转换结果将作为可编辑草稿打开，只有显式保存才会形成输入修订版。"
+            : "先保存转换指令，才能将原始资料转换为 Formatted Discovery Input。"}
+        </p>
+      </section>
+
+      <div className="settings-save-dock">
+        <span>{draft.length.toLocaleString()} 字符</span>
+        <div>
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={!dirty || saving}
+            onClick={() => setDraft(conversionPrompt.instruction)}
+          >
+            放弃修改
+          </button>
+          <button type="button" className="button-primary" disabled={!dirty || saving} onClick={save}>
+            {saving ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            保存转换指令
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getAtPath(values: Record<string, unknown>, path: string): unknown {
   let current: unknown = values;
   for (const part of path.split(".")) {
@@ -1096,6 +1206,7 @@ export function SystemSettings() {
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
   const [translationInstruction, setTranslationInstruction] = useState<PromptTranslationInstruction | null>(null);
+  const [conversionPrompt, setConversionPrompt] = useState<DiscoveryInputConversionPrompt | null>(null);
   const [configuration, setConfiguration] = useState<DefaultConfiguration | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1107,13 +1218,15 @@ export function SystemSettings() {
       fetchProviderConnections(),
       fetchPrompts(),
       fetchPromptTranslationInstruction(),
+      fetchDiscoveryInputConversionPrompt(),
       fetchDefaultConfiguration(),
     ])
-      .then(([providerConnections, registeredPrompts, translation, defaults]) => {
+      .then(([providerConnections, registeredPrompts, translation, conversion, defaults]) => {
         if (!active) return;
         setConnections(providerConnections);
         setPrompts(registeredPrompts);
         setTranslationInstruction(translation);
+        setConversionPrompt(conversion);
         setConfiguration(defaults);
       })
       .catch((error: unknown) => active && setLoadError(errorMessage(error)))
@@ -1203,6 +1316,14 @@ export function SystemSettings() {
               translationInstruction={translationInstruction}
               configuration={configuration}
               onChange={setTranslationInstruction}
+              onNotice={setNotice}
+            />
+          ) : null}
+          {section === "conversion" && conversionPrompt && configuration ? (
+            <DiscoveryInputConversionPromptView
+              conversionPrompt={conversionPrompt}
+              configuration={configuration}
+              onChange={setConversionPrompt}
               onNotice={setNotice}
             />
           ) : null}
