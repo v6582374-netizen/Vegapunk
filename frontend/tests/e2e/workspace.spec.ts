@@ -130,7 +130,8 @@ test("preserves the workspace controls while the substrate stays behind content"
   )).resolves.toBe(initialPointSignature);
 
   await moduleNavigation.getByRole("button", { name: "论文工具" }).click();
-  await expect(page.getByRole("heading", { name: /论文工作台/ })).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "论文工具子模块" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /先把位置留出来/ })).toHaveCount(0);
   await page.getByRole("tab", { name: "引文核验" }).click();
   await expect(page.getByRole("tabpanel")).toContainText("引文核验即将开放");
 
@@ -279,7 +280,8 @@ test("switches between Space-specific module navigation without leaving the Unif
   await expect(collaborationModules.getByRole("button", { name: "系统设置" })).toBeVisible();
   await expect(collaborationModules.getByRole("button", { name: "论文工具" }))
     .toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("heading", { name: /论文工作台/ })).toBeVisible();
+  await expect(page.getByRole("tablist", { name: "论文工具子模块" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /先把位置留出来/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "对话", exact: true })).toHaveCount(0);
   await expect(page.getByText("课题空间", { exact: true })).toHaveCount(0);
   await expect(page.getByText("INTRANET / 01", { exact: true })).toHaveCount(0);

@@ -1968,15 +1968,6 @@ svg {
   padding: clamp(var(--space-xl), 5vw, var(--space-3xl)) var(--space-lg) var(--space-3xl);
 }
 
-.paper-tools-intro {
-  display: grid;
-  gap: var(--space-lg);
-  max-width: 56rem;
-  padding: var(--space-xl) 0 var(--space-2xl) var(--space-lg);
-  border-top: var(--rule-hair) solid var(--color-texture-rule);
-}
-
-.paper-tools-intro h1,
 .paper-tool-stage h2,
 .high-interest-heading h2,
 .high-interest-card h3 {
@@ -1987,14 +1978,6 @@ svg {
   letter-spacing: var(--tracking-tight);
 }
 
-.paper-tools-intro h1 {
-  max-width: 12ch;
-  margin-top: var(--space-sm);
-  font-size: clamp(2.5rem, 6vw, 5rem);
-  line-height: 0.98;
-}
-
-.paper-tools-intro > div > p:last-child,
 .paper-tool-empty p,
 .paper-placeholder-intro p,
 .high-interest-heading > div > p:last-child,
@@ -2005,7 +1988,6 @@ svg {
   line-height: var(--leading-body);
 }
 
-.paper-tools-status,
 .paper-stage-heading,
 .high-interest-heading > span,
 .high-interest-card-topline,
@@ -2014,21 +1996,6 @@ svg {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-label);
-}
-
-.paper-tools-status {
-  display: inline-flex;
-  width: fit-content;
-  gap: var(--space-xs);
-  align-items: center;
-  padding-top: var(--space-xs);
-  white-space: nowrap;
-}
-
-.paper-tools-status i {
-  width: 0.4375rem;
-  height: 0.4375rem;
-  background: var(--color-warning);
 }
 
 .paper-tool-tabs {
@@ -2323,11 +2290,6 @@ svg {
 @media (min-width: 40rem) {
   .paper-tools {
     padding-inline: var(--space-2xl);
-  }
-
-  .paper-tools-intro {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
   }
 
   .paper-tool-tabs small {

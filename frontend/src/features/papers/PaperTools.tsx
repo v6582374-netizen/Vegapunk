@@ -96,19 +96,7 @@ export function PaperTools() {
   const ActiveIcon = active.icon;
 
   return (
-    <section className="paper-tools" aria-labelledby="paper-tools-title">
-      <header className="paper-tools-intro">
-        <div>
-          <p className="section-label">PAPER TOOLS / PLACEHOLDER</p>
-          <h1 id="paper-tools-title">论文工作台，<br />先把位置留出来。</h1>
-          <p>
-            论文检索、论文精读与引文核验的界面结构已经就位。
-            真实文献服务会在方案确定后再接入。
-          </p>
-        </div>
-        <span className="paper-tools-status"><i aria-hidden="true" />功能筹备中</span>
-      </header>
-
+    <section className="paper-tools" aria-label="论文工具">
       <div className="paper-tool-tabs" role="tablist" aria-label="论文工具子模块">
         {PAPER_TABS.map((tab) => {
           const TabIcon = tab.icon;
