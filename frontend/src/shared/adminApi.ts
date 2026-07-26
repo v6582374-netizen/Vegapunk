@@ -99,6 +99,13 @@ export interface PromptRecord {
   required_template_variables: string[];
   file: string;
   text: string;
+  chinese_mirror?: ChinesePromptMirror;
+}
+
+export interface ChinesePromptMirror {
+  state: "ready" | "missing" | "stale";
+  file: string;
+  text: string | null;
 }
 
 export async function fetchPrompts(): Promise<PromptRecord[]> {

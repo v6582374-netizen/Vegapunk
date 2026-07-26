@@ -1,9 +1,10 @@
 """Prompt Library: disk-backed registry of every editable prompt text.
 
 The catalog at ``config/prompts/catalog.yaml`` is the index; each entry
-points at a text file under ``config/prompts/``. A Discovery Launch copies
-the whole tree into its Launch Configuration Snapshot and runtime reads
-only that copy (ADR-0157). Callers never hardcode prompt bodies.
+points at a text file under ``config/prompts/``. Chinese Prompt Mirrors live
+alongside, but outside, the Prompt Library root so a Discovery Launch copies
+only runtime English sources into its Launch Configuration Snapshot (ADR-0157).
+Callers never hardcode prompt bodies.
 
 Access:
 
@@ -17,6 +18,7 @@ Override the root for tests or for a Launch snapshot via
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -64,6 +66,16 @@ class PromptEntry:
             "required_template_variables": list(self.required_template_variables),
             "file": self.file,
         }
+
+
+@dataclass(frozen=True)
+class ChinesePromptMirror:
+    state: str
+    file: str
+    text: str | None
+
+    def to_dict(self) -> dict:
+        return {"state": self.state, "file": self.file, "text": self.text}
 
 
 class UnknownPromptError(KeyError):
@@ -137,6 +149,15 @@ class PromptLibrary:
         path = self._root / entry.file
         return path.read_text(encoding="utf-8")
 
+    def describe(self, prompt_id: str) -> dict:
+        entry = self.get_entry(prompt_id)
+        text = self.get(prompt_id)
+        return {
+            **entry.to_dict(),
+            "text": text,
+            "chinese_mirror": self._chinese_mirror(entry, text).to_dict(),
+        }
+
     def render(self, prompt_id: str, **kwargs: object) -> str:
         return self.get(prompt_id).format(**kwargs)
 
@@ -164,6 +185,27 @@ class PromptLibrary:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
         return entry
+
+    def _chinese_mirror(
+        self, entry: PromptEntry, source_text: str
+    ) -> ChinesePromptMirror:
+        relative_path = Path("prompt_localizations") / "zh-CN" / Path(
+            *entry.id.split(".")
+        ).with_suffix(".yaml")
+        path = self._root.parent / relative_path
+        if not path.exists():
+            return ChinesePromptMirror("missing", relative_path.as_posix(), None)
+
+        values = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        mirror_text = values.get("text") if isinstance(values, dict) else None
+        source_revision = (
+            values.get("source_revision") if isinstance(values, dict) else None
+        )
+        if not isinstance(mirror_text, str) or not mirror_text.strip():
+            return ChinesePromptMirror("missing", relative_path.as_posix(), None)
+        if source_revision != _source_revision(source_text):
+            return ChinesePromptMirror("stale", relative_path.as_posix(), None)
+        return ChinesePromptMirror("ready", relative_path.as_posix(), mirror_text)
 
     @staticmethod
     def _validate_text(entry: PromptEntry, text: str) -> None:
@@ -264,3 +306,7 @@ class _PromptsFacade:
 
 
 prompts = _PromptsFacade()
+
+
+def _source_revision(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()

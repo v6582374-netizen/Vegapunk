@@ -282,17 +282,13 @@ def create_app(
     @admin_router.get("/prompts")
     def list_prompts() -> dict:
         return {
-            "prompts": [
-                {**entry.to_dict(), "text": prompt_library.get(entry.id)}
-                for entry in prompt_library.list()
-            ]
+            "prompts": [prompt_library.describe(entry.id) for entry in prompt_library.list()]
         }
 
     @admin_router.get("/prompts/{prompt_id}")
     def get_prompt(prompt_id: str) -> dict:
         try:
-            entry = prompt_library.get_entry(prompt_id)
-            return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+            return prompt_library.describe(prompt_id)
         except UnknownPromptError:
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
 
@@ -304,7 +300,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
         except InvalidPromptError as error:
             raise HTTPException(status_code=422, detail=str(error))
-        return {**entry.to_dict(), "text": prompt_library.get(prompt_id)}
+        return prompt_library.describe(entry.id)
 
     @admin_router.get("/prompt-translation-instruction")
     def get_prompt_translation_instruction() -> dict:

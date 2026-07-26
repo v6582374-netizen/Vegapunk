@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import "./PromptMirrors.css";
+
 import {
   deleteProviderCredential,
   fetchDefaultConfiguration,
@@ -28,6 +30,7 @@ import {
   verifyProviderConnection,
   type DefaultConfiguration,
   type ParameterField,
+  type ChinesePromptMirror,
   type PromptRecord,
   type PromptTranslationInstruction,
   type ProviderConnection,
@@ -35,6 +38,8 @@ import {
 
 type SettingsSection = "providers" | "prompts" | "translation" | "defaults";
 type Notice = { kind: "success" | "error"; text: string } | null;
+type PromptLanguage = "en" | "zh";
+type SelectedPrompt = { prompt: PromptRecord; language: PromptLanguage };
 
 const SECTIONS = [
   { id: "providers" as const, label: "API 配置", icon: KeyRound },
@@ -78,6 +83,22 @@ const INVOCATION_LABELS: Record<PromptRecord["invocation_type"], string> = {
   conditional: "条件调用",
   mutually_exclusive: "互斥调用",
 };
+
+const MISSING_CHINESE_MIRROR: ChinesePromptMirror = {
+  state: "missing",
+  file: "",
+  text: null,
+};
+
+const CHINESE_MIRROR_LABELS: Record<ChinesePromptMirror["state"], string> = {
+  ready: "中文镜像已就绪",
+  missing: "中文镜像缺失，尚未生成。",
+  stale: "中文镜像已过期，需要重新生成。",
+};
+
+function chineseMirrorFor(prompt: PromptRecord): ChinesePromptMirror {
+  return prompt.chinese_mirror ?? MISSING_CHINESE_MIRROR;
+}
 
 const PARAMETER_GROUP_LABELS: Record<string, string> = {
   agents: "Agent 行为",
@@ -300,7 +321,8 @@ function PromptLibraryView({
   onNotice: (notice: Notice) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<PromptRecord | null>(null);
+  const [selected, setSelected] = useState<SelectedPrompt | null>(null);
+  const [languageByPrompt, setLanguageByPrompt] = useState<Record<string, PromptLanguage>>({});
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [editorNotice, setEditorNotice] = useState<Notice>(null);
@@ -351,21 +373,22 @@ function PromptLibraryView({
     };
   }, [selected]);
 
-  const open = (prompt: PromptRecord) => {
-    setSelected(prompt);
-    setDraft(prompt.text);
+  const open = (prompt: PromptRecord, language: PromptLanguage) => {
+    const mirror = chineseMirrorFor(prompt);
+    setSelected({ prompt, language });
+    setDraft(language === "zh" && mirror.state === "ready" ? mirror.text ?? "" : prompt.text);
     setEditorNotice(null);
     onNotice(null);
   };
 
   const submit = async () => {
-    if (!selected) return;
+    if (!selected || selected.language !== "en") return;
     setSaving(true);
     setEditorNotice(null);
     try {
-      const updated = await savePrompt(selected.id, draft);
+      const updated = await savePrompt(selected.prompt.id, draft);
       onChange(updated);
-      setSelected(updated);
+      setSelected({ prompt: updated, language: "en" });
       setDraft(updated.text);
       setEditorNotice({ kind: "success", text: `${updated.name} 已保存` });
       onNotice({ kind: "success", text: `${updated.name} 已保存` });
@@ -407,23 +430,56 @@ function PromptLibraryView({
                   <span>{items.length}</span>
                 </div>
                 <div className="prompt-grid">
-                  {items.map((prompt) => (
-                    <button
-                      type="button"
-                      className="prompt-card"
-                      key={prompt.id}
-                      onClick={() => open(prompt)}
-                    >
-                      <span className="prompt-card-topline">
-                        <span>{String(prompt.order).padStart(2, "0")}</span>
-                        <span>{INVOCATION_LABELS[prompt.invocation_type]}</span>
-                      </span>
-                      <strong>{prompt.name}</strong>
-                      <span className="prompt-description">{prompt.description}</span>
-                      <code>{prompt.text.replace(/\s+/g, " ").trim().slice(0, 190)}</code>
-                      <span className="prompt-edit"><Pencil aria-hidden="true" />编辑</span>
-                    </button>
-                  ))}
+                  {items.map((prompt) => {
+                    const language = languageByPrompt[prompt.id] ?? "en";
+                    const mirror = chineseMirrorFor(prompt);
+                    const chineseView = language === "zh";
+                    const preview = chineseView
+                      ? mirror.state === "ready"
+                        ? mirror.text ?? ""
+                        : CHINESE_MIRROR_LABELS[mirror.state]
+                      : prompt.text;
+                    return (
+                      <div className="prompt-card-shell" key={prompt.id}>
+                        <div className="prompt-card-language" role="group" aria-label={`${prompt.name} 语言`}>
+                          <button
+                            type="button"
+                            className={!chineseView ? "is-active" : undefined}
+                            aria-pressed={!chineseView}
+                            onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "en" }))}
+                          >
+                            English
+                          </button>
+                          <button
+                            type="button"
+                            className={chineseView ? "is-active" : undefined}
+                            aria-pressed={chineseView}
+                            onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "zh" }))}
+                          >
+                            中文
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="prompt-card"
+                          aria-label={`打开 ${prompt.name}`}
+                          onClick={() => open(prompt, language)}
+                        >
+                          <span className="prompt-card-topline">
+                            <span>{String(prompt.order).padStart(2, "0")}</span>
+                            <span>{INVOCATION_LABELS[prompt.invocation_type]}</span>
+                          </span>
+                          <strong>{prompt.name}</strong>
+                          <span className="prompt-description">{prompt.description}</span>
+                          <code>{preview.replace(/\s+/g, " ").trim().slice(0, 190)}</code>
+                          <span className={`prompt-mirror-state is-${mirror.state}`}>
+                            {CHINESE_MIRROR_LABELS[mirror.state]}
+                          </span>
+                          <span className="prompt-edit"><Pencil aria-hidden="true" />{chineseView ? "查看镜像" : "编辑"}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -443,8 +499,8 @@ function PromptLibraryView({
           >
             <header>
               <div>
-                <span>{selected.id}</span>
-                <h2 id="prompt-editor-title">{selected.name}</h2>
+                <span>{selected.language === "zh" ? "中文镜像" : selected.prompt.id}</span>
+                <h2 id="prompt-editor-title">{selected.prompt.name}</h2>
               </div>
               <button
                 type="button"
@@ -459,33 +515,43 @@ function PromptLibraryView({
             </header>
             <div className="prompt-dialog-meta">
               <div className="prompt-contract">
-                <span>{WORKFLOW_LABELS[selected.workflow] ?? selected.workflow}</span>
-                <span>{STAGE_LABELS[selected.stage] ?? selected.stage}</span>
-                <span>{INVOCATION_LABELS[selected.invocation_type]}</span>
-                {selected.template_variables.map((variable) => <code key={variable}>{`{${variable}}`}</code>)}
+                <span>{WORKFLOW_LABELS[selected.prompt.workflow] ?? selected.prompt.workflow}</span>
+                <span>{STAGE_LABELS[selected.prompt.stage] ?? selected.prompt.stage}</span>
+                <span>{INVOCATION_LABELS[selected.prompt.invocation_type]}</span>
+                <span>{selected.language === "zh" ? "中文镜像" : "英文运行时原文"}</span>
+                {selected.prompt.template_variables.map((variable) => <code key={variable}>{`{${variable}}`}</code>)}
               </div>
               <NoticeBar
                 notice={editorNotice}
                 onClose={() => setEditorNotice(null)}
               />
             </div>
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              spellCheck={false}
-              autoFocus
-            />
+            {selected.language === "zh" && chineseMirrorFor(selected.prompt).state !== "ready" ? (
+              <div className="prompt-mirror-unavailable" role="status">
+                {CHINESE_MIRROR_LABELS[chineseMirrorFor(selected.prompt).state]}
+              </div>
+            ) : (
+              <textarea
+                value={draft}
+                readOnly={selected.language === "zh"}
+                onChange={(event) => setDraft(event.target.value)}
+                spellCheck={false}
+                autoFocus
+              />
+            )}
             <footer>
               <span>{draft.length.toLocaleString()} 字符</span>
-              <div>
-                <button type="button" className="button-secondary" disabled={saving} onClick={() => setDraft(selected.text)}>
-                  撤销修改
-                </button>
-                <button type="button" className="button-primary" disabled={saving || draft === selected.text} onClick={submit}>
-                  {saving ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Save aria-hidden="true" />}
-                  保存 Prompt
-                </button>
-              </div>
+              {selected.language === "en" ? (
+                <div>
+                  <button type="button" className="button-secondary" disabled={saving} onClick={() => setDraft(selected.prompt.text)}>
+                    撤销修改
+                  </button>
+                  <button type="button" className="button-primary" disabled={saving || draft === selected.prompt.text} onClick={submit}>
+                    {saving ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Save aria-hidden="true" />}
+                    保存 Prompt
+                  </button>
+                </div>
+              ) : <span>镜像仅供查看，中文同步将在后续步骤开放。</span>}
             </footer>
           </section>
         </div>
