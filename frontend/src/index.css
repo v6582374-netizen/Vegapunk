@@ -1044,7 +1044,9 @@ svg {
   inset: 0;
   display: grid;
   padding: var(--space-sm);
+  overflow: hidden;
   background: var(--color-overlay);
+  overscroll-behavior: contain;
   place-items: center;
 }
 
@@ -1106,11 +1108,24 @@ svg {
   height: 100%;
   padding: var(--space-md);
   resize: none;
+  color: inherit;
+  background: var(--color-paper);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: var(--leading-body);
   border: 0;
   border-radius: 0;
+  outline: none;
+  overscroll-behavior: contain;
+}
+
+.prompt-dialog textarea:focus {
+  background: var(--color-paper-2);
+}
+
+.prompt-dialog textarea:focus-visible {
+  outline: none;
+  outline-offset: 0;
 }
 
 .prompt-dialog > footer {

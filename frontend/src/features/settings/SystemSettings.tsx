@@ -331,6 +331,21 @@ function PromptLibraryView({
     return () => window.removeEventListener("keydown", close);
   }, [saving, selected]);
 
+  useEffect(() => {
+    if (!selected) return;
+    const root = document.documentElement;
+    const body = document.body;
+    const rootOverflow = root.style.overflow;
+    const bodyOverflow = body.style.overflow;
+
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = rootOverflow;
+      body.style.overflow = bodyOverflow;
+    };
+  }, [selected]);
+
   const open = (prompt: PromptRecord) => {
     setSelected(prompt);
     setDraft(prompt.text);
