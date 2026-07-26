@@ -7,9 +7,25 @@ Vegapunk coordinates LLM-backed agents for research, discovery, memory, and expe
 ## Product Experience
 
 **Unified Workspace**:
-The one desktop browser interface for Vegapunk, organized as a persistent module sidebar, a central work area, and an optional artifact preview area.
+The one desktop browser interface for Vegapunk, organized around a persistent Space switcher, a Space-specific sidebar, a central work area, and an optional artifact preview area.
 It has no administrator or user-facing shell, no sign-in, and no role-specific navigation.
 _Avoid_: Admin Console, Researcher Workspace, user-facing interface
+
+**Workspace Space**:
+One of the two first-level capability areas within the Unified Workspace, selected through the persistent Space switcher.
+Each Workspace Space owns its sidebar information architecture and central-work-area purpose while preserving the single Unified Workspace product boundary.
+The two Workspace Spaces are Collaboration Space and Autonomous Discovery Space.
+_Avoid_: separate product shell, role-specific console, independent application
+
+**Collaboration Space**:
+The Workspace Space for the Sole Researcher's ongoing tools and configuration, including Paper Tools, Embodied Intelligence, Skill Management, and System Settings.
+It excludes Autonomous Discovery Space's preparation, execution observation, and runtime-artifact review for a Discovery Launch.
+_Avoid_: discovery execution console, Project Space, separate product
+
+**Autonomous Discovery Space**:
+The Workspace Space dedicated to preparing, starting, observing, and reviewing a Discovery Launch.
+It succeeds the former Project Space as the primary product surface for autonomous scientific discovery.
+_Avoid_: general collaboration tools, one-off project dashboard, separate product
 
 **Sole Researcher**:
 The one person allowed to use the Version 1 product's curated research capabilities.
@@ -37,8 +53,8 @@ The workspace remains functionally complete at 1024 CSS pixels without a separat
 _Avoid_: mobile-first composition, native-window assumption, false 1024px parity
 
 **Workspace Module**:
-A top-level capability area selected from the Unified Workspace sidebar, such as Conversations, Skill Management, Project Space, or System Settings.
-Each module owns the central work area while the sidebar remains stable.
+A top-level capability area selected from a Workspace Space sidebar, such as Paper Tools, Skill Management, or System Settings in Collaboration Space.
+Each Workspace Module owns the central work area while its Space sidebar remains stable.
 _Avoid_: role-specific console, page chrome, artifact preview
 
 **Paper Tools**:
@@ -110,6 +126,7 @@ _Avoid_: Browser PDF Reader, full-screen reader, artifact explorer, permanent th
 The browser-native PDF viewer opened in a new tab for every user-visible PDF artifact.
 It replaces all PDF uses of Artifact Preview and embedded artifact viewing.
 Browser configuration determines the reader implementation and whether a user downloads the file instead.
+It is reached through a dedicated PDF action rather than the Artifact Explorer sidebar.
 _Avoid_: system-default desktop PDF app, side-panel PDF preview, embedded PDF iframe
 
 **Research Identity Layer**:
@@ -162,7 +179,7 @@ Dedicated error and warning colors retain their semantic purpose.
 _Avoid_: rainbow particle art, a separate blue identity spectrum, multiple competing brand accents, an identity tone used as an error state
 
 **Calm Computational Motion**:
-The motion discipline for Deterministic Identity Graphics: static by default, with a brief low-amplitude response only on meaningful entry, project-change, or direct-hover events.
+The motion discipline for Deterministic Identity Graphics and the Occluded Point-Cloud Substrate: static by default, with one low-amplitude 180 to 220 ms response only on a module change, selection of a real research object, or start of a real operation.
 It excludes indefinite decorative loops, operational-surface motion, and motion that ignores the system reduced-motion preference.
 _Avoid_: animated wallpaper, perpetual particle drift, distracting form animation
 
@@ -178,6 +195,7 @@ _Avoid_: decorative wallpaper, telemetry substitute, unlabeled data chart
 
 **Occluded Point-Cloud Substrate**:
 The persistent, static, and clearly perceptible Unified Tonal Spectrum point-cloud composition anchored to the lower-right of the Unified Workspace's main content background.
+Its subject is a non-figurative directional abstract formation, not a portrait, neural-network diagram, star field, or implicit data visualization.
 Foreground panels, records, and content naturally crop and occlude it, so it remains a single shared research-identity subject without competing with reading or controls.
 _Avoid_: random redraws, full-bleed particle wallpaper, overlap with text or inputs, a generic star field
 
@@ -237,12 +255,45 @@ It remains distinct from generated artifacts and the Paper Input Bundle.
 _Avoid_: Task Authoring Form, Paper Input Bundle, Launch Workspace
 
 **Staged Research Upload**:
-A temporary input file stored before one Deep Research Run or Discovery Launch claims it during creation.
+A temporary input file stored before one Deep Research Run claims it during creation.
 It may be claimed once, while an unclaimed upload expires; it is neither a reusable file library nor a research artifact.
-_Avoid_: attachment library, permanent upload, research artifact, shared input
+Autonomous Discovery Space uses Discovery Preparation source files instead.
+_Avoid_: Discovery Preparation source file, attachment library, permanent upload, research artifact, shared input
+
+**Unstructured Discovery Source**:
+The arbitrary plain text and files that the Sole Researcher supplies to prepare a Discovery Launch.
+It requires no prescribed schema or complete research-task structure before the model-assisted conversion step.
+Its Version 1 accepted file types are plain text, Markdown, PDF, DOCX, CSV, and ZIP baseline-code packages.
+Other file types are rejected explicitly before conversion.
+_Avoid_: Task Authoring Form, structured Research Submission, required intake template
+
+**Formatted Discovery Input**:
+The editable Discovery-ready content generated from an Unstructured Discovery Source by the model-assisted conversion step.
+The Sole Researcher can inspect, revise, and explicitly save a revision in Autonomous Discovery Space before starting the Discovery Launch.
+_Avoid_: raw source material, automatically launched task, immutable model output
+
+**Discovery Preparation**:
+A reusable Autonomous Discovery Space record that owns Unstructured Discovery Source files and saved Formatted Discovery Input revisions.
+It remains available after a Discovery Launch starts and can create multiple new Launches.
+Each Launch captures the explicitly selected input revision and source files in its own immutable start-time record.
+_Avoid_: one-time Staged Research Upload, mutable Launch input, current-run-only form
+
+**Researcher Tool Prompt**:
+A named instruction maintained by the Sole Researcher in System Settings for an explicitly invoked model-assisted tool operation.
+Researcher Tool Prompts are kept together in their own settings area, separate from the system Prompt Library and Researcher Skills.
+_Avoid_: Registered Prompt, system orchestration prompt, Researcher Skill
+
+**Discovery Input Conversion Prompt**:
+The Researcher Tool Prompt that instructs a model to convert an Unstructured Discovery Source into Formatted Discovery Input.
+_Avoid_: Discovery generation system prompt, Task Authoring Form, direct launch command
+
+**Discovery Input Conversion Invocation**:
+One explicit model call that applies the Discovery Input Conversion Prompt to an Unstructured Discovery Source.
+It resolves the current System Settings default text model and parameters when invoked and offers no Autonomous Discovery Space-local model override.
+_Avoid_: Discovery-local model picker, system orchestration prompt, automatic background conversion
 
 **Prompt Library**:
-The single service-wide collection of every editable Prompt text in the system, stored as repository source files and including scientific-behavior prompts and infrastructure/scaffolding prompts.
+The single service-wide collection of every editable system Prompt text, stored as repository source files and including scientific-behavior prompts and infrastructure/scaffolding prompts.
 Each new Deep Research Run or Discovery Launch reads it when it starts; edits affect work that starts afterwards and never change work already running.
 There are no per-Launch prompt overrides.
 Saved Prompt revisions have no built-in history or system-original copy; repository history owns recovery after a successful save.
@@ -330,6 +381,14 @@ The bounded durable terminal-style sequence of curated and redacted operational 
 It complements the Research Progress Timeline, resumes after reconnect, may discard its oldest messages at the product limit, and never exposes raw Admin logs, hidden prompts, or internal reasoning.
 _Avoid_: raw Admin log, internal trace, replacement for progress milestones
 
+**Raw Discovery Console**:
+The Autonomous Discovery Space's terminal surface that renders a Discovery Launch's stdout and stderr in their original order without summarization, transformation, or redaction.
+Its Version 1 scope is the Sole Researcher's private intranet deployment and may expose all process output, including credentials or hidden prompts.
+Selecting a Launch or reconnecting replays its complete durable console history before following appended output.
+Version 1 applies no display-line limit, replay cursor, or output-processing layer.
+It is distinct from the curated Research Activity Stream and does not replace durable progress milestones.
+_Avoid_: sanitized activity stream, interpreted progress view, production multi-user log viewer
+
 **Execution Attempt**:
 One contiguous execution of a Research Progress Timeline milestone.
 A Discovery Launch Resume adds an attempt while preserving earlier attempts; an Execution Attempt is not an Experiment Run.
@@ -340,8 +399,22 @@ The Unified Workspace view that follows the currently running Discovery Launch i
 _Avoid_: post-hoc report, final-artifact-only view, completed-Launch browser
 
 **Artifact Explorer**:
-The Unified Workspace surface that exposes every file a Launch persists as a browsable tree with content viewers, guaranteeing that all runtime artifacts are reachable. Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to an artifact.
-_Avoid_: curated artifact list, final-only gallery, unmodeled-file blind spot
+The Unified Workspace's contextual right sidebar that exposes every non-PDF human-readable file a Launch persists as a browsable tree with content viewers, guaranteeing that all sidebar-eligible runtime information is reachable.
+Markdown artifacts render as documents while other sidebar-eligible text, data, code, source, and image artifacts use direct human-readable viewers.
+Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to sidebar-eligible artifact information.
+In Autonomous Discovery Space, it is scoped to the Selected Discovery Launch and excludes PDF and machine-only binary runtime files from the tree.
+_Avoid_: central-work-area artifact viewer, PDF sidebar preview, raw filesystem mirror, binary-file browser, final-only gallery, unmodeled human-readable information blind spot
+
+**Discovery Launch Archive**:
+The Autonomous Discovery Space's chronological collection of every running or completed Discovery Launch.
+Selecting one Launch makes its complete sidebar-eligible artifact tree available through the Artifact Explorer instead of limiting the researcher to the current Launch.
+Its user-visible PDFs remain available through their dedicated Browser PDF Reader actions.
+_Avoid_: current-run-only output, curated result gallery, discarded completed run
+
+**Selected Discovery Launch**:
+The one Discovery Launch selected from the Discovery Launch Archive as the Autonomous Discovery Space's current viewing context.
+Its selection simultaneously determines the Raw Discovery Console history in the central work area and Artifact Explorer tree in the right sidebar.
+_Avoid_: independent console selection, independent artifact selection, multiple concurrent viewing contexts
 
 **Curated Research Artifact**:
 A stable product-visible output selected from one Deep Research Run or Discovery Launch and addressed by an opaque artifact identity rather than a filesystem path.

@@ -158,6 +158,39 @@ class ProviderConnectionsApiTest(unittest.TestCase):
         self.assertTrue(response.json()["credential_configured"])
         self.assertNotIn("environment-secret", response.text)
 
+    def test_credential_reveal_requires_an_explicit_request(self) -> None:
+        self.secrets.values["relay"] = "vault-secret"
+
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "environment-secret"}):
+            listed = self.client.get("/api/admin/provider-connections")
+            revealed = self.client.post(
+                "/api/admin/provider-connections/relay/credential/reveal"
+            )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertNotIn("vault-secret", listed.text)
+        self.assertNotIn("environment-secret", listed.text)
+        self.assertEqual(revealed.status_code, 200)
+        self.assertEqual(revealed.json(), {"api_key": "vault-secret"})
+
+    def test_credential_reveal_uses_environment_fallback_when_needed(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "environment-secret"}):
+            response = self.client.post(
+                "/api/admin/provider-connections/relay/credential/reveal"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"api_key": "environment-secret"})
+
+    def test_credential_reveal_rejects_missing_credential(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            response = self.client.post(
+                "/api/admin/provider-connections/relay/credential/reveal"
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "API key is not configured")
+
     def test_endpoint_change_is_persisted(self) -> None:
         response = self.client.put(
             "/api/admin/provider-connections/qwen",
@@ -186,6 +219,12 @@ class ProviderConnectionsApiTest(unittest.TestCase):
             404,
         )
         self.assertEqual(
+            self.client.post(
+                "/api/admin/provider-connections/unknown/credential/reveal"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
             self.client.delete(
                 "/api/admin/provider-connections/unknown/credential"
             ).status_code,
@@ -207,10 +246,14 @@ class ProviderConnectionsApiTest(unittest.TestCase):
         saved = client.put(
             "/api/admin/provider-connections/relay", json={"api_key": "secret"}
         )
+        revealed = client.post(
+            "/api/admin/provider-connections/relay/credential/reveal"
+        )
         deleted = client.delete("/api/admin/provider-connections/relay/credential")
 
         self.assertEqual(listed.status_code, 503)
         self.assertEqual(saved.status_code, 503)
+        self.assertEqual(revealed.status_code, 503)
         self.assertEqual(deleted.status_code, 503)
         self.assertNotIn("secret", saved.text)
 

@@ -571,6 +571,17 @@ def create_app(
         except SecretStoreUnavailableError as error:
             raise HTTPException(status_code=503, detail=str(error))
 
+    @admin_router.post("/provider-connections/{provider}/credential/reveal")
+    def reveal_provider_credential(provider: str) -> dict:
+        try:
+            return {"api_key": provider_connections.reveal_credential(provider)}
+        except UnknownProviderError:
+            raise HTTPException(status_code=404, detail=f"unknown provider: {provider}")
+        except InvalidProviderConnectionError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        except SecretStoreUnavailableError as error:
+            raise HTTPException(status_code=503, detail=str(error))
+
     @admin_router.post("/provider-connections/{provider}/verify")
     def verify_provider_connection(provider: str) -> dict:
         try:

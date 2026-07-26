@@ -253,6 +253,14 @@ export async function saveProviderConnection(
   });
 }
 
+export async function revealProviderCredential(
+  provider: string,
+): Promise<{ api_key: string }> {
+  return request(`/api/admin/provider-connections/${provider}/credential/reveal`, {
+    method: "POST",
+  });
+}
+
 export async function verifyProviderConnection(
   provider: string,
 ): Promise<ProviderConnection> {

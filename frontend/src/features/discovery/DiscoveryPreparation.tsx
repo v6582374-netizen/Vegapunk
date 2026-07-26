@@ -137,13 +137,9 @@ export function DiscoveryPreparation() {
   };
 
   return (
-    <section className="discovery-preparation" aria-labelledby="discovery-preparation-title">
+    <section className="discovery-preparation" aria-label="Discovery Preparation">
       <header className="discovery-preparation-intro">
-        <div>
-          <p className="section-label">AUTONOMOUS DISCOVERY / PREPARATION</p>
-          <h1 id="discovery-preparation-title">Discovery Preparation</h1>
-          <p>保留任何尚未整理的课题线索，并把它们保存为后续 Discovery 流程可复用的原始输入。</p>
-        </div>
+        <p>保留任何尚未整理的课题线索，并把它们保存为后续 Discovery 流程可复用的原始输入。</p>
         <span className="discovery-preparation-status"><i aria-hidden="true" />尚未转换</span>
       </header>
 

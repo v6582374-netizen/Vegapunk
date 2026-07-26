@@ -1,21 +1,22 @@
 import {
   AlertCircle,
   CheckCircle2,
-  KeyRound,
-  Library,
+  CircleHelp,
+  Eye,
+  EyeOff,
   Languages,
   LoaderCircle,
   Pencil,
   RefreshCw,
   Save,
   Search,
-  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import "./PromptMirrors.css";
+import { type SettingsSection } from "./settingsNavigation";
 
 import {
   deleteProviderCredential,
@@ -26,6 +27,7 @@ import {
   fetchPrompts,
   fetchPromptTranslationInstruction,
   fetchProviderConnections,
+  revealProviderCredential,
   saveDefaultConfiguration,
   saveDiscoveryInputConversionPrompt,
   savePrompt,
@@ -46,18 +48,11 @@ import {
   type ProviderConnection,
 } from "../../shared/adminApi";
 
-type SettingsSection = "providers" | "prompts" | "translation" | "conversion" | "defaults";
 type Notice = { kind: "success" | "error"; text: string } | null;
 type PromptLanguage = "en" | "zh";
 type SelectedPrompt = { prompt: PromptRecord; language: PromptLanguage };
 
-const SECTIONS = [
-  { id: "providers" as const, label: "API 配置", icon: KeyRound },
-  { id: "prompts" as const, label: "Prompt 库", icon: Library },
-  { id: "translation" as const, label: "翻译指令", icon: Languages },
-  { id: "conversion" as const, label: "转换指令", icon: Pencil },
-  { id: "defaults" as const, label: "默认参数", icon: SlidersHorizontal },
-];
+const MASKED_API_KEY = "******";
 
 const WORKFLOW_LABELS: Record<string, string> = {
   deep_research: "深度研究",
@@ -129,6 +124,69 @@ const PARAMETER_GROUP_LABELS: Record<string, string> = {
   workflow: "Discovery 工作流",
 };
 
+const PARAMETER_HELP: Partial<Record<string, string>> = {
+  "system.debug": "打开后会记录更多内部诊断信息，适合排查问题。日常运行建议关闭，避免日志过多。",
+  "system.log_level": "决定日志的详细程度。DEBUG 最详细，INFO 适合日常观察，WARNING 只保留警告，ERROR 只保留错误。",
+  "memory.task_memory.enabled": "让系统在新一轮实验中参考过去相似任务的经验。关闭后，每轮都不会读取这些短期经验。",
+  "memory.task_memory.top_k": "每次检索时取回多少条最相关的历史记录。数值越大，参考范围越广，但内容也可能更杂。",
+  "memory.task_memory.alpha": "平衡关键词匹配和语义相似度。接近 1 更看重关键词，接近 0 更看重语义意思。",
+  "memory.task_memory.include_details": "控制检索结果是否带上完整实验细节。开启后信息更充分，传给模型的上下文也会更长。",
+  "memory.task_memory.embedding_mode": "指定用记录的哪一部分生成检索向量。完整内容最全面，标题最简洁，描述和方法介于两者之间。",
+  "memory.online_memory.enabled": "每次实验结束后自动把结果写入经验库，供后续轮次参考。",
+  "memory.online_memory.aggregation": "同一实验多次运行时，决定保存哪种汇总结果。best 保存最佳一次，avg 保存平均表现，last 保存最后一次。",
+  "memory.long_memory.enabled": "开启跨轮次的长期经验库和 IdeaGraph。它帮助系统识别已探索过的想法方向。",
+  "memory.long_memory.idea_graph.similarity_threshold": "两个想法达到这个相似度才会在 IdeaGraph 中连边。值越高，只有更相近的想法才会被归为关联。",
+  "memory.long_memory.prompt_evolver.enabled": "允许系统根据积累的经验自动调整 Discovery 阶段使用的提示词。",
+  "memory.long_memory.prompt_evolver.evolution_interval": "每完成多少个 Discovery 轮次执行一次提示词演化。设为 1 表示每轮都尝试更新。",
+  "sci_tools.local": "启用本机提供的 Sci 工具。仅在本地已经配置这些工具时开启。",
+  "tools.web_search.max_results": "限制一次网页搜索最多带回多少条结果。更多结果覆盖更广，但也会增加筛选和上下文负担。",
+  "tools.literature_search.timeout": "文献检索请求最多等待多久。网络较慢时可适当调大，过大也会让失败请求占用更久。",
+  "agents.generation.generation_count": "每个 Discovery 轮次生成的候选想法数。更多候选带来更广探索，也会增加后续评审成本。",
+  "agents.generation.creativity": "控制想法生成的发散程度。低值更稳妥地贴近已有方向，高值会尝试更多新颖组合。",
+  "agents.generation.do_survey": "在生成想法前先做文献调研，让候选方案更能避开已有工作。",
+  "agents.generation.use_memory": "生成想法时参考历史实验记忆，减少重复尝试并利用已有经验。",
+  "agents.generation.filter_failed_ideas": "自动拦截与过去失败尝试过于相似的候选想法。",
+  "agents.generation.failed_similarity_threshold": "候选与失败尝试达到这个相似度就会被视为重复。值越低，过滤会更严格。",
+  "agents.generation.max_regeneration_attempts": "候选被过滤后，允许系统重新生成的最多次数。设为 0 则不重试。",
+  "agents.reflection.count": "每个候选想法会经历多少轮反思和改进。更多轮次通常更细致，但会增加时间和模型调用。",
+  "agents.reflection.detail_level": "控制反思输出的篇幅和深入程度。low 简洁，medium 平衡，high 更全面。",
+  "agents.evolution.evolution_count": "每轮从已有想法衍生多少个新变体，用于继续探索和比较。",
+  "agents.evolution.creativity_level": "控制想法演化时的改动幅度。数值越高，变体与原想法的差异通常越大。",
+  "agents.evolution.temperature": "演化模型的采样随机度。较低更稳定和可预测，较高更有探索性但也更不稳定。",
+  "agents.evolution.use_memory": "演化已有想法时使用历史经验，帮助保留有效方向并避开已知问题。",
+  "agents.evolution.filter_failed_ideas": "过滤掉与失败实验过于相似的演化结果。",
+  "agents.evolution.failed_similarity_threshold": "设定演化结果与失败尝试多像时需要过滤。数值越低，过滤范围越大。",
+  "agents.evolution.max_regeneration_attempts": "演化结果被过滤后，允许重新生成的最多次数。",
+  "agents.ranking.criteria": "为新颖性、可信度、可测试性和任务契合度等排序标准设置权重。权重越大，该标准影响越大。",
+  "agents.ranking.strategy": "选择候选想法的排序方式。默认策略会按系统内置的综合规则排序。",
+  "agents.scholar.search_depth": "控制学术检索的深入程度。shallow 更快，deep 会搜索和分析更多资料。",
+  "agents.scholar.sources": "指定学术检索允许使用的数据来源。留空时按系统默认来源处理。",
+  "agents.survey.max_papers": "文献综述最多纳入多少篇论文。数值越大，覆盖更广，但阅读和整理时间也更长。",
+  "agents.survey.sources": "指定文献综述可使用的数据来源。留空时按系统默认来源处理。",
+  "agents.dr.enabled": "在正式生成前启用 Deep Research 背景调研，帮助系统补充领域信息和证据。",
+  "agents.dr.mode": "选择 Deep Research 的执行方式。不同模式会影响调研流程和产出粒度。",
+  "agents.exp_analyze.temperature": "控制实验结果分析模型的随机度。较低更稳定，较高更适合探索不同解释。",
+  "agents.exp_analyze.timeout": "实验结果分析阶段最多等待模型响应多久，单位为秒。",
+  "agents.exp_analyze.use_llm_for_metric_direction": "让模型判断每个指标是越高越好还是越低越好。关闭后需依赖已有规则。",
+  "agents.exp_analyze.use_llm_for_primary_metric": "让模型从多个指标中选择最重要的主指标，用于判断实验表现。",
+  "workflow.max_iterations": "单个想法在 MAS 中最多经过多少次演化迭代，防止流程无限继续。",
+  "workflow.top_ideas_count": "每轮选出多少个最佳想法进入实验阶段。数值越大，实验覆盖更广，资源消耗也更高。",
+  "workflow.top_ideas_evo": "让本轮表现最好的想法也参与下一步演化，而不只保留为最终候选。",
+  "workflow.max_concurrent_tasks": "MAS 内同时执行的任务数上限。提高它可加快处理，但会占用更多模型和机器资源。",
+  "workflow.loop_rounds": "整个 Discovery 流程最多重复多少轮，用于控制总探索范围。",
+  "workflow.loop_mode": "fresh 每轮从基线重新开始，incremental 则从上一轮最优结果继续推进。",
+  "sci_task.evaluation_mode": "选择论文复现任务如何评估结果。llm_judge 由模型判断，none 则跳过评估。",
+  "experiment.model": "指定实验阶段的编码 Agent 使用哪个模型。它会影响代码实现和修复的能力、成本与速度。",
+  "experiment.use_mcts": "在实验阶段使用 MCTS 搜索来探索多条路径，而不是常规的运行和修错循环。",
+  "experiment.max_runs": "每个候选方案最多运行多少次实验。run_0 是基线运行，后续运行用于改进或重试。",
+  "experiment.max_parallel_experiments": "同一时间最多并行运行多少个实验。提高它可缩短总耗时，但会占用更多资源。",
+  "experiment.gpu_per_experiment": "分配给每个并行实验的 GPU 配额。支持小数，用于在多个实验间共享 GPU。",
+};
+
+function parameterHelpFor(field: ParameterField): string {
+  return PARAMETER_HELP[field.path] ?? field.description;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败";
 }
@@ -173,6 +231,42 @@ function ProvidersView({
     Object.fromEntries(connections.map((item) => [item.provider, item.base_url])),
   );
   const [busy, setBusy] = useState<Record<string, string | null>>({});
+  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
+
+  const clearKeyDraft = (provider: string) => {
+    setKeys((current) => {
+      const next = { ...current };
+      delete next[provider];
+      return next;
+    });
+    setVisibleKeys((current) => ({ ...current, [provider]: false }));
+  };
+
+  const revealKey = async (connection: ProviderConnection) => {
+    const provider = connection.provider;
+    const hasDraft = Object.hasOwn(keys, provider);
+    const keyIsVisible = visibleKeys[provider] ?? false;
+    if (!connection.credential_configured || (hasDraft && keys[provider].length > 0)) {
+      setVisibleKeys((current) => ({ ...current, [provider]: !keyIsVisible }));
+      return;
+    }
+    if (keyIsVisible) {
+      setVisibleKeys((current) => ({ ...current, [provider]: false }));
+      return;
+    }
+
+    setBusy((current) => ({ ...current, [provider]: "reveal" }));
+    onNotice(null);
+    try {
+      const { api_key } = await revealProviderCredential(provider);
+      setKeys((current) => ({ ...current, [provider]: api_key }));
+      setVisibleKeys((current) => ({ ...current, [provider]: true }));
+    } catch (error) {
+      onNotice({ kind: "error", text: errorMessage(error) });
+    } finally {
+      setBusy((current) => ({ ...current, [provider]: null }));
+    }
+  };
 
   const run = async (
     provider: string,
@@ -197,6 +291,14 @@ function ProvidersView({
     <div className="provider-list">
       {connections.map((connection) => {
         const state = busy[connection.provider];
+        const hasKeyDraft = Object.hasOwn(keys, connection.provider);
+        const keyIsVisible = visibleKeys[connection.provider] ?? false;
+        const apiKeyValue = hasKeyDraft
+          ? keys[connection.provider]
+          : connection.credential_configured
+            ? MASKED_API_KEY
+            : "";
+        const VisibilityIcon = keyIsVisible ? EyeOff : Eye;
         return (
           <article className="provider-row" key={connection.provider}>
             <header className="provider-heading">
@@ -224,18 +326,38 @@ function ProvidersView({
             <div className="provider-fields">
               <label>
                 <span>API Key</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={keys[connection.provider] ?? ""}
-                  placeholder={connection.credential_configured ? "已配置，输入可替换" : "输入 API Key"}
-                  onChange={(event) =>
-                    setKeys((current) => ({
-                      ...current,
-                      [connection.provider]: event.target.value,
-                    }))
-                  }
-                />
+                <div className="provider-api-key">
+                  <input
+                    type={keyIsVisible ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={apiKeyValue}
+                    placeholder="输入 API Key"
+                    onFocus={() => {
+                      if (connection.credential_configured && !hasKeyDraft) {
+                        setKeys((current) => ({ ...current, [connection.provider]: "" }));
+                      }
+                    }}
+                    onBlur={() => {
+                      if (keys[connection.provider] === "") clearKeyDraft(connection.provider);
+                    }}
+                    onChange={(event) =>
+                      setKeys((current) => ({
+                        ...current,
+                        [connection.provider]: event.target.value,
+                      }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    disabled={Boolean(state)}
+                    onClick={() => void revealKey(connection)}
+                    aria-label={`${keyIsVisible ? "隐藏" : "显示"} ${connection.name} API Key`}
+                    title={`${keyIsVisible ? "隐藏" : "显示"} API Key`}
+                  >
+                    <VisibilityIcon aria-hidden="true" />
+                  </button>
+                </div>
                 <small>
                   {connection.credential_source === "vault"
                     ? "系统凭据库"
@@ -287,7 +409,11 @@ function ProvidersView({
                     run(
                       connection.provider,
                       "delete",
-                      () => deleteProviderCredential(connection.provider),
+                      async () => {
+                        const updated = await deleteProviderCredential(connection.provider);
+                        clearKeyDraft(connection.provider);
+                        return updated;
+                      },
                       `${connection.name} 凭据已删除`,
                     )
                   }
@@ -305,12 +431,12 @@ function ProvidersView({
                       connection.provider,
                       "save",
                       async () => {
-                        const apiKey = keys[connection.provider]?.trim();
+                        const apiKey = hasKeyDraft ? keys[connection.provider].trim() : undefined;
                         const updated = await saveProviderConnection(connection.provider, {
                           ...(apiKey ? { api_key: apiKey } : {}),
                           base_url: urls[connection.provider],
                         });
-                        setKeys((current) => ({ ...current, [connection.provider]: "" }));
+                        clearKeyDraft(connection.provider);
                         return updated;
                       },
                       `${connection.name} 配置已保存`,
@@ -1069,6 +1195,20 @@ function ParameterControl({
   return <input type="text" value={String(value ?? "")} onChange={(event) => onChange(event.target.value)} />;
 }
 
+function ParameterHelp({ field }: { field: ParameterField }) {
+  const tooltipId = `parameter-help-${field.path.replaceAll(".", "-")}`;
+  return (
+    <details className="parameter-help">
+      <summary aria-describedby={tooltipId} aria-label={`查看“${field.description}”的说明`}>
+        <CircleHelp aria-hidden="true" />
+      </summary>
+      <span className="parameter-tooltip" id={tooltipId} role="tooltip">
+        {parameterHelpFor(field)}
+      </span>
+    </details>
+  );
+}
+
 function DefaultsView({
   configuration,
   onChange,
@@ -1176,7 +1316,10 @@ function DefaultsView({
           <div className="parameter-list">
             {fields.map((field) => (
               <div className="parameter-row" key={field.path}>
-                <label htmlFor={`parameter-${field.path}`}>{field.description}</label>
+                <div className="parameter-label">
+                  <label htmlFor={`parameter-${field.path}`}>{field.description}</label>
+                  <ParameterHelp field={field} />
+                </div>
                 <div id={`parameter-${field.path}`}>
                   <ParameterControl
                     field={field}
@@ -1201,8 +1344,11 @@ function DefaultsView({
   );
 }
 
-export function SystemSettings() {
-  const [section, setSection] = useState<SettingsSection>("providers");
+export function SystemSettings({
+  section,
+}: {
+  section: SettingsSection;
+}) {
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
   const [translationInstruction, setTranslationInstruction] = useState<PromptTranslationInstruction | null>(null);
@@ -1211,6 +1357,10 @@ export function SystemSettings() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
+
+  useEffect(() => {
+    setNotice(null);
+  }, [section]);
 
   useEffect(() => {
     let active = true;
@@ -1260,36 +1410,7 @@ export function SystemSettings() {
   };
 
   return (
-    <section className="system-settings" aria-labelledby="settings-title">
-      <header className="settings-intro">
-        <div>
-          <p className="section-label">SYSTEM SETTINGS</p>
-          <h1 id="settings-title">系统设置</h1>
-        </div>
-        <span>{prompts.length} PROMPTS · {connections.length} PROVIDERS</span>
-      </header>
-
-      <nav className="settings-tabs" aria-label="系统设置分类">
-        {SECTIONS.map((item) => {
-          const SectionIcon = item.icon;
-          return (
-            <button
-              type="button"
-              key={item.id}
-              className={section === item.id ? "is-active" : undefined}
-              aria-current={section === item.id ? "page" : undefined}
-              onClick={() => {
-                setSection(item.id);
-                setNotice(null);
-              }}
-            >
-              <SectionIcon aria-hidden="true" />
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
-
+    <section className="system-settings" aria-label="系统设置">
       <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       {loading ? <LoadingState /> : null}
       {loadError ? (

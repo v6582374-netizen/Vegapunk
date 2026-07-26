@@ -19,11 +19,10 @@
 
 .discovery-preparation-intro {
   align-items: flex-start;
-  padding-bottom: var(--space-xl);
+  padding-bottom: var(--space-lg);
   border-bottom: var(--rule-hair) solid var(--color-rule);
 }
 
-.discovery-preparation-intro h1,
 .discovery-section-heading h2 {
   margin: var(--space-xs) 0 0;
   font-family: var(--font-display);
@@ -31,14 +30,9 @@
   letter-spacing: var(--tracking-tight);
 }
 
-.discovery-preparation-intro h1 {
-  font-size: clamp(2rem, 4vw, 3.75rem);
-  line-height: 1;
-}
-
-.discovery-preparation-intro p:not(.section-label) {
+.discovery-preparation-intro > p {
   max-width: 42rem;
-  margin: var(--space-md) 0 0;
+  margin: 0;
   color: var(--color-muted);
   font-size: var(--text-md);
   line-height: var(--leading-body);

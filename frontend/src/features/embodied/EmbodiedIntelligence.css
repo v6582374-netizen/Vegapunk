@@ -9,18 +9,9 @@
 
 .embodied-intelligence {
   width: min(100%, var(--content-width-wide));
-  padding: clamp(var(--space-xl), 5vw, var(--space-3xl)) var(--space-lg) var(--space-3xl);
+  padding: var(--space-lg) var(--space-lg) var(--space-3xl);
 }
 
-.embodied-intro {
-  display: grid;
-  gap: var(--space-lg);
-  max-width: 65rem;
-  padding: var(--space-xl) 0 var(--space-2xl) var(--space-lg);
-  border-top: var(--rule-hair) solid var(--color-texture-rule);
-}
-
-.embodied-intro h1,
 .embodied-section-heading h2,
 .embodied-briefing h2,
 .embodied-monitor-heading h2 {
@@ -31,13 +22,6 @@
   letter-spacing: var(--tracking-tight);
 }
 
-.embodied-intro h1 {
-  max-width: 12ch;
-  font-size: clamp(2.5rem, 6vw, 5rem);
-  line-height: 0.98;
-}
-
-.embodied-intro > div > p:last-child,
 .embodied-briefing-copy > p:last-child {
   max-width: 42rem;
   margin: var(--space-md) 0 0;
@@ -46,19 +30,6 @@
   line-height: var(--leading-body);
 }
 
-.embodied-demo-badge {
-  display: grid;
-  width: fit-content;
-  gap: var(--space-2xs);
-  align-self: end;
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-accent-ink);
-  background: var(--color-ink);
-  box-shadow: 0.5rem 0.5rem 0 var(--color-accent-soft);
-}
-
-.embodied-demo-badge span,
-.embodied-demo-badge small,
 .embodied-monitor-heading p,
 .embodied-monitor-heading > span,
 .embodied-feed-overlay,
@@ -69,23 +40,11 @@
   letter-spacing: var(--tracking-label);
 }
 
-.embodied-demo-badge span,
 .embodied-monitor-heading > span,
 .embodied-section-heading > span {
   display: inline-flex;
   gap: var(--space-xs);
   align-items: center;
-}
-
-.embodied-demo-badge i {
-  width: 0.45rem;
-  height: 0.45rem;
-  background: oklch(82% 0.17 170);
-  border-radius: var(--radius-round);
-}
-
-.embodied-demo-badge small {
-  color: oklch(76% 0.04 242);
 }
 
 .embodied-monitor {
@@ -493,11 +452,6 @@
 @media (min-width: 40rem) {
   .embodied-intelligence {
     padding-inline: var(--space-2xl);
-  }
-
-  .embodied-intro {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
   }
 
   .embodied-camera-grid {

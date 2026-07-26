@@ -215,6 +215,16 @@ class ProviderConnectionService:
                 provider, catalog, config, credential, source
             )
 
+    def reveal_credential(self, provider: str) -> str:
+        """Return one configured credential after an explicit local reveal request."""
+
+        with source_configuration_transaction():
+            _, config = self._provider(provider)
+            credential, _ = self._effective_credential(provider, config)
+            if credential is None:
+                raise InvalidProviderConnectionError("API key is not configured")
+            return credential
+
     def delete_credential(self, provider: str) -> dict:
         with source_configuration_transaction():
             catalog, config = self._provider(provider)

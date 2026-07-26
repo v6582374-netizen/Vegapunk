@@ -85,7 +85,7 @@ async function mockPromptSynchronizationRequests(
 async function openChinesePrompt(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "系统设置" }).click();
-  await page.getByRole("navigation", { name: "系统设置分类" })
+  await page.getByRole("group", { name: "系统设置子模块" })
     .getByRole("button", { name: "Prompt 库" })
     .click();
   await page.getByRole("group", { name: "Synchronizable Chinese Prompt 语言" })

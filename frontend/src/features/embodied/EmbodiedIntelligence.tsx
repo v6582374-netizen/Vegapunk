@@ -91,22 +91,7 @@ export function EmbodiedIntelligence() {
   const selectedCamera = CAMERA_FEEDS.find((camera) => camera.id === selectedCameraId) ?? CAMERA_FEEDS[0];
 
   return (
-    <section className="embodied-intelligence" aria-labelledby="embodied-title">
-      <header className="embodied-intro">
-        <div>
-          <p className="section-label">EMBODIED INTELLIGENCE / DEMO STATION</p>
-          <h1 id="embodied-title">让机器的感知，<br />进入同一块工作台。</h1>
-          <p>
-            这里以经授权的真实实验室影像预演具身智能的多机位观察界面。
-            画面只按演示模式循环播放，不代表当前摄像头或机器人连接。
-          </p>
-        </div>
-        <div className="embodied-demo-badge" aria-label="演示模式，经授权的动态素材">
-          <span><i aria-hidden="true" />演示模式</span>
-          <small>CURATED FOOTAGE</small>
-        </div>
-      </header>
-
+    <section className="embodied-intelligence" aria-label="具身智能多机位观察">
       <section className="embodied-monitor" aria-labelledby="monitor-title">
         <header className="embodied-monitor-heading">
           <div>

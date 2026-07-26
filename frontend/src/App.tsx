@@ -4,11 +4,10 @@ import {
   BookOpenText,
   FileText,
   Settings,
-  Sparkles,
   WandSparkles,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
 import { DiscoveryPreparation } from "./features/discovery/DiscoveryPreparation";
@@ -18,6 +17,10 @@ import {
 } from "./features/identity/OccludedPointCloudSubstrate";
 import { PaperTools } from "./features/papers/PaperTools";
 import { SystemSettings } from "./features/settings/SystemSettings";
+import {
+  SETTINGS_SECTIONS,
+  type SettingsSection,
+} from "./features/settings/settingsNavigation";
 
 type WorkspaceSpaceId = "collaboration" | "autonomous-discovery";
 type ModuleId = "papers" | "embodied" | "skills" | "settings" | "discovery-preparation" | "discovery-launch-archive";
@@ -67,34 +70,26 @@ const INITIAL_MODULES: Record<WorkspaceSpaceId, ModuleId> = {
 
 const PLACEHOLDER_COPY: Record<"skills" | "discovery-launch-archive", { title: string; body: string }> = {
   skills: {
-    title: "Skill 管理",
+    title: "研究能力的启用与编排",
     body: "在这里浏览、启用与编排研究技能。初版先呈现工作区结构，不修改运行时配置。",
   },
   "discovery-launch-archive": {
-    title: "Discovery Launch Archive",
+    title: "运行记录与原始产物",
     body: "在这里回看正在运行或已完成的 Discovery Launch，并在后续流程中进入对应的原始控制台与运行产物。",
   },
 };
 
 function PlaceholderModule({ module }: { module: "skills" | "discovery-launch-archive" }) {
   const copy = PLACEHOLDER_COPY[module];
-  const item = Object.values(SPACES)
-    .flatMap((space) => space.modules)
-    .find((entry) => entry.id === module);
-  const PlaceholderIcon = item?.icon ?? Sparkles;
+  const label = module === "skills" ? "Skill 管理" : "Discovery Launch Archive";
 
   return (
-    <section className="module-placeholder" aria-labelledby="placeholder-title">
-      <div className="placeholder-mark reveal" style={{ "--i": 0 } as React.CSSProperties}>
-        <PlaceholderIcon aria-hidden="true" />
-      </div>
-      <p className="section-label reveal" style={{ "--i": 1 } as React.CSSProperties}>{item?.label} / 初版演示</p>
-      <h1 id="placeholder-title" className="reveal" style={{ "--i": 2 } as React.CSSProperties}>{copy.title}</h1>
-      <p className="placeholder-copy reveal" style={{ "--i": 3 } as React.CSSProperties}>{copy.body}</p>
-      <div className="placeholder-note reveal" style={{ "--i": 4 } as React.CSSProperties}>
-        <Sparkles aria-hidden="true" />
-        <span>模块结构已就位，具体能力将在后续阶段接入。</span>
-      </div>
+    <section className="module-placeholder" aria-label={label}>
+      <h1 id="placeholder-title" className="reveal" style={{ "--i": 0 } as React.CSSProperties}>{copy.title}</h1>
+      <p className="placeholder-copy reveal" style={{ "--i": 1 } as React.CSSProperties}>{copy.body}</p>
+      <p className="placeholder-note reveal" style={{ "--i": 2 } as React.CSSProperties}>
+        模块结构已就位，具体能力将在后续阶段接入。
+      </p>
     </section>
   );
 }
@@ -102,6 +97,7 @@ function PlaceholderModule({ module }: { module: "skills" | "discovery-launch-ar
 export default function App() {
   const [activeSpaceId, setActiveSpaceId] = useState<WorkspaceSpaceId>("collaboration");
   const [selectedModules, setSelectedModules] = useState<Record<WorkspaceSpaceId, ModuleId>>(INITIAL_MODULES);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("providers");
   const [substrateEpoch, setSubstrateEpoch] = useState(0);
   const activeSpace = SPACES[activeSpaceId];
   const activeModule = activeSpace.modules.find((module) => module.id === selectedModules[activeSpaceId]) ?? activeSpace.modules[0];
@@ -143,21 +139,45 @@ export default function App() {
             const isActive = activeModule.id === module.id;
             const ModuleIcon = module.icon;
             return (
-              <button
-                type="button"
-                key={module.id}
-                className={isActive ? "is-active" : undefined}
-                onClick={() => selectModule(module.id)}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={module.label}
-                title={module.label}
-              >
-                <span className="module-icon"><ModuleIcon aria-hidden="true" /></span>
-                <span className="module-label">
-                  <strong>{module.label}</strong>
-                  <small>{module.caption}</small>
-                </span>
-              </button>
+              <Fragment key={module.id}>
+                <button
+                  type="button"
+                  className={isActive ? "is-active" : undefined}
+                  onClick={() => selectModule(module.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={module.label}
+                  title={module.label}
+                >
+                  <span className="module-icon"><ModuleIcon aria-hidden="true" /></span>
+                  <span className="module-label">
+                    <strong>{module.label}</strong>
+                    <small>{module.caption}</small>
+                  </span>
+                </button>
+                {module.id === "settings" ? (
+                  <div className="settings-subnav" role="group" aria-label="系统设置子模块">
+                    {SETTINGS_SECTIONS.map((item) => {
+                      const SectionIcon = item.icon;
+                      const isSectionActive = settingsSection === item.id;
+                      return (
+                        <button
+                          type="button"
+                          key={item.id}
+                          className={isSectionActive ? "is-active" : undefined}
+                          aria-current={isActive && isSectionActive ? "page" : undefined}
+                          onClick={() => {
+                            setSettingsSection(item.id);
+                            selectModule("settings");
+                          }}
+                        >
+                          <SectionIcon aria-hidden="true" />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </Fragment>
             );
           })}
         </nav>
@@ -191,15 +211,8 @@ export default function App() {
           profile={activeModule.materialProfile}
           respondsToModuleChange={substrateEpoch > 0}
         />
-        <header className="workspace-header">
-          <div>
-            <p className="workspace-location">{activeSpace.label} / {activeModule.label}</p>
-            <span>{activeSpaceId === "autonomous-discovery" ? "自主科学发现" : activeModule.id === "settings" ? "配置与运行控制" : "初版交互演示"}</span>
-          </div>
-          <div className="header-status"><i className="status-dot" aria-hidden="true" />内网运行</div>
-        </header>
         {activeModule.id === "settings" ? (
-          <SystemSettings />
+          <SystemSettings section={settingsSection} />
         ) : activeModule.id === "papers" ? (
           <PaperTools />
         ) : activeModule.id === "embodied" ? (
