@@ -2,7 +2,6 @@
   --color-paper: oklch(98.5% 0.007 240);
   --color-paper-2: oklch(96% 0.012 240);
   --color-paper-3: oklch(92% 0.018 240);
-  --color-preview: oklch(96% 0.011 232);
   --color-ink: oklch(20% 0.02 252);
   --color-neutral: oklch(40% 0.019 248);
   --color-muted: oklch(54% 0.016 246);
@@ -30,11 +29,6 @@
   --color-particle-focus: oklch(56% 0.17 250 / 0.72);
   --color-texture-rule: oklch(76% 0.075 238 / 0.56);
   --color-texture-soft: oklch(83% 0.06 235 / 0.42);
-  --color-pdf-paper: oklch(99% 0.006 240);
-  --color-pdf-ink: oklch(23% 0.018 252);
-  --color-pdf-neutral: oklch(40% 0.016 248);
-  --color-pdf-muted: oklch(53% 0.014 246);
-  --color-pdf-rule: oklch(78% 0.018 240);
 
   --font-display: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB", sans-serif;
   --font-body: "IBM Plex Sans Variable", "PingFang SC", "Hiragino Sans GB", sans-serif;
@@ -85,8 +79,6 @@
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
   --sidebar-width: 15.5rem;
-  --preview-min-width: 22rem;
-  --preview-width: 27rem;
   --content-width: 68rem;
   --content-width-wide: 74rem;
   --intro-width: 48rem;

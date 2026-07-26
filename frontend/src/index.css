@@ -122,8 +122,7 @@ svg {
 .sidebar-footnote span,
 .section-label,
 .project-kicker,
-.workspace-location,
-.pdf-running-head {
+.workspace-location {
   color: var(--color-label);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -310,10 +309,6 @@ svg {
   line-height: var(--leading-display);
 }
 
-.preview-title-break {
-  display: none;
-}
-
 .project-intro > p,
 .placeholder-copy {
   max-width: var(--measure-copy);
@@ -455,13 +450,7 @@ svg {
   border-bottom: var(--rule-hair) solid var(--color-rule);
 }
 
-.artifact-row-button {
-  cursor: pointer;
-  transition: color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
-}
-
-.artifact-kind,
-.artifact-icon {
+.artifact-kind {
   display: grid;
   width: 2.5rem;
   height: 2.5rem;
@@ -472,15 +461,6 @@ svg {
   letter-spacing: var(--tracking-label);
   background: var(--color-paper-3);
   border-radius: var(--radius-sm);
-}
-
-.artifact-icon {
-  color: var(--color-accent);
-}
-
-.artifact-icon svg {
-  width: 1.3rem;
-  height: 1.3rem;
 }
 
 .artifact-copy {
@@ -505,30 +485,6 @@ svg {
 
 .artifact-state {
   white-space: nowrap;
-}
-
-.artifact-open {
-  display: inline-flex;
-  gap: var(--space-2xs);
-  align-items: center;
-  color: var(--color-accent);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.artifact-open svg {
-  width: 1rem;
-  height: 1rem;
-}
-
-.artifact-row-button.is-selected {
-  color: var(--color-accent);
-}
-
-.artifact-row-button.is-selected .artifact-icon {
-  color: var(--color-accent-ink);
-  background: var(--color-accent);
 }
 
 .module-placeholder {
@@ -1316,43 +1272,6 @@ svg {
   }
 }
 
-.artifact-preview {
-  display: grid;
-  grid-area: preview;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-width: 0;
-  min-height: 34rem;
-  color: var(--color-ink);
-  background: var(--color-preview);
-  border-top: var(--rule-hair) solid var(--color-rule-strong);
-  animation: preview-in var(--dur-long) var(--ease-out) both;
-}
-
-.preview-toolbar,
-.preview-footer {
-  display: flex;
-  gap: var(--space-md);
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-md) var(--space-lg);
-}
-
-.preview-toolbar {
-  border-bottom: var(--rule-hair) solid var(--color-rule);
-}
-
-.preview-toolbar p,
-.preview-toolbar strong {
-  display: block;
-  margin: 0;
-}
-
-.preview-toolbar strong {
-  margin-top: var(--space-3xs);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
 .icon-button {
   display: grid;
   width: 2.75rem;
@@ -1372,133 +1291,6 @@ svg {
   height: 1.25rem;
 }
 
-.pdf-stage {
-  display: grid;
-  min-height: 0;
-  padding: var(--space-lg);
-  overflow-x: clip;
-  overflow-y: auto;
-  place-items: start center;
-}
-
-.pdf-sheet {
-  width: min(100%, 25rem);
-  min-width: 0;
-  min-height: 31rem;
-  padding: var(--space-xl) var(--space-lg);
-  color: var(--color-pdf-ink);
-  background: var(--color-pdf-paper);
-  box-shadow: var(--shadow-sheet);
-}
-
-.pdf-running-head,
-.pdf-authors,
-.pdf-footnote {
-  display: flex;
-  gap: var(--space-sm);
-  justify-content: space-between;
-  color: var(--color-pdf-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-label);
-}
-
-.pdf-running-head span,
-.pdf-authors span,
-.pdf-footnote {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.pdf-sheet h2,
-.pdf-sheet h3,
-.pdf-sheet p {
-  margin: 0;
-}
-
-.pdf-sheet h2 {
-  margin-top: var(--space-xl);
-  font-family: var(--font-display);
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  letter-spacing: var(--tracking-tight);
-  line-height: var(--leading-display);
-}
-
-.pdf-subtitle {
-  margin-top: var(--space-sm) !important;
-  color: var(--color-pdf-neutral);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  line-height: var(--leading-body);
-}
-
-.pdf-authors {
-  margin-top: var(--space-lg);
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
-
-.pdf-rule {
-  height: var(--rule-hair);
-  margin: var(--space-lg) 0;
-  background: var(--color-pdf-rule);
-}
-
-.pdf-sheet section + section {
-  margin-top: var(--space-lg);
-}
-
-.pdf-sheet h3 {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: 700;
-  letter-spacing: var(--tracking-tight);
-}
-
-.pdf-sheet section p {
-  margin-top: var(--space-xs);
-  color: var(--color-pdf-neutral);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  line-height: var(--leading-body);
-}
-
-.pdf-diagram {
-  display: flex;
-  gap: var(--space-xs);
-  align-items: center;
-  justify-content: space-between;
-  margin-top: var(--space-xl);
-  padding: var(--space-sm) 0;
-  color: var(--color-pdf-ink);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  border-top: var(--rule-hair) solid var(--color-pdf-rule);
-  border-bottom: var(--rule-hair) solid var(--color-pdf-rule);
-}
-
-.pdf-diagram i {
-  width: 1.5rem;
-  height: var(--rule-hair);
-  flex: 1 1 auto;
-  background: var(--color-accent);
-}
-
-.pdf-footnote {
-  margin-top: var(--space-lg) !important;
-  justify-content: flex-start;
-  line-height: var(--leading-body);
-}
-
-.preview-footer {
-  color: var(--color-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-label);
-  border-top: var(--rule-hair) solid var(--color-rule);
-}
-
 .reveal {
   animation: reveal var(--dur-long) var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 60ms);
@@ -1516,28 +1308,11 @@ svg {
   }
 }
 
-@keyframes preview-in {
-  from {
-    opacity: 0;
-    transform: translateY(var(--space-sm));
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @media (hover: hover) and (pointer: fine) {
   .module-nav button:hover {
     color: var(--color-rail-ink);
     background: var(--color-rail-hover);
     transform: translateY(-1px);
-  }
-
-  .artifact-row-button:hover {
-    color: var(--color-accent);
-    transform: translateX(var(--space-2xs));
   }
 
   .icon-button:hover {
@@ -1568,7 +1343,6 @@ svg {
 }
 
 .module-nav button:active,
-.artifact-row-button:active,
 .icon-button:active {
   transform: translateY(var(--space-3xs));
 }
@@ -1617,10 +1391,6 @@ svg {
   .project-space,
   .module-placeholder {
     padding-inline: var(--space-2xl);
-  }
-
-  .artifact-preview {
-    min-height: 40rem;
   }
 
   .system-settings {
@@ -1686,11 +1456,6 @@ svg {
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 
-  .workspace.has-preview {
-    grid-template-areas: "sidebar main preview";
-    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) minmax(var(--preview-min-width), var(--preview-width));
-  }
-
   .workspace-sidebar {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr auto;
@@ -1748,26 +1513,6 @@ svg {
     padding-inline: clamp(var(--space-2xl), 5vw, var(--space-3xl));
   }
 
-  .artifact-preview {
-    min-height: 100dvh;
-    border-top: 0;
-    border-inline-start: var(--rule-hair) solid var(--color-rule-strong);
-  }
-
-  .workspace.has-preview .preview-title-break {
-    display: block;
-  }
-}
-
-@media (min-width: 60rem) and (max-width: 75.999rem) {
-  .workspace.has-preview {
-    grid-template-areas: "sidebar preview";
-    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
-  }
-
-  .workspace.has-preview .workspace-main {
-    display: none;
-  }
 }
 
 @media (min-width: 76rem) {
@@ -1777,10 +1522,6 @@ svg {
 }
 
 @media (min-width: 90rem) {
-  .workspace.has-preview .workspace-main .project-space {
-    max-width: var(--content-width-wide);
-  }
-
   .project-ledger,
   .artifact-section {
     max-width: var(--ledger-width);
@@ -1796,8 +1537,7 @@ svg {
     transition-duration: 150ms !important;
   }
 
-  .reveal,
-  .artifact-preview {
+  .reveal {
     animation-name: reveal-reduced;
   }
 }
@@ -2021,16 +1761,11 @@ svg {
   min-height: 4.75rem;
 }
 
-.artifact-kind,
-.artifact-icon {
+.artifact-kind {
   color: var(--color-label);
   background: transparent;
   border: var(--rule-hair) solid var(--color-rule);
   border-radius: 0;
-}
-
-.artifact-icon {
-  color: var(--color-accent);
 }
 
 .module-placeholder {
@@ -2047,10 +1782,6 @@ svg {
 .placeholder-note {
   color: var(--color-muted);
   border-top-color: var(--color-rule-strong);
-}
-
-.artifact-preview {
-  background: var(--color-preview);
 }
 
 .settings-intro h1,
@@ -2100,11 +1831,6 @@ svg {
 
   .module-nav button.is-active:hover {
     background: var(--color-rail-hover);
-  }
-
-  .artifact-row-button:hover {
-    color: var(--color-accent);
-    transform: none;
   }
 
 }
@@ -2318,8 +2044,7 @@ svg {
   bottom: var(--space-xs);
 }
 
-.research-path li.is-active::after,
-.artifact-row-button.is-selected::after {
+.research-path li.is-active::after {
   position: absolute;
   width: var(--particle-dot);
   height: var(--particle-dot);
@@ -2335,11 +2060,6 @@ svg {
 .research-path li.is-active::after {
   top: var(--space-md);
   right: var(--space-sm);
-}
-
-.artifact-row-button.is-selected::after {
-  top: var(--space-sm);
-  right: var(--space-xs);
 }
 
 .settings-intro::after {

@@ -1,13 +1,10 @@
 import {
-  ArrowRight,
   Atom,
-  FileText,
   FolderKanban,
   MessageCircle,
   Settings,
   Sparkles,
   WandSparkles,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -41,13 +38,7 @@ const PLACEHOLDER_COPY: Record<Exclude<ModuleId, "embodied" | "projects" | "sett
   },
 };
 
-function ProjectSpace({
-  previewOpen,
-  onOpenPreview,
-}: {
-  previewOpen: boolean;
-  onOpenPreview: () => void;
-}) {
+function ProjectSpace() {
   return (
     <section className="project-space" aria-labelledby="project-title">
       <div className="project-hero">
@@ -57,7 +48,7 @@ function ProjectSpace({
             <span className="project-kicker-rule" aria-hidden="true" />
             <span>研究中</span>
           </div>
-          <h1 id="project-title">让长上下文推理的<br className="preview-title-break" />证据可追溯。</h1>
+          <h1 id="project-title">让长上下文推理的<br />证据可追溯。</h1>
           <p>
             这是一个用于讨论证据链、检验路径和论文产物的课题空间示例。
             初版只呈现工作台结构，不连接真实研究任务。
@@ -109,7 +100,7 @@ function ProjectSpace({
             <p className="section-label">课题产物</p>
             <h2>正在形成的材料。</h2>
           </div>
-          <span className="artifact-count">03</span>
+          <span className="artifact-count">02</span>
         </div>
         <div className="artifact-list">
           <div className="artifact-row">
@@ -128,19 +119,6 @@ function ProjectSpace({
             </div>
             <span className="artifact-state">进行中</span>
           </div>
-          <button
-            type="button"
-            className={`artifact-row artifact-row-button ${previewOpen ? "is-selected" : ""}`}
-            onClick={onOpenPreview}
-            aria-pressed={previewOpen}
-          >
-            <span className="artifact-icon"><FileText aria-hidden="true" /></span>
-            <span className="artifact-copy">
-              <strong>Traceable Context Reasoning</strong>
-              <span>论文草稿 · PDF · 18 页</span>
-            </span>
-            <span className="artifact-open">预览 <ArrowRight aria-hidden="true" /></span>
-          </button>
         </div>
       </div>
     </section>
@@ -168,79 +146,16 @@ function PlaceholderModule({ module }: { module: Exclude<ModuleId, "embodied" | 
   );
 }
 
-function ArtifactPreview({ onClose }: { onClose: () => void }) {
-  return (
-    <aside className="artifact-preview" aria-label="论文 PDF 预览">
-      <div className="preview-toolbar">
-        <div>
-          <p className="section-label">产物预览</p>
-          <strong>Paper draft.pdf</strong>
-        </div>
-        <button type="button" className="icon-button" onClick={onClose} aria-label="关闭论文预览">
-          <X aria-hidden="true" />
-        </button>
-      </div>
-      <div className="pdf-stage">
-        <article className="pdf-sheet" aria-label="论文第一页示意">
-          <div className="pdf-running-head">
-            <span>VEGAPUNK / RESEARCH NOTE</span>
-            <span>01</span>
-          </div>
-          <h2>Traceable Context Reasoning</h2>
-          <p className="pdf-subtitle">A working paper on evidence-preserving long-context inference</p>
-          <div className="pdf-authors">
-            <span>Vegapunk Research Workspace</span>
-            <span>Draft · Local edition</span>
-          </div>
-          <div className="pdf-rule" />
-          <section>
-            <h3>Abstract</h3>
-            <p>
-              Long-context systems often provide an answer without making the path to that answer inspectable.
-              This draft frames the missing path as a research object: evidence, transformations, and evaluation signals remain connected.
-            </p>
-          </section>
-          <section>
-            <h3>Working proposition</h3>
-            <p>
-              A useful research interface should keep the question, its supporting material, and its resulting paper in view without treating them as separate systems.
-            </p>
-          </section>
-          <div className="pdf-diagram" aria-hidden="true">
-            <span>Context</span>
-            <i />
-            <span>Evidence</span>
-            <i />
-            <span>Claim</span>
-          </div>
-          <p className="pdf-footnote">Preview surface for the initial workspace demo.</p>
-        </article>
-      </div>
-      <div className="preview-footer">
-        <span>第 1 / 18 页</span>
-        <span>PDF 预览占位</span>
-      </div>
-    </aside>
-  );
-}
-
 export default function App() {
   const [activeModule, setActiveModule] = useState<ModuleId>("projects");
-  const [previewOpen, setPreviewOpen] = useState(false);
   const active = MODULES.find((entry) => entry.id === activeModule) ?? MODULES[0];
 
   const selectModule = (module: ModuleId) => {
     setActiveModule(module);
-    if (module !== "projects") setPreviewOpen(false);
-  };
-
-  const openPreview = () => {
-    setPreviewOpen(true);
-    window.scrollTo(0, 0);
   };
 
   return (
-    <div className={`workspace workspace--${activeModule} ${previewOpen ? "has-preview" : ""}`}>
+    <div className={`workspace workspace--${activeModule}`}>
       <aside className="workspace-sidebar">
         <div className="brand-lockup">
           <span className="brand-mark"><Atom aria-hidden="true" /></span>
@@ -289,7 +204,7 @@ export default function App() {
           <div className="header-status"><i className="status-dot" aria-hidden="true" />内网运行</div>
         </header>
         {activeModule === "projects" ? (
-          <ProjectSpace previewOpen={previewOpen} onOpenPreview={openPreview} />
+          <ProjectSpace />
         ) : activeModule === "settings" ? (
           <SystemSettings />
         ) : activeModule === "embodied" ? (
@@ -298,8 +213,6 @@ export default function App() {
           <PlaceholderModule module={activeModule} />
         )}
       </main>
-
-      {previewOpen ? <ArtifactPreview onClose={() => setPreviewOpen(false)} /> : null}
     </div>
   );
 }
