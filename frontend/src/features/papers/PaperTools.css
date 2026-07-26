@@ -1,6 +1,6 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Workbench Field · tone: austere research utility · anchor hue: tea-gold
  * theme: Rice-White Workspace · enrichment: none · nav: persistent module rail · footer: none
- * contrast: pass (40-41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48)
+ * contrast: pass (40-41) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (34, 49-57)
  * pre-emit critique: P5 H5 E5 S5 R5 V5 */
 
 .paper-tools {
@@ -82,7 +82,7 @@
 }
 
 .paper-tool-stage {
-  padding-top: var(--space-xl);
+  padding-top: var(--space-md);
 }
 
 .paper-dialog {
@@ -97,7 +97,11 @@
 .paper-search-dialog {
   display: grid;
   gap: var(--space-md);
-  padding: clamp(var(--space-md), 3vw, var(--space-xl));
+  padding: var(--space-md);
+  background: var(--color-paper);
+  border-color: var(--color-rule);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--dur-micro) var(--ease-out);
 }
 
 .paper-search-field {
@@ -108,17 +112,17 @@
 .paper-search-field input {
   width: 100%;
   min-height: 3.25rem;
-  padding: 0 var(--space-md);
+  padding: 0;
   color: var(--color-ink);
   font: inherit;
-  font-size: var(--text-md);
+  font-size: var(--text-base);
   line-height: var(--leading-tight);
-  background: var(--color-paper);
-  border: var(--rule-hair) solid var(--color-rule);
-  border-radius: var(--radius-round);
-  outline: var(--rule-focus) solid transparent;
-  outline-offset: var(--space-2xs);
-  transition: border-color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  caret-color: var(--color-accent);
+  transition: color var(--dur-micro) var(--ease-out);
 }
 
 .paper-search-field input::placeholder {
@@ -126,8 +130,8 @@
   opacity: 1;
 }
 
-.paper-search-field input:focus-visible {
-  outline-color: var(--color-focus);
+.paper-search-dialog:focus-within {
+  border-color: var(--color-rule-strong);
 }
 
 .paper-search-toolbar {
@@ -166,11 +170,13 @@
 }
 
 .paper-search-modes button {
+  min-height: 2.75rem;
+  padding-inline: var(--space-md);
   color: var(--color-muted);
   cursor: pointer;
   background: transparent;
   border: var(--rule-hair) solid transparent;
-  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out), border-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
 }
 
 .paper-search-modes button.is-active {
@@ -187,6 +193,8 @@
 }
 
 .paper-primary-action {
+  min-height: 3.25rem;
+  padding-inline: var(--space-md);
   margin-inline-start: auto;
   color: var(--color-muted);
   cursor: not-allowed;
@@ -343,7 +351,8 @@
 .paper-record-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0 var(--space-xs);
+  row-gap: var(--space-3xs);
+  column-gap: var(--space-xs);
   margin: 0;
   font-size: var(--text-xs);
 }
@@ -544,10 +553,6 @@
     background: var(--color-paper-3);
   }
 
-  .paper-search-field input:hover {
-    border-color: var(--color-rule-strong);
-  }
-
   .paper-domain-filters button:hover:not(.is-active) {
     color: var(--color-ink);
     border-color: var(--color-rule-strong);
@@ -570,6 +575,38 @@
 .paper-domain-filters button:active,
 .paper-pagination button:active {
   transform: translateY(1px);
+}
+
+.high-interest-card h3 a:active,
+.paper-record-link:active {
+  color: var(--color-accent);
+}
+
+@media (max-width: 39.999rem) {
+  .paper-search-dialog {
+    gap: var(--space-sm);
+  }
+
+  .paper-search-toolbar {
+    gap: var(--space-md);
+    align-items: stretch;
+  }
+
+  .paper-search-modes {
+    width: 100%;
+  }
+
+  .paper-search-modes button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: var(--space-sm);
+    font-size: var(--text-base);
+  }
+
+  .paper-primary-action {
+    width: 100%;
+    margin-inline-start: 0;
+  }
 }
 
 @media (min-width: 40rem) {

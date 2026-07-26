@@ -16,7 +16,7 @@ const promptFixtures = Array.from({ length: 43 }, (_, index) => ({
   id: `test.long_prompt_${index + 1}`,
   name: index === 0 ? "Long Prompt Editor" : `Prompt Fixture ${index + 1}`,
   description: "Prompt Library browser fixture",
-  workflow: "deep_research",
+  workflow: index === 42 ? "discovery" : "deep_research",
   stage: "planning",
   order: index + 1,
   invocation_type: "single" as const,
@@ -212,6 +212,13 @@ test("keeps System Settings submodules expanded and opens a selected submodule",
   const settingsSubnav = moduleNavigation.getByRole("group", { name: "系统设置子模块" });
   await expect(settingsSubnav).toBeVisible();
   await expect(settingsSubnav.getByRole("button")).toHaveCount(5);
+  await moduleNavigation.getByRole("button", { name: "系统设置" }).click();
+  for (const provider of ["DeepSeek", "Kimi", "OpenAI"]) {
+    const row = page.locator(".provider-row--unavailable").filter({ hasText: provider });
+    await expect(row.getByRole("heading", { name: provider })).toBeVisible();
+    await expect(row.getByText("尚未开放", { exact: true })).toBeVisible();
+    await expect(row.getByRole("button")).toHaveCount(0);
+  }
 
   const promptLibrary = settingsSubnav.getByRole("button", { name: "Prompt 库" });
   await promptLibrary.click();
@@ -275,6 +282,57 @@ test("contains prompt editor scrolling and removes the nested browser focus fram
     .toBeGreaterThan(pageScrollBeforeOverscroll);
 });
 
+test("keeps prompt cards aligned and jumps to a workflow from the directory", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 650 });
+  await mockSystemSettingsRequests(page);
+  await page.goto("/");
+
+  await page.getByRole("navigation", { name: "协作空间模块" })
+    .getByRole("button", { name: "系统设置" })
+    .click();
+  await page.getByRole("group", { name: "系统设置子模块" })
+    .getByRole("button", { name: "Prompt 库" })
+    .click();
+
+  const deepResearch = page.locator(".prompt-workflow").filter({
+    has: page.locator("#prompt-workflow-deep_research"),
+  });
+  const cards = deepResearch.locator(".prompt-card");
+  const heights = await cards.evaluateAll((elements) => elements.slice(0, 3).map((element) => element.getBoundingClientRect().height));
+  expect(new Set(heights).size).toBe(1);
+
+  const firstCard = cards.filter({ has: page.getByRole("button", { name: /Long Prompt Editor/ }) });
+  const languageToggle = firstCard.getByRole("group", { name: "Long Prompt Editor 语言" });
+  const [cardBox, languageBox] = await Promise.all([firstCard.boundingBox(), languageToggle.boundingBox()]);
+  if (!cardBox || !languageBox) throw new Error("Prompt card language toggle is not visible");
+  expect(languageBox.x).toBeGreaterThan(cardBox.x + cardBox.width / 2);
+  expect(languageBox.y + languageBox.height).toBeGreaterThan(cardBox.y + cardBox.height - 48);
+
+  const directory = page.getByRole("navigation", { name: "Prompt 目录" });
+  await directory.getByRole("button", { name: /Discovery/ }).click();
+  const discovery = page.locator("#prompt-workflow-discovery");
+  await expect(discovery).toBeFocused();
+  await expect(discovery).toBeInViewport();
+});
+
+for (const width of mobileViewports) {
+  test(`keeps the Prompt Library within ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await mockSystemSettingsRequests(page);
+    await page.goto("/");
+
+    await page.getByRole("navigation", { name: "协作空间模块" })
+      .getByRole("button", { name: "系统设置" })
+      .click();
+    await page.getByRole("group", { name: "系统设置子模块" })
+      .getByRole("button", { name: "Prompt 库" })
+      .click();
+
+    await expect(page.getByRole("navigation", { name: "Prompt 目录" })).toBeVisible();
+    await expect(page.evaluate(() => document.documentElement.scrollWidth)).resolves.toBe(width);
+  });
+}
+
 test("keeps the workspace switcher visible at the bottom of the fixed sidebar", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 650 });
   await mockSystemSettingsRequests(page);
@@ -287,7 +345,7 @@ test("keeps the workspace switcher visible at the bottom of the fixed sidebar", 
   await expect.poll(() => page.evaluate(() => document.scrollingElement?.scrollHeight ?? 0))
     .toBeGreaterThan(650);
 
-  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作空间" });
   await expect(spaceSwitcher).toBeInViewport();
   await page.evaluate(() => window.scrollTo(0, 400));
   await expect(spaceSwitcher).toBeInViewport();
@@ -374,11 +432,21 @@ test("maintains the independent Discovery Input Conversion Prompt outside the Pr
 test("switches between Space-specific module navigation without leaving the Unified Workspace", async ({ page }) => {
   await page.goto("/");
 
-  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作空间" });
   const collaborationSpace = spaceSwitcher.getByRole("radio", { name: "协作空间" });
   const autonomousDiscoverySpace = spaceSwitcher.getByRole("radio", { name: "自主发现空间" });
   const collaborationModules = page.getByRole("navigation", { name: "协作空间模块" });
 
+  await expect(spaceSwitcher.getByText("工作空间", { exact: true })).toBeVisible();
+  await expect(spaceSwitcher.locator(".space-switcher-track")).toBeVisible();
+  const [collaborationBox, discoveryBox] = await Promise.all([
+    collaborationSpace.boundingBox(),
+    autonomousDiscoverySpace.boundingBox(),
+  ]);
+  if (!collaborationBox || !discoveryBox) throw new Error("Workspace switcher options are not visible");
+  expect(discoveryBox.x).toBeGreaterThan(collaborationBox.x);
+  expect(discoveryBox.y).toBe(collaborationBox.y);
+  expect(discoveryBox.width).toBeCloseTo(collaborationBox.width, 0);
   await expect(collaborationSpace).toHaveAttribute("aria-checked", "true");
   await expect(collaborationModules.getByRole("button")).toHaveCount(9);
   await expect(collaborationModules.getByRole("button", { name: "论文工具" })).toBeVisible();
@@ -460,7 +528,7 @@ test("creates a reusable Discovery Preparation and surfaces unsupported source e
   });
 
   await page.goto("/");
-  await page.getByRole("radiogroup", { name: "工作区空间" })
+  await page.getByRole("radiogroup", { name: "工作空间" })
     .getByRole("radio", { name: "自主发现空间" })
     .click();
 
@@ -533,7 +601,7 @@ test("converts a Preparation into a right-side editable draft and saves only on 
   });
 
   await page.goto("/");
-  await page.getByRole("radiogroup", { name: "工作区空间" })
+  await page.getByRole("radiogroup", { name: "工作空间" })
     .getByRole("radio", { name: "自主发现空间" })
     .click();
   await page.getByRole("button", { name: /What controls the observed transition/ }).click();
@@ -553,7 +621,7 @@ test("converts a Preparation into a right-side editable draft and saves only on 
   await expect(editor).toBeHidden();
   await expect(page.getByRole("dialog", { name: "已保存的研究资料" })).toBeVisible();
   await expect(page.getByText("已保存新的输入修订版")).toBeVisible();
-  await expect(page.getByText("1 个输入修订版")).toBeVisible();
+  await expect(page.getByText("1 个输入修订版", { exact: true })).toBeVisible();
   expect(savedRevision).toEqual({ formatted_input: "# Formatted Discovery Input\n\nEdited draft." });
 });
 
@@ -562,7 +630,7 @@ for (const viewport of desktopViewports) {
     await page.setViewportSize(viewport);
     await page.goto("/");
 
-    const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+    const spaceSwitcher = page.getByRole("radiogroup", { name: "工作空间" });
     const collaborationSpace = spaceSwitcher.getByRole("radio", { name: "协作空间" });
     const autonomousDiscoverySpace = spaceSwitcher.getByRole("radio", { name: "自主发现空间" });
     await expect(page.locator(".occluded-point-cloud")).toBeVisible();

@@ -17,6 +17,7 @@ import {
 } from "./features/identity/OccludedPointCloudSubstrate";
 import { PaperTools } from "./features/papers/PaperTools";
 import { SystemSettings } from "./features/settings/SystemSettings";
+import { SkillCatalog } from "./features/skills/SkillCatalog";
 import {
   SETTINGS_SECTIONS,
   type SettingsSection,
@@ -36,7 +37,6 @@ type WorkspaceModule = {
 type WorkspaceSpace = {
   id: WorkspaceSpaceId;
   label: string;
-  caption: string;
   modules: WorkspaceModule[];
 };
 
@@ -44,7 +44,6 @@ const SPACES: Record<WorkspaceSpaceId, WorkspaceSpace> = {
   collaboration: {
     id: "collaboration",
     label: "协作空间",
-    caption: "持续协作与配置",
     modules: [
       { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText, materialProfile: "quiet" },
       { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom, materialProfile: "quiet" },
@@ -55,7 +54,6 @@ const SPACES: Record<WorkspaceSpaceId, WorkspaceSpace> = {
   "autonomous-discovery": {
     id: "autonomous-discovery",
     label: "自主发现空间",
-    caption: "自主科学发现",
     modules: [
       { id: "discovery-preparation", label: "Discovery Preparation", caption: "研究资料准备", icon: FileText, materialProfile: "exhibition" },
       { id: "discovery-launch-archive", label: "Discovery Launch Archive", caption: "运行档案", icon: Archive, materialProfile: "quiet" },
@@ -197,9 +195,10 @@ export default function App() {
           />
         ) : null}
 
-        <div className="space-switcher" role="radiogroup" aria-label="工作区空间">
-          <p className="space-switcher-label">工作区空间</p>
-          <div className="space-switcher-options">
+        <div className="space-switcher" role="radiogroup" aria-label="工作空间">
+          <p className="space-switcher-label">工作空间</p>
+          <div className={`space-switcher-track space-switcher-track--${activeSpaceId}`}>
+            <span className="space-switcher-indicator" aria-hidden="true" />
             {Object.values(SPACES).map((space) => {
               const isActive = space.id === activeSpaceId;
               return (
@@ -208,11 +207,11 @@ export default function App() {
                   key={space.id}
                   role="radio"
                   aria-checked={isActive}
+                  aria-label={space.label}
                   className={isActive ? "is-active" : undefined}
                   onClick={() => selectSpace(space.id)}
                 >
-                  <strong>{space.label}</strong>
-                  <small>{space.caption}</small>
+                  {space.id === "collaboration" ? "协作" : "自主发现"}
                 </button>
               );
             })}
@@ -232,6 +231,8 @@ export default function App() {
           <PaperTools />
         ) : activeModule.id === "embodied" ? (
           <EmbodiedIntelligence />
+        ) : activeModule.id === "skills" ? (
+          <SkillCatalog />
         ) : activeModule.id === "discovery-preparation" ? (
           <DiscoveryPreparation sidebarHost={discoverySidebarHost} />
         ) : (

@@ -236,6 +236,10 @@
   box-shadow: var(--shadow-sheet);
 }
 
+.workspace-main > .discovery-drawer {
+  position: fixed;
+}
+
 .discovery-drawer > header,
 .discovery-drawer > footer {
   padding: var(--space-lg);

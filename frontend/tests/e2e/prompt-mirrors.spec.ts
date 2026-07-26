@@ -98,9 +98,10 @@ test("switches each Prompt Card between English and its persistent Chinese mirro
   await expect(readyLanguage.getByRole("button", { name: "English" })).toHaveAttribute("aria-pressed", "true");
   await readyLanguage.getByRole("button", { name: "中文" }).click();
   const readyCard = page.getByRole("button", { name: "打开 Ready Chinese Prompt" });
-  await expect(readyCard).toContainText(chineseText);
-  await expect(readyCard).toContainText("中文镜像已就绪");
-  await expect(readyCard).not.toContainText(englishText);
+  const readyPromptCard = readyCard.locator("..");
+  await expect(readyPromptCard).toContainText(chineseText);
+  await expect(readyPromptCard).toContainText("中文镜像已就绪");
+  await expect(readyPromptCard).not.toContainText(englishText);
 
   await readyCard.click();
   const dialog = page.getByRole("dialog");
@@ -112,19 +113,21 @@ test("switches each Prompt Card between English and its persistent Chinese mirro
   const missingLanguage = page.getByRole("group", { name: "Missing Chinese Prompt 语言" });
   await missingLanguage.getByRole("button", { name: "中文" }).click();
   const missingCard = page.getByRole("button", { name: "打开 Missing Chinese Prompt" });
-  await expect(missingCard).toContainText("中文镜像缺失，尚未生成。");
-  await expect(missingCard).not.toContainText(englishText);
+  const missingPromptCard = missingCard.locator("..");
+  await expect(missingPromptCard).toContainText("中文镜像缺失，尚未生成。");
+  await expect(missingPromptCard).not.toContainText(englishText);
 
   const staleLanguage = page.getByRole("group", { name: "Stale Chinese Prompt 语言" });
   await staleLanguage.getByRole("button", { name: "中文" }).click();
   const staleCard = page.getByRole("button", { name: "打开 Stale Chinese Prompt" });
-  await expect(staleCard).toContainText("中文镜像已过期，需要重新生成。");
-  await expect(staleCard).not.toContainText(englishText);
+  const stalePromptCard = staleCard.locator("..");
+  await expect(stalePromptCard).toContainText("中文镜像已过期，需要重新生成。");
+  await expect(stalePromptCard).not.toContainText(englishText);
 
   await readyLanguage.getByRole("button", { name: "English" }).click();
   await readyCard.click();
   const englishEditor = page.getByRole("dialog").getByRole("textbox");
   await englishEditor.fill("Updated runtime English prompt body.");
   await page.getByRole("button", { name: "保存 Prompt" }).click();
-  await expect(readyCard).toContainText("中文镜像已过期");
+  await expect(readyPromptCard).toContainText("中文镜像已过期");
 });

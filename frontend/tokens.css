@@ -63,10 +63,12 @@
 
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
+  --radius-lg: 1rem;
   --radius-round: 999px;
   --rule-hair: 1px;
   --rule-focus: 3px;
   --shadow-sheet: 0 1.5rem 3rem oklch(25% 0.014 72 / 0.11);
+  --shadow-control: 0 0.125rem 0.375rem oklch(35% 0.014 72 / 0.08);
 
   --dur-micro: 120ms;
   --dur-short: 220ms;

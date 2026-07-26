@@ -78,7 +78,7 @@ function SearchComposer({
             onClick={() => onModeChange("quick")}
           >
             <Bolt aria-hidden="true" />
-            <span>快速检索</span>
+            <span>快速搜索</span>
           </button>
           <button
             type="button"

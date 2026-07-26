@@ -1,5 +1,12 @@
 [
   {
+    "date": "2026-07-26",
+    "macrostructure": "Workbench Field",
+    "theme": "Rice-White Workspace",
+    "enrichment": "none",
+    "brief": "Vegapunk paper tools dialogue workspace with search, reading, and citation modes"
+  },
+  {
     "date": "2026-07-24",
     "macrostructure": "Workbench",
     "theme": "Studio",

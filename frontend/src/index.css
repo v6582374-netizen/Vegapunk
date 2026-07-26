@@ -9,6 +9,7 @@
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 @import "../tokens.css";
 @import "./features/papers/PaperTools.css";
+@import "./features/skills/SkillCatalog.css";
 
 * {
   box-sizing: border-box;
@@ -241,66 +242,86 @@ svg {
 .space-switcher {
   display: grid;
   grid-column: 1 / -1;
-  gap: var(--space-xs);
+  gap: var(--space-2xs);
   padding-top: var(--space-md);
   border-top: var(--rule-hair) solid var(--color-rail-rule);
 }
 
 .space-switcher-label {
   margin: 0;
-  color: var(--color-rail-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
+  color: var(--color-neutral);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
   line-height: var(--leading-label);
 }
 
-.space-switcher-options {
+.space-switcher-track {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2xs);
+  padding: var(--space-2xs);
+  background: var(--color-rail-raised);
+  border: var(--rule-hair) solid var(--color-rail-rule);
+  border-radius: var(--radius-md);
+}
+
+.space-switcher-indicator {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: var(--space-2xs);
+  inset-inline-start: var(--space-xs);
+  width: calc(50% - var(--space-md));
+  height: var(--space-3xs);
+  pointer-events: none;
+  background: var(--color-accent);
+  border-radius: var(--radius-round);
+  transition: transform var(--dur-short) var(--ease-out);
+}
+
+.space-switcher-track--autonomous-discovery .space-switcher-indicator {
+  transform: translateX(calc(100% + var(--space-md)));
 }
 
 .space-switcher button {
+  position: relative;
+  z-index: 1;
   display: grid;
+  place-items: center;
   min-width: 0;
-  min-height: 3.25rem;
-  gap: var(--space-3xs);
-  padding: var(--space-xs);
+  min-height: 2.75rem;
+  padding: var(--space-xs) var(--space-2xs);
   color: var(--color-rail-muted);
-  text-align: start;
-  cursor: pointer;
-  background: transparent;
-  border: var(--rule-hair) solid var(--color-rail-rule);
-  border-radius: var(--radius-sm);
-  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
-}
-
-.space-switcher button.is-active {
-  color: var(--color-ink);
-  background: var(--color-paper-3);
-  border-color: var(--color-accent);
-}
-
-.space-switcher strong,
-.space-switcher small {
-  display: block;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.space-switcher strong {
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: var(--leading-tight);
+  text-align: center;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur-micro) var(--ease-out), background-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
 
-.space-switcher small {
-  color: var(--color-rail-muted);
-  font-size: var(--text-xs);
-  line-height: var(--leading-tight);
+.space-switcher button.is-active {
+  color: var(--color-ink);
+  background: var(--color-paper);
+  box-shadow: var(--shadow-control);
+}
+
+.space-switcher button:focus-visible {
+  outline: var(--rule-focus) solid var(--color-focus);
+  outline-offset: var(--space-3xs);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .space-switcher button:not(.is-active):hover {
+    color: var(--color-ink);
+    background: var(--color-rail-hover);
+  }
 }
 
 .workspace--autonomous-discovery .module-nav button,
@@ -571,6 +592,12 @@ svg {
   margin-top: var(--space-3xs);
   color: var(--color-muted);
   font-size: var(--text-xs);
+}
+
+.provider-unavailable-copy {
+  margin: var(--space-md) 0 0 calc(2.5rem + var(--space-sm));
+  color: var(--color-muted);
+  font-size: var(--text-sm);
 }
 
 .provider-monogram {
@@ -1440,10 +1467,6 @@ svg {
     grid-column: auto;
     grid-row: 3;
     align-self: end;
-  }
-
-  .space-switcher-options {
-    grid-template-columns: 1fr;
   }
 
   .workspace-main {

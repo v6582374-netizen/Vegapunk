@@ -54,6 +54,12 @@ type SelectedPrompt = { prompt: PromptRecord; language: PromptLanguage };
 
 const MASKED_API_KEY = "******";
 
+const COMING_SOON_PROVIDERS = [
+  { provider: "deepseek", name: "DeepSeek" },
+  { provider: "kimi", name: "Kimi" },
+  { provider: "openai", name: "OpenAI" },
+] as const;
+
 const WORKFLOW_LABELS: Record<string, string> = {
   deep_research: "深度研究",
   discovery: "Discovery",
@@ -451,6 +457,28 @@ function ProvidersView({
           </article>
         );
       })}
+      {COMING_SOON_PROVIDERS.map((provider) => (
+        <article className="provider-row provider-row--unavailable" key={provider.provider}>
+          <header className="provider-heading">
+            <div>
+              <span className="provider-monogram" aria-hidden="true">
+                {provider.name.slice(0, 1)}
+              </span>
+              <div>
+                <h2>{provider.name}</h2>
+                <p>服务接入准备中</p>
+              </div>
+            </div>
+            <span className="connection-state is-unavailable">
+              <i aria-hidden="true" />
+              尚未开放
+            </span>
+          </header>
+          <p className="provider-unavailable-copy">
+            API 配置、凭据保存与连通性验证将在服务接入开放后提供。
+          </p>
+        </article>
+      ))}
     </div>
   );
 }
@@ -619,6 +647,13 @@ function PromptLibraryView({
     }
     return grouped;
   }, [filtered]);
+  const workflowDirectory = useMemo(
+    () => [...workflows].map(([workflow, stages]) => ({
+      workflow,
+      count: [...stages.values()].reduce((total, items) => total + items.length, 0),
+    })),
+    [workflows],
+  );
 
   useEffect(() => {
     if (!selected) return;
@@ -650,6 +685,12 @@ function PromptLibraryView({
     setDraft(language === "zh" && mirror.state === "ready" ? mirror.text ?? "" : prompt.text);
     setEditorNotice(null);
     onNotice(null);
+  };
+
+  const jumpToWorkflow = (workflow: string) => {
+    const target = document.getElementById(`prompt-workflow-${workflow}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    target?.focus({ preventScroll: true });
   };
 
   const submit = async () => {
@@ -712,12 +753,32 @@ function PromptLibraryView({
         <span>{filtered.length} / {prompts.length}</span>
       </div>
 
+      {workflowDirectory.length > 0 ? (
+        <nav className="prompt-directory" aria-label="Prompt 目录">
+          <span>目录</span>
+          <div>
+            {workflowDirectory.map(({ workflow, count }) => (
+              <button type="button" key={workflow} onClick={() => jumpToWorkflow(workflow)}>
+                {WORKFLOW_LABELS[workflow] ?? workflow}
+                <small>{count}</small>
+              </button>
+            ))}
+          </div>
+        </nav>
+      ) : null}
+
       <div className="prompt-catalogue">
         {[...workflows].map(([workflow, stages]) => (
-          <section className="prompt-workflow" data-particle-identity={workflow} key={workflow}>
+          <section
+            className="prompt-workflow"
+            data-particle-identity={workflow}
+            key={workflow}
+          >
             <header>
               <span>{workflow}</span>
-              <h2>{WORKFLOW_LABELS[workflow] ?? workflow}</h2>
+              <h2 className="prompt-workflow-title" id={`prompt-workflow-${workflow}`} tabIndex={-1}>
+                {WORKFLOW_LABELS[workflow] ?? workflow}
+              </h2>
             </header>
             {[...stages].map(([stage, items]) => (
               <div className="prompt-stage" key={stage}>
@@ -737,42 +798,52 @@ function PromptLibraryView({
                       : prompt.text;
                     return (
                       <div className="prompt-card-shell" key={prompt.id}>
-                        <div className="prompt-card-language" role="group" aria-label={`${prompt.name} 语言`}>
+                        <article className="prompt-card">
                           <button
                             type="button"
-                            className={!chineseView ? "is-active" : undefined}
-                            aria-pressed={!chineseView}
-                            onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "en" }))}
+                            className="prompt-card-main"
+                            aria-label={`打开 ${prompt.name}`}
+                            onClick={() => open(prompt, language)}
                           >
-                            English
+                            <span className="prompt-card-topline">
+                              <span>{String(prompt.order).padStart(2, "0")}</span>
+                              <span>{INVOCATION_LABELS[prompt.invocation_type]}</span>
+                            </span>
+                            <strong>{prompt.name}</strong>
+                            <span className="prompt-description">{prompt.description}</span>
+                            <code>{preview.replace(/\s+/g, " ").trim().slice(0, 190)}</code>
                           </button>
-                          <button
-                            type="button"
-                            className={chineseView ? "is-active" : undefined}
-                            aria-pressed={chineseView}
-                            onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "zh" }))}
-                          >
-                            中文
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          className="prompt-card"
-                          aria-label={`打开 ${prompt.name}`}
-                          onClick={() => open(prompt, language)}
-                        >
-                          <span className="prompt-card-topline">
-                            <span>{String(prompt.order).padStart(2, "0")}</span>
-                            <span>{INVOCATION_LABELS[prompt.invocation_type]}</span>
-                          </span>
-                          <strong>{prompt.name}</strong>
-                          <span className="prompt-description">{prompt.description}</span>
-                          <code>{preview.replace(/\s+/g, " ").trim().slice(0, 190)}</code>
-                          <span className={`prompt-mirror-state is-${mirror.state}`}>
-                            {CHINESE_MIRROR_LABELS[mirror.state]}
-                          </span>
-                          <span className="prompt-edit"><Pencil aria-hidden="true" />{chineseView ? "查看镜像" : "编辑"}</span>
-                        </button>
+                          <footer className="prompt-card-footer">
+                            <span className={`prompt-mirror-state is-${mirror.state}`}>
+                              {CHINESE_MIRROR_LABELS[mirror.state]}
+                            </span>
+                            <button
+                              type="button"
+                              className="prompt-edit"
+                              onClick={() => open(prompt, language)}
+                            >
+                              <Pencil aria-hidden="true" />{chineseView ? "查看镜像" : "编辑"}
+                            </button>
+                            <div className="prompt-card-language" role="group" aria-label={`${prompt.name} 语言`}>
+                              <button
+                                type="button"
+                                className={!chineseView ? "is-active" : undefined}
+                                aria-pressed={!chineseView}
+                                onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "en" }))}
+                              >
+                                English
+                              </button>
+                              <button
+                                type="button"
+                                className={chineseView ? "is-active" : undefined}
+                                aria-pressed={chineseView}
+                                onClick={() => setLanguageByPrompt((current) => ({ ...current, [prompt.id]: "zh" }))}
+                              >
+                                中文
+                              </button>
+                            </div>
+                          </footer>
+                        </article>
                       </div>
                     );
                   })}
