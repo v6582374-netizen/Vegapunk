@@ -1,8 +1,8 @@
 import {
+  Archive,
   Atom,
   BookOpenText,
-  FolderKanban,
-  MessageCircle,
+  FileText,
   Settings,
   Sparkles,
   WandSparkles,
@@ -10,132 +10,80 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-import { SystemSettings } from "./features/settings/SystemSettings";
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
 import {
   OccludedPointCloudSubstrate,
   type MaterialExpressionProfile,
 } from "./features/identity/OccludedPointCloudSubstrate";
 import { PaperTools } from "./features/papers/PaperTools";
+import { SystemSettings } from "./features/settings/SystemSettings";
 
-type ModuleId = "chat" | "papers" | "embodied" | "skills" | "projects" | "settings";
+type WorkspaceSpaceId = "collaboration" | "autonomous-discovery";
+type ModuleId = "papers" | "embodied" | "skills" | "settings" | "discovery-preparation" | "discovery-launch-archive";
 
-const MODULES: Array<{
+type WorkspaceModule = {
   id: ModuleId;
   label: string;
   caption: string;
   icon: LucideIcon;
   materialProfile: MaterialExpressionProfile;
-}> = [
-  { id: "chat", label: "对话", caption: "研究协作", icon: MessageCircle, materialProfile: "quiet" },
-  { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText, materialProfile: "quiet" },
-  { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom, materialProfile: "quiet" },
-  { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles, materialProfile: "quiet" },
-  { id: "projects", label: "课题空间", caption: "研究现场", icon: FolderKanban, materialProfile: "exhibition" },
-  { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings, materialProfile: "none" },
-];
+};
 
-const PLACEHOLDER_COPY: Record<Exclude<ModuleId, "papers" | "embodied" | "projects" | "settings">, { title: string; body: string }> = {
-  chat: {
-    title: "把研究变成一段持续的对话。",
-    body: "这里将承接课题上下文、追问与阶段性结论。初版先保留模块位置，不连接模型或历史记录。",
+type WorkspaceSpace = {
+  id: WorkspaceSpaceId;
+  label: string;
+  caption: string;
+  modules: WorkspaceModule[];
+};
+
+const SPACES: Record<WorkspaceSpaceId, WorkspaceSpace> = {
+  collaboration: {
+    id: "collaboration",
+    label: "协作空间",
+    caption: "持续协作与配置",
+    modules: [
+      { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText, materialProfile: "quiet" },
+      { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom, materialProfile: "quiet" },
+      { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles, materialProfile: "quiet" },
+      { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings, materialProfile: "none" },
+    ],
   },
-  skills: {
-    title: "能力应当看得见，也应当可组合。",
-    body: "这里将用于浏览、启用与编排研究技能。初版先呈现工作区结构，不修改运行时配置。",
+  "autonomous-discovery": {
+    id: "autonomous-discovery",
+    label: "自主发现空间",
+    caption: "自主科学发现",
+    modules: [
+      { id: "discovery-preparation", label: "Discovery Preparation", caption: "研究资料准备", icon: FileText, materialProfile: "exhibition" },
+      { id: "discovery-launch-archive", label: "Discovery Launch Archive", caption: "运行档案", icon: Archive, materialProfile: "quiet" },
+    ],
   },
 };
 
-function ProjectSpace() {
-  return (
-    <section className="project-space" aria-labelledby="project-title">
-      <div className="project-hero">
-        <div className="project-intro reveal" style={{ "--i": 0 } as React.CSSProperties}>
-          <div className="project-kicker">
-            <span>当前课题</span>
-            <span className="project-kicker-rule" aria-hidden="true" />
-            <span>研究中</span>
-          </div>
-          <h1 id="project-title">让长上下文推理的<br />证据可追溯。</h1>
-          <p>
-            这是一个用于讨论证据链、检验路径和论文产物的课题空间示例。
-            初版只呈现工作台结构，不连接真实研究任务。
-          </p>
-          <div className="project-meta" aria-label="课题状态">
-            <span><i className="status-dot" aria-hidden="true" />探索阶段</span>
-            <span>第 03 轮</span>
-            <span>本地工作区</span>
-          </div>
-        </div>
-      </div>
+const INITIAL_MODULES: Record<WorkspaceSpaceId, ModuleId> = {
+  collaboration: "papers",
+  "autonomous-discovery": "discovery-preparation",
+};
 
-      <div className="project-ledger reveal" style={{ "--i": 1 } as React.CSSProperties}>
-        <div className="ledger-heading">
-          <div>
-            <p className="section-label">研究脉络</p>
-            <h2>从问题到可读的产物。</h2>
-          </div>
-          <span className="ledger-note">演示状态</span>
-        </div>
-        <ol className="research-path">
-          <li className="is-complete">
-            <span className="path-index">01</span>
-            <div>
-              <strong>研究问题</strong>
-              <p>梳理长上下文推理中可验证性不足的来源。</p>
-            </div>
-          </li>
-          <li className="is-active">
-            <span className="path-index">02</span>
-            <div>
-              <strong>证据设计</strong>
-              <p>将来源、推理步骤与评估信号放入同一条证据链。</p>
-            </div>
-          </li>
-          <li>
-            <span className="path-index">03</span>
-            <div>
-              <strong>论文产出</strong>
-              <p>整理为可预览、可复查的研究论文。</p>
-            </div>
-          </li>
-        </ol>
-      </div>
+const PLACEHOLDER_COPY: Record<"skills" | "discovery-preparation" | "discovery-launch-archive", { title: string; body: string }> = {
+  skills: {
+    title: "Skill 管理",
+    body: "在这里浏览、启用与编排研究技能。初版先呈现工作区结构，不修改运行时配置。",
+  },
+  "discovery-preparation": {
+    title: "Discovery Preparation",
+    body: "在这里准备原始研究资料，并在后续流程中将其转换为可保存、可复用的 Discovery 输入。",
+  },
+  "discovery-launch-archive": {
+    title: "Discovery Launch Archive",
+    body: "在这里回看正在运行或已完成的 Discovery Launch，并在后续流程中进入对应的原始控制台与运行产物。",
+  },
+};
 
-      <div className="artifact-section reveal" style={{ "--i": 2 } as React.CSSProperties}>
-        <div className="section-heading">
-          <div>
-            <p className="section-label">课题产物</p>
-            <h2>正在形成的材料。</h2>
-          </div>
-          <span className="artifact-count">02</span>
-        </div>
-        <div className="artifact-list">
-          <div className="artifact-row">
-            <span className="artifact-kind">MD</span>
-            <div className="artifact-copy">
-              <strong>Evidence map</strong>
-              <span>研究证据图谱</span>
-            </div>
-            <span className="artifact-state">已整理</span>
-          </div>
-          <div className="artifact-row">
-            <span className="artifact-kind">NB</span>
-            <div className="artifact-copy">
-              <strong>Evaluation notebook</strong>
-              <span>评估记录与方法草稿</span>
-            </div>
-            <span className="artifact-state">进行中</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PlaceholderModule({ module }: { module: Exclude<ModuleId, "papers" | "embodied" | "projects" | "settings"> }) {
+function PlaceholderModule({ module }: { module: "skills" | "discovery-preparation" | "discovery-launch-archive" }) {
   const copy = PLACEHOLDER_COPY[module];
-  const item = MODULES.find((entry) => entry.id === module);
+  const item = Object.values(SPACES)
+    .flatMap((space) => space.modules)
+    .find((entry) => entry.id === module);
   const PlaceholderIcon = item?.icon ?? Sparkles;
 
   return (
@@ -155,23 +103,34 @@ function PlaceholderModule({ module }: { module: Exclude<ModuleId, "papers" | "e
 }
 
 export default function App() {
-  const [activeModule, setActiveModule] = useState<ModuleId>("projects");
+  const [activeSpaceId, setActiveSpaceId] = useState<WorkspaceSpaceId>("collaboration");
+  const [selectedModules, setSelectedModules] = useState<Record<WorkspaceSpaceId, ModuleId>>(INITIAL_MODULES);
   const [substrateEpoch, setSubstrateEpoch] = useState(0);
-  const active = MODULES.find((entry) => entry.id === activeModule) ?? MODULES[0];
+  const activeSpace = SPACES[activeSpaceId];
+  const activeModule = activeSpace.modules.find((module) => module.id === selectedModules[activeSpaceId]) ?? activeSpace.modules[0];
 
-  const selectModule = (module: ModuleId) => {
-    if (module === activeModule) {
+  const selectSpace = (spaceId: WorkspaceSpaceId) => {
+    if (spaceId === activeSpaceId) {
       return;
     }
 
-    setActiveModule(module);
+    setActiveSpaceId(spaceId);
+    setSubstrateEpoch((epoch) => epoch + 1);
+  };
+
+  const selectModule = (module: ModuleId) => {
+    if (module === selectedModules[activeSpaceId]) {
+      return;
+    }
+
+    setSelectedModules((modules) => ({ ...modules, [activeSpaceId]: module }));
     setSubstrateEpoch((epoch) => epoch + 1);
   };
 
   return (
     <div
-      className={`workspace workspace--${activeModule}`}
-      data-material-profile={active.materialProfile}
+      className={`workspace workspace--${activeSpaceId} workspace--${activeModule.id}`}
+      data-material-profile={activeModule.materialProfile}
     >
       <aside className="workspace-sidebar">
         <div className="brand-lockup">
@@ -182,9 +141,9 @@ export default function App() {
           </span>
         </div>
 
-        <nav className="module-nav" aria-label="工作区模块">
-          {MODULES.map((module) => {
-            const isActive = activeModule === module.id;
+        <nav className="module-nav" aria-label={`${activeSpace.label}模块`}>
+          {activeSpace.modules.map((module) => {
+            const isActive = activeModule.id === module.id;
             const ModuleIcon = module.icon;
             return (
               <button
@@ -206,35 +165,50 @@ export default function App() {
           })}
         </nav>
 
-        <div className="sidebar-footnote">
-          <span>INTRANET / 01</span>
-          <p>研究仍在现场。</p>
+        <div className="space-switcher" role="radiogroup" aria-label="工作区空间">
+          <p className="space-switcher-label">工作区空间</p>
+          <div className="space-switcher-options">
+            {Object.values(SPACES).map((space) => {
+              const isActive = space.id === activeSpaceId;
+              return (
+                <button
+                  type="button"
+                  key={space.id}
+                  role="radio"
+                  aria-checked={isActive}
+                  className={isActive ? "is-active" : undefined}
+                  onClick={() => selectSpace(space.id)}
+                >
+                  <strong>{space.label}</strong>
+                  <small>{space.caption}</small>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </aside>
 
-      <main className="workspace-main" data-material-profile={active.materialProfile}>
+      <main className="workspace-main" data-material-profile={activeModule.materialProfile}>
         <OccludedPointCloudSubstrate
           key={substrateEpoch}
-          profile={active.materialProfile}
+          profile={activeModule.materialProfile}
           respondsToModuleChange={substrateEpoch > 0}
         />
         <header className="workspace-header">
           <div>
-            <p className="workspace-location">工作区 / {active.label}</p>
-            <span>{activeModule === "settings" ? "配置与运行控制" : "初版交互演示"}</span>
+            <p className="workspace-location">{activeSpace.label} / {activeModule.label}</p>
+            <span>{activeSpaceId === "autonomous-discovery" ? "自主科学发现" : activeModule.id === "settings" ? "配置与运行控制" : "初版交互演示"}</span>
           </div>
           <div className="header-status"><i className="status-dot" aria-hidden="true" />内网运行</div>
         </header>
-        {activeModule === "projects" ? (
-          <ProjectSpace />
-        ) : activeModule === "settings" ? (
+        {activeModule.id === "settings" ? (
           <SystemSettings />
-        ) : activeModule === "papers" ? (
+        ) : activeModule.id === "papers" ? (
           <PaperTools />
-        ) : activeModule === "embodied" ? (
+        ) : activeModule.id === "embodied" ? (
           <EmbodiedIntelligence />
         ) : (
-          <PlaceholderModule module={activeModule} />
+          <PlaceholderModule module={activeModule.id} />
         )}
       </main>
     </div>

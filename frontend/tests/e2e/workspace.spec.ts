@@ -101,7 +101,7 @@ test("preserves the workspace controls while the substrate stays behind content"
   await page.goto("/");
 
   const substrate = page.locator(".occluded-point-cloud");
-  await expect(substrate).toHaveClass(/occluded-point-cloud--exhibition/);
+  await expect(substrate).toHaveClass(/occluded-point-cloud--quiet/);
   await expect(substrate).not.toHaveClass(/is-responding/);
   await expect(substrate).toHaveCSS("pointer-events", "none");
   await expect(substrate).toHaveCSS("z-index", "0");
@@ -111,16 +111,17 @@ test("preserves the workspace controls while the substrate stays behind content"
     points.map((point) => point.outerHTML).join(""),
   );
 
-  const moduleNavigation = page.getByRole("navigation", { name: "工作区模块" });
+  const moduleNavigation = page.getByRole("navigation", { name: "协作空间模块" });
 
-  await moduleNavigation.getByRole("button", { name: "论文工具" }).click();
-  await expect(page.getByRole("heading", { name: /论文工作台/ })).toBeVisible();
+  await moduleNavigation.getByRole("button", { name: "具身智能" }).click();
   await expect(substrate).toHaveClass(/occluded-point-cloud--quiet/);
   await expect(substrate).toHaveClass(/is-responding/);
   await expect(substrate.locator("circle").evaluateAll((points) =>
     points.map((point) => point.outerHTML).join(""),
   )).resolves.toBe(initialPointSignature);
 
+  await moduleNavigation.getByRole("button", { name: "论文工具" }).click();
+  await expect(page.getByRole("heading", { name: /论文工作台/ })).toBeVisible();
   await page.getByRole("tab", { name: "引文核验" }).click();
   await expect(page.getByRole("tabpanel")).toContainText("引文核验即将开放");
 
@@ -151,8 +152,8 @@ test("removes the substrate response when reduced motion is enabled", async ({ p
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
 
-  await page.getByRole("navigation", { name: "工作区模块" })
-    .getByRole("button", { name: "论文工具" })
+  await page.getByRole("navigation", { name: "协作空间模块" })
+    .getByRole("button", { name: "具身智能" })
     .click();
   const substrate = page.locator(".occluded-point-cloud");
   await expect(substrate).toHaveClass(/is-responding/);
@@ -164,7 +165,7 @@ test("contains prompt editor scrolling and removes the nested browser focus fram
   await mockSystemSettingsRequests(page);
   await page.goto("/");
 
-  await page.getByRole("navigation", { name: "工作区模块" })
+  await page.getByRole("navigation", { name: "协作空间模块" })
     .getByRole("button", { name: "系统设置" })
     .click();
   await page.getByRole("navigation", { name: "系统设置分类" })
@@ -208,7 +209,7 @@ test("manages the independent Prompt Translation Instruction without model contr
   });
   await page.goto("/");
 
-  await page.getByRole("navigation", { name: "工作区模块" })
+  await page.getByRole("navigation", { name: "协作空间模块" })
     .getByRole("button", { name: "系统设置" })
     .click();
   await page.getByRole("navigation", { name: "系统设置分类" })
@@ -242,7 +243,7 @@ test("explains why translation is unavailable when its prerequisites are missing
   await mockSystemSettingsRequests(page);
   await page.goto("/");
 
-  await page.getByRole("navigation", { name: "工作区模块" })
+  await page.getByRole("navigation", { name: "协作空间模块" })
     .getByRole("button", { name: "系统设置" })
     .click();
   await page.getByRole("navigation", { name: "系统设置分类" })
@@ -253,12 +254,85 @@ test("explains why translation is unavailable when its prerequisites are missing
   await expect(page.getByText("默认文本模型尚不可用")).toBeVisible();
 });
 
+test("switches between Space-specific module navigation without leaving the Unified Workspace", async ({ page }) => {
+  await page.goto("/");
+
+  const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+  const collaborationSpace = spaceSwitcher.getByRole("radio", { name: "协作空间" });
+  const autonomousDiscoverySpace = spaceSwitcher.getByRole("radio", { name: "自主发现空间" });
+  const collaborationModules = page.getByRole("navigation", { name: "协作空间模块" });
+
+  await expect(collaborationSpace).toHaveAttribute("aria-checked", "true");
+  await expect(collaborationModules.getByRole("button")).toHaveCount(4);
+  await expect(collaborationModules.getByRole("button", { name: "论文工具" })).toBeVisible();
+  await expect(collaborationModules.getByRole("button", { name: "具身智能" })).toBeVisible();
+  await expect(collaborationModules.getByRole("button", { name: "Skill 管理" })).toBeVisible();
+  await expect(collaborationModules.getByRole("button", { name: "系统设置" })).toBeVisible();
+  await expect(collaborationModules.getByRole("button", { name: "论文工具" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: /论文工作台/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "对话", exact: true })).toHaveCount(0);
+  await expect(page.getByText("课题空间", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("INTRANET / 01", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /让长上下文推理的/ })).toHaveCount(0);
+
+  await collaborationModules.getByRole("button", { name: "Skill 管理" }).click();
+  await expect(collaborationModules.getByRole("button", { name: "Skill 管理" }))
+    .toHaveAttribute("aria-current", "page");
+
+  await autonomousDiscoverySpace.focus();
+  await expect(autonomousDiscoverySpace).toBeFocused();
+  await page.keyboard.press("Enter");
+  const discoveryModules = page.getByRole("navigation", { name: "自主发现空间模块" });
+  await expect(autonomousDiscoverySpace).toHaveAttribute("aria-checked", "true");
+  await expect(discoveryModules.getByRole("button")).toHaveCount(2);
+  await expect(discoveryModules.getByRole("button", { name: "Discovery Preparation" })).toBeVisible();
+  await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Discovery Preparation" })).toBeVisible();
+
+  await discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }).click();
+  await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Discovery Launch Archive" })).toBeVisible();
+
+  await collaborationSpace.focus();
+  await expect(collaborationSpace).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(collaborationSpace).toHaveAttribute("aria-checked", "true");
+  await expect(collaborationModules.getByRole("button", { name: "Skill 管理" }))
+    .toHaveAttribute("aria-current", "page");
+
+  await autonomousDiscoverySpace.focus();
+  await page.keyboard.press("Enter");
+  await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }))
+    .toHaveAttribute("aria-current", "page");
+});
+
 for (const viewport of desktopViewports) {
   test(`keeps the desktop composition within ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
 
+    const spaceSwitcher = page.getByRole("radiogroup", { name: "工作区空间" });
+    const collaborationSpace = spaceSwitcher.getByRole("radio", { name: "协作空间" });
+    const autonomousDiscoverySpace = spaceSwitcher.getByRole("radio", { name: "自主发现空间" });
     await expect(page.locator(".occluded-point-cloud")).toBeVisible();
+    await autonomousDiscoverySpace.focus();
+    await page.keyboard.press("Enter");
+    const discoveryModules = page.getByRole("navigation", { name: "自主发现空间模块" });
+    await discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }).click();
+    await collaborationSpace.focus();
+    await page.keyboard.press("Enter");
+    const collaborationModules = page.getByRole("navigation", { name: "协作空间模块" });
+    await collaborationModules.getByRole("button", { name: "Skill 管理" }).click();
+    await autonomousDiscoverySpace.focus();
+    await page.keyboard.press("Enter");
+    await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }))
+      .toHaveAttribute("aria-current", "page");
+    await collaborationSpace.focus();
+    await page.keyboard.press("Enter");
+    await expect(collaborationModules.getByRole("button", { name: "Skill 管理" }))
+      .toHaveAttribute("aria-current", "page");
     await expect(page.evaluate(() => document.documentElement.scrollWidth)).resolves.toBe(viewport.width);
   });
 }
