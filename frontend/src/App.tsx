@@ -7,7 +7,7 @@ import {
   WandSparkles,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
 import { DiscoveryPreparation } from "./features/discovery/DiscoveryPreparation";
@@ -99,6 +99,7 @@ export default function App() {
   const [selectedModules, setSelectedModules] = useState<Record<WorkspaceSpaceId, ModuleId>>(INITIAL_MODULES);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("providers");
   const [substrateEpoch, setSubstrateEpoch] = useState(0);
+  const [discoverySidebarHost, setDiscoverySidebarHost] = useState<HTMLDivElement | null>(null);
   const activeSpace = SPACES[activeSpaceId];
   const activeModule = activeSpace.modules.find((module) => module.id === selectedModules[activeSpaceId]) ?? activeSpace.modules[0];
 
@@ -120,12 +121,19 @@ export default function App() {
     setSubstrateEpoch((epoch) => epoch + 1);
   };
 
+  const setDiscoverySidebarHostRef = useCallback((element: HTMLDivElement | null) => {
+    setDiscoverySidebarHost(element);
+  }, []);
+
+  const showsDiscoveryIndex = activeSpaceId === "autonomous-discovery"
+    && activeModule.id === "discovery-preparation";
+
   return (
     <div
       className={`workspace workspace--${activeSpaceId} workspace--${activeModule.id}`}
       data-material-profile={activeModule.materialProfile}
     >
-      <aside className="workspace-sidebar">
+      <aside className={`workspace-sidebar${showsDiscoveryIndex ? " workspace-sidebar--with-discovery-index" : ""}`}>
         <div className="brand-lockup">
           <span className="brand-mark"><img src="/vegapunk-icon.png" alt="" /></span>
           <span>
@@ -182,6 +190,13 @@ export default function App() {
           })}
         </nav>
 
+        {showsDiscoveryIndex ? (
+          <div
+            ref={setDiscoverySidebarHostRef}
+            className="workspace-discovery-index-host"
+          />
+        ) : null}
+
         <div className="space-switcher" role="radiogroup" aria-label="工作区空间">
           <p className="space-switcher-label">工作区空间</p>
           <div className="space-switcher-options">
@@ -218,7 +233,7 @@ export default function App() {
         ) : activeModule.id === "embodied" ? (
           <EmbodiedIntelligence />
         ) : activeModule.id === "discovery-preparation" ? (
-          <DiscoveryPreparation />
+          <DiscoveryPreparation sidebarHost={discoverySidebarHost} />
         ) : (
           <PlaceholderModule module={activeModule.id} />
         )}

@@ -407,7 +407,10 @@ test("switches between Space-specific module navigation without leaving the Unif
   await expect(discoveryModules.getByRole("button")).toHaveCount(2);
   await expect(discoveryModules.getByRole("button", { name: "Discovery Preparation" })).toBeVisible();
   await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Discovery Preparation" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Discovery 控制台" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Discovery 控制台" }))
+    .toContainText("等待 Discovery Launch");
+  await expect(page.getByRole("textbox", { name: "原始课题资料" })).toHaveCount(0);
 
   await discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }).click();
   await expect(discoveryModules.getByRole("button", { name: "Discovery Launch Archive" }))
@@ -461,28 +464,38 @@ test("creates a reusable Discovery Preparation and surfaces unsupported source e
     .getByRole("radio", { name: "自主发现空间" })
     .click();
 
-  await expect(page.getByRole("region", { name: "Discovery Preparation" })).toBeVisible();
-  await page.getByRole("textbox", { name: "原始课题资料" })
+  await expect(page.getByRole("region", { name: "Discovery 控制台" })).toBeVisible();
+  await page.getByRole("button", { name: "新建资料" }).click();
+  const creationDrawer = page.getByRole("dialog", { name: "新建 Preparation" });
+  await creationDrawer.getByRole("textbox", { name: "原始课题资料" })
     .fill("What controls the material transition?");
-  await page.getByLabel("上传研究资料").setInputFiles({
+  await creationDrawer.getByLabel("上传研究资料").setInputFiles({
     name: "observations.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# Observations"),
   });
-  await expect(page.getByText("observations.md", { exact: true })).toBeVisible();
+  await expect(creationDrawer.getByText("observations.md", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "保存为新的 Preparation" }).click();
+  await creationDrawer.getByRole("button", { name: "保存为新的 Preparation" }).click();
   await expect(page.getByText("Preparation 已保存")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "已保存的 Preparation" })).toBeVisible();
-  await expect(page.getByText("observations.md", { exact: true })).toHaveCount(1);
+  const savedPreparation = page.getByRole("button", { name: /What controls the material transition/ });
+  await expect(savedPreparation).toBeVisible();
+  await savedPreparation.click();
+  const detailsDrawer = page.getByRole("dialog", { name: "已保存的研究资料" });
+  await expect(detailsDrawer.getByText("observations.md", { exact: true })).toBeVisible();
+  await detailsDrawer.getByRole("button", { name: "关闭 Preparation 详情" }).click();
 
-  await page.getByLabel("上传研究资料").setInputFiles({
+  await page.getByRole("button", { name: "新建资料" }).click();
+  await page.getByRole("dialog", { name: "新建 Preparation" }).getByLabel("上传研究资料").setInputFiles({
     name: "unsupported.exe",
     mimeType: "application/octet-stream",
     buffer: Buffer.from("not a supported source"),
   });
-  await page.getByRole("button", { name: "保存为新的 Preparation" }).click();
-  await expect(page.getByRole("alert")).toContainText("unsupported source type: unsupported.exe");
+  await page.getByRole("dialog", { name: "新建 Preparation" })
+    .getByRole("button", { name: "保存为新的 Preparation" })
+    .click();
+  await expect(page.getByRole("dialog", { name: "新建 Preparation" }).getByRole("alert"))
+    .toContainText("unsupported source type: unsupported.exe");
 });
 
 test("converts a Preparation into a right-side editable draft and saves only on request", async ({ page }) => {
@@ -523,7 +536,10 @@ test("converts a Preparation into a right-side editable draft and saves only on 
   await page.getByRole("radiogroup", { name: "工作区空间" })
     .getByRole("radio", { name: "自主发现空间" })
     .click();
-  await page.getByRole("button", { name: "转换为格式化输入" }).click();
+  await page.getByRole("button", { name: /What controls the observed transition/ }).click();
+  await page.getByRole("dialog", { name: "已保存的研究资料" })
+    .getByRole("button", { name: "转换为格式化输入" })
+    .click();
 
   const editor = page.getByRole("dialog", { name: "转换草稿" });
   await expect(editor).toBeVisible();
@@ -535,6 +551,7 @@ test("converts a Preparation into a right-side editable draft and saves only on 
   await editor.getByRole("button", { name: "保存为新的输入修订版" }).click();
 
   await expect(editor).toBeHidden();
+  await expect(page.getByRole("dialog", { name: "已保存的研究资料" })).toBeVisible();
   await expect(page.getByText("已保存新的输入修订版")).toBeVisible();
   await expect(page.getByText("1 个输入修订版")).toBeVisible();
   expect(savedRevision).toEqual({ formatted_input: "# Formatted Discovery Input\n\nEdited draft." });
