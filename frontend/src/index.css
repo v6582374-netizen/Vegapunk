@@ -1,7 +1,7 @@
-/* Hallmark · macrostructure: Workbench Field · route: custom (tuned) · tone: technical editorial
- * vibe: "grid-aware computational research paper" · paper: oklch(98.5% 0.007 240) · accent: oklch(55% 0.17 250)
- * display: Space Grotesk Variable · body: IBM Plex Sans Variable · axes: light / geometric-sans / cool
- * enrichment: distributed static particle texture · nav: N9 Edge-Aligned · footer: none · studied: no
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench Field · design-system: design.md · designed-as-app
+ * theme: custom · vibe: "rice-white, tea-gold, restrained research material" · paper: oklch(97.5% 0.012 82) · accent: oklch(61% 0.13 78)
+ * display: Space Grotesk Variable · body: IBM Plex Sans Variable · axes: light / geometric-sans / chromatic-amber
+ * enrichment: occluded static point-cloud substrate · nav: persistent module rail · footer: none · studied: no
  * pre-emit critique: P5 H5 E5 S5 R5 V5 */
 @import "@fontsource-variable/space-grotesk";
 @import "@fontsource-variable/ibm-plex-sans";
@@ -2641,5 +2641,121 @@ svg {
 @media (min-width: 60rem) {
   .paper-tools {
     padding-inline: clamp(var(--space-2xl), 6vw, var(--space-3xl));
+  }
+}
+
+/* Maki-e Research Expression: one deterministic, non-data-bearing substrate. */
+.workspace-main {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+}
+
+.workspace-main > :not(.occluded-point-cloud) {
+  position: relative;
+  z-index: var(--z-content);
+}
+
+.occluded-point-cloud {
+  --point-cloud-opacity: 0.18;
+  --point-cloud-response-opacity: 0.14;
+  position: absolute;
+  z-index: var(--z-substrate);
+  right: calc(var(--space-3xl) * -1);
+  bottom: calc(var(--space-xl) * -1);
+  width: min(54rem, 82vw);
+  pointer-events: none;
+  opacity: var(--point-cloud-opacity);
+  transform-origin: 72% 68%;
+}
+
+.occluded-point-cloud--quiet {
+  --point-cloud-opacity: 0.52;
+  --point-cloud-response-opacity: 0.44;
+}
+
+.occluded-point-cloud--exhibition {
+  --point-cloud-opacity: 0.9;
+  --point-cloud-response-opacity: 0.78;
+}
+
+.occluded-point-cloud--none {
+  display: none;
+}
+
+.occluded-point-cloud svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.occluded-point-cloud__links {
+  fill: none;
+  stroke: var(--color-particle-faint);
+  stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
+}
+
+.occluded-point-cloud__point {
+  fill: var(--color-particle-faint);
+}
+
+.occluded-point-cloud__point--soft {
+  fill: var(--color-particle-soft);
+}
+
+.occluded-point-cloud__point--bright {
+  fill: var(--color-particle-strong);
+}
+
+.occluded-point-cloud.is-responding {
+  animation: point-cloud-recognition var(--dur-short) var(--ease-out) both;
+}
+
+@keyframes point-cloud-recognition {
+  from {
+    opacity: var(--point-cloud-response-opacity);
+    transform: translate3d(var(--space-xs), var(--space-xs), 0) scale(0.985);
+  }
+
+  to {
+    opacity: var(--point-cloud-opacity);
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* Retire scattered particle marks from controls and disposable detail surfaces. */
+.workspace-main::before,
+.project-hero::after,
+.project-ledger::after,
+.artifact-section::after,
+.module-nav button.is-active::after,
+.settings-tabs button.is-active::after,
+.research-path li.is-active::after,
+.settings-intro::after,
+.prompt-workflow::before,
+.prompt-card::before,
+.prompt-card::after,
+.provider-fields label::after,
+.binding-grid label::after,
+.parameter-map label::after,
+.parameter-row::after,
+.provider-row:has(.is-spinning)::before {
+  display: none;
+}
+
+@media (min-width: 60rem) {
+  .occluded-point-cloud {
+    right: calc(var(--space-2xl) * -1);
+    bottom: calc(var(--space-lg) * -1);
+    width: min(58rem, 78vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .occluded-point-cloud.is-responding {
+    animation: none;
+    transform: none;
   }
 }

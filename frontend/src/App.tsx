@@ -12,6 +12,10 @@ import { useState } from "react";
 
 import { SystemSettings } from "./features/settings/SystemSettings";
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
+import {
+  OccludedPointCloudSubstrate,
+  type MaterialExpressionProfile,
+} from "./features/identity/OccludedPointCloudSubstrate";
 import { PaperTools } from "./features/papers/PaperTools";
 
 type ModuleId = "chat" | "papers" | "embodied" | "skills" | "projects" | "settings";
@@ -21,13 +25,14 @@ const MODULES: Array<{
   label: string;
   caption: string;
   icon: LucideIcon;
+  materialProfile: MaterialExpressionProfile;
 }> = [
-  { id: "chat", label: "对话", caption: "研究协作", icon: MessageCircle },
-  { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText },
-  { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom },
-  { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles },
-  { id: "projects", label: "课题空间", caption: "研究现场", icon: FolderKanban },
-  { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings },
+  { id: "chat", label: "对话", caption: "研究协作", icon: MessageCircle, materialProfile: "quiet" },
+  { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText, materialProfile: "quiet" },
+  { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom, materialProfile: "quiet" },
+  { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles, materialProfile: "quiet" },
+  { id: "projects", label: "课题空间", caption: "研究现场", icon: FolderKanban, materialProfile: "exhibition" },
+  { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings, materialProfile: "none" },
 ];
 
 const PLACEHOLDER_COPY: Record<Exclude<ModuleId, "papers" | "embodied" | "projects" | "settings">, { title: string; body: string }> = {
@@ -151,14 +156,23 @@ function PlaceholderModule({ module }: { module: Exclude<ModuleId, "papers" | "e
 
 export default function App() {
   const [activeModule, setActiveModule] = useState<ModuleId>("projects");
+  const [substrateEpoch, setSubstrateEpoch] = useState(0);
   const active = MODULES.find((entry) => entry.id === activeModule) ?? MODULES[0];
 
   const selectModule = (module: ModuleId) => {
+    if (module === activeModule) {
+      return;
+    }
+
     setActiveModule(module);
+    setSubstrateEpoch((epoch) => epoch + 1);
   };
 
   return (
-    <div className={`workspace workspace--${activeModule}`}>
+    <div
+      className={`workspace workspace--${activeModule}`}
+      data-material-profile={active.materialProfile}
+    >
       <aside className="workspace-sidebar">
         <div className="brand-lockup">
           <span className="brand-mark"><img src="/vegapunk-icon.png" alt="" /></span>
@@ -198,7 +212,12 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="workspace-main">
+      <main className="workspace-main" data-material-profile={active.materialProfile}>
+        <OccludedPointCloudSubstrate
+          key={substrateEpoch}
+          profile={active.materialProfile}
+          respondsToModuleChange={substrateEpoch > 0}
+        />
         <header className="workspace-header">
           <div>
             <p className="workspace-location">工作区 / {active.label}</p>

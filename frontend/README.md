@@ -41,4 +41,6 @@ FastAPI 会从 `frontend/dist` 同源托管构建产物，并为工作台路径�
 ```bash
 npm run build
 npm run lint
+npx playwright install firefox
+npm run test:e2e
 ```
