@@ -1,5 +1,6 @@
 import {
   Atom,
+  BookOpenText,
   FolderKanban,
   MessageCircle,
   Settings,
@@ -11,8 +12,9 @@ import { useState } from "react";
 
 import { SystemSettings } from "./features/settings/SystemSettings";
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
+import { PaperTools } from "./features/papers/PaperTools";
 
-type ModuleId = "chat" | "embodied" | "skills" | "projects" | "settings";
+type ModuleId = "chat" | "papers" | "embodied" | "skills" | "projects" | "settings";
 
 const MODULES: Array<{
   id: ModuleId;
@@ -21,13 +23,14 @@ const MODULES: Array<{
   icon: LucideIcon;
 }> = [
   { id: "chat", label: "对话", caption: "研究协作", icon: MessageCircle },
+  { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText },
   { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom },
   { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles },
   { id: "projects", label: "课题空间", caption: "研究现场", icon: FolderKanban },
   { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings },
 ];
 
-const PLACEHOLDER_COPY: Record<Exclude<ModuleId, "embodied" | "projects" | "settings">, { title: string; body: string }> = {
+const PLACEHOLDER_COPY: Record<Exclude<ModuleId, "papers" | "embodied" | "projects" | "settings">, { title: string; body: string }> = {
   chat: {
     title: "把研究变成一段持续的对话。",
     body: "这里将承接课题上下文、追问与阶段性结论。初版先保留模块位置，不连接模型或历史记录。",
@@ -125,7 +128,7 @@ function ProjectSpace() {
   );
 }
 
-function PlaceholderModule({ module }: { module: Exclude<ModuleId, "embodied" | "projects" | "settings"> }) {
+function PlaceholderModule({ module }: { module: Exclude<ModuleId, "papers" | "embodied" | "projects" | "settings"> }) {
   const copy = PLACEHOLDER_COPY[module];
   const item = MODULES.find((entry) => entry.id === module);
   const PlaceholderIcon = item?.icon ?? Sparkles;
@@ -158,7 +161,7 @@ export default function App() {
     <div className={`workspace workspace--${activeModule}`}>
       <aside className="workspace-sidebar">
         <div className="brand-lockup">
-          <span className="brand-mark"><Atom aria-hidden="true" /></span>
+          <span className="brand-mark"><img src="/vegapunk-icon.png" alt="" /></span>
           <span>
             <strong>Vegapunk</strong>
             <small>RESEARCH STUDIO</small>
@@ -207,6 +210,8 @@ export default function App() {
           <ProjectSpace />
         ) : activeModule === "settings" ? (
           <SystemSettings />
+        ) : activeModule === "papers" ? (
+          <PaperTools />
         ) : activeModule === "embodied" ? (
           <EmbodiedIntelligence />
         ) : (

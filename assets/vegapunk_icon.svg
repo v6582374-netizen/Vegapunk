@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Vegapunk laboratory beacon</title>
+  <desc id="desc">An original science-punk laboratory beacon with a flask, antenna, signal arcs, and discovery spark.</desc>
+  <g fill="none" stroke="#14233f" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 142V73" stroke-width="26"/>
+    <circle cx="256" cy="55" r="20" fill="#79d8e8" stroke-width="18"/>
+    <path d="M185 91c-24 13-43 32-55 56M327 91c24 13 43 32 55 56" stroke="#79d8e8" stroke-width="22"/>
+    <path d="M154 67c-38 22-68 53-85 91M358 67c38 22 68 53 85 91" stroke="#14233f" stroke-width="18"/>
+    <path d="M216 141h80v101l49 83c23 39-5 89-50 89H217c-45 0-73-50-50-89l49-83Z" fill="#eef1e8" stroke-width="24"/>
+    <path d="M177 346c15-13 34-19 55-19 31 0 41 12 64 12 19 0 32-5 42-11l7 12c19 33-5 74-43 74h-90c-36 0-59-38-42-68Z" fill="#5fc4df" stroke-width="16"/>
+    <path d="M216 205h80" stroke-width="20"/>
+    <circle cx="224" cy="278" r="12" fill="#f6b957" stroke-width="12"/>
+    <circle cx="265" cy="301" r="10" fill="#eef1e8" stroke-width="11"/>
+    <circle cx="294" cy="268" r="8" fill="#f6b957" stroke-width="10"/>
+  </g>
+  <path d="m388 126 10 29 29 10-29 10-10 29-10-29-29-10 29-10Z" fill="#f6b957" stroke="#14233f" stroke-linejoin="round" stroke-width="16"/>
+</svg>

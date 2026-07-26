@@ -6,27 +6,225 @@ Vegapunk coordinates LLM-backed agents for research, discovery, memory, and expe
 
 ## Product Experience
 
-**Admin Console**:
-The current Desktop Web Console deliverable: a developer-facing administration interface that exposes every prompt, run parameter, and runtime artifact of Vegapunk for testing and modification.
-It is hosted inside the unified Researcher Workspace under the protected `/admin` route and is intended for the project developer.
-It retains a separate dense navigation and full-exposure surface even though it shares the frontend application and same-origin server with the curated product routes.
-_Avoid_: end-user console, public product, curated interface
+**Unified Workspace**:
+The one desktop browser interface for Vegapunk, organized as a persistent module sidebar, a central work area, and an optional artifact preview area.
+It has no administrator or user-facing shell, no sign-in, and no role-specific navigation.
+_Avoid_: Admin Console, Researcher Workspace, user-facing interface
 
 **Sole Researcher**:
 The one person allowed to use the Version 1 product's curated research capabilities.
-Every Version 1 request is implicitly theirs; the product has no user registration, invitation, account-management, or multi-user flows.
-The protected Admin Console session verifies the same local operator before exposing advanced configuration and diagnostics.
+Every Version 1 request is implicitly theirs; the product has no sign-in, registration, invitation, account-management, or multi-user flows.
 _Avoid_: Invited Researcher, public user, multi-user account
 
-**Local Product Boundary**:
-The Version 1 access boundary that confines the product and its API to the Sole Researcher's own machine and same-origin browser context.
-It excludes LAN and public access; the local Admin Console uses a cookie session, while a future remote deployment requires a separate identity and authorization decision.
-_Avoid_: public deployment, LAN service, remote account
+**Intranet Product Boundary**:
+The Version 1 deployment boundary that serves the Unified Workspace as a Web application from an internal-network server to the Sole Researcher.
+It excludes public Internet exposure and multi-account product access; a later expansion beyond the Sole Researcher requires a separate identity and authorization decision.
+_Avoid_: local-only product, public deployment, multi-user account
 
 **Desktop Web Console**:
-The browser-based product interface through which a researcher configures, starts, observes, and reviews research work from a desktop operating system.
-It excludes a mobile client and does not imply that research execution runs on the user's device.
-_Avoid_: mobile app, local CLI, execution node
+The Unified Workspace as accessed in a desktop browser, through which a researcher configures, starts, observes, and reviews research work.
+It is a desktop-only product surface rather than a responsive mobile application and does not imply that research execution runs on the user's device.
+_Avoid_: mobile app, touch-first layout, local CLI, execution node
+
+**Desktop-First Web Workspace**:
+The Intranet Product Boundary delivered through a desktop browser rather than a native desktop application.
+It has no mobile product experience in Version 1, while a future native application remains an independent product decision.
+_Avoid_: native desktop app, mobile client, desktop-only deployment
+
+**Desktop Visual Baseline**:
+The 1440 CSS-pixel-wide desktop browser viewport used to compose the Unified Workspace's primary visual hierarchy, whitespace, and research texture.
+The workspace remains functionally complete at 1024 CSS pixels without a separate compact visual system, while narrower viewports receive only basic overflow protection.
+_Avoid_: mobile-first composition, native-window assumption, false 1024px parity
+
+**Workspace Module**:
+A top-level capability area selected from the Unified Workspace sidebar, such as Conversations, Skill Management, Project Space, or System Settings.
+Each module owns the central work area while the sidebar remains stable.
+_Avoid_: role-specific console, page chrome, artifact preview
+
+**Paper Tools**:
+A Workspace Module selected from the Unified Workspace sidebar for finding and later working with scholarly papers.
+Its Version 1 surface contains the Paper Search, Paper Deep Reading, and Citation Verification Paper Tool Submodules.
+All three Version 1 submodules are visible placeholders until a stable paper-service design is selected.
+_Avoid_: paper artifact preview, literature source, research project
+
+**Paper Tool Submodule**:
+One of the three child capability areas within Paper Tools.
+Paper Tool Submodules use the Paper Tools' internal tab navigation and are not separate Workspace Modules or sidebar destinations.
+_Avoid_: Workspace Module, independent route, sidebar module
+
+**Paper Search**:
+The visible but nonfunctional Paper Tool Submodule reserved for future research-question submission and literature reporting.
+Its initial dialogue surface accepts no question and sends no external request.
+_Avoid_: Elicit Paper Search record list, Elicit web Research Agent conversation, active search flow, Paper Deep Reading, Citation Verification
+
+**Paper Search Mode**:
+The future choice between different research depths within Paper Search.
+Paper Search Mode is not surfaced in the initial placeholder interface.
+_Avoid_: active search control, hidden future mode, streamed-answer promise
+
+**Paper Research Question**:
+A future natural-language question submitted through Paper Search to commission a Paper Research Report.
+It is not accepted or persisted by the initial placeholder interface.
+_Avoid_: Elicit web Research Agent follow-up, active chat thread, research task
+
+**Paper Research Report**:
+A future asynchronous, cited literature report created from a Paper Research Question after a stable source and report-generation design is selected.
+It is not present in the initial placeholder interface.
+_Avoid_: Elicit Paper Search record list, Deep Research Run, streamed chat answer
+
+**Paper Deep Reading**:
+A visible but nonfunctional Paper Tool Submodule reserved for future close reading of a selected paper.
+It does not fetch, summarize, or open papers in the initial release.
+_Avoid_: Paper Search, PDF reader, Paper Result Card interaction
+
+**Citation Verification**:
+A visible but nonfunctional Paper Tool Submodule reserved for future checking of citation claims and references.
+It does not validate, modify, or persist citation information in the initial release.
+_Avoid_: Paper Search, bibliography export, citation database
+
+**High-Interest Papers**:
+The domain-specific paper display section within Paper Tools, visually headed as “高热论文”.
+It is distinct from Paper Search and initially shows noninteractive placeholder High-Interest Paper Cards.
+_Avoid_: Paper Search results, saved library, paper detail page
+
+**High-Interest Paper Card**:
+A noninteractive placeholder card in High-Interest Papers.
+It is unrelated to the still-undecided presentation of Elicit Paper Search results and does not promise an external paper source until the later daily-feed effort supplies one.
+_Avoid_: Elicit Paper Search result presentation, external paper source, saved paper
+
+**High-Interest Paper Domain**:
+One fixed thematic filter applied only to High-Interest Papers.
+The initial domain set is All Fields, AI Scientist, Seawater Desalination, Gas Turbines, Reverse Osmosis, and Embodied Intelligence.
+_Avoid_: Elicit search constraint, arbitrary user-created tag, source database, research task
+
+**Researcher Skill**:
+A reusable Skill created and owned by the Sole Researcher through the top-level Skill Management Workspace Module.
+_Avoid_: system Prompt, built-in Prompt, internal orchestration Prompt
+
+**Artifact Preview**:
+The contextual right-side area of the Unified Workspace that appears when a selected non-PDF artifact has a previewable representation.
+It remains absent when no artifact is selected and does not replace the central work area.
+_Avoid_: Browser PDF Reader, full-screen reader, artifact explorer, permanent third column
+
+**Browser PDF Reader**:
+The browser-native PDF viewer opened in a new tab for every user-visible PDF artifact.
+It replaces all PDF uses of Artifact Preview and embedded artifact viewing.
+Browser configuration determines the reader implementation and whether a user downloads the file instead.
+_Avoid_: system-default desktop PDF app, side-panel PDF preview, embedded PDF iframe
+
+**Research Identity Layer**:
+The visual expression of Vegapunk's computational-research identity through generated structures, particle fields, ASCII treatments, or scientific diagrams.
+It must be clearly perceptible at the Desktop Visual Baseline in durable content-bearing and exhibition-oriented contexts, while never competing with controls, forms, dense records, or other high-frequency work.
+It appears only when it clarifies interface state, hierarchy, or a Durable Content Anchor.
+_Avoid_: imperceptible background noise, uncropped decorative wallpaper, placeholder decoration, fake data visualization, visual noise
+
+**Durable Content Anchor**:
+A product area, research object, artifact, or stable placeholder whose information architecture is intended to persist as its content develops.
+Research Identity Layers and Material Expression Layers may attach to Durable Content Anchors, including a placeholder with a clear continuing product owner, so visual-system work survives feature development.
+_Avoid_: invalid elements scheduled for deletion, decorative treatment with no persistent product owner, a one-off temporary scaffold
+
+**Deterministic Identity Graphic**:
+A non-data-bearing visual generated from a stable module or project identity, so the same object receives the same computational graphic on later visits.
+It expresses research character without claiming to visualize a model state, research result, evidence relation, or runtime metric.
+_Avoid_: simulated telemetry, fake neural-network diagram, unlabelled data visualization
+
+**Rice-White Workspace**:
+The Unified Workspace visual foundation of warm rice-white surfaces, graphite text, restrained rules, and a Unified Tonal Spectrum for non-error interface signals.
+Navigation belongs to the same continuous light field as the work area rather than becoming a dominant dark rail.
+Local Material Expression Layers may enrich this foundation without replacing it with a persistent dark theme.
+_Avoid_: dark dashboard shell, stark cool-white surface, a separate blue identity spectrum, competing semantic accent colors
+
+**Material Expression Layer**:
+A localized visual layer above the Rice-White Workspace that applies a selected craft or art material vocabulary to frame research identity, object focus, or exhibition-oriented content.
+It remains subordinate to text, controls, real charts, and explicit state indicators, and never substitutes for a real research measurement or lifecycle state.
+_Avoid_: global recoloring, decorative wallpaper, implicit data visualization, themed controls on every surface
+
+**Maki-e Research Expression**:
+The only directly recognizable Material Expression Layer in the initial visual system.
+It draws on Maki-e's material precision, controlled powder-like aggregation, and compositional restraint rather than reproducing historical motifs.
+Other art forms may inform its whitespace, asymmetry, or texture principles, but may not appear as independently recognizable visual languages.
+_Avoid_: Japanese-style collage, literal traditional motifs, a second named art direction
+
+**Exhibition Module**:
+A Workspace Module whose primary job is to frame research context, progress, or outputs rather than support dense configuration work.
+Project Space is the Version 1 Exhibition Module and uses a stronger distributed Research Identity Layer in its title, structural whitespace, and current-object states while operational modules remain visually quiet.
+_Avoid_: a poster treatment on every module, standalone decorative field, decorative configuration form
+
+**Research Editorial Typography**:
+The three-role type system of a compact, hard-edged Neo Swiss grotesk for display hierarchy, a highly legible sans-serif for prose and controls, and a mono face for machine-readable identifiers.
+The display role creates research-publication authority without weakening Chinese text readability or operational density.
+_Avoid_: rounded display type, decorative serif headline, one font for every hierarchy
+
+**Unified Tonal Spectrum**:
+The low-saturation aged-gold or tea-gold visual-identity tone used across active interface signals and Deterministic Identity Graphics.
+Its sense of depth comes from controlled changes in lightness, opacity, particle density, texture, and reflectance rather than from introducing multiple decorative hues.
+Dedicated error and warning colors retain their semantic purpose.
+_Avoid_: rainbow particle art, a separate blue identity spectrum, multiple competing brand accents, an identity tone used as an error state
+
+**Calm Computational Motion**:
+The motion discipline for Deterministic Identity Graphics: static by default, with a brief low-amplitude response only on meaningful entry, project-change, or direct-hover events.
+It excludes indefinite decorative loops, operational-surface motion, and motion that ignores the system reduced-motion preference.
+_Avoid_: animated wallpaper, perpetual particle drift, distracting form animation
+
+**Point-Cloud Grammar**:
+The primary Research Identity Layer visual language of Unified Tonal Spectrum particles arranged by density, flow, and occasional sparse links.
+ASCII characters and halftone dots are close-range supporting textures, while literal neural-network diagrams and generative terrain are excluded from the product identity.
+_Avoid_: style-sample collage, fake model topology, generic AI landscape
+
+**State Particle Field**:
+A non-data-bearing arrangement of particles whose density, grouping, and contrast express interface hierarchy or interaction state such as inactive, selected, focused, or currently running.
+It does not quantify runtime progress, research evidence, model structure, or any other scientific result.
+_Avoid_: decorative wallpaper, telemetry substitute, unlabeled data chart
+
+**Occluded Point-Cloud Substrate**:
+The persistent, static, and clearly perceptible Unified Tonal Spectrum point-cloud composition anchored to the lower-right of the Unified Workspace's main content background.
+Foreground panels, records, and content naturally crop and occlude it, so it remains a single shared research-identity subject without competing with reading or controls.
+_Avoid_: random redraws, full-bleed particle wallpaper, overlap with text or inputs, a generic star field
+
+**Stable Particle Identity**:
+The deterministic particle distribution assigned to one Workspace Module or research object.
+It remains unchanged while that object is viewed and may make one brief transition when the active module or object changes, but never continuously drifts or reshuffles.
+_Avoid_: random redraw on render, perpetual particle animation, state ambiguity
+
+**Particle State Trigger**:
+The limited interaction set that may strengthen a State Particle Field: current navigation or selected content, direct input focus, and a real in-progress operation.
+Static list items, ordinary cards, and destructive controls remain free of particle emphasis.
+_Avoid_: particle on every component, decorative busywork, simulated progress
+
+**Research Texture Set**:
+The controlled visual vocabulary of particles as the primary material, fine grids and crop marks as structural precision, and local halftone as a close-range texture.
+It excludes unlabeled chart-like curves and large ASCII backgrounds because they imply unsupported data or compete with research content.
+_Avoid_: fake plot line, ASCII wallpaper, competing decorative language
+
+**Particle Identity Hierarchy**:
+The rule that all interface elements share the Research Texture Set while only Workspace Modules, research objects, workflow groups, and the current record receive their own Stable Particle Identity.
+Individual static cards and parameter rows use common local texture rather than independent visual signatures.
+_Avoid_: one illustration per card, record-level visual clutter, noisy catalogue
+
+**Particle Semantic Boundary**:
+The prohibition on using particle count, density, or motion as an implicit representation of quantities, completion, research progress, or scientific results.
+Particles express identity, interface hierarchy, and permitted interaction states only; real information remains explicit text, controls, charts, or labelled visualizations.
+_Avoid_: atmospheric progress indicator, ambiguous quantitative texture, decorative telemetry
+
+**Particle Intensity Gradient**:
+The allocation of particle emphasis by Workspace Module: low in System Settings and Prompt Library, medium in Conversations and Skill Management, and high in Project Space.
+The gradient keeps frequent configuration work quiet while giving research-context views a stronger, still non-data-bearing identity.
+_Avoid_: uniform decoration, expressive configuration form, silent operational surface
+
+**Grid-Aware Particle Distribution**:
+The visual rule that particle positions vary irregularly in size, spacing, density, and blank space while tending to collect near established layout lines, headings, divisions, crop marks, and grid intersections.
+It creates a computational-paper texture that is neither a random star field nor a chart-like line drawing.
+_Avoid_: uniform particle wallpaper, cosmic motif, decorative wave path
+
+**Exhibition Field**:
+A distributed grid-aligned visual field across an Exhibition Module's content surfaces, whitespace, and active-object boundaries.
+It gives the Research Identity Layer the same compositional status as title, status, and research metadata without reserving a standalone decorative panel.
+_Avoid_: visual-effect card, framed AI demo, dedicated particle canvas
+
+**Explicit Grid**:
+The selectively visible fine-line layout structure used in editorial focal areas such as an Exhibition Field.
+It supports composition and alignment without becoming a universal page background or a substitute for meaningful interface hierarchy.
+_Avoid_: graph-paper wallpaper, decorative grid everywhere, fake data visualization
 
 **Deep Research Run**:
 A bounded investigation of one research question that gathers evidence and produces a cited report without entering the Discovery experiment loop or Paper Handoff.
@@ -44,13 +242,53 @@ It may be claimed once, while an unclaimed upload expires; it is neither a reusa
 _Avoid_: attachment library, permanent upload, research artifact, shared input
 
 **Prompt Library**:
-The single service-wide collection of every editable prompt text in the system, including scientific-behavior prompts and infrastructure/scaffolding prompts. A Discovery Launch reads it when it starts; edits affect Launches that start afterwards and never change a running Launch. There are no per-Launch prompt overrides.
+The single service-wide collection of every editable Prompt text in the system, stored as repository source files and including scientific-behavior prompts and infrastructure/scaffolding prompts.
+Each new Deep Research Run or Discovery Launch reads it when it starts; edits affect work that starts afterwards and never change work already running.
+There are no per-Launch prompt overrides.
+Saved Prompt revisions have no built-in history or system-original copy; repository history owns recovery after a successful save.
 _Avoid_: per-Launch prompt snapshot, mid-run prompt edit, hardcoded prompt, curated prompt subset
 
+**Registered Prompt**:
+A Prompt Library entry with a stable identity and runtime call site supplied by the installed Vegapunk version.
+The Sole Researcher may revise its content but cannot edit its system-maintained metadata or create, delete, or rename Registered Prompts through System Settings.
+_Avoid_: ad hoc Prompt, user-created Prompt, unregistered Prompt
+
+**Pending Prompt Revision**:
+An unsaved proposed body for one Registered Prompt that has no effect until an explicit save passes the Prompt Template Contract and atomically replaces the Prompt's repository source file.
+_Avoid_: autosaved Prompt, Prompt Override, partially saved Prompt
+
+**Prompt Orchestration Position**:
+The workflow, stage, and group-local first-call position at which a Prompt participates in orchestration, together with whether its use is conditional, repeated, or mutually exclusive.
+It is declared explicitly in the system-maintained Prompt catalog rather than inferred from runtime code.
+Prompt Orchestration Positions never imply one global linear order across independent workflows.
+_Avoid_: global Prompt order, alphabetical execution order, card order
+
+**Prompt Template Contract**:
+The declared required and allowed interpolation variables plus structural validity rules that every Prompt revision must satisfy before entering the Prompt Library.
+It rejects empty or malformed Prompt revisions before a research Run can consume them.
+_Avoid_: runtime-only Prompt validation, undeclared template variable, best-effort save
+
 **Run Parameter Registry**:
-The service-wide catalog of every run parameter and its default, description, type, and validation rule, edited through structured forms in the Admin Console.
-An allowlisted subset may be supplied as Researcher Run Settings without granting access to the Registry or changing its defaults.
+The service-wide catalog of every run parameter and its default, description, type, and validation rule, managed through the Unified Workspace.
+Only intentionally configurable parameters with stable identities belong to the Registry; secrets, internal paths, protocol details, and implementation constants do not.
+An allowlisted subset may be supplied as Researcher Run Settings without changing the Registry defaults.
 _Avoid_: raw config file editing, unrestricted researcher override, mid-run change, undocumented parameter
+
+**Settings Activation Boundary**:
+The start of the next new Deep Research Run or Discovery Launch, when committed System Settings changes become effective without requiring a service restart.
+Work already running retains the settings resolved at its own start.
+Queued work has not crossed this boundary and therefore uses the latest committed settings when it starts, while a Launch Resume continues to use its original Launch Configuration Snapshot.
+_Avoid_: mid-run settings update, service-restart activation, immediate field activation
+
+**Default Configuration Revision**:
+One server-validated, atomic version of the three root model bindings and all Run Parameter Registry defaults produced by a successful System Settings save.
+A new research Run captures exactly one complete Revision, while an invalid change leaves the preceding Revision unchanged.
+_Avoid_: partial parameter save, field-by-field activation, mixed configuration version
+
+**Configuration Readiness**:
+The derived indication of whether a structurally valid Default Configuration Revision currently has the Provider Connections required to start research work.
+An unready Revision may be saved, but Capability Preflight blocks execution until its dependencies validate successfully.
+_Avoid_: save validity, silent Provider fallback, permanently cached connection status
 
 **Researcher Run Setting**:
 An allowlisted execution choice the Sole Researcher supplies when creating one Deep Research Run or Discovery Launch, such as the Discovery loop-round limit.
@@ -78,7 +316,8 @@ _Avoid_: failed Launch, aborted Launch, automatic resume
 
 **Launch Resume**:
 Re-enqueueing a stopped or reconciled-incomplete Interrupted Launch to continue from its Workflow Progress checkpoints using exactly the prompts and parameters captured at its original start.
-It requires an explicit researcher action, preserves earlier Execution Attempts, adds a new attempt at the current milestone, and never absorbs later configuration edits.
+It requires an explicit researcher action, preserves earlier Execution Attempts, adds a new attempt at the current milestone, and never absorbs later Prompt, model-binding, or run-parameter edits.
+Each resumed Execution Attempt resolves the current Provider Connection for the originally bound Provider because credentials are never stored in the Launch Configuration Snapshot.
 _Avoid_: new Launch, automatic resume, mixed-configuration continuation, edit absorption on resume
 
 **Research Progress Timeline**:
@@ -97,11 +336,11 @@ A Discovery Launch Resume adds an attempt while preserving earlier attempts; an 
 _Avoid_: Experiment Run, resumed Launch, overwritten attempt
 
 **Live Launch View**:
-The Admin Console view that follows the currently running Discovery Launch in real time: its current stage and round, each runtime artifact as soon as it is persisted, and streaming key logs. It does not wait for stage or Launch completion.
+The Unified Workspace view that follows the currently running Discovery Launch in real time: its current stage and round, each runtime artifact as soon as it is persisted, and streaming key logs. It does not wait for stage or Launch completion.
 _Avoid_: post-hoc report, final-artifact-only view, completed-Launch browser
 
 **Artifact Explorer**:
-The Admin Console surface that exposes every file a Launch persists as a browsable tree with content viewers, guaranteeing that all runtime artifacts are reachable. Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to an artifact.
+The Unified Workspace surface that exposes every file a Launch persists as a browsable tree with content viewers, guaranteeing that all runtime artifacts are reachable. Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to an artifact.
 _Avoid_: curated artifact list, final-only gallery, unmodeled-file blind spot
 
 **Curated Research Artifact**:
@@ -115,11 +354,11 @@ It is a Curated Research Artifact rather than a copy of the complete Launch work
 _Avoid_: full workspace archive, raw artifact dump, configuration snapshot
 
 **Task Authoring Form**:
-The Admin Console form through which the developer directly composes a research task's structured fields (system, task description, domain, background, constraints) and uploads its baseline code package. It performs no LLM assistance; a task without baseline code can only take the report path, not the experiment path.
+The Unified Workspace form through which the researcher directly composes a research task's structured fields (system, task description, domain, background, constraints) and uploads its baseline code package. It performs no LLM assistance; a task without baseline code can only take the report path, not the experiment path.
 _Avoid_: Task Builder, automatic task generation, topic-only quick start
 
 **Task Builder**:
-The planned later capability that turns a research topic plus uploaded reference materials into a draft task via model assistance, for developer review before enqueueing. It is not part of the first Admin Console delivery.
+The planned later capability that turns a research topic plus uploaded reference materials into a draft task via model assistance, for researcher review before enqueueing. It is not part of the first Unified Workspace delivery.
 _Avoid_: Task Authoring Form, fully automatic launch, current capability
 
 **Discovery Launch**:
@@ -158,10 +397,26 @@ The centrally managed endpoint, supported credential slot, headers, timeout, pro
 A Researcher Model Credential may supply its API key, but callers do not override the remaining Provider Configuration.
 _Avoid_: caller-local endpoint, caller-local protocol, arbitrary provider settings, Paper-specific provider
 
+**Provider Connection**:
+The System Settings resource that binds a supported Model Provider to its Researcher Model Credential and any endpoint field that Provider explicitly allows the Sole Researcher to configure.
+It owns connectivity verification but not model definitions, capability declarations, protocols, retry policy, concurrency policy, or default model selection.
+_Avoid_: Unified Model Catalog editor, arbitrary Provider Configuration, model default
+
+**Provider Connection Verification**:
+The non-secret result of probing one Provider Connection, recorded against the current credential and endpoint independently from saving them.
+It distinguishes unverified, valid, authentication-failed, and unreachable states without deleting or exposing the credential.
+_Avoid_: save validation, credential readback, automatic credential deletion
+
 **Researcher Model Credential**:
-A Provider-scoped API key the Sole Researcher stores for an administrator-approved Model Provider and selects for their work.
-It does not define an endpoint, protocol, or model identity and remains distinct from research artifacts and configuration snapshots.
+A Provider-scoped API key the Sole Researcher stores for a configured Model Provider, with at most one stored credential per Provider.
+It persists across service restarts but is never returned as plaintext or included in research artifacts, configuration snapshots, logs, exports, or the repository.
+It does not define an endpoint, protocol, or model identity.
 _Avoid_: arbitrary Provider Configuration, model catalog entry, service credential, artifact
+
+**Effective Model Credential**:
+The credential resolved for one Model Provider by preferring its stored Researcher Model Credential and falling back to its supported environment variable only when no stored credential exists.
+Its source is observable as `vault`, `environment`, or `missing`, while its plaintext value remains hidden.
+_Avoid_: environment override, merged credentials, undisclosed credential source
 
 **Unified Model Runtime**:
 The single in-process execution surface that turns semantic model requests into Provider calls for every active consumer.
@@ -200,6 +455,7 @@ _Avoid_: provider fallback, mixed-provider run, model alias
 
 **Capability Preflight**:
 The startup validation that checks the fixed Catalog bindings and their known project eligibility before a run begins.
+It also resolves the Effective Model Credential and freshly verifies any Provider Connection whose current validity is not established, blocking research execution when the required connection cannot be validated.
 It does not inspect individual requests, infer capabilities dynamically, or choose alternate models.
 _Avoid_: per-request negotiation, lazy capability failure, silent downgrade
 
