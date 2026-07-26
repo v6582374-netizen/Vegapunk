@@ -42,7 +42,12 @@ from admin_console.prompt_mirror_batch import (
     DefaultPromptMirrorTranslator,
     PromptMirrorBatchService,
     PromptMirrorTranslator,
+    TranslationError,
     UnknownBatchError,
+)
+from admin_console.prompt_mirror_sync import (
+    PromptMirrorSyncService,
+    PromptMirrorSyncUnavailableError,
 )
 from admin_console.launches import scan_launches
 from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
@@ -92,6 +97,7 @@ from vegapunk.prompt_library import (
     DEFAULT_LIBRARY_ROOT,
     InvalidPromptError,
     PromptLibrary,
+    PromptSourceChangedError,
     UnknownPromptError,
 )
 
@@ -132,6 +138,11 @@ class QueueSubmission(BaseModel):
 
 class PromptUpdate(BaseModel):
     text: str
+
+
+class PromptSynchronizationUpdate(BaseModel):
+    chinese_text: str
+    source_revision: str
 
 
 class ProviderConnectionUpdate(BaseModel):
@@ -179,11 +190,19 @@ def create_app(
         secret_store or KeyringSecretStore(),
         **({"probe": provider_probe} if provider_probe is not None else {}),
     )
+    resolved_prompt_mirror_translator = (
+        prompt_mirror_translator
+        or DefaultPromptMirrorTranslator(resolved_catalog_path, provider_connections)
+    )
     prompt_mirror_batches = PromptMirrorBatchService(
         prompt_library,
         resolved_prompt_translation_instruction_path,
-        prompt_mirror_translator
-        or DefaultPromptMirrorTranslator(resolved_catalog_path, provider_connections),
+        resolved_prompt_mirror_translator,
+    )
+    prompt_mirror_sync = PromptMirrorSyncService(
+        prompt_library,
+        resolved_prompt_translation_instruction_path,
+        resolved_prompt_mirror_translator,
     )
     resolved_config_paths = config_paths if config_paths is not None else [
         resolved_main_config,
@@ -346,6 +365,32 @@ def create_app(
             entry = prompt_library.save(prompt_id, update.text)
         except UnknownPromptError:
             raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
+        except InvalidPromptError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        return prompt_library.describe(entry.id)
+
+    @admin_router.post("/prompts/{prompt_id}/synchronize")
+    def synchronize_prompt(
+        prompt_id: str,
+        update: PromptSynchronizationUpdate,
+    ) -> dict:
+        try:
+            entry = prompt_mirror_sync.synchronize(
+                prompt_id,
+                update.chinese_text,
+                update.source_revision,
+            )
+        except UnknownPromptError:
+            raise HTTPException(status_code=404, detail=f"unknown prompt: {prompt_id}")
+        except PromptSourceChangedError:
+            raise HTTPException(
+                status_code=409,
+                detail="英文 Prompt 已被其他修改更新，请重新打开后再同步。",
+            )
+        except PromptMirrorSyncUnavailableError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        except TranslationError as error:
+            raise HTTPException(status_code=502, detail=str(error))
         except InvalidPromptError as error:
             raise HTTPException(status_code=422, detail=str(error))
         return prompt_library.describe(entry.id)

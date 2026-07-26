@@ -150,45 +150,49 @@ class PromptLibrary:
             raise UnknownPromptError(prompt_id) from error
 
     def get(self, prompt_id: str) -> str:
-        entry = self.get_entry(prompt_id)
-        path = self._root / entry.file
-        return path.read_text(encoding="utf-8")
+        with self._lock:
+            entry = self.get_entry(prompt_id)
+            path = self._root / entry.file
+            return path.read_text(encoding="utf-8")
 
     def describe(self, prompt_id: str) -> dict:
-        entry = self.get_entry(prompt_id)
-        text = self.get(prompt_id)
-        return {
-            **entry.to_dict(),
-            "text": text,
-            "chinese_mirror": self._chinese_mirror(entry, text).to_dict(),
-        }
+        with self._lock:
+            entry = self.get_entry(prompt_id)
+            text = self.get(prompt_id)
+            return {
+                **entry.to_dict(),
+                "text": text,
+                "source_revision": _source_revision(text),
+                "chinese_mirror": self._chinese_mirror(entry, text).to_dict(),
+            }
 
     def render(self, prompt_id: str, **kwargs: object) -> str:
         return self.get(prompt_id).format(**kwargs)
 
     def save(self, prompt_id: str, text: str) -> PromptEntry:
-        entry = self.get_entry(prompt_id)
-        self._validate_text(entry, text)
-        path = self._root / entry.file
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary_path: Path | None = None
-        try:
-            with NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary:
-                temporary.write(text)
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_path = Path(temporary.name)
-            os.replace(temporary_path, path)
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
+        with self._lock:
+            entry = self.get_entry(prompt_id)
+            self._validate_text(entry, text)
+            path = self._root / entry.file
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path: Path | None = None
+            try:
+                with NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=path.parent,
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary.write(text)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                    temporary_path = Path(temporary.name)
+                os.replace(temporary_path, path)
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
         return entry
 
     def save_chinese_mirror(
@@ -233,6 +237,75 @@ class PromptLibrary:
                 temporary_path.unlink(missing_ok=True)
         return ChinesePromptMirror("ready", relative_path.as_posix(), text)
 
+    def validate_chinese_mirror_draft(
+        self,
+        prompt_id: str,
+        text: str,
+        *,
+        source_revision: str,
+    ) -> tuple[PromptEntry, str]:
+        """Validate a local Chinese draft against its observed English source."""
+
+        entry = self.get_entry(prompt_id)
+        with self._lock:
+            source_text = self.get(prompt_id)
+            if _source_revision(source_text) != source_revision:
+                raise PromptSourceChangedError(
+                    f"English source changed while editing {prompt_id!r}"
+                )
+            self._validate_mirror_text(entry, text, source_text)
+            return entry, source_text
+
+    def synchronize_chinese_mirror(
+        self,
+        prompt_id: str,
+        chinese_text: str,
+        english_text: str,
+        *,
+        source_revision: str,
+    ) -> PromptEntry:
+        """Commit an English prompt and its Chinese mirror with rollback on failure."""
+
+        entry = self.get_entry(prompt_id)
+        with self._lock:
+            source_text = self.get(prompt_id)
+            if _source_revision(source_text) != source_revision:
+                raise PromptSourceChangedError(
+                    f"English source changed while synchronizing {prompt_id!r}"
+                )
+            self._validate_mirror_text(entry, chinese_text, source_text)
+            self._validate_mirror_text(entry, english_text, source_text)
+            english_path = self._root / entry.file
+            _, mirror_path = self._chinese_mirror_path(entry)
+            mirror_path.parent.mkdir(parents=True, exist_ok=True)
+            english_temporary = self._write_temporary(english_path, english_text)
+            mirror_temporary = self._write_temporary(
+                mirror_path,
+                yaml.safe_dump(
+                    {
+                        "source_revision": _source_revision(english_text),
+                        "text": chinese_text,
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+            )
+            originals = {
+                english_path: english_path.read_bytes() if english_path.exists() else None,
+                mirror_path: mirror_path.read_bytes() if mirror_path.exists() else None,
+            }
+            try:
+                os.replace(english_temporary, english_path)
+                os.replace(mirror_temporary, mirror_path)
+            except Exception:
+                self._restore_path(english_path, originals[english_path])
+                self._restore_path(mirror_path, originals[mirror_path])
+                raise
+            finally:
+                english_temporary.unlink(missing_ok=True)
+                mirror_temporary.unlink(missing_ok=True)
+            return entry
+
     def _chinese_mirror(
         self, entry: PromptEntry, source_text: str
     ) -> ChinesePromptMirror:
@@ -256,6 +329,34 @@ class PromptLibrary:
             *entry.id.split(".")
         ).with_suffix(".yaml")
         return relative_path, self._root.parent / relative_path
+
+    @staticmethod
+    def _write_temporary(path: Path, content: str | bytes) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = content.encode("utf-8") if isinstance(content, str) else content
+        with NamedTemporaryFile(
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+            mode="wb",
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(payload)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        return temporary_path
+
+    @classmethod
+    def _restore_path(cls, path: Path, original: bytes | None) -> None:
+        if original is None:
+            path.unlink(missing_ok=True)
+            return
+        temporary_path = cls._write_temporary(path, original)
+        try:
+            os.replace(temporary_path, path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     @staticmethod
     def _validate_text(entry: PromptEntry, text: str) -> None:

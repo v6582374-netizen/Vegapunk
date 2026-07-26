@@ -103,7 +103,7 @@ test("switches each Prompt Card between English and its persistent Chinese mirro
   const dialog = page.getByRole("dialog");
   const chineseEditor = dialog.getByRole("textbox");
   await expect(chineseEditor).toHaveValue(chineseText);
-  await expect(chineseEditor).toHaveJSProperty("readOnly", true);
+  await expect(chineseEditor).toBeEditable();
   await dialog.getByRole("button", { name: "关闭 Prompt 编辑器" }).click();
 
   const missingLanguage = page.getByRole("group", { name: "Missing Chinese Prompt 语言" });

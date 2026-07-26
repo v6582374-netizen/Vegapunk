@@ -201,21 +201,21 @@ class PromptMirrorBatchApiTest(unittest.TestCase):
         translator = DefaultPromptMirrorTranslator(self.catalog_path, connections)  # type: ignore[arg-type]
         request = PromptTranslationRequest(
             instruction="Translate faithfully.",
-            direction="english_to_chinese",
+            direction="chinese_to_english",
             prompt_id="experiment.coder_openhands",
             template_variables=("idea_description",),
-            source_body="English source {idea_description}",
+            source_body="中文源提示词 {idea_description}",
         )
 
         with patch.object(
             UnifiedModelRuntime,
             "generate_json",
             new_callable=AsyncMock,
-            return_value={"target_body": "中文译文 {idea_description}"},
+            return_value={"target_body": "English translation {idea_description}"},
         ) as generate_json:
             translated = translator.translate(request)
 
-        self.assertEqual(translated, "中文译文 {idea_description}")
+        self.assertEqual(translated, "English translation {idea_description}")
         self.assertEqual(connections.provider, "relay")
         kwargs = generate_json.await_args.kwargs
         self.assertEqual(kwargs["system_prompt"], request.instruction)
@@ -224,7 +224,7 @@ class PromptMirrorBatchApiTest(unittest.TestCase):
             loads(generate_json.await_args.args[0]),
             {
                 "operation": "generate_prompt_mirror",
-                "direction": "english_to_chinese",
+                "direction": "chinese_to_english",
                 "prompt_id": request.prompt_id,
                 "template_variables": ["idea_description"],
                 "source_body": request.source_body,

@@ -59,7 +59,7 @@ class BatchAvailability:
 @dataclass(frozen=True)
 class PromptTranslationRequest:
     instruction: str
-    direction: Literal["english_to_chinese"]
+    direction: Literal["english_to_chinese", "chinese_to_english"]
     prompt_id: str
     template_variables: tuple[str, ...]
     source_body: str
@@ -158,11 +158,11 @@ class DefaultPromptMirrorTranslator:
         except TranslationError:
             raise
         except Exception as error:
-            raise TranslationError("默认文本模型未能生成结构化中文译文。") from error
+            raise TranslationError("默认文本模型未能生成结构化 Prompt 译文。") from error
         if set(response) != {"target_body"} or not isinstance(
             response["target_body"], str
         ):
-            raise TranslationError("模型没有返回唯一且有效的中文 Prompt 正文。")
+            raise TranslationError("模型没有返回唯一且有效的目标 Prompt 正文。")
         return response["target_body"]
 
 

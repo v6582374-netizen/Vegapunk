@@ -30,6 +30,7 @@ import {
   savePromptTranslationInstruction,
   saveProviderConnection,
   startPromptMirrorBatch,
+  synchronizePrompt,
   retryPromptMirrorBatch,
   verifyProviderConnection,
   type DefaultConfiguration,
@@ -541,6 +542,30 @@ function PromptLibraryView({
     }
   };
 
+  const synchronize = async () => {
+    if (!selected || selected.language !== "zh") return;
+    setSaving(true);
+    setEditorNotice(null);
+    try {
+      const updated = await synchronizePrompt(
+        selected.prompt.id,
+        draft,
+        selected.prompt.source_revision,
+      );
+      onChange(updated);
+      setSelected({ prompt: updated, language: "zh" });
+      setDraft(chineseMirrorFor(updated).text ?? "");
+      setEditorNotice({ kind: "success", text: `${updated.name} 已同步到英文版本` });
+      onNotice({ kind: "success", text: `${updated.name} 已同步到英文版本` });
+    } catch (error) {
+      const notice = { kind: "error" as const, text: errorMessage(error) };
+      setEditorNotice(notice);
+      onNotice(notice);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <>
       <PromptMirrorBatchPanel onRefresh={onRefresh} onNotice={onNotice} />
@@ -674,7 +699,6 @@ function PromptLibraryView({
             ) : (
               <textarea
                 value={draft}
-                readOnly={selected.language === "zh"}
                 onChange={(event) => setDraft(event.target.value)}
                 spellCheck={false}
                 autoFocus
@@ -692,7 +716,27 @@ function PromptLibraryView({
                     保存 Prompt
                   </button>
                 </div>
-              ) : <span>镜像仅供查看，中文同步将在后续步骤开放。</span>}
+              ) : chineseMirrorFor(selected.prompt).state === "ready" ? (
+                <div>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={saving}
+                    onClick={() => setDraft(chineseMirrorFor(selected.prompt).text ?? "")}
+                  >
+                    撤销修改
+                  </button>
+                  <button
+                    type="button"
+                    className="button-primary"
+                    disabled={saving || draft === chineseMirrorFor(selected.prompt).text}
+                    onClick={synchronize}
+                  >
+                    {saving ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Save aria-hidden="true" />}
+                    同步到英文版本
+                  </button>
+                </div>
+              ) : null}
             </footer>
           </section>
         </div>

@@ -99,6 +99,7 @@ export interface PromptRecord {
   required_template_variables: string[];
   file: string;
   text: string;
+  source_revision: string;
   chinese_mirror?: ChinesePromptMirror;
 }
 
@@ -117,6 +118,21 @@ export async function savePrompt(id: string, text: string): Promise<PromptRecord
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
+  });
+}
+
+export async function synchronizePrompt(
+  id: string,
+  chineseText: string,
+  sourceRevision: string,
+): Promise<PromptRecord> {
+  return request<PromptRecord>(`/api/admin/prompts/${id}/synchronize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chinese_text: chineseText,
+      source_revision: sourceRevision,
+    }),
   });
 }
 
