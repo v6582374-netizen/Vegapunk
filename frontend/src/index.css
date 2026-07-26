@@ -1673,9 +1673,16 @@ svg {
 }
 
 @media (min-width: 60rem) {
+  .workspace {
+    align-items: start;
+  }
+
   .workspace-sidebar {
     position: sticky;
     top: 0;
+    align-self: start;
+    height: 100dvh;
+    min-height: 0;
     border-block-end: 0;
     border-inline-end: var(--rule-hair) solid var(--color-rail-rule);
   }
