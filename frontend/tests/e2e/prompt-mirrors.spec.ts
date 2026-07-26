@@ -56,6 +56,15 @@ async function mockPromptMirrorRequests(page: Page) {
       },
     }),
   );
+  await page.route("**/api/admin/prompt-mirror-batches/availability", (route) =>
+    route.fulfill({
+      json: {
+        available: false,
+        reason: "请先配置 Prompt 翻译指令。",
+        model_id: null,
+      },
+    }),
+  );
   await page.route("**/api/admin/prompts**", async (route) => {
     const promptId = route.request().url().split("/api/admin/prompts/")[1];
     if (route.request().method() === "PUT" && promptId) {

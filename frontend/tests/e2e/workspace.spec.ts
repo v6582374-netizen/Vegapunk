@@ -45,6 +45,15 @@ async function mockSystemSettingsRequests(
   await page.route("**/api/admin/prompts", (route) =>
     route.fulfill({ json: { prompts: promptFixtures } }),
   );
+  await page.route("**/api/admin/prompt-mirror-batches/availability", (route) =>
+    route.fulfill({
+      json: {
+        available: false,
+        reason: "请先配置 Prompt 翻译指令。",
+        model_id: null,
+      },
+    }),
+  );
   await page.route("**/api/admin/default-configuration", (route) =>
     route.fulfill({
       json: {

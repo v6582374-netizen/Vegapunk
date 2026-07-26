@@ -13,13 +13,15 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import "./PromptMirrors.css";
 
 import {
   deleteProviderCredential,
   fetchDefaultConfiguration,
+  fetchPromptMirrorBatch,
+  fetchPromptMirrorBatchAvailability,
   fetchPrompts,
   fetchPromptTranslationInstruction,
   fetchProviderConnections,
@@ -27,10 +29,14 @@ import {
   savePrompt,
   savePromptTranslationInstruction,
   saveProviderConnection,
+  startPromptMirrorBatch,
+  retryPromptMirrorBatch,
   verifyProviderConnection,
   type DefaultConfiguration,
   type ParameterField,
   type ChinesePromptMirror,
+  type PromptMirrorBatch,
+  type PromptMirrorBatchAvailability,
   type PromptRecord,
   type PromptTranslationInstruction,
   type ProviderConnection,
@@ -94,6 +100,13 @@ const CHINESE_MIRROR_LABELS: Record<ChinesePromptMirror["state"], string> = {
   ready: "中文镜像已就绪",
   missing: "中文镜像缺失，尚未生成。",
   stale: "中文镜像已过期，需要重新生成。",
+};
+
+const BATCH_ITEM_LABELS: Record<PromptMirrorBatch["items"][number]["state"], string> = {
+  pending: "等待生成",
+  success: "已生成",
+  failure: "生成失败",
+  skipped: "已跳过",
 };
 
 function chineseMirrorFor(prompt: PromptRecord): ChinesePromptMirror {
@@ -311,13 +324,140 @@ function ProvidersView({
   );
 }
 
+function PromptMirrorBatchPanel({
+  onRefresh,
+  onNotice,
+}: {
+  onRefresh: (prompts: PromptRecord[]) => void;
+  onNotice: (notice: Notice) => void;
+}) {
+  const [availability, setAvailability] = useState<PromptMirrorBatchAvailability | null>(null);
+  const [batch, setBatch] = useState<PromptMirrorBatch | null>(null);
+  const [starting, setStarting] = useState(false);
+
+  const refreshPrompts = useCallback(async () => {
+    onRefresh(await fetchPrompts());
+  }, [onRefresh]);
+
+  useEffect(() => {
+    let active = true;
+    fetchPromptMirrorBatchAvailability()
+      .then((next) => active && setAvailability(next))
+      .catch((error: unknown) => active && setAvailability({
+        available: false,
+        reason: errorMessage(error),
+        model_id: null,
+      }));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (batch?.state !== "running") return;
+    let active = true;
+    const update = async () => {
+      try {
+        const next = await fetchPromptMirrorBatch(batch.id);
+        if (!active) return;
+        setBatch(next);
+        if (next.state === "completed") await refreshPrompts();
+      } catch (error) {
+        if (active) onNotice({ kind: "error", text: errorMessage(error) });
+      }
+    };
+    void update();
+    const interval = window.setInterval(() => void update(), 500);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [batch?.id, batch?.state, onNotice, refreshPrompts]);
+
+  const run = async (operation: () => Promise<PromptMirrorBatch>) => {
+    setStarting(true);
+    onNotice(null);
+    try {
+      const next = await operation();
+      setBatch(next);
+      if (next.state === "completed") await refreshPrompts();
+    } catch (error) {
+      onNotice({ kind: "error", text: errorMessage(error) });
+      const nextAvailability = await fetchPromptMirrorBatchAvailability().catch(() => null);
+      if (nextAvailability) setAvailability(nextAvailability);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const unavailableReason = availability?.reason ?? "正在检查翻译准备状态。";
+  const canStart = availability?.available === true && batch?.state !== "running" && !starting;
+  const failures = batch?.progress.failure ?? 0;
+
+  return (
+    <section className="prompt-mirror-batch" aria-labelledby="prompt-mirror-batch-title">
+      <header className="settings-section-heading">
+        <div>
+          <span>CHINESE PROMPT MIRRORS</span>
+          <h2 id="prompt-mirror-batch-title">批量生成中文镜像</h2>
+        </div>
+        <span>{availability?.available ? "可用" : "不可用"}</span>
+      </header>
+      <p>
+        仅处理缺失或过期的镜像。生成过程不会修改英文运行时 Prompt。
+      </p>
+      <div className="prompt-mirror-batch-actions">
+        <button
+          type="button"
+          className="button-primary"
+          disabled={!canStart}
+          onClick={() => void run(startPromptMirrorBatch)}
+        >
+          {starting || batch?.state === "running" ? <LoaderCircle className="is-spinning" aria-hidden="true" /> : <Languages aria-hidden="true" />}
+          生成中文镜像
+        </button>
+        {batch?.state === "completed" && failures > 0 ? (
+          <button
+            type="button"
+            className="button-secondary"
+            disabled={!canStart}
+            onClick={() => void run(() => retryPromptMirrorBatch(batch.id))}
+          >
+            <RefreshCw aria-hidden="true" />
+            重试失败项
+          </button>
+        ) : null}
+        {availability?.available ? <small>使用 {availability.model_id}</small> : <small>{unavailableReason}</small>}
+      </div>
+      {batch ? (
+        <div className="prompt-mirror-batch-results" role="status" aria-live="polite">
+          <p>
+            共 {batch.progress.total} 项 · 已完成 {batch.progress.success} 项 · 失败 {batch.progress.failure} 项 · 等待 {batch.progress.pending} 项 · 跳过 {batch.progress.skipped} 项
+          </p>
+          <ul>
+            {batch.items.map((item) => (
+              <li key={item.prompt_id} className={`is-${item.state}`}>
+                <span>{item.name}</span>
+                <strong>{BATCH_ITEM_LABELS[item.state]}</strong>
+                {item.error ? <small>{item.error}</small> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function PromptLibraryView({
   prompts,
   onChange,
+  onRefresh,
   onNotice,
 }: {
   prompts: PromptRecord[];
   onChange: (prompt: PromptRecord) => void;
+  onRefresh: (prompts: PromptRecord[]) => void;
   onNotice: (notice: Notice) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -403,6 +543,7 @@ function PromptLibraryView({
 
   return (
     <>
+      <PromptMirrorBatchPanel onRefresh={onRefresh} onNotice={onNotice} />
       <div className="prompt-toolbar">
         <label className="search-field">
           <Search aria-hidden="true" />
@@ -1009,6 +1150,7 @@ export function SystemSettings() {
             <PromptLibraryView
               prompts={prompts}
               onChange={(updated) => setPrompts((current) => current.map((prompt) => prompt.id === updated.id ? updated : prompt))}
+              onRefresh={setPrompts}
               onNotice={setNotice}
             />
           ) : null}

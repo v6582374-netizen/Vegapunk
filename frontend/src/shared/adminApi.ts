@@ -139,6 +139,48 @@ export async function savePromptTranslationInstruction(
   });
 }
 
+export interface PromptMirrorBatchAvailability {
+  available: boolean;
+  reason: string | null;
+  model_id: string | null;
+}
+
+export interface PromptMirrorBatchItem {
+  prompt_id: string;
+  name: string;
+  state: "pending" | "success" | "failure" | "skipped";
+  error: string | null;
+}
+
+export interface PromptMirrorBatch {
+  id: string;
+  state: "running" | "completed";
+  items: PromptMirrorBatchItem[];
+  progress: {
+    total: number;
+    pending: number;
+    success: number;
+    failure: number;
+    skipped: number;
+  };
+}
+
+export async function fetchPromptMirrorBatchAvailability(): Promise<PromptMirrorBatchAvailability> {
+  return request("/api/admin/prompt-mirror-batches/availability");
+}
+
+export async function startPromptMirrorBatch(): Promise<PromptMirrorBatch> {
+  return request("/api/admin/prompt-mirror-batches", { method: "POST" });
+}
+
+export async function fetchPromptMirrorBatch(batchId: string): Promise<PromptMirrorBatch> {
+  return request(`/api/admin/prompt-mirror-batches/${batchId}`);
+}
+
+export async function retryPromptMirrorBatch(batchId: string): Promise<PromptMirrorBatch> {
+  return request(`/api/admin/prompt-mirror-batches/${batchId}/retry`, { method: "POST" });
+}
+
 export type VerificationStatus =
   | "unverified"
   | "valid"

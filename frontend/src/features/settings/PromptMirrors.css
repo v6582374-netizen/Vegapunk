@@ -2,6 +2,97 @@
   min-width: 0;
 }
 
+.prompt-mirror-batch {
+  display: grid;
+  gap: var(--space-md);
+  padding-bottom: var(--space-xl);
+  border-bottom: var(--rule-hair) solid var(--color-rule-strong);
+}
+
+.prompt-mirror-batch > p {
+  max-width: 48rem;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.prompt-mirror-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.prompt-mirror-batch-actions small {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.prompt-mirror-batch-results {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.prompt-mirror-batch-results > p {
+  margin: 0;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+}
+
+.prompt-mirror-batch-results ul {
+  display: grid;
+  max-height: 16rem;
+  gap: var(--space-3xs);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+
+.prompt-mirror-batch-results li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3xs) var(--space-sm);
+  align-items: baseline;
+  padding: var(--space-xs) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.prompt-mirror-batch-results li > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-mirror-batch-results li > strong {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.prompt-mirror-batch-results li.is-success > strong {
+  color: var(--color-accent);
+}
+
+.prompt-mirror-batch-results li.is-failure > strong,
+.prompt-mirror-batch-results li > small {
+  color: var(--color-danger);
+}
+
+.prompt-mirror-batch-results li > small {
+  grid-column: 1 / -1;
+  font-size: var(--text-xs);
+  line-height: var(--leading-body);
+}
+
 .prompt-card-shell .prompt-card {
   width: 100%;
   text-align: start;

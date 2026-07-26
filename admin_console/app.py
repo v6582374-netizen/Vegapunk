@@ -37,6 +37,13 @@ from admin_console.prompt_translation_instruction import (
     read_prompt_translation_instruction,
     save_prompt_translation_instruction,
 )
+from admin_console.prompt_mirror_batch import (
+    BatchUnavailableError,
+    DefaultPromptMirrorTranslator,
+    PromptMirrorBatchService,
+    PromptMirrorTranslator,
+    UnknownBatchError,
+)
 from admin_console.launches import scan_launches
 from admin_console.live import count_rounds, infer_stage, recent_artifacts, stream_log
 from admin_console.structured_views import (
@@ -145,6 +152,7 @@ def create_app(
     prompt_library_root: Path | None = None,
     model_catalog_path: Path | None = None,
     prompt_translation_instruction_path: Path | None = None,
+    prompt_mirror_translator: PromptMirrorTranslator | None = None,
     frontend_dist: Path | None = None,
     secret_store: SecretStore | None = None,
     provider_probe: ProviderProbe | None = None,
@@ -165,6 +173,12 @@ def create_app(
         resolved_catalog_path,
         secret_store or KeyringSecretStore(),
         **({"probe": provider_probe} if provider_probe is not None else {}),
+    )
+    prompt_mirror_batches = PromptMirrorBatchService(
+        prompt_library,
+        resolved_prompt_translation_instruction_path,
+        prompt_mirror_translator
+        or DefaultPromptMirrorTranslator(resolved_catalog_path, provider_connections),
     )
     resolved_config_paths = config_paths if config_paths is not None else [
         resolved_main_config,
@@ -322,6 +336,33 @@ def create_app(
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error))
+
+    @admin_router.get("/prompt-mirror-batches/availability")
+    def get_prompt_mirror_batch_availability() -> dict:
+        return prompt_mirror_batches.availability().to_dict()
+
+    @admin_router.post("/prompt-mirror-batches", status_code=201)
+    def start_prompt_mirror_batch() -> dict:
+        try:
+            return prompt_mirror_batches.start()
+        except BatchUnavailableError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+
+    @admin_router.get("/prompt-mirror-batches/{batch_id}")
+    def get_prompt_mirror_batch(batch_id: str) -> dict:
+        try:
+            return prompt_mirror_batches.get(batch_id)
+        except UnknownBatchError:
+            raise HTTPException(status_code=404, detail="unknown prompt mirror batch")
+
+    @admin_router.post("/prompt-mirror-batches/{batch_id}/retry", status_code=201)
+    def retry_prompt_mirror_batch(batch_id: str) -> dict:
+        try:
+            return prompt_mirror_batches.retry(batch_id)
+        except UnknownBatchError:
+            raise HTTPException(status_code=404, detail="unknown prompt mirror batch")
+        except BatchUnavailableError as error:
+            raise HTTPException(status_code=409, detail=str(error))
 
     @admin_router.get("/provider-connections")
     def list_provider_connections() -> dict:

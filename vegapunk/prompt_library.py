@@ -36,6 +36,7 @@ DEFAULT_LIBRARY_ROOT = REPOSITORY_ROOT / "config" / "prompts"
 CATALOG_NAME = "catalog.yaml"
 ENV_LIBRARY_ROOT = "VEGAPUNK_PROMPT_LIBRARY_ROOT"
 TEMPLATE_FIELD_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:[.\[].*)?$")
+MIRROR_FIELD_REFERENCE = re.compile(r"\{([^{}]*)\}")
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,10 @@ class UnknownPromptError(KeyError):
 
 
 class InvalidPromptError(ValueError):
+    pass
+
+
+class PromptSourceChangedError(InvalidPromptError):
     pass
 
 
@@ -186,13 +191,52 @@ class PromptLibrary:
                 temporary_path.unlink(missing_ok=True)
         return entry
 
+    def save_chinese_mirror(
+        self,
+        prompt_id: str,
+        text: str,
+        *,
+        source_revision: str,
+    ) -> ChinesePromptMirror:
+        """Persist a validated Chinese sidecar for the observed English source."""
+
+        entry = self.get_entry(prompt_id)
+        with self._lock:
+            source_text = self.get(prompt_id)
+            if _source_revision(source_text) != source_revision:
+                raise PromptSourceChangedError(
+                    f"English source changed while translating {prompt_id!r}"
+                )
+            self._validate_mirror_text(entry, text, source_text)
+            relative_path, path = self._chinese_mirror_path(entry)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+                mode="w",
+                encoding="utf-8",
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                yaml.safe_dump(
+                    {"source_revision": source_revision, "text": text},
+                    temporary,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            try:
+                os.replace(temporary_path, path)
+            finally:
+                temporary_path.unlink(missing_ok=True)
+        return ChinesePromptMirror("ready", relative_path.as_posix(), text)
+
     def _chinese_mirror(
         self, entry: PromptEntry, source_text: str
     ) -> ChinesePromptMirror:
-        relative_path = Path("prompt_localizations") / "zh-CN" / Path(
-            *entry.id.split(".")
-        ).with_suffix(".yaml")
-        path = self._root.parent / relative_path
+        relative_path, path = self._chinese_mirror_path(entry)
         if not path.exists():
             return ChinesePromptMirror("missing", relative_path.as_posix(), None)
 
@@ -206,6 +250,12 @@ class PromptLibrary:
         if source_revision != _source_revision(source_text):
             return ChinesePromptMirror("stale", relative_path.as_posix(), None)
         return ChinesePromptMirror("ready", relative_path.as_posix(), mirror_text)
+
+    def _chinese_mirror_path(self, entry: PromptEntry) -> tuple[Path, Path]:
+        relative_path = Path("prompt_localizations") / "zh-CN" / Path(
+            *entry.id.split(".")
+        ).with_suffix(".yaml")
+        return relative_path, self._root.parent / relative_path
 
     @staticmethod
     def _validate_text(entry: PromptEntry, text: str) -> None:
@@ -250,6 +300,54 @@ class PromptLibrary:
                 f"unknown template variable(s): {', '.join(unknown)}"
             )
 
+        missing = sorted(set(entry.required_template_variables) - fields)
+        if missing:
+            raise InvalidPromptError(
+                f"required template variable(s) removed: {', '.join(missing)}"
+            )
+
+    @classmethod
+    def _validate_mirror_text(
+        cls,
+        entry: PromptEntry,
+        text: str,
+        source_text: str,
+    ) -> None:
+        """Apply the contract without rejecting legacy literal JSON in sources."""
+
+        try:
+            cls._validate_text(entry, text)
+            return
+        except InvalidPromptError as target_error:
+            try:
+                cls._validate_text(entry, source_text)
+            except InvalidPromptError:
+                cls._validate_legacy_mirror_text(entry, text)
+                return
+            raise target_error
+
+    @staticmethod
+    def _validate_legacy_mirror_text(entry: PromptEntry, text: str) -> None:
+        if not text.strip():
+            raise InvalidPromptError("prompt text must not be empty")
+        if text.count("{") != text.count("}"):
+            raise InvalidPromptError("malformed template syntax: unbalanced braces")
+
+        fields: set[str] = set()
+        for match in MIRROR_FIELD_REFERENCE.finditer(text):
+            field = match.group(1).strip()
+            if not field or not re.match(r"^[A-Za-z_]", field):
+                continue
+            if not TEMPLATE_FIELD_PATTERN.fullmatch(field):
+                raise InvalidPromptError(f"invalid template variable: {field}")
+            fields.add(field.split(".", 1)[0].split("[", 1)[0])
+
+        allowed = set(entry.template_variables)
+        unknown = sorted(fields - allowed)
+        if unknown:
+            raise InvalidPromptError(
+                f"unknown template variable(s): {', '.join(unknown)}"
+            )
         missing = sorted(set(entry.required_template_variables) - fields)
         if missing:
             raise InvalidPromptError(
