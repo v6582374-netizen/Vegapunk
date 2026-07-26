@@ -61,8 +61,7 @@ svg {
   min-height: 100dvh;
   grid-template-areas:
     "sidebar"
-    "main"
-    "preview";
+    "main";
   background: var(--color-paper-2);
 }
 
