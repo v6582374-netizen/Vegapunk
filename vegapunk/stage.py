@@ -535,8 +535,10 @@ class ExperimentRunner:
                     self.logger.info(f"Auto-detected GPUs: {available_gpus}")
                 else:
                     self.logger.info("No CUDA devices available, will run on CPU")
-            except ImportError:
-                self.logger.info("PyTorch not available for GPU detection, will run on CPU")
+            except (ImportError, RuntimeError) as error:
+                self.logger.warning(
+                    f"PyTorch GPU detection unavailable, will run on CPU: {error}"
+                )
 
         # Initialize GPU allocator
         self.gpu_allocator = GPUAllocator(available_gpus, gpu_per_experiment)
