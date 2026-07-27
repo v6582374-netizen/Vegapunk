@@ -39,7 +39,10 @@ def save_discovery_input_conversion_prompt(path: Path, instruction: str) -> dict
 def _document(path: Path) -> dict:
     if not path.exists():
         return {"instruction": "", "configured": False}
-    values = yaml.safe_load(path.read_text()) or {}
+    try:
+        values = yaml.safe_load(path.read_text()) or {}
+    except yaml.YAMLError as error:
+        raise ValueError("Discovery Input Conversion Prompt contains invalid YAML") from error
     if not isinstance(values, dict) or not isinstance(values.get("instruction", ""), str):
         raise ValueError("Discovery Input Conversion Prompt must contain a string instruction")
     instruction = values.get("instruction", "")

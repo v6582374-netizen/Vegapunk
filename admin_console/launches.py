@@ -9,6 +9,7 @@ adds authoritative runtime states on top of this in a later slice.
 from __future__ import annotations
 
 import re
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -33,6 +34,16 @@ class LaunchSummary:
 
 
 def _derive_state(launch_dir: Path) -> str:
+    outcome_path = launch_dir / "launch_outcome.json"
+    if outcome_path.is_file():
+        try:
+            outcome = json.loads(outcome_path.read_text(encoding="utf-8")).get("outcome")
+        except (OSError, ValueError, TypeError):
+            outcome = None
+        if outcome in {"completed", "failed", "cancelled", "aborted", "interrupted"}:
+            return outcome
+    if (launch_dir / "checkpoint.json").is_file():
+        return "aborted"
     if (launch_dir / "discovery_summary.json").is_file() or (launch_dir / "manuscript").is_dir():
         return "completed"
     return "unknown"

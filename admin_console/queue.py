@@ -60,6 +60,10 @@ class UnknownTaskError(Exception):
     pass
 
 
+class ActiveLaunchError(Exception):
+    """Raised when a product seam refuses a second active Launch."""
+
+
 class LaunchQueue:
     def __init__(
         self,
@@ -94,18 +98,25 @@ class LaunchQueue:
         """
         if not (self._tasks_root / task).is_dir():
             raise UnknownTaskError(task)
-        entry = QueueEntry(
-            queue_id=uuid.uuid4().hex[:12],
-            task=task,
-            state=QUEUED,
-            submitted_at=datetime.now().isoformat(timespec="seconds"),
-            launch_id=launch_id,
-        )
+        entry = self._new_entry(task, launch_id)
         with self._lock:
             self._entries.append(entry)
             self._save()
             self._lock.notify_all()
         return entry
+
+    def submit_if_idle(self, task: str, launch_id: str | None = None) -> QueueEntry:
+        """Admit one product Launch without a check-then-submit race."""
+        if not (self._tasks_root / task).is_dir():
+            raise UnknownTaskError(task)
+        with self._lock:
+            if any(entry.state in {QUEUED, RUNNING} for entry in self._entries):
+                raise ActiveLaunchError("an active Launch already owns the serial slot")
+            entry = self._new_entry(task, launch_id)
+            self._entries.append(entry)
+            self._save()
+            self._lock.notify_all()
+            return entry
 
     def stop(self, queue_id: str, force: bool = False) -> QueueEntry:
         """Stop the running Launch: graceful SIGTERM, or SIGKILL when forced.
@@ -133,6 +144,21 @@ class LaunchQueue:
     def entries(self) -> list[QueueEntry]:
         with self._lock:
             return [entry.copy() for entry in self._entries]
+
+    def has_active_launch(self) -> bool:
+        """Whether the serial execution seam already owns a pending Launch."""
+        with self._lock:
+            return any(entry.state in {QUEUED, RUNNING} for entry in self._entries)
+
+    def allocate_launch_dir(self, task: str) -> Path:
+        """Reserve a fresh result directory before Workspace admission."""
+        with self._lock:
+            return self._create_launch_dir(task)
+
+    def snapshot_launch_configuration(self, launch_dir: Path) -> Path:
+        """Capture immutable Launch bindings before product admission."""
+        with self._lock:
+            return self._snapshot_configuration(launch_dir)
 
     def state_for_launch(self, launch_id: str) -> str | None:
         """Authoritative state for a console-started Launch, else None."""
@@ -328,6 +354,16 @@ class LaunchQueue:
             if entry.queue_id == queue_id:
                 return entry
         return None
+
+    @staticmethod
+    def _new_entry(task: str, launch_id: str | None) -> QueueEntry:
+        return QueueEntry(
+            queue_id=uuid.uuid4().hex[:12],
+            task=task,
+            state=QUEUED,
+            submitted_at=datetime.now().isoformat(timespec="seconds"),
+            launch_id=launch_id,
+        )
 
 
 def _process_alive(pid: int | None) -> bool:

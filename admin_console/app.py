@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
 import json
+import shutil
+import zipfile
+from pathlib import Path
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -36,11 +38,16 @@ from admin_console.default_configuration import (
 from admin_console.discovery_conversion import (
     ConversionResult,
     DefaultDiscoveryInputConverter,
+    DiscoveryConfigurationError,
     DiscoveryConversionError,
     DiscoveryInputConversionRequest,
     DiscoveryInputConverter,
     DiscoverySourceContentError,
     source_materials,
+)
+from admin_console.discovery_workspace import (
+    resolve_workspace_artifact,
+    workspace_artifact_tree,
 )
 from admin_console.discovery_input_conversion_prompt import (
     read_discovery_input_conversion_prompt,
@@ -89,7 +96,7 @@ from admin_console.provider_connections import (
     SecretStore,
     UnknownProviderError,
 )
-from admin_console.queue import LaunchQueue, UnknownTaskError
+from admin_console.queue import ActiveLaunchError, LaunchQueue, UnknownTaskError
 from admin_console.runtime_configuration import (
     CapabilityPreflight,
     ExecutionPreparer,
@@ -181,6 +188,15 @@ class DiscoveryInputConversionPromptUpdate(BaseModel):
 
 class FormattedDiscoveryInputRevisionUpdate(BaseModel):
     formatted_input: str
+
+
+class DiscoveryPreparationUpdate(BaseModel):
+    research_text: str
+
+
+class DiscoveryLaunchSubmission(BaseModel):
+    preparation_id: str
+    revision_id: str
 
 
 def create_app(
@@ -292,9 +308,12 @@ def create_app(
 
     @workspace_router.post("/discovery-preparations/{preparation_id}/conversion")
     def convert_discovery_preparation(preparation_id: str) -> dict:
-        prompt = read_discovery_input_conversion_prompt(
-            resolved_discovery_input_conversion_prompt_path
-        )
+        try:
+            prompt = read_discovery_input_conversion_prompt(
+                resolved_discovery_input_conversion_prompt_path
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
         if not prompt["configured"]:
             raise HTTPException(
                 status_code=409,
@@ -315,6 +334,8 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(error))
         except DiscoverySourceContentError as error:
             raise HTTPException(status_code=422, detail=str(error))
+        except DiscoveryConfigurationError as error:
+            raise HTTPException(status_code=409, detail=str(error))
         except DiscoveryConversionError as error:
             raise HTTPException(status_code=502, detail=str(error))
         return {
@@ -322,6 +343,21 @@ def create_app(
             "formatted_input": result.formatted_input,
             "model_id": result.model_id,
         }
+
+    @workspace_router.put("/discovery-preparations/{preparation_id}")
+    def update_discovery_preparation(
+        preparation_id: str,
+        update: DiscoveryPreparationUpdate,
+    ) -> dict:
+        try:
+            return preparation_store.update_research_text(
+                preparation_id,
+                update.research_text,
+            )
+        except UnknownPreparationError:
+            raise HTTPException(status_code=404, detail="unknown discovery preparation")
+        except InvalidPreparationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
 
     @workspace_router.post(
         "/discovery-preparations/{preparation_id}/revisions",
@@ -353,6 +389,226 @@ def create_app(
             )
         except InvalidPreparationError as error:
             raise HTTPException(status_code=422, detail=str(error))
+
+    def _workspace_launches() -> list[dict]:
+        queue_states = {
+            entry.launch_id: entry
+            for entry in queue.entries()
+            if entry.launch_id is not None
+        }
+        launches = scan_launches(resolved_results_root)
+        return [
+            {
+                **launch.to_dict(),
+                "state": (
+                    "starting"
+                    if queue_states.get(launch.id) is not None
+                    and queue_states[launch.id].state == "queued"
+                    else queue_states[launch.id].state
+                    if launch.id in queue_states
+                    else launch.state
+                ),
+            }
+            for launch in launches
+            if launch.task == "Discovery"
+            or (
+                resolved_results_root / launch.id / "discovery_input_snapshot.json"
+            ).is_file()
+        ]
+
+    def _materialize_discovery_task(
+        launch_dir: Path,
+        preparation: dict,
+        revision: dict,
+        source_files: list[dict],
+    ) -> str:
+        """Create the private runnable task and immutable Launch input snapshot."""
+        materialized_name = f"{launch_dir.name}-{uuid4().hex[:8]}"
+        task_dir = resolved_tasks_root / ".workspace-discovery" / materialized_name
+        task_dir.mkdir(parents=True, exist_ok=False)
+        prompt = {
+            "system": "You are a scientific researcher conducting an autonomous discovery.",
+            "task_description": revision["formatted_input"],
+            "domain": "autonomous discovery",
+            "background": preparation.get("research_text", ""),
+            "constraints": [],
+        }
+        inputs_dir = task_dir / "inputs"
+        inputs_dir.mkdir()
+        launch_sources_dir = launch_dir / "discovery_input_sources"
+        launch_sources_dir.mkdir()
+        snapshot_sources: list[dict] = []
+        for index, source in enumerate(source_files, start=1):
+            stored_name = f"{index:03d}_{source['name']}"
+            (inputs_dir / stored_name).write_bytes(source["content"])
+            (launch_sources_dir / stored_name).write_bytes(source["content"])
+            snapshot_sources.append(
+                {
+                    "name": source["name"],
+                    "kind": source["kind"],
+                    "extension": source["extension"],
+                    "path": f"discovery_input_sources/{stored_name}",
+                }
+            )
+            if source["extension"] == ".zip":
+                try:
+                    with zipfile.ZipFile(inputs_dir / stored_name) as archive:
+                        for member in archive.namelist():
+                            target = (task_dir / member).resolve()
+                            target.relative_to(task_dir.resolve())
+                        archive.extractall(task_dir)
+                except (OSError, ValueError, zipfile.BadZipFile):
+                    # The raw package remains in the immutable source snapshot.
+                    # Conversion already reports malformed packages when invoked.
+                    pass
+
+        # The Workspace-owned prompt is authoritative even when a baseline
+        # package happens to contain its own prompt.json.
+        (task_dir / "prompt.json").write_text(
+            json.dumps(prompt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        (launch_dir / "discovery_input_snapshot.json").write_text(
+            json.dumps(
+                {
+                    "preparation_id": preparation["id"],
+                    "revision_id": revision["id"],
+                    "created_at": preparation["created_at"],
+                    "research_text": preparation.get("research_text", ""),
+                    "formatted_input": revision["formatted_input"],
+                    "sources": snapshot_sources,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return str(task_dir.relative_to(resolved_tasks_root))
+
+    @workspace_router.get("/discovery-launches")
+    def list_workspace_launches() -> dict:
+        return {"launches": _workspace_launches()}
+
+    @workspace_router.post("/discovery-launches", status_code=201)
+    def submit_workspace_launch(submission: DiscoveryLaunchSubmission) -> dict:
+        if queue.has_active_launch():
+            raise HTTPException(
+                status_code=409,
+                detail="已有 Discovery Launch 正在运行，当前不能发起新的 Moonshot。",
+            )
+        try:
+            preparation = preparation_store.get(submission.preparation_id)
+            revision = preparation_store.get_revision(
+                submission.preparation_id,
+                submission.revision_id,
+            )
+            source_files = preparation_store.source_files(submission.preparation_id)
+        except UnknownPreparationError:
+            raise HTTPException(status_code=404, detail="unknown discovery preparation or revision")
+        except InvalidPreparationError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+        try:
+            # A revision can also be authored manually, so validate every
+            # saved source again at the execution boundary. This prevents a
+            # malformed PDF, DOCX, or ZIP from being silently omitted after
+            # the user has explicitly approved the revision.
+            source_materials(source_files)
+        except DiscoverySourceContentError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+        launch_dir = queue.allocate_launch_dir("Discovery")
+        launch_id = str(launch_dir.relative_to(resolved_results_root))
+        task_name: str | None = None
+        try:
+            task_name = _materialize_discovery_task(
+                launch_dir,
+                preparation,
+                revision,
+                source_files,
+            )
+            queue.snapshot_launch_configuration(launch_dir)
+            queue.submit_if_idle(task_name, launch_id=launch_id)
+        except ActiveLaunchError:
+            shutil.rmtree(launch_dir, ignore_errors=True)
+            if task_name is not None:
+                shutil.rmtree(resolved_tasks_root / task_name, ignore_errors=True)
+            raise HTTPException(
+                status_code=409,
+                detail="已有 Discovery Launch 正在运行，当前不能发起新的 Moonshot。",
+            )
+        except Exception:
+            shutil.rmtree(launch_dir, ignore_errors=True)
+            if task_name is not None:
+                shutil.rmtree(resolved_tasks_root / task_name, ignore_errors=True)
+            raise
+        # Keep Queue identity and process metadata behind the Workspace seam.
+        return {"launch_id": launch_id, "state": "starting"}
+
+    def _workspace_launch_dir_or_404(launch_id: str) -> Path:
+        launch_dir = resolve_launch_dir(resolved_results_root, launch_id)
+        if launch_dir is None or not (
+            launch_id.split("/", 1)[0] == "Discovery"
+            or (launch_dir / "discovery_input_snapshot.json").is_file()
+        ):
+            raise HTTPException(status_code=404, detail=f"unknown launch: {launch_id}")
+        return launch_dir
+
+    @workspace_router.get("/discovery-launches/{launch_id:path}/status")
+    def workspace_launch_status(launch_id: str) -> dict:
+        launch_dir = _workspace_launch_dir_or_404(launch_id)
+        entry = next(
+            (item for item in reversed(queue.entries()) if item.launch_id == launch_id),
+            None,
+        )
+        state = entry.state if entry is not None else next(
+            (item["state"] for item in _workspace_launches() if item["id"] == launch_id),
+            "unknown",
+        )
+        if state == "queued":
+            state = "starting"
+        rounds = count_rounds(launch_dir)
+        stage = infer_stage(launch_dir)
+        return {
+            "state": state,
+            "stage": stage,
+            "rounds": rounds,
+            "total_rounds": max(rounds, 1),
+            "stopped_how": entry.stopped_how if entry is not None else None,
+            "recent_artifacts": recent_artifacts(launch_dir),
+        }
+
+    @workspace_router.get("/discovery-launches/{launch_id:path}/logs/stream")
+    def workspace_launch_log_stream(launch_id: str, file: str = "runner.log") -> StreamingResponse:
+        launch_dir = _workspace_launch_dir_or_404(launch_id)
+        if file != "runner.log":
+            raise HTTPException(
+                status_code=400,
+                detail="Workspace Raw Discovery Console only streams runner.log",
+            )
+        log_path = launch_dir / "runner.log"
+
+        def is_running() -> bool:
+            return queue.state_for_launch(launch_id) in {"queued", "running"}
+
+        return StreamingResponse(
+            stream_log(log_path, is_running),
+            media_type="text/event-stream",
+        )
+
+    @workspace_router.get("/discovery-launches/{launch_id:path}/artifacts/tree")
+    def workspace_artifact_tree_endpoint(launch_id: str) -> dict:
+        return {"tree": workspace_artifact_tree(_workspace_launch_dir_or_404(launch_id))}
+
+    @workspace_router.get("/discovery-launches/{launch_id:path}/artifacts/file")
+    def workspace_artifact_file(launch_id: str, path: str) -> FileResponse:
+        launch_dir = _workspace_launch_dir_or_404(launch_id)
+        try:
+            artifact = resolve_workspace_artifact(launch_dir, path)
+        except ArtifactPathError:
+            raise HTTPException(status_code=404, detail=f"artifact is not available: {path}")
+        return FileResponse(artifact, media_type=guess_media_type(artifact))
 
     app.include_router(workspace_router)
 

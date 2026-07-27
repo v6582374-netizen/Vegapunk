@@ -177,7 +177,7 @@ svg {
   color: var(--color-accent-soft);
 }
 
-.settings-subnav {
+.module-subnav {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -186,7 +186,7 @@ svg {
   border-top: var(--rule-hair) solid var(--color-rail-rule);
 }
 
-.module-nav .settings-subnav button {
+.module-nav .module-subnav button {
   min-height: 2.5rem;
   gap: var(--space-xs);
   justify-content: flex-start;
@@ -198,13 +198,13 @@ svg {
   border-inline-start: var(--rule-focus) solid transparent;
 }
 
-.settings-subnav button svg {
+.module-subnav button svg {
   width: 1rem;
   height: 1rem;
   flex: 0 0 auto;
 }
 
-.module-nav .settings-subnav button.is-active {
+.module-nav .module-subnav button.is-active {
   color: var(--color-accent);
   background: transparent;
   border-color: transparent;
@@ -1423,7 +1423,7 @@ svg {
 
   .workspace-sidebar {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     gap: var(--space-xl);
     min-height: 100dvh;
     padding: var(--space-lg) var(--space-md);
@@ -1432,8 +1432,10 @@ svg {
   .module-nav {
     grid-template-columns: 1fr;
     grid-row: 2;
-    align-self: start;
+    align-self: stretch;
     align-content: start;
+    min-height: 0;
+    overflow: auto;
   }
 
   .module-nav button {
@@ -1442,7 +1444,7 @@ svg {
     padding: var(--space-sm);
   }
 
-  .settings-subnav {
+  .module-subnav {
     grid-template-columns: 1fr;
     gap: 0;
     padding: var(--space-xs) 0 var(--space-xs) var(--space-md);
@@ -1450,7 +1452,7 @@ svg {
     border-inline-start: var(--rule-hair) solid var(--color-rail-rule);
   }
 
-  .module-nav .settings-subnav button {
+  .module-nav .module-subnav button {
     min-height: 2.5rem;
     padding-inline: var(--space-sm);
   }
@@ -1560,7 +1562,7 @@ svg {
   color: var(--color-accent);
 }
 
-.module-nav .settings-subnav button.is-active {
+.module-nav .module-subnav button.is-active {
   color: var(--color-accent);
   background: transparent;
   border-color: transparent;

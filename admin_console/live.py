@@ -34,13 +34,24 @@ def infer_stage(launch_dir: Path) -> str:
     """Best-effort stage label from persisted artifacts for the Live Launch View."""
     if (launch_dir / "manuscript").is_dir() or (launch_dir / "paper_orchestra_runs").is_dir():
         return "paper"
-    if next(launch_dir.rglob("final_info.json"), None) is not None:
+    if any(
+        path.is_file()
+        and not _is_input_snapshot_path(path, launch_dir)
+        for path in launch_dir.rglob("final_info.json")
+    ):
         return "experiment"
     if count_rounds(launch_dir) > 0 or (launch_dir / "ideas.json").is_file():
         return "discovery"
     if (launch_dir / "config_snapshot").is_dir():
         return "starting"
     return "unknown"
+
+
+def _is_input_snapshot_path(path: Path, launch_dir: Path) -> bool:
+    relative = path.relative_to(launch_dir)
+    return bool(
+        {"discovery_input_sources", "config_snapshot"}.intersection(relative.parts[:-1])
+    )
 
 
 def recent_artifacts(launch_dir: Path, limit: int = 50) -> list[dict]:

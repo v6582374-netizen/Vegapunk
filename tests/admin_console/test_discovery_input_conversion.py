@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from admin_console.app import create_app
-from admin_console.discovery_conversion import ConversionResult
+from admin_console.discovery_conversion import ConversionResult, DiscoveryConfigurationError
 from tests.admin_console.client import TestClient
 
 
@@ -20,6 +20,11 @@ class RecordingDiscoveryInputConverter:
             formatted_input="# Formatted Discovery Input\n\nInvestigate the observed transition.",
             model_id="relay/test",
         )
+
+
+class ConfigurationFailingDiscoveryInputConverter:
+    def convert(self, _request):
+        raise DiscoveryConfigurationError("default text model unavailable")
 
 
 class DiscoveryInputConversionApiTest(unittest.TestCase):
@@ -106,6 +111,22 @@ class DiscoveryInputConversionApiTest(unittest.TestCase):
             ],
         )
 
+    def test_preparation_research_text_can_be_updated_without_touching_revisions(self) -> None:
+        preparation_id = self._create_preparation()
+        revision = self.client.post(
+            f"/api/workspace/discovery-preparations/{preparation_id}/revisions",
+            json={"formatted_input": "Keep this Launch input stable."},
+        ).json()
+
+        updated = self.client.put(
+            f"/api/workspace/discovery-preparations/{preparation_id}",
+            json={"research_text": "A later observation for the next Launch."},
+        )
+
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["research_text"], "A later observation for the next Launch.")
+        self.assertEqual(updated.json()["revisions"][0]["id"], revision["id"])
+
     def test_conversion_requires_a_configured_discovery_input_prompt(self) -> None:
         preparation_id = self._create_preparation()
 
@@ -115,6 +136,58 @@ class DiscoveryInputConversionApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("Discovery Input Conversion Prompt is not configured", response.json()["detail"])
+
+    def test_conversion_surfaces_a_model_settings_failure_without_launching(self) -> None:
+        self.client = TestClient(
+            create_app(
+                results_root=self.results_root,
+                runner_command=["echo"],
+                discovery_input_conversion_prompt_path=self.prompt_path,
+                discovery_input_converter=ConfigurationFailingDiscoveryInputConverter(),
+            )
+        )
+        self.client.put(
+            "/api/admin/discovery-input-conversion-prompt",
+            json={"instruction": "Format the input."},
+        )
+        preparation_id = self._create_preparation()
+
+        response = self.client.post(
+            f"/api/workspace/discovery-preparations/{preparation_id}/conversion"
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("default text model unavailable", response.json()["detail"])
+        self.assertEqual(self.client.get("/api/admin/queue").json()["entries"], [])
+
+    def test_conversion_surfaces_a_malformed_conversion_prompt_as_settings_error(self) -> None:
+        self.prompt_path.write_text("instruction: [broken\n", encoding="utf-8")
+        preparation_id = self._create_preparation()
+
+        response = self.client.post(
+            f"/api/workspace/discovery-preparations/{preparation_id}/conversion"
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Discovery Input Conversion Prompt", response.json()["detail"])
+
+    def test_conversion_rejects_invalid_utf8_with_the_source_name(self) -> None:
+        self.client.put(
+            "/api/admin/discovery-input-conversion-prompt",
+            json={"instruction": "Format the input."},
+        )
+        preparation = self.client.post(
+            "/api/workspace/discovery-preparations",
+            data={"research_text": "Inspect this source."},
+            files={"sources": ("broken.txt", io.BytesIO(b"\xff\xfe"), "text/plain")},
+        ).json()
+
+        response = self.client.post(
+            f"/api/workspace/discovery-preparations/{preparation['id']}/conversion"
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("broken.txt", response.json()["detail"])
 
 
 if __name__ == "__main__":

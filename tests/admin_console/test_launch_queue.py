@@ -195,6 +195,17 @@ class LaunchQueueTest(unittest.TestCase):
 
         self.assertEqual(config_arg, "{runtime_config}")
 
+    def test_default_runner_matches_the_real_discovery_entrypoint(self) -> None:
+        self.assertIn("launch_discovery.py", DEFAULT_RUNNER_COMMAND[1])
+        self.assertEqual(
+            DEFAULT_RUNNER_COMMAND[DEFAULT_RUNNER_COMMAND.index("--resume") + 1],
+            "{launch_dir}",
+        )
+        self.assertEqual(
+            DEFAULT_RUNNER_COMMAND[DEFAULT_RUNNER_COMMAND.index("--exp_backend") + 1],
+            "claudecode",
+        )
+
     def test_completed_console_launch_state_appears_in_listing(self) -> None:
         client = self.env.create_client()
         entry = client.post("/api/admin/queue", json={"task": "AutoDemo"}).json()

@@ -129,6 +129,34 @@ class DiscoveryPreparationStore:
             temporary_path.unlink(missing_ok=True)
         return revision
 
+    def update_research_text(self, preparation_id: str, research_text: str) -> dict:
+        """Edit raw text while preserving the Preparation's source set."""
+        preparation = self._read(preparation_id)
+        if not research_text.strip() and not preparation.get("sources"):
+            raise InvalidPreparationError(
+                "add research text or at least one supported source file"
+            )
+        preparation["research_text"] = research_text
+        document_path = self._root / preparation_id / "preparation.json"
+        temporary_path = document_path.with_name(f".{document_path.name}.tmp")
+        try:
+            temporary_path.write_text(
+                json.dumps(preparation, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary_path.replace(document_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        return preparation
+
+    def get_revision(self, preparation_id: str, revision_id: str) -> dict:
+        """Return one explicitly saved Formatted Discovery Input revision."""
+        preparation = self._read(preparation_id)
+        for revision in preparation.get("revisions", []):
+            if revision.get("id") == revision_id:
+                return revision
+        raise UnknownPreparationError(revision_id)
+
     @staticmethod
     def _validate_sources(sources: list[tuple[str, bytes]]) -> list[dict]:
         normalized_sources: list[dict] = []

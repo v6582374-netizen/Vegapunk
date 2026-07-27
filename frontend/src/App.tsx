@@ -1,6 +1,8 @@
 import {
   Archive,
   Atom,
+  Award,
+  Box,
   BookOpenText,
   FileText,
   Settings,
@@ -10,6 +12,7 @@ import {
 import { Fragment, useCallback, useState } from "react";
 
 import { EmbodiedIntelligence } from "./features/embodied/EmbodiedIntelligence";
+import { AchievementShowcase } from "./features/achievements/AchievementShowcase";
 import { DiscoveryPreparation } from "./features/discovery/DiscoveryPreparation";
 import {
   OccludedPointCloudSubstrate,
@@ -24,7 +27,13 @@ import {
 } from "./features/settings/settingsNavigation";
 
 type WorkspaceSpaceId = "collaboration" | "autonomous-discovery";
-type ModuleId = "papers" | "embodied" | "skills" | "settings" | "discovery-preparation" | "discovery-launch-archive";
+type ModuleId = "papers" | "embodied" | "simulation" | "skills" | "achievement-upir" | "achievement-pbtwin" | "settings" | "discovery-preparation" | "discovery-launch-archive";
+
+type WorkspaceSubmodule = {
+  id: ModuleId;
+  label: string;
+  icon: LucideIcon;
+};
 
 type WorkspaceModule = {
   id: ModuleId;
@@ -32,6 +41,7 @@ type WorkspaceModule = {
   caption: string;
   icon: LucideIcon;
   materialProfile: MaterialExpressionProfile;
+  submodules?: WorkspaceSubmodule[];
 };
 
 type WorkspaceSpace = {
@@ -46,8 +56,29 @@ const SPACES: Record<WorkspaceSpaceId, WorkspaceSpace> = {
     label: "协作空间",
     modules: [
       { id: "papers", label: "论文工具", caption: "文献工作台", icon: BookOpenText, materialProfile: "quiet" },
-      { id: "embodied", label: "具身智能", caption: "实验室实况", icon: Atom, materialProfile: "quiet" },
+      {
+        id: "embodied",
+        label: "干湿结合",
+        caption: "实验室实况",
+        icon: Atom,
+        materialProfile: "quiet",
+        submodules: [
+          { id: "embodied", label: "具身智能", icon: Atom },
+          { id: "simulation", label: "物理仿真", icon: Box },
+        ],
+      },
       { id: "skills", label: "Skill 管理", caption: "能力编排", icon: WandSparkles, materialProfile: "quiet" },
+      {
+        id: "achievement-upir",
+        label: "成果展示",
+        caption: "论文陈列",
+        icon: Award,
+        materialProfile: "exhibition",
+        submodules: [
+          { id: "achievement-upir", label: "疲劳代理建模", icon: Atom },
+          { id: "achievement-pbtwin", label: "双行星预测", icon: BookOpenText },
+        ],
+      },
       { id: "settings", label: "系统设置", caption: "工作区配置", icon: Settings, materialProfile: "none" },
     ],
   },
@@ -92,6 +123,14 @@ function PlaceholderModule({ module }: { module: "skills" | "discovery-launch-ar
   );
 }
 
+function SimulationPlaceholder() {
+  return (
+    <section className="module-placeholder" aria-label="物理仿真">
+      <h1>敬请期待</h1>
+    </section>
+  );
+}
+
 export default function App() {
   const [activeSpaceId, setActiveSpaceId] = useState<WorkspaceSpaceId>("collaboration");
   const [selectedModules, setSelectedModules] = useState<Record<WorkspaceSpaceId, ModuleId>>(INITIAL_MODULES);
@@ -99,7 +138,11 @@ export default function App() {
   const [substrateEpoch, setSubstrateEpoch] = useState(0);
   const [discoverySidebarHost, setDiscoverySidebarHost] = useState<HTMLDivElement | null>(null);
   const activeSpace = SPACES[activeSpaceId];
-  const activeModule = activeSpace.modules.find((module) => module.id === selectedModules[activeSpaceId]) ?? activeSpace.modules[0];
+  const activeModuleId = selectedModules[activeSpaceId];
+  const activeModule = activeSpace.modules.find((module) => (
+    module.id === activeModuleId
+    || module.submodules?.some((submodule) => submodule.id === activeModuleId)
+  )) ?? activeSpace.modules[0];
 
   const selectSpace = (spaceId: WorkspaceSpaceId) => {
     if (spaceId === activeSpaceId) {
@@ -108,6 +151,7 @@ export default function App() {
 
     setActiveSpaceId(spaceId);
     setSubstrateEpoch((epoch) => epoch + 1);
+    window.scrollTo({ top: 0, behavior: "auto" });
   };
 
   const selectModule = (module: ModuleId) => {
@@ -117,18 +161,18 @@ export default function App() {
 
     setSelectedModules((modules) => ({ ...modules, [activeSpaceId]: module }));
     setSubstrateEpoch((epoch) => epoch + 1);
+    window.scrollTo({ top: 0, behavior: "auto" });
   };
 
   const setDiscoverySidebarHostRef = useCallback((element: HTMLDivElement | null) => {
     setDiscoverySidebarHost(element);
   }, []);
 
-  const showsDiscoveryIndex = activeSpaceId === "autonomous-discovery"
-    && activeModule.id === "discovery-preparation";
+  const showsDiscoveryIndex = activeSpaceId === "autonomous-discovery";
 
   return (
     <div
-      className={`workspace workspace--${activeSpaceId} workspace--${activeModule.id}`}
+      className={`workspace workspace--${activeSpaceId} workspace--${activeModuleId}`}
       data-material-profile={activeModule.materialProfile}
     >
       <aside className={`workspace-sidebar${showsDiscoveryIndex ? " workspace-sidebar--with-discovery-index" : ""}`}>
@@ -150,7 +194,7 @@ export default function App() {
                   type="button"
                   className={isActive ? "is-active" : undefined}
                   onClick={() => selectModule(module.id)}
-                  aria-current={isActive ? "page" : undefined}
+                  aria-current={isActive && !module.submodules ? "page" : undefined}
                   aria-label={module.label}
                   title={module.label}
                 >
@@ -160,8 +204,28 @@ export default function App() {
                     <small>{module.caption}</small>
                   </span>
                 </button>
+                {module.submodules ? (
+                  <div className="module-subnav" role="group" aria-label={`${module.label}子菜单`}>
+                    {module.submodules.map((submodule) => {
+                      const SubmoduleIcon = submodule.icon;
+                      const isSubmoduleActive = activeModuleId === submodule.id;
+                      return (
+                        <button
+                          type="button"
+                          key={submodule.id}
+                          className={isSubmoduleActive ? "is-active" : undefined}
+                          aria-current={isSubmoduleActive ? "page" : undefined}
+                          onClick={() => selectModule(submodule.id)}
+                        >
+                          <SubmoduleIcon aria-hidden="true" />
+                          <span>{submodule.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 {module.id === "settings" ? (
-                  <div className="settings-subnav" role="group" aria-label="系统设置子模块">
+                  <div className="module-subnav" role="group" aria-label="系统设置子模块">
                     {SETTINGS_SECTIONS.map((item) => {
                       const SectionIcon = item.icon;
                       const isSectionActive = settingsSection === item.id;
@@ -188,12 +252,11 @@ export default function App() {
           })}
         </nav>
 
-        {showsDiscoveryIndex ? (
-          <div
-            ref={setDiscoverySidebarHostRef}
-            className="workspace-discovery-index-host"
-          />
-        ) : null}
+        <div
+          ref={setDiscoverySidebarHostRef}
+          className="workspace-discovery-index-host"
+          hidden={!showsDiscoveryIndex}
+        />
 
         <div className="space-switcher" role="radiogroup" aria-label="工作空间">
           <p className="space-switcher-label">工作空间</p>
@@ -225,19 +288,26 @@ export default function App() {
           profile={activeModule.materialProfile}
           respondsToModuleChange={substrateEpoch > 0}
         />
-        {activeModule.id === "settings" ? (
+        {activeModuleId === "settings" ? (
           <SystemSettings section={settingsSection} />
-        ) : activeModule.id === "papers" ? (
+        ) : activeModuleId === "papers" ? (
           <PaperTools />
-        ) : activeModule.id === "embodied" ? (
+        ) : activeModuleId === "embodied" ? (
           <EmbodiedIntelligence />
-        ) : activeModule.id === "skills" ? (
+        ) : activeModuleId === "simulation" ? (
+          <SimulationPlaceholder />
+        ) : activeModuleId === "skills" ? (
           <SkillCatalog />
-        ) : activeModule.id === "discovery-preparation" ? (
-          <DiscoveryPreparation sidebarHost={discoverySidebarHost} />
-        ) : (
-          <PlaceholderModule module={activeModule.id} />
+        ) : activeModuleId === "achievement-upir" ? (
+          <AchievementShowcase paper="upir" />
+        ) : activeModuleId === "achievement-pbtwin" ? (
+          <AchievementShowcase paper="planetary" />
+        ) : activeSpaceId === "autonomous-discovery" ? null : (
+          <PlaceholderModule module={activeModuleId as "skills" | "discovery-launch-archive"} />
         )}
+        <div hidden={activeSpaceId !== "autonomous-discovery"}>
+          <DiscoveryPreparation sidebarHost={discoverySidebarHost} />
+        </div>
       </main>
     </div>
   );
