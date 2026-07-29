@@ -144,6 +144,8 @@ DEFAULT_DISCOVERY_INPUT_CONVERSION_PROMPT_PATH = (
 DEFAULT_PROMPT_BASELINE_ROOT = REPOSITORY_ROOT / "config" / "prompt_baseline"
 PROMPT_LIBRARY_API_PREFIX = "/api/prompt-library/v1"
 PROMPT_LIBRARY_DESKTOP_ORIGINS = {
+    "http://127.0.0.1:1420",
+    "http://localhost:1420",
     "http://tauri.localhost",
     "https://tauri.localhost",
     "tauri://localhost",

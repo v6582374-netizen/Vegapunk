@@ -45,6 +45,36 @@ class DesktopPromptLibraryApiTest(unittest.TestCase):
         self.assertNotIn("file", prompt)
         self.assertNotIn("chinese_mirror", prompt)
 
+    def test_tauri_dev_origin_can_read_and_preflight_saves(self) -> None:
+        for origin in ("http://localhost:1420", "http://127.0.0.1:1420"):
+            with self.subTest(origin=origin):
+                catalogue = self.client.get(
+                    "/api/prompt-library/v1/prompts",
+                    headers={"Origin": origin},
+                )
+                self.assertEqual(catalogue.status_code, 200)
+                self.assertEqual(catalogue.headers["access-control-allow-origin"], origin)
+
+                preflight = self.client.options(
+                    "/api/prompt-library/v1/prompts/discovery.generation.system",
+                    headers={
+                        "Origin": origin,
+                        "Access-Control-Request-Method": "PUT",
+                        "Access-Control-Request-Headers": "content-type",
+                    },
+                )
+                self.assertEqual(preflight.status_code, 200)
+                self.assertEqual(preflight.headers["access-control-allow-origin"], origin)
+                self.assertIn("PUT", preflight.headers["access-control-allow-methods"])
+
+    def test_untrusted_origin_cannot_access_prompt_library(self) -> None:
+        response = self.client.get(
+            "/api/prompt-library/v1/prompts",
+            headers={"Origin": "https://example.com"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["message"], "origin not allowed")
+
     def test_detail_distinguishes_active_and_system_original(self) -> None:
         response = self.client.get(
             "/api/prompt-library/v1/prompts/discovery.generation.system"

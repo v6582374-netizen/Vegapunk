@@ -109,7 +109,7 @@ export function SettingsView({
   };
 
   return (
-    <main className="flex-1 min-w-0 flex bg-paper">
+    <main className="flex-1 min-w-0 min-h-0 flex overflow-hidden bg-paper">
       <nav className="page-subnav w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
         <div className="px-2 text-[13.5px] font-semibold mb-3 flex items-center gap-2">
           <Icon name="gear" size={16} /> Settings
@@ -131,8 +131,18 @@ export function SettingsView({
         })}
       </nav>
 
-      <div className="flex-1 min-w-0 overflow-y-auto hairline-scroll">
-        <div className="max-w-3xl mx-auto px-7 py-6">
+      <div
+        className={
+          "flex-1 min-w-0 min-h-0 hairline-scroll " +
+          (tab === "prompts" ? "overflow-hidden" : "overflow-y-auto")
+        }
+      >
+        <div
+          className={
+            "max-w-3xl mx-auto px-7 py-6 " +
+            (tab === "prompts" ? "h-full min-h-0 flex flex-col" : "")
+          }
+        >
           {tab === "appearance" ? (
             <AppearanceSection />
           ) : tab === "models" ? (
@@ -178,6 +188,7 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   const [systemOriginal, setSystemOriginal] = useState("");
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [workflowFilter, setWorkflowFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,12 +199,15 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
-  const filtered = prompts.filter((prompt) =>
-    [prompt.id, prompt.name, prompt.description, prompt.workflow, prompt.stage, prompt.text]
+  const workflows = [...new Set(prompts.map((prompt) => prompt.workflow))];
+  const filtered = prompts.filter((prompt) => {
+    const matchesWorkflow = workflowFilter === "all" || prompt.workflow === workflowFilter;
+    const matchesQuery = [prompt.id, prompt.name, prompt.description, prompt.workflow, prompt.stage, prompt.text]
       .join(" ")
       .toLocaleLowerCase()
-      .includes(query.trim().toLocaleLowerCase()),
-  );
+      .includes(query.trim().toLocaleLowerCase());
+    return matchesWorkflow && matchesQuery;
+  });
 
   const fetchPrompt = (id: string) =>
     promptRequest<{ prompt: PromptRecord & { system_original_text: string } }>(
@@ -280,14 +294,44 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   }
 
   return (
-    <section>
+    <section className="flex min-h-0 flex-1 flex-col">
       <PanelHead title="Prompt Library" sub="Inspect and revise Registered Prompts used by future Vegapunk work." />
       {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
       {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
-      <div className="grid grid-cols-[minmax(230px,0.8fr)_minmax(0,1.7fr)] gap-4 min-h-[620px]">
-        <div className={CARD + " p-3 overflow-y-auto"}>
-          <input className={INPUT + " w-full"} placeholder="Search Prompt Library" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <div className="mt-4 space-y-4">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input
+          className={INPUT + " min-w-[260px] flex-1"}
+          placeholder="Search name, ID, metadata, or body"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <div className="flex max-w-full items-center gap-1 overflow-x-auto">
+          {["all", ...workflows].map((workflow) => {
+            const active = workflowFilter === workflow;
+            const words = workflow.split("_").join(" ");
+            const label = workflow === "all" ? "All" : words.charAt(0).toLocaleUpperCase() + words.slice(1);
+            return (
+              <button
+                key={workflow}
+                type="button"
+                className={
+                  "shrink-0 rounded-lg px-3 py-2 text-[12px] " +
+                  (active ? "bg-accentSoft text-accent font-medium" : "text-muted hover:bg-panel hover:text-ink")
+                }
+                onClick={() => setWorkflowFilter(workflow)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(230px,0.8fr)_minmax(0,1.7fr)] gap-4">
+        <div className={CARD + " min-h-0 overflow-y-auto p-3"}>
+          <div className="px-1 pb-3 text-[11px] uppercase tracking-wider text-muted">
+            {filtered.length} Registered Prompts
+          </div>
+          <div className="space-y-4">
             {[...grouped].map(([workflow, stages]) => (
               <div key={workflow}>
                 <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">{workflow}</div>
@@ -306,7 +350,7 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
             ))}
           </div>
         </div>
-        <div className={CARD + " p-4 flex flex-col min-w-0"}>
+        <div className={CARD + " min-w-0 min-h-0 overflow-y-auto p-4 flex flex-col"}>
           {selected ? (
             <>
               <div className="flex items-start gap-3">
@@ -319,7 +363,7 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
                 <div><span className="block text-ink font-medium">Template variables</span>{selected.template_variables.join(", ") || "None"}</div>
                 <div><span className="block text-ink font-medium">Required</span>{selected.required_template_variables.join(", ") || "None"}</div>
               </div>
-              <textarea className="mt-4 flex-1 min-h-[360px] w-full resize-y rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
+              <textarea className="mt-4 flex-1 min-h-[180px] w-full resize-none rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
               <div className="mt-3 flex items-center gap-2"><button className={BTN_BORDERED} onClick={resetDraft} disabled={!selected || draft === systemOriginal}>Reset to system original</button><button className={BTN_ACCENT + " ml-auto"} onClick={() => void save()} disabled={!dirty || saving}>{saving ? "Saving…" : "Save Prompt"}</button></div>
             </>
           ) : <div className="text-[12px] text-muted">Select a Prompt to inspect it.</div>}
