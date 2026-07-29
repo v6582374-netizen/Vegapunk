@@ -20,6 +20,8 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -56,6 +58,11 @@ from admin_console.discovery_input_conversion_prompt import (
 from admin_console.prompt_translation_instruction import (
     read_prompt_translation_instruction,
     save_prompt_translation_instruction,
+)
+from admin_console.desktop_prompt_library import (
+    DesktopPromptLibrary,
+    PromptLibraryUnavailableError,
+    violation_for,
 )
 from admin_console.prompt_mirror_batch import (
     BatchUnavailableError,
@@ -134,6 +141,13 @@ DEFAULT_PROMPT_TRANSLATION_INSTRUCTION_PATH = (
 DEFAULT_DISCOVERY_INPUT_CONVERSION_PROMPT_PATH = (
     REPOSITORY_ROOT / "config" / "discovery_input_conversion_prompt.yaml"
 )
+DEFAULT_PROMPT_BASELINE_ROOT = REPOSITORY_ROOT / "config" / "prompt_baseline"
+PROMPT_LIBRARY_API_PREFIX = "/api/prompt-library/v1"
+PROMPT_LIBRARY_DESKTOP_ORIGINS = {
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+}
 
 # The real launcher tolerates an empty --resume directory (it scans and
 # resumes from round zero), which lets the queue own the launch directory
@@ -160,6 +174,10 @@ class QueueSubmission(BaseModel):
 
 
 class PromptUpdate(BaseModel):
+    text: str
+
+
+class DesktopPromptUpdate(BaseModel):
     text: str
 
 
@@ -212,6 +230,7 @@ def create_app(
     discovery_input_conversion_prompt_path: Path | None = None,
     discovery_input_converter: DiscoveryInputConverter | None = None,
     frontend_dist: Path | None = None,
+    prompt_baseline_root: Path | None = None,
     secret_store: SecretStore | None = None,
     provider_probe: ProviderProbe | None = None,
     execution_preparer: ExecutionPreparer | None = None,
@@ -231,6 +250,10 @@ def create_app(
     )
     resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
     prompt_library = PromptLibrary(resolved_prompt_root)
+    resolved_prompt_library = DesktopPromptLibrary(
+        prompt_library,
+        prompt_baseline_root or DEFAULT_PROMPT_BASELINE_ROOT,
+    )
     provider_connections = ProviderConnectionService(
         resolved_catalog_path,
         secret_store or KeyringSecretStore(),
@@ -281,8 +304,40 @@ def create_app(
         allowed_hosts=["127.0.0.1", "localhost", "::1", "[::1]", "testserver"],
     )
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith(PROMPT_LIBRARY_API_PREFIX):
+            return JSONResponse(
+                {"error": {"code": "invalid_prompt", "message": "invalid request", "violations": exc.errors()}},
+                status_code=422,
+            )
+        return await request_validation_exception_handler(request, exc)
+
+    @app.middleware("http")
+    async def prompt_library_origin_policy(request: Request, call_next):
+        if request.url.path.startswith(PROMPT_LIBRARY_API_PREFIX):
+            origin = request.headers.get("origin")
+            if origin and origin not in PROMPT_LIBRARY_DESKTOP_ORIGINS:
+                return JSONResponse(
+                    {"error": {"code": "internal_error", "message": "origin not allowed", "violations": []}},
+                    status_code=403,
+                )
+            if request.method == "OPTIONS":
+                response = JSONResponse({"ok": True})
+            else:
+                response = await call_next(request)
+            if origin in PROMPT_LIBRARY_DESKTOP_ORIGINS:
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Vary"] = "Origin"
+                response.headers["Access-Control-Allow-Methods"] = "GET, PUT, OPTIONS"
+                response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            return response
+        return await call_next(request)
+
     @app.middleware("http")
     async def same_origin_api_requests(request: Request, call_next):
+        if request.url.path.startswith(PROMPT_LIBRARY_API_PREFIX):
+            return await call_next(request)
         origin = request.headers.get("origin")
         if origin and request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             expected_origin = str(request.base_url).rstrip("/")
@@ -611,6 +666,54 @@ def create_app(
         return FileResponse(artifact, media_type=guess_media_type(artifact))
 
     app.include_router(workspace_router)
+
+    desktop_prompt_router = APIRouter(prefix=PROMPT_LIBRARY_API_PREFIX)
+
+    def desktop_prompt_error(code: str, message: str, status_code: int, violations: list[dict] | None = None):
+        return JSONResponse(
+            {"error": {"code": code, "message": message, "violations": violations or []}},
+            status_code=status_code,
+        )
+
+    @desktop_prompt_router.get("/health")
+    def desktop_prompt_health() -> dict:
+        return resolved_prompt_library.health()
+
+    @desktop_prompt_router.get("/prompts", response_model=None)
+    def desktop_prompt_list() -> dict | JSONResponse:
+        try:
+            return {"prompts": resolved_prompt_library.list_catalogue()}
+        except PromptLibraryUnavailableError as error:
+            return desktop_prompt_error("library_unavailable", str(error), 503)
+        except Exception:
+            return desktop_prompt_error("internal_error", "Prompt Library request failed", 500)
+
+    @desktop_prompt_router.get("/prompts/{prompt_id}", response_model=None)
+    def desktop_prompt_detail(prompt_id: str) -> dict | JSONResponse:
+        try:
+            return {"prompt": resolved_prompt_library.detail(prompt_id)}
+        except UnknownPromptError:
+            return desktop_prompt_error("prompt_not_found", "unknown Prompt", 404)
+        except PromptLibraryUnavailableError as error:
+            return desktop_prompt_error("library_unavailable", str(error), 503)
+        except Exception:
+            return desktop_prompt_error("internal_error", "Prompt Library request failed", 500)
+
+    @desktop_prompt_router.put("/prompts/{prompt_id}", response_model=None)
+    def desktop_prompt_save(prompt_id: str, update: DesktopPromptUpdate) -> dict | JSONResponse:
+        try:
+            return {"prompt": resolved_prompt_library.save(prompt_id, update.text)}
+        except UnknownPromptError:
+            return desktop_prompt_error("prompt_not_found", "unknown Prompt", 404)
+        except InvalidPromptError as error:
+            violation = violation_for(error).to_dict()
+            return desktop_prompt_error("invalid_prompt", str(error), 422, [violation])
+        except PromptLibraryUnavailableError as error:
+            return desktop_prompt_error("library_unavailable", str(error), 503)
+        except Exception:
+            return desktop_prompt_error("internal_error", "Prompt Library request failed", 500)
+
+    app.include_router(desktop_prompt_router)
 
     admin_router = APIRouter(prefix="/api/admin")
 

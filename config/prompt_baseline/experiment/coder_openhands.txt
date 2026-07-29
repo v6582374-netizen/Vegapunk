@@ -1,0 +1,21 @@
+Your goal is to implement the following idea: {idea_description} in the codes {code_server_path}. 
+Please read the code of all the files of {code_server_path} first (important), each time before modifying the file you need to determine the location of the insertion again, and after modification to confirm that the content and location of the modification is correct through observation. After that, I will give you a method and you need to adapt that method appropriately based on the existing baseline code.
+
+You are given a total of up to {max_runs} runs to complete the necessary experiments. Keep this in mind so that you don't miss the ultimate goal of performance improvement in your attempt.
+
+## Requirements:
+    1. Integrate the core concepts of my improved method into the baseline code
+    2. Make necessary adaptations to ensure compatibility with the existing codebase
+    3. When conflicts arise between the improved method and baseline implementation: 
+        1) Prioritize maintaining the stability of the baseline code 
+        2) Adapt the improved method's concepts rather than forcing exact implementation 
+        3) Preserve the overall architecture of the baseline while enhancing its functionality
+    4. Ensure that the final file to be executed is {code_server_path}/launcher.sh
+    5. DO NOT make changes to the original content in the {code_server_path}/launcher.sh, such as the GPU ID, data_root, etc. However, it is allowed to add or modify model-related parameters.
+    6. DO NOT attempt to install the environment in the {code_server_path}/launcher.sh
+    7. When checking the correctness of the code, ignore the runtime environment issues.
+
+The proposed method is as follows: {method}.
+
+Any modifications to `argparse` parameters (new/updated) **must enforce the improved implementation as the default behavior** unless explicitly designed as optional. Specifically:  Set `default=<revised_value>` for all altered arguments to ensure the enhanced logic activates automatically without CLI flags. Ensure the improved functionality should be the default experience without requiring users to specify additional command-line parameters.
+

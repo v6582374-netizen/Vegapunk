@@ -1,0 +1,110 @@
+
+You are writing the **introduction/background section** of a comprehensive research report.
+
+You are given:
+- a **section outline** for this introduction section,
+- the **complete report outline** showing all sections that will follow,
+- a **graph** containing research-related node outputs,
+- a list of **relevant_node_ids** specifying which nodes contain information for this introduction.
+
+Your task is to write a **focused, concise introduction** that sets the stage for the rest of the report WITHOUT over-expanding or diving too deeply into details that belong in later sections.
+
+
+============================================================
+INPUT FORMAT
+============================================================
+
+1. **section_outline**
+   - `section_title`: The title for this introduction section.
+   - `description`: What this introduction should cover.
+   - `relevant_node_ids`: Nodes containing relevant information.
+
+2. **full_report_outline**
+   - The complete outline showing all sections of the report.
+   - Use this to understand what topics will be covered in detail later.
+
+3. **graph** (JSON)
+   - Contains all nodes with their execution results.
+
+4. **question**
+   - The overall research question.
+
+============================================================
+PROVIDED INPUT
+============================================================
+
+Query:
+=====================================
+{question}
+=====================================
+
+Introduction Section Outline:
+=====================================
+{section_outline}
+=====================================
+
+Full Report Outline (for context):
+=====================================
+{full_outline}
+=====================================
+
+Graph:
+=====================================
+{graph_dict}
+=====================================
+
+
+============================================================
+WRITING REQUIREMENTS
+============================================================
+
+### 1. STRICT CONTENT DEPENDENCE — NO EXTERNAL KNOWLEDGE
+- Every factual statement must originate from the `final_response` or `reasoning` of relevant nodes.
+- You may paraphrase and organize, but **never introduce new facts**.
+- Never mention the workflow, graph structure, or node IDs.
+
+### 2. FOCUSED INTRODUCTION — DO NOT OVER-EXPAND
+**CRITICAL**: This is an introduction, not the main body of the report.
+
+- **Keep it concise and focused**: Provide necessary background and context, but do NOT dive into extensive details.
+- **Avoid over-expansion**: Do not exhaustively cover topics that will be addressed in later sections.
+- **Preview, don't duplicate**: Briefly introduce key concepts and themes, but save detailed analysis for subsequent sections.
+- **Stay high-level**: Focus on setting the stage, defining scope, and orienting the reader.
+- **Reference the full outline**: Be aware of what topics are covered in later sections to avoid redundancy.
+
+Target length: A well-structured introduction that is **significantly shorter** than the main content sections.
+
+### 3. CITATION HANDLING
+- Preserve citation markers such as [[1]], [[2]], [[tag]] *exactly as they appear*.
+- You may move a citation from its original location to:
+  * the end of the sentence, or  
+  * the end of the paragraph  
+  that contains the referenced content.
+- Do not merge citations; write them separately: [[1]][[2]]
+- **DO NOT** cite any node_id in the graph like [[n2]] or execution details.
+
+### 4. INTRODUCTION STRUCTURE
+A good introduction should:
+- **Establish context**: Briefly explain the background and motivation.
+- **Define the problem**: Clearly state what question or issue is being addressed.
+- **Outline scope**: Indicate what aspects will be covered (and optionally what won't be).
+- **Preview structure**: Optionally mention the organization of the report (e.g., "This report examines...").
+
+### 5. ACADEMIC STYLE
+- Use formal, academic language.
+- Maintain objective, neutral tone.
+- Write in the **same language as the query**.
+
+### 6. FORMAT
+- Output in **Markdown**.
+- Use the section title as a second-level header (`##`).
+- May include brief subsections if appropriate.
+
+============================================================
+OUTPUT FORMAT (STRICT JSON)
+============================================================
+
+{{
+  "section_content": "<the introduction section in markdown format, with ALL citation markers preserved>"
+}}
+

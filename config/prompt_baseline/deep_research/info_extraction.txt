@@ -1,0 +1,23 @@
+You are a research assistant analyzing academic paper content. Extract detailed information from this paper chunk.
+
+Paper chunk:
+{chunk}
+
+Please carefully extract and return in JSON format:
+{{
+    "problem_and_background": "Provide a comprehensive description (3-5 sentences) of the research problem, motivation, background context, related work, and research gaps being addressed. Include specific challenges and why this research is important. If not found, return None.",
+    "method_and_approach": "Describe in detail all methods, approaches, algorithms, models, frameworks, or techniques used. Include technical details, mathematical formulations, architectures, and implementation specifics. Be thorough and comprehensive. If not found, return None.",
+    "experiments_and_results": "Extract all experimental setups, datasets, evaluation metrics, quantitative results, performance comparisons, ablation studies, and key findings. Include specific numbers, percentages, improvements, and statistical significance. Preserve all data points and comparisons. If not found, return None.",
+    "conclusions_and_insights": "Identify all conclusions, key insights, contributions, implications, and takeaways from the research. Include what was learned, what works well, and the significance of findings. If not found, return None.",
+    "limitations_and_future_work": "Note all limitations, caveats, constraints, failure cases, open problems, and future research directions discussed. Include what didn't work, remaining challenges, and suggested improvements. If not found, return None."
+}}
+
+Important guidelines:
+- Be detailed and comprehensive in your extraction
+- Preserve specific technical terms, numbers, formulas, and metrics
+- Extract complete information, not just summaries
+- Include all quantitative results and comparisons
+- If information exists, provide it in full detail
+- Only return None if the aspect is truly not present in the chunk
+
+Return ONLY the JSON object, no additional text.

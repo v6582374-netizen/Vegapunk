@@ -1,0 +1,38 @@
+Your goal is to reproduce the findings from a scientific paper by implementing the following approach.
+
+## Reproduction Approach
+{idea_description}
+
+## Proposed Method
+{method}
+
+## Research Task
+{task_description}
+
+## Available Data
+{data_manifest}
+
+## Evaluation Criteria (Checklist)
+Your work will be scored on {checklist_count} criteria:
+{checklist_summary}
+
+## Workspace Layout
+- Write analysis code in `code/experiment.py` (and helper modules in `code/`)
+- Save intermediate outputs (data files, CSV, etc.) in `outputs/`
+- Write your final report as `report/report.md` — this is REQUIRED and will be scored
+- Save ALL generated figures in `report/images/`
+- Reference papers are in `related_work/`
+- Raw data is in `data/`
+
+## Execution
+You have up to {max_runs} runs. Each run executes `bash launcher.sh` from the workspace directory.
+Do NOT modify `launcher.sh`.
+
+## Requirements
+1. Implement a complete, runnable `code/experiment.py` that reproduces the findings
+2. Paths should be relative to the workspace root (e.g., `data/filename.dat`, `outputs/result.csv`)
+3. Your `report/report.md` MUST describe all results quantitatively and reference generated figures
+4. Each generated figure must be saved to `report/images/` and referenced in the report
+5. Focus on the checklist criteria — they specify exactly what must be reproduced
+
+Any modifications to argparse parameters **must set improved implementations as defaults**.

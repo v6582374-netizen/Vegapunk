@@ -1,0 +1,23 @@
+Your goal is to implement the following idea: {idea}
+The proposed method is as follows: {method}.
+
+You are given a single run to complete the necessary experiments.
+**Note**: It is highly recommended that you implement the core functionality of your code within this run, choose important designs in the proposed method. 
+
+Note that we already provide the vanilla baseline results, so you do not need to re-run it.
+
+For reference, the baseline results are as follows:
+
+{baseline_results}
+
+Then, you need to implement code. After you complete the implementation, we will run the command `bash launcher.sh .` to execute the experiment. 
+Do NOT modify launcher.sh under any circumstances.
+Do NOT change the schema of final_info.json; only write to the existing means fields and keep the structure identical to the baseline.
+
+**IMPORTANT CONSTRAINTS:**
+1. YOU MUST NOT MODIFY `launcher.sh` - it must remain as is. We always run this command.
+2. DO NOT create shell scripts (.sh files) or run_xxx folder, any files will be saved to the current directory (`.`)
+3. Treat the current working directory as the project root; results will be saved to the current directory (`.`)
+YOUR PROPOSED CHANGE MUST USE THIS COMMAND FORMAT, DO NOT ADD ADDITIONAL COMMAND LINE ARGS.
+
+Any modifications to `argparse` parameters (new/updated) **must enforce the improved implementation as the default behavior** unless explicitly designed as optional. Specifically: Set `default=<revised_value>` for all altered arguments to ensure the enhanced logic activates automatically without CLI flags. Ensure the improved functionality should be the default experience without requiring users to specify additional command-line parameters.

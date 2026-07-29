@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   getSettings,
   getTrustedWorkspaces,
@@ -47,7 +47,24 @@ import { showPersonas } from "../flags";
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
 // "appearance" is the General tab's stable key — callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
-type SetTab = "appearance" | "models" | "voice" | "personas";
+type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts";
+
+type PromptRecord = {
+  id: string;
+  name: string;
+  description: string;
+  workflow: string;
+  stage: string;
+  order: number;
+  invocation_type: string;
+  mutual_exclusion_group: string | null;
+  template_variables: string[];
+  required_template_variables: string[];
+  text: string;
+  source_revision: string;
+};
+
+const PROMPT_LIBRARY_API = "http://127.0.0.1:8000/api/prompt-library/v1";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -58,10 +75,11 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" }[] = [
+const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" | "library" }[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "voice", label: "Voice input", icon: "mic" },
+  { key: "prompts", label: "Prompt Library", icon: "library" },
   { key: "personas", label: "Personas", icon: "sparkle" },
 ];
 
@@ -79,6 +97,16 @@ export function SettingsView({
   const tabs = personas ? SET_TABS : SET_TABS.filter((t) => t.key !== "personas");
   const wanted = initialTab && (personas || initialTab !== "personas") ? initialTab : "appearance";
   const [tab, setTab] = useState<SetTab>(wanted);
+  const [promptLibraryDirty, setPromptLibraryDirty] = useState(false);
+  const stablePromptDirty = useCallback((dirty: boolean) => setPromptLibraryDirty(dirty), []);
+
+  const changeTab = (next: SetTab) => {
+    if (tab === "prompts" && next !== "prompts" && promptLibraryDirty) {
+      if (!window.confirm("Discard unsaved Prompt changes?")) return;
+      setPromptLibraryDirty(false);
+    }
+    setTab(next);
+  };
 
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
@@ -95,7 +123,7 @@ export function SettingsView({
                 "w-full text-left px-2.5 py-2 rounded-lg text-[13px] flex items-center gap-2 " +
                 (active ? "bg-paper text-accent font-medium" : "text-muted hover:bg-paper hover:text-ink")
               }
-              onClick={() => setTab(t.key)}
+              onClick={() => changeTab(t.key)}
             >
               <Icon name={t.icon} size={15} /> {t.label}
             </button>
@@ -122,12 +150,182 @@ export function SettingsView({
             </section>
           ) : tab === "voice" ? (
             <VoiceInputSection />
+          ) : tab === "prompts" ? (
+            <PromptLibrarySection onDirtyChange={stablePromptDirty} />
           ) : (
             <PersonasSection onOpenPersona={onOpenPersona} />
           )}
         </div>
       </div>
     </main>
+  );
+}
+
+// -- Prompt Library: desktop-facing core Registered Prompt editor -----------------
+async function promptRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${PROMPT_LIBRARY_API}${path}`, init);
+  const body = await response.json();
+  if (!response.ok) {
+    const error = body?.error;
+    throw new Error(error?.message || "Prompt Library request failed.");
+  }
+  return body as T;
+}
+
+function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+  const [prompts, setPrompts] = useState<PromptRecord[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [systemOriginal, setSystemOriginal] = useState("");
+  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const selected = prompts.find((prompt) => prompt.id === selectedId) || null;
+  const dirty = !!selected && draft !== selected.text;
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  const filtered = prompts.filter((prompt) =>
+    [prompt.id, prompt.name, prompt.description, prompt.workflow, prompt.stage, prompt.text]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase()),
+  );
+
+  const fetchPrompt = (id: string) =>
+    promptRequest<{ prompt: PromptRecord & { system_original_text: string } }>(
+      `/prompts/${encodeURIComponent(id)}`,
+    );
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const body = await promptRequest<{ prompts: PromptRecord[] }>("/prompts");
+      setPrompts(body.prompts);
+      const first = body.prompts[0];
+      if (first) {
+        const detail = await fetchPrompt(first.id);
+        setSelectedId(first.id);
+        setDraft(detail.prompt.text);
+        setSystemOriginal(detail.prompt.system_original_text);
+      }
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Prompt Library is unavailable.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const selectPrompt = async (prompt: PromptRecord) => {
+    if (dirty && !window.confirm("Discard unsaved Prompt changes?")) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const detail = await fetchPrompt(prompt.id);
+      setSelectedId(prompt.id);
+      setDraft(detail.prompt.text);
+      setSystemOriginal(detail.prompt.system_original_text);
+    } catch (selectError) {
+      setError(selectError instanceof Error ? selectError.message : "Prompt could not be loaded.");
+    }
+  };
+
+  const save = async () => {
+    if (!selected || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const body = await promptRequest<{ prompt: PromptRecord }>(
+        `/prompts/${encodeURIComponent(selected.id)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: draft }),
+        },
+      );
+      setPrompts((current) => current.map((prompt) => prompt.id === body.prompt.id ? body.prompt : prompt));
+      setDraft(body.prompt.text);
+      setNotice("Saved. This change applies to subsequently started work only; running work keeps its snapshot.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Prompt could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetDraft = () => {
+    if (!selected) return;
+    setDraft(systemOriginal);
+    setNotice("System original loaded into the draft. Save to apply it.");
+    setError(null);
+  };
+
+  if (loading) return <section><PanelHead title="Prompt Library" sub="Registered Prompts used by future Vegapunk work." /><div className={CARD + " p-4 text-[12px] text-muted"}>Loading Prompt Library…</div></section>;
+  if (error && !selected) return <section><PanelHead title="Prompt Library" sub="Registered Prompts used by future Vegapunk work." /><div className={CARD + " p-4"}><div className="text-[13px] text-red-600">{error}</div><button className={BTN_BORDERED + " mt-3"} onClick={() => void load()}>Retry</button></div></section>;
+
+  const grouped = new Map<string, Map<string, PromptRecord[]>>();
+  for (const prompt of filtered) {
+    const stages = grouped.get(prompt.workflow) || new Map<string, PromptRecord[]>();
+    stages.set(prompt.stage, [...(stages.get(prompt.stage) || []), prompt]);
+    grouped.set(prompt.workflow, stages);
+  }
+
+  return (
+    <section>
+      <PanelHead title="Prompt Library" sub="Inspect and revise Registered Prompts used by future Vegapunk work." />
+      {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
+      {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
+      <div className="grid grid-cols-[minmax(230px,0.8fr)_minmax(0,1.7fr)] gap-4 min-h-[620px]">
+        <div className={CARD + " p-3 overflow-y-auto"}>
+          <input className={INPUT + " w-full"} placeholder="Search Prompt Library" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <div className="mt-4 space-y-4">
+            {[...grouped].map(([workflow, stages]) => (
+              <div key={workflow}>
+                <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">{workflow}</div>
+                {[...stages].map(([stage, items]) => (
+                  <div key={stage} className="space-y-1 mb-3">
+                    <div className="text-[11px] text-muted">{stage}</div>
+                    {items.map((prompt) => (
+                      <button key={prompt.id} type="button" onClick={() => void selectPrompt(prompt)} className={"w-full text-left rounded-lg px-3 py-2 " + (selectedId === prompt.id ? "bg-paper text-accent" : "hover:bg-paper") }>
+                        <span className="block text-[12.5px] font-medium text-ink">{prompt.name}</span>
+                        <span className="block text-[11.5px] text-muted mt-0.5">{prompt.invocation_type}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className={CARD + " p-4 flex flex-col min-w-0"}>
+          {selected ? (
+            <>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1"><div className="text-[15px] font-medium text-ink">{selected.name}</div><div className="text-[11.5px] text-muted mt-1 font-mono break-all">{selected.id}</div></div>
+                {dirty && <span className="text-[11px] text-accent">Unsaved</span>}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-[11.5px] text-muted border-y border-line py-3">
+                <div><span className="block text-ink font-medium">Workflow</span>{selected.workflow} · {selected.stage}</div>
+                <div><span className="block text-ink font-medium">Invocation</span>{selected.invocation_type}</div>
+                <div><span className="block text-ink font-medium">Template variables</span>{selected.template_variables.join(", ") || "None"}</div>
+                <div><span className="block text-ink font-medium">Required</span>{selected.required_template_variables.join(", ") || "None"}</div>
+              </div>
+              <textarea className="mt-4 flex-1 min-h-[360px] w-full resize-y rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
+              <div className="mt-3 flex items-center gap-2"><button className={BTN_BORDERED} onClick={resetDraft} disabled={!selected || draft === systemOriginal}>Reset to system original</button><button className={BTN_ACCENT + " ml-auto"} onClick={() => void save()} disabled={!dirty || saving}>{saving ? "Saving…" : "Save Prompt"}</button></div>
+            </>
+          ) : <div className="text-[12px] text-muted">Select a Prompt to inspect it.</div>}
+        </div>
+      </div>
+    </section>
   );
 }
 

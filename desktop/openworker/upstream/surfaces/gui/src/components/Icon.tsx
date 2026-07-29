@@ -28,6 +28,7 @@ export type IconName =
   | "panelOpen"
   | "plug"
   | "audit"
+  | "library"
   | "chevronRight"
   | "chevronDown"
   | "moreHorizontal"
@@ -300,6 +301,7 @@ export function Icon({
           <path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0V7zM12 16v5" />
         </svg>
       );
+    case "library":
     case "audit":
       return (
         <svg {...s}>

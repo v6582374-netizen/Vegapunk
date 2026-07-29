@@ -1,0 +1,23 @@
+You are given multiple extractions from different chunks of the same academic paper. Please synthesize them into a single comprehensive and detailed summary.
+
+Chunk extractions:
+{chunk_extractions}
+
+Please synthesize these into a final summary in JSON format:
+{{
+    "problem_and_background": "Comprehensive synthesis of the research problem, motivation, background, related work, and research gaps from all chunks. Include specific challenges and importance (3-5 sentences minimum).",
+    "method_and_approach": "Complete and detailed synthesis of all methods, approaches, algorithms, models, frameworks, and techniques from all chunks. Include technical details, formulations, and implementation specifics. Be thorough and comprehensive.",
+    "experiments_and_results": "Comprehensive compilation of all experimental setups, datasets, metrics, quantitative results, performance comparisons, and findings from all chunks. Preserve all specific numbers, percentages, improvements, and statistical data.",
+    "conclusions_and_insights": "Complete synthesis of all conclusions, key insights, contributions, implications, and takeaways from all chunks. Include what was learned and the significance of findings.",
+    "limitations_and_future_work": "Comprehensive summary of all limitations, constraints, failure cases, open problems, and future research directions from all chunks. Include challenges and suggested improvements."
+}}
+
+Guidelines:
+- Combine ALL information from all chunks - be comprehensive and detailed
+- Organize information logically and coherently
+- Remove redundancy but preserve all unique information
+- Maintain specific technical terms, numbers, formulas, and metrics
+- If an aspect is None in all chunks, keep it as None in the final summary
+- Prioritize completeness and technical detail over brevity
+
+Return ONLY the JSON object, no additional text.

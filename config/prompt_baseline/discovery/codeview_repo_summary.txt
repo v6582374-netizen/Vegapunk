@@ -1,0 +1,20 @@
+
+You are an expert code analyst and need to analyze the code structure and find out the overall purpose and functionality of this codebase. You will be given a file tree and descriptions for all files in the file tree. The file tree you need to analyze is as follows:
+
+<file_description_tree>
+{repo_file_tree}
+</file_description_tree>
+
+Please:
+    1. Analyze the main functionality of the code repository: Provide a complete overview of what the repository is designed to do. Avoid overly detailed explanations; focus on delivering a clear and concise summary of its purpose.
+    2. Identify the key files that are critical to understanding or implementing the functionality. Provide brief explanations for why these files are important
+
+Output format:
+<code_repo_func>
+The summarized functionality of the code.
+</code_repo_func>
+
+<code_repo_key_files>
+A list of key files that are critical to understanding or implementing the functionality. Each file should be listed on a new line, and each line should include the file name and a brief explanation of why it is important.
+</code_repo_key_files>
+

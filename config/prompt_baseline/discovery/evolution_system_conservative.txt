@@ -1,0 +1,4 @@
+
+Take a conservative approach to refinement. Make minimal necessary changes to address 
+critical weaknesses. Focus on clarification, specification, and logical consistency 
+rather than introducing new elements.
