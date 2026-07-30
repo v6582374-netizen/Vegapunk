@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Daily Research Brief - OpenWorker placeholder prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f5f6f7;
+        --panel: #ffffff;
+        --ink: #17191c;
+        --muted: #5b616b;
+        --faint: #9aa1aa;
+        --line: #e8eaed;
+        --line-strong: #d8dce1;
+        --accent: #2563eb;
+        --accent-soft: #e9f0fd;
+        --ok: #2f7d57;
+        --ok-soft: #eef6f0;
+        --warm: #9a5b17;
+        --warm-soft: #fff6e8;
+        --shadow: 0 18px 45px rgba(22, 27, 34, 0.08);
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --paper: #131417;
+          --panel: #1c1e22;
+          --ink: #e6e8eb;
+          --muted: #9aa1ab;
+          --faint: #62686f;
+          --line: #2a2d33;
+          --line-strong: #3a3e46;
+          --accent: #4c8dff;
+          --accent-soft: #1c2a44;
+          --ok: #58b07f;
+          --ok-soft: #1a2b21;
+          --warm: #e8b04b;
+          --warm-soft: #36280f;
+          --shadow: 0 18px 45px rgba(0, 0, 0, 0.22);
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { height: 100%; }
+
+      body {
+        min-width: 980px;
+        margin: 0;
+        overflow: hidden;
+        color: var(--ink);
+        background: var(--paper);
+        font: 13px/1.45 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button { color: inherit; font: inherit; }
+
+      .prototype-badge {
+        position: fixed;
+        z-index: 20;
+        top: 10px;
+        right: 14px;
+        border: 1px solid color-mix(in srgb, var(--warm) 34%, var(--line));
+        border-radius: 999px;
+        padding: 5px 9px;
+        color: var(--warm);
+        background: color-mix(in srgb, var(--warm-soft) 82%, transparent);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 264px minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .sidebar {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+        padding: 9px 14px 8px;
+        border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+        font-weight: 700;
+        letter-spacing: -0.015em;
+      }
+
+      .traffic-lights { display: inline-flex; gap: 5px; margin-right: 3px; }
+      .traffic-lights i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+      .traffic-lights i:first-child { background: #e37d74; }
+      .traffic-lights i:nth-child(2) { background: #e0b65c; }
+      .traffic-lights i:nth-child(3) { background: #75b887; }
+
+      .brand-name { font-size: 15px; }
+      .beta { margin-left: 5px; color: var(--faint); font-size: 8px; letter-spacing: 0.08em; vertical-align: 2px; }
+
+      .sidebar-scroll { min-height: 0; flex: 1; overflow: auto; padding: 9px 10px 12px; }
+
+      .new-session {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 7px 9px 7px 10px;
+        color: var(--ink);
+        background: var(--panel);
+        text-align: left;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .new-session span:last-child { color: var(--faint); font-size: 14px; }
+
+      .search-row, .nav-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 9px;
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+        font-size: 12.5px;
+      }
+
+      .search-row { margin-top: 7px; }
+      .search-row:hover, .nav-row:hover { color: var(--ink); background: var(--paper); }
+      .nav-row.active { color: var(--ink); background: var(--paper); font-weight: 600; }
+      .nav-row .nav-icon { width: 16px; color: var(--faint); text-align: center; font-size: 14px; }
+      .nav-row.active .nav-icon { color: var(--accent); }
+      .nav-row .nav-meta { margin-left: auto; color: var(--faint); font-size: 10px; font-weight: 500; }
+
+      .section-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 19px 8px 5px;
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .session-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 9px;
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+        font-size: 12px;
+      }
+
+      .session-row:hover { color: var(--ink); background: var(--paper); }
+      .session-row.current { color: var(--ink); background: var(--paper); }
+      .session-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--line-strong); }
+      .session-row.current .session-dot { background: var(--accent); }
+      .session-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .session-row time { margin-left: auto; color: var(--faint); font-size: 10px; }
+
+      .brief-card-nav {
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px;
+        background: color-mix(in srgb, var(--paper) 74%, var(--panel));
+      }
+
+      .brief-card-nav .card-eyebrow { color: var(--faint); font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+      .brief-card-nav strong { display: block; margin-top: 3px; font-size: 12px; }
+      .brief-card-nav p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+      .brief-card-nav .card-state { display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; color: var(--warm); font-size: 10px; font-weight: 700; }
+      .card-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+      .account {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .avatar { display: grid; width: 24px; height: 24px; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--faint); font-size: 10px; }
+      .account small { margin-left: auto; color: var(--faint); font-size: 10px; }
+
+      .main {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--paper);
+      }
+
+      .topbar {
+        position: absolute;
+        z-index: 5;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 48px;
+        border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+        background: color-mix(in srgb, var(--paper) 86%, transparent);
+        backdrop-filter: blur(9px);
+      }
+
+      .topbar-title { font-size: 13px; font-weight: 600; }
+      .topbar-subtitle { margin-left: 8px; color: var(--faint); font-size: 11px; font-weight: 400; }
+
+      .main-scroll {
+        display: flex;
+        min-height: 100%;
+        flex-direction: column;
+        align-items: center;
+        overflow: auto;
+        padding: 88px 38px 110px;
+      }
+
+      .page {
+        width: min(820px, 100%);
+      }
+
+      .page-kicker { margin: 0 0 7px; color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+      .page-title { margin: 0; font-size: 25px; letter-spacing: -0.04em; }
+      .page-lede { max-width: 580px; margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+
+      .unavailable {
+        margin-top: 26px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .unavailable-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 13px;
+        padding: 22px 23px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brief-mark { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 10px; color: var(--accent); background: var(--accent-soft); font-size: 17px; }
+      .unavailable-head h2 { margin: 0; font-size: 16px; letter-spacing: -0.02em; }
+      .state-pill { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; color: var(--warm); font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+      .state-pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+      .unavailable-body { padding: 18px 23px 21px; }
+      .unavailable-body p { max-width: 585px; margin: 0; color: var(--muted); line-height: 1.58; }
+      .unavailable-body p + p { margin-top: 10px; color: var(--faint); font-size: 12px; }
+      .unavailable-rule { display: flex; align-items: center; gap: 9px; margin-top: 17px; color: var(--faint); font-size: 11px; }
+      .unavailable-rule::before { width: 18px; height: 1px; background: var(--line-strong); content: ""; }
+
+      .quiet-footer { margin-top: 22px; color: var(--faint); font-size: 11px; }
+
+      .variant-b .main-scroll { align-items: stretch; padding: 72px 25px 110px; }
+      .variant-b .page { width: min(980px, 100%); margin: 0 auto; }
+      .variant-b .page-header-row { display: flex; align-items: end; justify-content: space-between; gap: 22px; padding: 7px 5px 15px; }
+      .variant-b .page-header-row .page-lede { max-width: 450px; }
+      .variant-b .compact-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(250px, 0.6fr); gap: 14px; align-items: start; }
+      .variant-b .unavailable { margin-top: 0; }
+      .variant-b .side-note { border: 1px solid var(--line); border-radius: 12px; padding: 15px; background: color-mix(in srgb, var(--panel) 88%, var(--paper)); }
+      .variant-b .side-note h3 { margin: 0; font-size: 12px; }
+      .variant-b .side-note p { margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.52; }
+      .variant-b .side-note .mini-line { display: flex; align-items: center; gap: 7px; margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10px; }
+
+      .variant-c .main-scroll { justify-content: center; padding: 76px 38px 110px; }
+      .variant-c .session-home { width: min(760px, 100%); }
+      .variant-c .session-greeting { display: flex; align-items: baseline; gap: 8px; margin-bottom: 18px; }
+      .variant-c .session-greeting .spark { color: var(--accent); font-size: 18px; }
+      .variant-c .session-greeting h1 { margin: 0; font-size: 22px; letter-spacing: -0.04em; }
+      .variant-c .session-greeting span { color: var(--faint); font-size: 11px; }
+      .variant-c .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .variant-c .home-card { min-height: 116px; border: 1px solid var(--line); border-radius: 12px; padding: 15px; background: var(--panel); }
+      .variant-c .home-card h2 { margin: 0; font-size: 13px; }
+      .variant-c .home-card p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.48; }
+      .variant-c .brief-home-card { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--accent) 25%, var(--line)); background: linear-gradient(110deg, color-mix(in srgb, var(--accent-soft) 66%, var(--panel)), var(--panel)); }
+      .variant-c .brief-home-head { display: flex; align-items: center; gap: 10px; }
+      .variant-c .brief-home-head .brief-mark { width: 29px; height: 29px; border-radius: 8px; font-size: 14px; }
+      .variant-c .brief-home-state { margin-left: auto; color: var(--warm); font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
+      .variant-c .brief-home-card p { max-width: 530px; }
+      .variant-c .home-caption { margin-top: 17px; color: var(--faint); font-size: 11px; }
+
+      .variant-switcher {
+        position: fixed;
+        z-index: 30;
+        left: 50%;
+        bottom: 17px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transform: translateX(-50%);
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        padding: 5px;
+        background: color-mix(in srgb, var(--panel) 94%, transparent);
+        box-shadow: 0 14px 32px rgba(20, 25, 32, 0.14);
+        backdrop-filter: blur(12px);
+      }
+
+      .variant-switcher button {
+        display: grid;
+        width: 29px;
+        height: 29px;
+        place-items: center;
+        border: 0;
+        border-radius: 50%;
+        color: var(--muted);
+        background: var(--paper);
+        font-size: 16px;
+      }
+
+      .variant-switcher button:hover { color: var(--ink); }
+      .variant-label { min-width: 185px; color: var(--muted); text-align: center; font-size: 11px; font-weight: 650; }
+
+      .toast {
+        position: fixed;
+        z-index: 40;
+        right: 18px;
+        bottom: 18px;
+        max-width: 300px;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        padding: 9px 11px;
+        color: var(--muted);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        font-size: 11px;
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;
+        transition: opacity 140ms ease, transform 140ms ease;
+      }
+
+      .toast.visible { opacity: 1; transform: translateY(0); }
+
+      @media (max-width: 1120px) {
+        .main-scroll { padding-left: 24px; padding-right: 24px; }
+        .variant-b .compact-layout { grid-template-columns: 1fr; }
+        .variant-b .side-note { display: none; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { transition: none !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-badge">THROWAWAY PROTOTYPE</div>
+    <main id="app"></main>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script>
+      const variants = {
+        A: "A · First-class page",
+        B: "B · Sidebar card",
+        C: "C · Session home card"
+      };
+
+      let variant = new URLSearchParams(location.search).get("variant")?.toUpperCase();
+      if (!variants[variant]) variant = "A";
+
+      function shell({ active = "brief", sidebar, main, className = "" }) {
+        return `
+          <div class="shell ${className}">
+            <aside class="sidebar" aria-label="OpenWorker sidebar">
+              <div class="brand"><span class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="brand-name">OpenWorker<span class="beta">BETA</span></span></div>
+              <div class="sidebar-scroll">
+                <button class="new-session" type="button" aria-label="New session"><span>＋ New session</span><span>⌄</span></button>
+                <button class="search-row" type="button" aria-label="Search"><span aria-hidden="true">⌕</span><span>Search</span><span class="nav-meta">⌘ K</span></button>
+                ${sidebar(active)}
+                <div class="section-label"><span>Recent</span><span>⌄</span></div>
+                <button class="session-row current" type="button"><i class="session-dot"></i><span>Research workspace</span><time>now</time></button>
+                <button class="session-row" type="button"><i class="session-dot"></i><span>Review the current paper draft</span><time>2h</time></button>
+                <button class="session-row" type="button"><i class="session-dot"></i><span>OpenWorker setup notes</span><time>yday</time></button>
+                <button class="session-row" type="button"><i class="session-dot"></i><span>Experiment runner handoff</span><time>Jul 28</time></button>
+              </div>
+              <div class="account"><span class="avatar">?</span><span>Not signed in</span><small>⌄</small></div>
+            </aside>
+            <section class="main">
+              <header class="topbar"><span class="topbar-title">${active === "brief" ? "Daily Research Brief" : "Research workspace"}</span><span class="topbar-subtitle">${active === "brief" ? "Unavailable placeholder" : "Cowork"}</span></header>
+              <div class="main-scroll">${main()}</div>
+            </section>
+          </div>`;
+      }
+
+      function nav(active, options = {}) {
+        const row = `<button class="nav-row ${active === "brief" ? "active" : ""}" type="button" aria-current="${active === "brief" ? "page" : "false"}"><span class="nav-icon">✦</span><span>Daily Research Brief</span><span class="nav-meta">${options.meta || ""}</span></button>`;
+        if (options.card) {
+          return `${row}<div class="brief-card-nav" aria-label="Daily Research Brief unavailable placeholder"><span class="card-eyebrow">Research brief</span><strong>Daily Research Brief</strong><p>Not available yet. This card has no connected actions.</p><span class="card-state"><i></i>Unavailable</span></div>`;
+        }
+        return row;
+      }
+
+      function toolsSection() {
+        return `<div class="section-label"><span>Tools</span><span>⌄</span></div>`;
+      }
+
+      function unavailableCard() {
+        return `<article class="unavailable" aria-label="Daily Research Brief unavailable"><div class="unavailable-head"><span class="brief-mark" aria-hidden="true">✦</span><div><h2>Daily Research Brief is not available yet.</h2><span class="state-pill"><i></i>Unavailable</span></div></div><div class="unavailable-body"><p>Nothing is connected in this placeholder. It does not fetch papers, schedule work, save subscriptions, or expose a brief feed.</p><p>No actions are available here.</p><div class="unavailable-rule">This surface is a static V1 boundary, not a partially working feature.</div></div></article>`;
+      }
+
+      function unavailablePage() {
+        return `
+          <div class="page">
+            <p class="page-kicker">Research brief</p>
+            <h1 class="page-title">Daily Research Brief</h1>
+            <p class="page-lede">A quiet home for a future in-app research brief. The first version is intentionally only a placeholder.</p>
+            ${unavailableCard()}
+            <p class="quiet-footer">Your existing OpenWorker conversations remain unchanged.</p>
+          </div>`;
+      }
+
+      function renderA() {
+        return shell({
+          sidebar: () => nav("brief"),
+          main: unavailablePage,
+          className: "variant-a"
+        });
+      }
+
+      function renderB() {
+        return shell({
+          sidebar: () => `${toolsSection()}${nav("brief", { card: true })}`,
+          main: () => `
+            <div class="page">
+              <div class="page-header-row"><div><p class="page-kicker">Tools</p><h1 class="page-title">Daily Research Brief</h1><p class="page-lede">A compact tool surface keeps the shell calm while making the unavailable state explicit.</p></div></div>
+              <div class="compact-layout">
+                <div>${unavailableCard()}</div>
+                <aside class="side-note"><h3>Surface boundary</h3><p>This placement is a static card in the Tools section. It has no domain controls, schedule controls, refresh, retry, history, or paper content.</p><div class="mini-line"><span class="session-dot"></span><span>Placeholder only</span></div></aside>
+              </div>
+            </div>`,
+          className: "variant-b"
+        });
+      }
+
+      function renderC() {
+        return shell({
+          active: "session",
+          sidebar: () => `<div class="section-label"><span>Tools</span><span>⌄</span></div><button class="nav-row" type="button"><span class="nav-icon">⌕</span><span>Connectors</span></button>`,
+          main: () => `
+            <div class="session-home">
+              <div class="session-greeting"><span class="spark">✦</span><h1>How can I help?</h1><span>Research workspace</span></div>
+              <div class="home-grid">
+                <article class="home-card brief-home-card" aria-label="Daily Research Brief unavailable placeholder"><div class="brief-home-head"><span class="brief-mark" aria-hidden="true">✦</span><h2>Daily Research Brief</h2><span class="brief-home-state">Unavailable</span></div><p>Not available yet. This static card is only a signpost for a future brief surface. It has no papers, subscriptions, scheduling, refresh, or delivery actions.</p></article>
+                <article class="home-card"><h2>Start a conversation</h2><p>Use the composer below to work with your current OpenWorker session.</p></article>
+                <article class="home-card"><h2>Browse your sessions</h2><p>Recent conversations remain in the left sidebar, with no new research state introduced.</p></article>
+              </div>
+              <p class="home-caption">This option adds no first-class navigation entry. The placeholder is visible only on the idle session surface.</p>
+            </div>`,
+          className: "variant-c"
+        });
+      }
+
+      function switcher() {
+        return `<nav class="variant-switcher" aria-label="Prototype variants"><button type="button" onclick="cycle(-1)" aria-label="Previous variant">←</button><span class="variant-label">${variants[variant]}</span><button type="button" onclick="cycle(1)" aria-label="Next variant">→</button></nav>`;
+      }
+
+      function render() {
+        const markup = variant === "A" ? renderA() : variant === "B" ? renderB() : renderC();
+        document.getElementById("app").innerHTML = markup + switcher();
+      }
+
+      function cycle(direction) {
+        const keys = Object.keys(variants);
+        variant = keys[(keys.indexOf(variant) + direction + keys.length) % keys.length];
+        const url = new URL(location.href);
+        url.searchParams.set("variant", variant);
+        history.replaceState({}, "", url);
+        render();
+      }
+
+      document.addEventListener("keydown", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) return;
+        if (event.key === "ArrowLeft") { event.preventDefault(); cycle(-1); }
+        if (event.key === "ArrowRight") { event.preventDefault(); cycle(1); }
+      });
+
+      render();
+    </script>
+  </body>
+</html>
