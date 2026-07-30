@@ -56,6 +56,8 @@ import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
+import { SkillsManagerPrototype } from "./components/SkillsManagerPrototype";
+import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -201,7 +203,14 @@ export function App() {
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
   const [surface, setSurface] = useState<
-    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona" | "settings"
+    | "session"
+    | "scheduled"
+    | "integrations"
+    | "audit"
+    | "inbox"
+    | "persona"
+    | "settings"
+    | "skills-manager"
   >("session");
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
@@ -1108,6 +1117,7 @@ export function App() {
   const activeTitle = activeInfo?.title || "New session";
 
   const desktop = isTauri();
+  const skillsManagerPrototype = import.meta.env.DEV && new URLSearchParams(window.location.search).get("prototype") === "skills-manager";
   // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
   // tauri-overlay class + draws fake traffic lights at the real position) so the top-left can be
   // tuned in the preview without a DMG build. Never active in the real app (isTauri() short-circuits).
@@ -1120,6 +1130,10 @@ export function App() {
     if (!desktop || event.button !== 0) return;
     startWindowDrag();
   };
+
+  if (skillsManagerPrototype) {
+    return <SkillsManagerPrototype />;
+  }
 
   if (booting || !uiReady) {
     return (
@@ -1278,10 +1292,12 @@ export function App() {
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
+        onOpenSkillsManager={() => setSurface("skills-manager")}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
+        skillsManagerActive={surface === "skills-manager"}
         collapsed={navCollapsed}
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
@@ -1312,6 +1328,8 @@ export function App() {
           }
           onOpenIntegrations={() => setSurface("integrations")}
         />
+      ) : surface === "skills-manager" ? (
+        <SkillsManagerWorkspace />
       ) : (
       <div className={"main" + (surface === "session" && agent !== "chat" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">

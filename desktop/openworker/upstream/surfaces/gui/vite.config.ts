@@ -27,6 +27,11 @@ export default defineConfig(({ command }) => {
   return {
     base: "./",
     plugins: [react()],
+    resolve: {
+      alias: {
+        "@skills-manager": path.resolve(process.cwd(), "./src/skills-manager"),
+      },
+    },
     server: { port: 1420, strictPort: true },
     define: { __COWORKER_DEV_TOKEN__: JSON.stringify(devToken) },
     // Tauri CLI looks for these; harmless for the browser build.

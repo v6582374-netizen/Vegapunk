@@ -59,16 +59,32 @@ const baseProps = {
   onOpenIntegrations: vi.fn(),
   onOpenAudit: vi.fn(),
   onOpenInbox: vi.fn(),
+  onOpenSkillsManager: vi.fn(),
   scheduledActive: false,
   integrationsActive: false,
   auditActive: false,
   inboxActive: false,
+  skillsManagerActive: false,
 };
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+});
+
+describe("Skills Manager workspace", () => {
+  it("opens the complete Skills Manager from a dedicated top-level navigation entry", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skills Manager" }));
+
+    expect(baseProps.onOpenSkillsManager).toHaveBeenCalledOnce();
+  });
 });
 
 describe("Sidebar group/filter control", () => {
