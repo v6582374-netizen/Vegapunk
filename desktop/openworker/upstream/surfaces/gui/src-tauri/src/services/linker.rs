@@ -348,6 +348,10 @@ impl LinkerService {
                         };
                     }
 
+                    if matches!(resolved_target.try_exists(), Ok(false)) {
+                        return LinkStatus::Broken;
+                    }
+
                     // Fallback: canonicalized comparison to handle path normalization.
                     let canonical_target = resolved_target.canonicalize().ok();
                     let canonical_source = skill_source.canonicalize().ok();

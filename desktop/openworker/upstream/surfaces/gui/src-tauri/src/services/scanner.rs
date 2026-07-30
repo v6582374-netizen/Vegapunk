@@ -1095,4 +1095,57 @@ description: "Description from SKILL.md"
             assert_eq!(ids, vec!["brainstorming", "debugging", "my-top-skill"]);
         });
     }
+
+    #[test]
+    fn ticket_02_cursor_manifest_drift_does_not_create_or_hide_skills() {
+        with_temp_home(|home| {
+            let config = AppConfig::default();
+            let cursor_skills = home.join(".cursor").join("skills-cursor");
+            fs::create_dir_all(&cursor_skills).expect("create Cursor skills root");
+            fs::write(
+                cursor_skills.join(".cursor-managed-skills-manifest.json"),
+                r#"{"managedSkillIds":["create-skill","cursor-blame"]}"#,
+            )
+            .expect("write stale Cursor manifest");
+
+            for skill_id in ["create-skill", "review-changes"] {
+                let skill_dir = cursor_skills.join(skill_id);
+                fs::create_dir_all(&skill_dir).expect("create actual Cursor skill");
+                fs::write(
+                    skill_dir.join("SKILL.md"),
+                    format!("---\nname: {skill_id}\n---\n"),
+                )
+                .expect("write actual Cursor skill");
+            }
+
+            let skills = ScannerService::scan_skills_with_config(&cursor_skills, &config)
+                .expect("scan actual Cursor directory contents");
+            let ids: Vec<&str> = skills.iter().map(|skill| skill.id.as_str()).collect();
+
+            assert_eq!(ids, vec!["create-skill", "review-changes"]);
+            assert!(!ids.contains(&"cursor-blame"));
+        });
+    }
+
+    #[test]
+    fn ticket_02_malformed_codebase_memory_frontmatter_remains_discoverable() {
+        with_temp_home(|home| {
+            let config = AppConfig::default();
+            let skills_dir = home.join(".skills-manager").join("skills");
+            let skill_dir = skills_dir.join("codebase-memory");
+            fs::create_dir_all(&skill_dir).expect("create codebase-memory skill");
+            fs::write(
+                skill_dir.join("SKILL.md"),
+                "---\nname: codebase-memory\ndescription: Search code: preserve parser failures as inventory records\n---\n\n# Codebase Memory\n",
+            )
+            .expect("write malformed YAML frontmatter fixture");
+
+            let skills = ScannerService::scan_skills_with_config(&skills_dir, &config)
+                .expect("scan without strict YAML rejection");
+
+            assert_eq!(skills.len(), 1);
+            assert_eq!(skills[0].id, "codebase-memory");
+            assert_eq!(skills[0].name, "codebase-memory");
+        });
+    }
 }

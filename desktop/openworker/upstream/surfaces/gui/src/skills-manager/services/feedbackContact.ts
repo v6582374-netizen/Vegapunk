@@ -37,7 +37,7 @@ type FeedbackContactValidationResult =
     };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const WECHAT_REGEX = /^[a-zA-Z][-_a-zA-Z0-9]{5,19}$/;
+const WECHAT_REGEX = /^[a-zA-Z_][-_a-zA-Z0-9]{5,19}$/;
 const OTHER_CONTACT_REGEX = /^[^:：\s][^:：]{0,19}\s*[:：]\s*\S.{1,}$/;
 
 export function isFeedbackContactType(

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "skills-manager:css": "node scripts/build-skills-manager-css.mjs",
-    "skills-manager:test": "node --test src/skills-manager/lib/fontFamily.test.ts",
+    "skills-manager:test": "node --test \"src/skills-manager/**/*.test.ts\"",
     "skills-manager:verify": "node scripts/verify-skills-manager-copy.mjs",
     "preview": "vite preview",
     "test": "vitest run",

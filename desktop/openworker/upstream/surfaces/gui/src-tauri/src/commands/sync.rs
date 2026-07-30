@@ -71,12 +71,10 @@ fn create_sync_error(
     }
 }
 
-#[tauri::command]
-pub fn check_sync_status() -> Result<SyncReport, String> {
-    let config = ConfigManager::new().load()?;
-    let skills = ScannerService::scan_scoped_skills(&config)?;
+fn count_sync_issues(config: &crate::models::AppConfig) -> Result<usize, String> {
+    let skills = ScannerService::scan_scoped_skills(config)?;
 
-    let issues_count = collect_active_tool_configs(&config)
+    Ok(collect_active_tool_configs(config)
         .into_iter()
         .map(|(tool_id, tool_config)| {
             skills
@@ -89,7 +87,13 @@ pub fn check_sync_status() -> Result<SyncReport, String> {
                 })
                 .count()
         })
-        .sum();
+        .sum())
+}
+
+#[tauri::command]
+pub fn check_sync_status() -> Result<SyncReport, String> {
+    let config = ConfigManager::new().load()?;
+    let issues_count = count_sync_issues(&config)?;
 
     Ok(SyncReport { issues_count })
 }
@@ -159,10 +163,12 @@ pub fn fix_sync_issues() -> Result<LinkReport, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_active_tool_configs, should_report_sync_issue};
+    use super::{collect_active_tool_configs, count_sync_issues, should_report_sync_issue};
     use crate::models::{AppConfig, CustomToolConfig, ToolConfig};
     use crate::services::LinkStatus;
+    use crate::test_support::with_temp_home;
     use std::collections::HashMap;
+    use std::fs;
     use std::path::PathBuf;
 
     fn mk_tool(enabled: bool, detected: bool) -> ToolConfig {
@@ -207,5 +213,43 @@ mod tests {
         assert!(!should_report_sync_issue(false, LinkStatus::WrongTarget));
         // NotALink is external content we must never touch
         assert!(!should_report_sync_issue(false, LinkStatus::NotALink));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ticket_02_broken_kiro_and_trae_gh_axi_projections_remain_sync_issues() {
+        with_temp_home(|home| {
+            let skills_dir = home.join(".skills-manager").join("skills");
+            let gh_axi = skills_dir.join("gh-axi");
+            fs::create_dir_all(&gh_axi).expect("create central gh-axi skill");
+            fs::write(gh_axi.join("SKILL.md"), "# gh-axi\n").expect("write central skill");
+
+            let mut config = AppConfig {
+                skills_dir,
+                ..AppConfig::default()
+            };
+
+            for tool_id in ["kiro", "trae"] {
+                let config_path = home.join(format!(".{tool_id}"));
+                let tool_skills_dir = config_path.join("skills");
+                fs::create_dir_all(&tool_skills_dir).expect("create tool skills dir");
+                std::os::unix::fs::symlink(
+                    PathBuf::from("../../.agents/skills/gh-axi"),
+                    tool_skills_dir.join("gh-axi"),
+                )
+                .expect("create observed broken projection");
+                config.tools.insert(
+                    tool_id.to_string(),
+                    ToolConfig {
+                        enabled: true,
+                        detected: true,
+                        skills_path: tool_skills_dir,
+                        config_path,
+                    },
+                );
+            }
+
+            assert_eq!(count_sync_issues(&config).expect("count sync issues"), 2);
+        });
     }
 }

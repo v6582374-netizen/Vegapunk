@@ -1737,32 +1737,9 @@ pub fn start_usage_watcher(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::with_temp_home;
     use std::fs;
     use std::path::Path;
-
-    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn with_temp_home<F: FnOnce(&Path)>(f: F) {
-        let _guard = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!(
-            "sm-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().elapsed().unwrap().as_nanos()
-        ));
-        let _ = fs::create_dir_all(&tmp);
-        let old_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", &tmp);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&tmp)));
-        if let Some(old) = old_home {
-            std::env::set_var("HOME", old);
-        } else {
-            std::env::remove_var("HOME");
-        }
-        let _ = fs::remove_dir_all(&tmp);
-        if let Err(payload) = result {
-            std::panic::resume_unwind(payload);
-        }
-    }
 
     /// 写入一个 pending 事件文件
     fn write_pending_event(home: &Path, raw_json: &str, tool_id: &str, ts: i64) -> PathBuf {
