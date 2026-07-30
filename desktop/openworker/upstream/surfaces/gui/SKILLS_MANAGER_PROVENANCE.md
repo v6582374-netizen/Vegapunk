@@ -48,7 +48,7 @@ The verifier also proves that all 86 upstream Tauri commands are present in the 
 - Reason: The host uses Tailwind 3 while the copied module requires Tailwind 4.
 - Behavioral impact: The generated module stylesheet does not reset or recolor host UI.
 - Regression coverage: `npm run skills-manager:css`, the structured CSS scope check, and generated CSS SHA-256 verification cover this adaptation.
-- Upstream sync strategy: Regenerate `public/skills-manager.css` from the exact upstream `src/index.css` after every upstream sync.
+- Upstream sync strategy: Refresh `src/skills-manager/index.css` from upstream, reapply documented runtime adaptations, then regenerate `public/skills-manager.css`.
 
 ### `tauri-host-merge`
 
@@ -119,6 +119,13 @@ The verifier also proves that all 86 upstream Tauri commands are present in the 
 - Behavioral impact: All 29 inherited `node:test` files run while Vitest continues to exclude them.
 - Regression coverage: `npm run skills-manager:test` is the coverage for this adaptation.
 - Upstream sync strategy: Keep the recursive glob so newly added upstream `node:test` files enter the gate automatically.
+
+### `prototype-split-inventory-workspace`
+
+- Reason: The selected Wayfinder Variant A prototype defines the OpenWorker Skills workspace information hierarchy.
+- Behavioral impact: Real Skill and group records render in a persistent inventory-detail split while all upstream commands, dialogs, filters, grouping, batch actions, and Editor navigation remain available.
+- Regression coverage: `npm run build`, `npm run skills-manager:test`, and user-owned visual acceptance cover this adaptation.
+- Upstream sync strategy: Retain the upstream card renderer as a dormant sync baseline and reapply the inventory selection, detail projection, localized labels, and OpenWorker token styles after upstream Skills page updates.
 
 ## Verification
 

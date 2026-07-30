@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-07-30",
+    "scope": "app",
+    "macrostructure": "Split Inventory",
+    "theme": "existing OpenWorker tokens",
+    "enrichment": "none",
+    "brief": "Bring the production Skills inventory and detail surface back to the approved Wayfinder prototype"
+  },
+  {
     "date": "2026-07-26",
     "scope": "app",
     "macrostructure": "Workbench Field",

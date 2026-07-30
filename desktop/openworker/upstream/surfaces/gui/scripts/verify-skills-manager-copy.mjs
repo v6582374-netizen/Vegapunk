@@ -59,11 +59,11 @@ const ADAPTATIONS = [
   {
     id: "scoped-tailwind-4-bundle",
     upstream_scope: ["src/index.css", "Tailwind 4 source scanning"],
-    integrated_scope: ["src/skills-manager/index.css", "public/skills-manager.css"],
+    integrated_scope: ["src/skills-manager/index.css", "scripts/build-skills-manager-css.mjs", "public/skills-manager.css"],
     reason: "The host uses Tailwind 3 while the copied module requires Tailwind 4.",
     behavioral_impact: "The generated module stylesheet is isolated below .skills-manager-root and does not reset host UI.",
     regression_coverage: ["npm run skills-manager:css", "structured CSS scope verification", "generated CSS SHA-256 verification"],
-    upstream_sync_strategy: "Regenerate public/skills-manager.css from the exact upstream src/index.css after every upstream sync.",
+    upstream_sync_strategy: "Refresh src/skills-manager/index.css from upstream, reapply documented runtime adaptations, then regenerate public/skills-manager.css.",
   },
   {
     id: "tauri-host-merge",
@@ -154,6 +154,15 @@ const ADAPTATIONS = [
     behavioral_impact: "Every inherited node:test suite runs in the integration gate while Vitest continues to exclude node:test files.",
     regression_coverage: ["npm run skills-manager:test"],
     upstream_sync_strategy: "Keep the recursive test glob so newly added upstream node:test files enter the gate automatically.",
+  },
+  {
+    id: "prototype-split-inventory-workspace",
+    upstream_scope: ["src/pages/Skills.tsx expandable list and card inventory", "src/index.css Skills page styles"],
+    integrated_scope: ["src/skills-manager/pages/Skills.tsx", "src/skills-manager/index.css", "src/skills-manager/i18n/locales/en.ts", "src/skills-manager/i18n/locales/zh.ts", "public/skills-manager.css"],
+    reason: "The selected Wayfinder Variant A prototype defines the OpenWorker Skills workspace information hierarchy.",
+    behavioral_impact: "Real Skill and group records render in a persistent inventory-detail split while all upstream commands, dialogs, filters, grouping, batch actions, and Editor navigation remain available.",
+    regression_coverage: ["npm run build", "npm run skills-manager:test", "user-owned visual acceptance"],
+    upstream_sync_strategy: "Retain the upstream card renderer as a dormant sync baseline and reapply the inventory selection, detail projection, localized labels, and OpenWorker token styles after upstream Skills page updates.",
   },
 ];
 

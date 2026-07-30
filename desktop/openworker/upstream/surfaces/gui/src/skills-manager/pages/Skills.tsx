@@ -1,7 +1,20 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Check, ChevronRight, ExternalLink, Layers3, List, Minus, Sparkles } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  ExternalLink,
+  FileCode2,
+  Hash,
+  Layers3,
+  List,
+  Minus,
+  PackageOpen,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { confirm, open, save } from "@tauri-apps/plugin-dialog";
@@ -119,6 +132,7 @@ type SkillsListViewMode = "grouped" | "flat";
 
 const SKILLS_LIST_VIEW_MODE_KEY = "skills-manager:skills-list-view-mode:v2";
 const EXPANDED_SKILL_GROUPS_KEY = "skills-manager:expanded-skill-groups:v1";
+const USE_LEGACY_SKILL_CARD_VIEW = false;
 
 function loadSkillsListViewMode(): SkillsListViewMode {
   try {
@@ -141,6 +155,22 @@ function loadExpandedSkillGroups(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+function formatInventoryTimestamp(value: number | null | undefined, language: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const milliseconds = value < 1_000_000_000_000 ? value * 1000 : value;
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(milliseconds));
+}
+
+function shortenInventoryRevision(value: string): string {
+  return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value;
 }
 
 function getToolDisplayName(toolId: string, tools: Tool[]): string {
@@ -758,6 +788,7 @@ export function Skills() {
   const [initialLoading, setInitialLoading] = useState(() => skillsPageCache === null);
   const [refreshing, setRefreshing] = useState(false);
   const [skillListViewMode, setSkillListViewMode] = useState<SkillsListViewMode>(loadSkillsListViewMode);
+  const [selectedInventoryKey, setSelectedInventoryKey] = useState<string | null>(null);
   const [expandedSkillGroups, setExpandedSkillGroups] = useState<Set<string>>(loadExpandedSkillGroups);
   const [expandedCardKeys, setExpandedCardKeys] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -768,7 +799,7 @@ export function Skills() {
   const { toasts, addToast, updateToast, removeToast } = useToast();
   const skillMetadata = config?.skill_metadata;
   const favorites = useFavorites(skillMetadata);
-  const listContainerRef = useRef<HTMLElement | null>(null);
+  const listContainerRef = useRef<HTMLDivElement | null>(null);
   const hasRestoredScrollRef = useRef(false);
   const highlightTargetRef = useRef<HTMLDivElement | null>(null);
 
@@ -824,6 +855,16 @@ export function Skills() {
       addToast(err instanceof Error ? err.message : String(err), "error");
     }
   }, [config, navigate, addToast]);
+
+  const handleOpenInventoryEditor = useCallback((item: UnifiedSkillListItem) => {
+    if (!item.openPath) {
+      return;
+    }
+
+    const currentScrollOffset = listContainerRef.current?.scrollTop ?? 0;
+    saveSkillsListScrollOffset(currentScrollOffset);
+    navigate(`/editor?root=${encodeURIComponent(item.openPath)}`);
+  }, [navigate]);
 
   const loadRiskReports = useCallback(() => {
     invoke<Record<string, SkillRiskReport>>("get_risk_reports_batch")
@@ -1575,6 +1616,22 @@ export function Skills() {
     [sortedUnifiedItems],
   );
 
+  const inventoryItems = useMemo(() => {
+    if (skillListViewMode === "flat") {
+      return flatSkillItems;
+    }
+
+    return [
+      ...groupedSkillCollection.groups.flatMap((section) => [section.group, ...section.members]),
+      ...groupedSkillCollection.standaloneSkills,
+    ];
+  }, [flatSkillItems, groupedSkillCollection, skillListViewMode]);
+
+  const selectedInventoryItem = useMemo(
+    () => inventoryItems.find((item) => item.key === selectedInventoryKey) ?? inventoryItems[0] ?? null,
+    [inventoryItems, selectedInventoryKey],
+  );
+
   const hasVisibleSkillItems = skillListViewMode === "grouped"
     ? groupedSkillCollection.groups.length > 0 || groupedSkillCollection.standaloneSkills.length > 0
     : flatSkillItems.length > 0;
@@ -1591,6 +1648,15 @@ export function Skills() {
     if (!matched) return;
 
     setHighlightKey(matched.key);
+    setSelectedInventoryKey(matched.key);
+    const owningGroup = groupedSkillCollection.groupBySkillKey.get(matched.key);
+    if (owningGroup) {
+      setExpandedSkillGroups((current) => {
+        const next = new Set(current);
+        next.add(owningGroup.id);
+        return next;
+      });
+    }
     setSearchParams(
       (prev) => {
         prev.delete("highlight");
@@ -1598,7 +1664,7 @@ export function Skills() {
       },
       { replace: true },
     );
-  }, [searchParams, sortedUnifiedItems, initialLoading, setSearchParams]);
+  }, [groupedSkillCollection.groupBySkillKey, searchParams, sortedUnifiedItems, initialLoading, setSearchParams]);
 
   useEffect(() => {
     if (!highlightKey) return;
@@ -2803,10 +2869,24 @@ export function Skills() {
       ? translated.description || t("skills.noDescription")
       : item.description || t("skills.noDescription");
     const isSelected = selectedBatchItemKeys.has(item.key);
-    const isExpanded = expandedCardKeys.has(item.key);
+    const isExpanded = selectedInventoryItem?.key === item.key;
     const isHighlighted = highlightKey === item.key;
     const owningGroup = parentGroup ?? groupedSkillCollection.groupBySkillKey.get(item.key) ?? null;
     const riskReport = riskReports[skill.instance_id];
+    const inventoryStateTone = riskReport && riskReport.level !== "safe"
+      ? "warning"
+      : item.toolSummary?.state === "all"
+        ? "success"
+        : item.toolSummary?.state === "partial"
+          ? "warning"
+          : "muted";
+    const inventoryStateLabel = riskReport && riskReport.level !== "safe"
+      ? t(`settings.riskLevel${riskReport.level.charAt(0).toUpperCase() + riskReport.level.slice(1)}` as TranslationPath)
+      : item.toolSummary?.state === "all"
+        ? t("skills.inventoryLinked")
+        : item.toolSummary?.state === "partial"
+          ? t("skills.inventoryPartial")
+          : t("skills.inventoryUnlinked");
     const fileProgress = skillTranslationProgress[skill.instance_id];
     const fileProgressText = fileProgress
       ? t("editor.translateFilesCompact")
@@ -2822,7 +2902,7 @@ export function Skills() {
         className="skills-list-row-anchor"
       >
         <article
-          className={`skills-list-row${parentGroup ? " is-group-member" : ""}${isSelected ? " is-selected" : ""}${isHighlighted ? " is-highlighted" : ""}`}
+          className={`skills-list-row${parentGroup ? " is-group-member" : ""}${isSelected ? " is-selected" : ""}${isExpanded ? " is-active" : ""}${isHighlighted ? " is-highlighted" : ""}`}
         >
           <div className="skills-list-row-main">
             {isBatchManageMode && (
@@ -2836,14 +2916,14 @@ export function Skills() {
             <button
               type="button"
               className="skills-list-row-summary"
-              aria-expanded={isExpanded}
-              aria-label={t(isExpanded ? "skills.collapseSkillDetails" : "skills.expandSkillDetails")}
+              aria-current={isExpanded ? "true" : undefined}
+              aria-label={title}
               onClick={() => {
                 if (isBatchManageMode) {
                   handleToggleBatchItemSelection(item.key);
                   return;
                 }
-                handleToggleCardExpand(item.key);
+                setSelectedInventoryKey(item.key);
               }}
             >
               <span className="skills-list-row-icon" aria-hidden>
@@ -2871,27 +2951,10 @@ export function Skills() {
               </span>
 
               <span className="skills-list-row-tools">
-                {item.toolSummary?.state === "none" && <span>{t("skills.noToolsEnabled")}</span>}
-                {item.toolSummary?.state === "all" && <span>{t("skills.allEnabled")}</span>}
-                {item.toolSummary?.state === "partial" && (
-                  <>
-                    <span className="skills-list-row-tool-icons">
-                      {item.toolSummary.visibleEnabledToolIds.map((toolId) => (
-                        <ToolIconChip
-                          key={toolId}
-                          toolId={toolId}
-                          tools={tools}
-                          size={14}
-                          enabled
-                          detected={toolsById.get(toolId)?.detected ?? false}
-                        />
-                      ))}
-                    </span>
-                    <span className="skills-list-row-tool-count">
-                      {item.toolSummary.enabledCount}/{item.toolSummary.totalCount}
-                    </span>
-                  </>
-                )}
+                <span className="skills-inventory-status" data-tone={inventoryStateTone}>
+                  <i aria-hidden />
+                  <span>{inventoryStateLabel}</span>
+                </span>
               </span>
 
               <ChevronRight
@@ -2966,7 +3029,7 @@ export function Skills() {
             )}
           </div>
 
-          {isExpanded && !isBatchManageMode && (
+          {USE_LEGACY_SKILL_CARD_VIEW && isExpanded && !isBatchManageMode && (
             <div className="skills-list-row-details">
               <div>
                 <span className="skills-detail-label">{t("skills.skillDescription")}</span>
@@ -3016,10 +3079,19 @@ export function Skills() {
     const enabledGroupTools = Object.values(groupItem.groupToolStateById ?? {})
       .filter((state) => state.anyEnabled)
       .sort((left, right) => Number(right.fullyEnabled) - Number(left.fullyEnabled));
+    const groupToolStates = Object.values(groupItem.groupToolStateById ?? {});
+    const groupFullyLinked = groupToolStates.length > 0 && groupToolStates.every((state) => state.fullyEnabled);
+    const groupPartiallyLinked = !groupFullyLinked && groupToolStates.some((state) => state.anyEnabled);
+    const groupStateTone = groupFullyLinked ? "success" : groupPartiallyLinked ? "warning" : "muted";
+    const groupStateLabel = groupFullyLinked
+      ? t("skills.inventoryLinked")
+      : groupPartiallyLinked
+        ? t("skills.inventoryPartial")
+        : t("skills.inventoryUnlinked");
 
     return (
       <section key={groupItem.key} className={`skills-group-section${isSelected ? " is-selected" : ""}`}>
-        <div className="skills-group-header">
+        <div className={`skills-group-header${selectedInventoryItem?.key === groupItem.key ? " is-active" : ""}`}>
           {isBatchManageMode && (
             <SelectionIndicator
               checked={isSelected}
@@ -3029,25 +3101,36 @@ export function Skills() {
             />
           )}
 
+          {!isBatchManageMode && (
+            <button
+              type="button"
+              className="skills-group-disclosure"
+              aria-expanded={isExpanded}
+              aria-label={t(isExpanded ? "skills.collapseGroup" : "skills.expandGroup")}
+              onClick={() => handleToggleSkillGroup(groupItem.id)}
+            >
+              <ChevronRight
+                className={`skills-group-chevron${isExpanded ? " is-expanded" : ""}`}
+                size={17}
+                strokeWidth={2.2}
+                aria-hidden
+              />
+            </button>
+          )}
+
           <button
             type="button"
             className="skills-group-summary"
-            aria-expanded={isExpanded}
-            aria-label={t(isExpanded ? "skills.collapseGroup" : "skills.expandGroup")}
+            aria-current={selectedInventoryItem?.key === groupItem.key ? "true" : undefined}
+            aria-label={groupItem.title}
             onClick={() => {
               if (isBatchManageMode) {
                 handleToggleBatchItemSelection(groupItem.key);
                 return;
               }
-              handleToggleSkillGroup(groupItem.id);
+              setSelectedInventoryKey(groupItem.key);
             }}
           >
-            <ChevronRight
-              className={`skills-group-chevron${isExpanded ? " is-expanded" : ""}`}
-              size={17}
-              strokeWidth={2.2}
-              aria-hidden
-            />
             <span className="skills-group-icon" aria-hidden><Layers3 size={17} strokeWidth={1.8} /></span>
             <span className="skills-group-copy">
               <span className="skills-group-title-line">
@@ -3065,6 +3148,10 @@ export function Skills() {
                   </span>
                 )}
               </span>
+            </span>
+            <span className="skills-inventory-status skills-group-inventory-status" data-tone={groupStateTone}>
+              <i aria-hidden />
+              <span>{groupStateLabel}</span>
             </span>
           </button>
 
@@ -3116,6 +3203,318 @@ export function Skills() {
             )}
           </div>
         )}
+      </section>
+    );
+  };
+
+  const renderInventoryDetail = () => {
+    const item = selectedInventoryItem;
+    if (!item) {
+      return (
+        <section className="skills-workbench-detail is-empty">
+          <PackageOpen size={24} strokeWidth={1.6} aria-hidden />
+          <strong>{t("skills.inventoryNoSelection")}</strong>
+          <span>{t("skills.inventoryNoSelectionHint")}</span>
+        </section>
+      );
+    }
+
+    const skill = item.skill ?? null;
+    const skillPackage = item.skillPackage ?? null;
+    const translationKey = skill ? makeTranslationKey(skill.instance_id, language) : null;
+    const translated = translationKey ? translation.getTranslation(translationKey) : null;
+    const showingTranslation = Boolean(
+      translationKey && translated && translation.getView(translationKey) === "translated",
+    );
+    const detailTitle = showingTranslation && translated ? translated.name : item.title;
+    const detailDescription = showingTranslation && translated
+      ? translated.description || t("skills.noDescription")
+      : item.description || (skillPackage
+        ? t("skills.inventoryGroupDescription").replace(
+            "{count}",
+            String(skillPackage.installed_members.length),
+          )
+        : t("skills.noDescription"));
+    const groupMembers = skillPackage ? getGroupMemberSkills(skillPackage, skills) : [];
+    const detailRiskReports = skill
+      ? [riskReports[skill.instance_id]].filter((report): report is SkillRiskReport => Boolean(report))
+      : groupMembers
+          .map((member) => riskReports[member.instance_id])
+          .filter((report): report is SkillRiskReport => Boolean(report));
+    const riskRank: Record<SkillRiskReport["level"], number> = {
+      safe: 0,
+      low: 1,
+      medium: 2,
+      high: 3,
+      critical: 4,
+    };
+    const highestRiskReport = detailRiskReports.reduce<SkillRiskReport | null>(
+      (highest, report) => !highest || riskRank[report.level] > riskRank[highest.level] ? report : highest,
+      null,
+    );
+    const findingCount = detailRiskReports.reduce((count, report) => count + report.findings.length, 0);
+    const detailUsage = skill
+      ? usageStats[skill.id]
+      : groupMembers.reduce<SkillUsageStats>(
+          (summary, member) => {
+            const memberUsage = usageStats[member.id];
+            if (!memberUsage) {
+              return summary;
+            }
+
+            summary.total += memberUsage.total;
+            summary.last_called_at = Math.max(
+              summary.last_called_at ?? 0,
+              memberUsage.last_called_at ?? 0,
+            ) || null;
+            return summary;
+          },
+          { total: 0, by_tool: {}, last_called_at: null },
+        );
+    const sourceTranslationKey: TranslationPath = skill
+      ? ({
+          local: "skills.inventorySourceLocal",
+          imported: "skills.inventorySourceImported",
+          marketplace: "skills.inventorySourceMarketplace",
+          vault: "skills.inventorySourceVault",
+        } as const)[skill.source]
+      : "skills.inventorySourcePackage";
+    const revision = skillPackage?.manifest_hash
+      ?? skill?.marketplace_meta?.remote_revision
+      ?? (skill?.version ? `v${skill.version}` : null);
+    const updatedAt = formatInventoryTimestamp(skillPackage?.updated_at, language);
+    const scanTime = formatInventoryTimestamp(highestRiskReport?.scanned_at, language);
+    const lastUsedAt = formatInventoryTimestamp(detailUsage?.last_called_at, language);
+    const editorPath = item.openPath
+      ? `${item.openPath.replace(/\/$/, "")}${skill ? "/SKILL.md" : ""}`
+      : null;
+
+    return (
+      <section className="skills-workbench-detail" aria-label={`${detailTitle} ${t("skills.inventoryDetails")}`}>
+        <div className="skills-detail-identity">
+          <div className="skills-detail-heading-copy">
+            <div className="skills-detail-badges">
+              <span>{t(sourceTranslationKey)}</span>
+              {item.scopeLabel && (
+                <span className={item.scopeLabel === "project" ? "is-project" : undefined}>
+                  {item.scopeLabel === "project"
+                    ? activeProjectName ?? t("skills.scopeProject")
+                    : t("skills.scopeGlobal")}
+                </span>
+              )}
+              {skillPackage && <span>{t("skills.groupBadge")}</span>}
+            </div>
+            <h2>{detailTitle}</h2>
+            <p>{detailDescription}</p>
+          </div>
+
+          <div className="skills-detail-heading-actions">
+            {skill && (
+              <>
+                <FavoriteIconButton
+                  favorited={favorites.isSkillFavorite(skill.instance_id)}
+                  onClick={(event) => void handleToggleFavorite(skill.instance_id, detailTitle, event)}
+                  favoriteLabel={t("skills.favoriteAction")}
+                  unfavoriteLabel={t("skills.unfavoriteAction")}
+                  size={30}
+                />
+                <TranslateIconButton
+                  hasTranslation={translated != null}
+                  showingTranslation={showingTranslation}
+                  translating={translatingIds.has(skill.instance_id)}
+                  translateLabel={t("skills.translateAction")}
+                  showOriginalLabel={t("skills.showOriginal")}
+                  showTranslationLabel={t("skills.showTranslated")}
+                  translatingLabel={t("skills.translating")}
+                  retranslateLabel={t("skills.retranslate")}
+                  onClick={() => {
+                    if (translated && translationKey) {
+                      translation.setView(translationKey, showingTranslation ? "original" : "translated");
+                    } else {
+                      void handleTranslateSkill(skill);
+                    }
+                  }}
+                  onRetranslate={() => void handleTranslateSkill(skill, true)}
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="skills-detail-command-row">
+          <button
+            type="button"
+            className="skills-detail-command is-primary"
+            onClick={() => skill
+              ? openSkillEditor(skill.instance_id, "tools")
+              : openGroupEditor(item.id)}
+          >
+            <Wrench size={14} strokeWidth={2} aria-hidden />
+            <span>{t("skills.configureTools")}</span>
+          </button>
+          {item.openPath && (
+            <button
+              type="button"
+              className="skills-detail-command"
+              onClick={() => handleOpenInventoryEditor(item)}
+            >
+              <FileCode2 size={14} strokeWidth={2} aria-hidden />
+              <span>{t("skills.openEditor")}</span>
+            </button>
+          )}
+          <SkillCardActionMenu
+            deleting={skill
+              ? deletingSkill === skill.instance_id
+              : deletingGroupId === item.id}
+            editLabel={t("skills.configureTools")}
+            deleteLabel={t("skills.delete")}
+            moreActionsLabel={t("skills.moreActions")}
+            onEdit={() => skill
+              ? openSkillEditor(skill.instance_id, "tools")
+              : openGroupEditor(item.id)}
+            onDelete={() => skill
+              ? void handleDelete(skill)
+              : void handleDeleteGroup(item)}
+          />
+        </div>
+
+        <div className="skills-detail-data-grid">
+          <section className="skills-detail-data-card is-source">
+            <div className="skills-detail-card-title">
+              <Hash size={14} strokeWidth={1.8} aria-hidden />
+              <span>{t("skills.inventoryCentralSource")}</span>
+            </div>
+            <code className="skills-detail-source-path">
+              {item.openPath ?? t("skills.inventoryNotReported")}
+            </code>
+            <dl className="skills-detail-facts">
+              <div>
+                <dt>{t("skills.inventorySource")}</dt>
+                <dd>{t(sourceTranslationKey)}</dd>
+              </div>
+              <div>
+                <dt>{t("settings.version")}</dt>
+                <dd>{skillPackage?.version ?? skill?.version ?? t("skills.inventoryNotReported")}</dd>
+              </div>
+              <div>
+                <dt>{t("skills.inventoryRevision")}</dt>
+                <dd title={revision ?? undefined}>
+                  {revision ? shortenInventoryRevision(revision) : t("skills.inventoryNotReported")}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("skills.inventoryUpdated")}</dt>
+                <dd>{updatedAt ?? t("skills.inventoryNotReported")}</dd>
+              </div>
+              <div>
+                <dt>{t("skills.inventoryUsage")}</dt>
+                <dd>{t("skills.callsCount").replace("{count}", String(detailUsage?.total ?? 0))}</dd>
+              </div>
+              <div>
+                <dt>{t("skills.inventoryLastUsed")}</dt>
+                <dd>{lastUsedAt ?? t("skills.inventoryNeverUsed")}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="skills-detail-data-card is-targets">
+            <div className="skills-detail-card-title">
+              <Wrench size={14} strokeWidth={1.8} aria-hidden />
+              <span>{t("skills.inventoryToolTargets")}</span>
+            </div>
+            {toolIds.length === 0 ? (
+              <div className="skills-detail-inline-empty">{t("skills.inventoryNoTools")}</div>
+            ) : (
+              <div className="skills-detail-target-list">
+                {toolIds.map((toolId) => {
+                  const tool = toolsById.get(toolId);
+                  const groupState = item.groupToolStateById?.[toolId];
+                  const enabled = skill
+                    ? Boolean(skill.enabled[toolId])
+                    : Boolean(groupState?.fullyEnabled);
+                  const partial = Boolean(!skill && groupState?.anyEnabled && !groupState.fullyEnabled);
+                  const unavailable = !tool?.detected || !tool.config.enabled;
+                  const pending = skill
+                    ? togglingSkill === `${skill.instance_id}:${toolId}`
+                    : togglingGroupToolKey === `${item.id}:${toolId}`;
+                  const stateLabel = unavailable
+                    ? t("skills.inventoryUnavailable")
+                    : partial
+                      ? t("skills.inventoryPartial")
+                      : enabled
+                        ? t("skills.inventoryLinked")
+                        : t("skills.inventoryUnlinked");
+
+                  return (
+                    <div key={toolId} className="skills-detail-target-row">
+                      <ToolIconChip
+                        toolId={toolId}
+                        tools={tools}
+                        size={16}
+                        enabled={enabled || partial}
+                        detected={tool?.detected ?? false}
+                      />
+                      <div>
+                        <strong>{getToolDisplayName(toolId, tools)}</strong>
+                        <span data-tone={unavailable ? "muted" : partial ? "warning" : enabled ? "success" : "muted"}>
+                          {stateLabel}
+                          {groupState && ` ${groupState.enabledMemberCount}/${groupState.memberCount}`}
+                        </span>
+                      </div>
+                      <Toggle
+                        checked={enabled}
+                        disabled={unavailable || pending}
+                        title={stateLabel}
+                        onChange={(nextEnabled) => skill
+                          ? void handleToggle(skill.instance_id, skill.name, toolId, nextEnabled)
+                          : void handleGroupToggle(item, toolId, nextEnabled)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+
+        <section className="skills-detail-editor-entry">
+          <span className="skills-detail-editor-icon" aria-hidden>
+            <FileCode2 size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <strong>{t("skills.inventoryEditorTitle")}</strong>
+            <p>{t("skills.inventoryEditorDescription")}</p>
+            {editorPath && <code>{editorPath}</code>}
+          </div>
+          {item.openPath && (
+            <button type="button" onClick={() => handleOpenInventoryEditor(item)}>
+              <span>{t("skills.openEditor")}</span>
+              <ChevronRight size={13} strokeWidth={2} aria-hidden />
+            </button>
+          )}
+        </section>
+
+        <section className={`skills-detail-safety risk-${highestRiskReport?.level ?? "unknown"}`}>
+          <span className="skills-detail-safety-icon" aria-hidden>
+            <ShieldCheck size={16} strokeWidth={1.8} />
+          </span>
+          <div>
+            <strong>{t("skills.inventorySafety")}</strong>
+            <p>
+              {highestRiskReport
+                ? `${t(`settings.riskLevel${highestRiskReport.level.charAt(0).toUpperCase() + highestRiskReport.level.slice(1)}` as TranslationPath)} · ${t("skills.inventoryFindingsCount").replace("{count}", String(findingCount))}`
+                : t("skills.inventoryNotScanned")}
+            </p>
+            {highestRiskReport?.findings[0] && <span>{highestRiskReport.findings[0].message}</span>}
+          </div>
+          {scanTime && <time>{scanTime}</time>}
+        </section>
+
+        <footer className="skills-detail-command-boundary">
+          <span>{t("skills.inventoryCommandBoundary")}</span>
+          <code>Skills Manager Rust service</code>
+          <strong>{t("skills.inventoryCommandReady")}</strong>
+        </footer>
       </section>
     );
   };
@@ -3531,15 +3930,13 @@ export function Skills() {
       />
 
       <main
-        ref={listContainerRef}
-        className="page-main"
+        className="page-main skills-workbench-page"
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: "auto",
         }}
       >
-        <div style={{ maxWidth: "1600px", margin: "0 auto" }}>
+        <div className="skills-workbench-shell">
           <div className="skills-view-toolbar">
             <div className="skills-view-switch" role="group" aria-label={t("skills.title")}>
               <button
@@ -3566,7 +3963,7 @@ export function Skills() {
             <div className="skills-view-summary" aria-live="polite">
               {skillListViewMode === "grouped"
                 ? `${groupedSkillCollection.groups.length} ${t("skills.skillGroupsSection")} · ${groupedSkillCollection.standaloneSkills.length} ${t("skills.standaloneSkillsSection")}`
-                : `${flatSkillItems.length} Skills`}
+                : t("skills.inventorySkillsCount").replace("{count}", String(flatSkillItems.length))}
             </div>
           </div>
 
@@ -3673,20 +4070,23 @@ export function Skills() {
               </div>
             </div>
           )}
+
+          <div className="skills-workbench">
+            <section className="skills-workbench-inventory" aria-label={t("skills.inventoryTitle")}>
+              <header className="skills-workbench-inventory-head">
+                <div>
+                  <span>{t("skills.inventoryTitle")}</span>
+                  <strong>{t("skills.inventoryRecordCount").replace("{count}", String(inventoryItems.length))}</strong>
+                </div>
+                <span>{hasActiveSkillFilters ? t("skills.inventoryFiltered") : t("skills.inventoryLocal")}</span>
+              </header>
+              <div ref={listContainerRef} className="skills-workbench-inventory-scroll">
           {!hasVisibleSkillItems ? (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '64px 24px',
-              textAlign: 'center',
-              gap: 12,
-            }}>
-              <div style={{ fontSize: 32, color: 'var(--ember)', opacity: 0.5 }}>✦</div>
-              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--foreground)' }}>
+            <div className="skills-workbench-empty">
+              <Sparkles size={24} strokeWidth={1.6} aria-hidden />
+              <strong>
                 {hasActiveSkillFilters ? t("skills.noMatch") : t("skills.noSkills")}
-              </div>
+              </strong>
             </div>
           ) : skillListViewMode === "grouped" ? (
             <div className="skills-grouped-list">
@@ -3714,7 +4114,7 @@ export function Skills() {
                 </section>
               )}
             </div>
-          ) : (
+          ) : USE_LEGACY_SKILL_CARD_VIEW ? (
             <div className="card-grid">
               {flatSkillItems.map((item) => {
                 const color = getSkillColor(item.title);
@@ -4304,7 +4704,20 @@ export function Skills() {
                 );
               })}
             </div>
+          ) : (
+            <div className="skills-standalone-list is-flat-inventory">
+              {flatSkillItems.map((item) => renderSkillListRow(item))}
+            </div>
           )}
+              </div>
+              <footer className="skills-workbench-inventory-foot">
+                <span>{t(skillListViewMode === "grouped" ? "skills.inventoryGroupingHint" : "skills.inventoryFlatHint")}</span>
+                <strong>{inventoryItems.length}</strong>
+              </footer>
+            </section>
+
+            {renderInventoryDetail()}
+          </div>
         </div>
       </main>
 

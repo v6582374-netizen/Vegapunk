@@ -78,6 +78,7 @@
       ],
       "integrated_scope": [
         "src/skills-manager/index.css",
+        "scripts/build-skills-manager-css.mjs",
         "public/skills-manager.css"
       ],
       "reason": "The host uses Tailwind 3 while the copied module requires Tailwind 4.",
@@ -87,7 +88,7 @@
         "structured CSS scope verification",
         "generated CSS SHA-256 verification"
       ],
-      "upstream_sync_strategy": "Regenerate public/skills-manager.css from the exact upstream src/index.css after every upstream sync."
+      "upstream_sync_strategy": "Refresh src/skills-manager/index.css from upstream, reapply documented runtime adaptations, then regenerate public/skills-manager.css."
     },
     {
       "id": "tauri-host-merge",
@@ -252,6 +253,28 @@
         "npm run skills-manager:test"
       ],
       "upstream_sync_strategy": "Keep the recursive test glob so newly added upstream node:test files enter the gate automatically."
+    },
+    {
+      "id": "prototype-split-inventory-workspace",
+      "upstream_scope": [
+        "src/pages/Skills.tsx expandable list and card inventory",
+        "src/index.css Skills page styles"
+      ],
+      "integrated_scope": [
+        "src/skills-manager/pages/Skills.tsx",
+        "src/skills-manager/index.css",
+        "src/skills-manager/i18n/locales/en.ts",
+        "src/skills-manager/i18n/locales/zh.ts",
+        "public/skills-manager.css"
+      ],
+      "reason": "The selected Wayfinder Variant A prototype defines the OpenWorker Skills workspace information hierarchy.",
+      "behavioral_impact": "Real Skill and group records render in a persistent inventory-detail split while all upstream commands, dialogs, filters, grouping, batch actions, and Editor navigation remain available.",
+      "regression_coverage": [
+        "npm run build",
+        "npm run skills-manager:test",
+        "user-owned visual acceptance"
+      ],
+      "upstream_sync_strategy": "Retain the upstream card renderer as a dormant sync baseline and reapply the inventory selection, detail projection, localized labels, and OpenWorker token styles after upstream Skills page updates."
     }
   ],
   "verification": {
@@ -350,7 +373,7 @@
     "css_scope": {
       "path": "public/skills-manager.css",
       "root_selector": ".skills-manager-root",
-      "checked_selectors": 464
+      "checked_selectors": 625
     }
   },
   "supplemental_integrated_files": [
@@ -3530,7 +3553,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/i18n/locales/en.ts",
-          "sha256": "dd5d7bcb15ac7fe9b895daaaf38819d6fb83cd5853826c059e9480772643ba1a"
+          "sha256": "5a9abdf74eb42182317535c23f5cc736339f58281ac86ae6f447245f45d3fe76"
         }
       ]
     },
@@ -3547,7 +3570,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/i18n/locales/zh.ts",
-          "sha256": "f3ebbf1b5e45452d7e49ef66cf8d1cfe9333e1287737241a095d593d10090045"
+          "sha256": "58170413a8daab94bfa0e97aee4bad35c15eaca0a726004de8dcedf81b546c7a"
         }
       ]
     },
@@ -3565,11 +3588,11 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/index.css",
-          "sha256": "4b0ec4b9d87eb7652cb5a915a4b54cec1e04e01bf00abecb7157d27e32a99c18"
+          "sha256": "3a8bf5a28312a4cbb1e58e4233ecf9d16cad5c546efe26e7c26005279dcb745b"
         },
         {
           "path": "public/skills-manager.css",
-          "sha256": "cbe4ea75b3d8d1c946312496d94c45de402338fc3a31144ee6768e99d4bf4c97"
+          "sha256": "5c9c43ffc565cc9164f4dfb849a387ff47be94b7a3bbd622ca3badd03a2137a3"
         }
       ]
     },
@@ -3739,7 +3762,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Skills.tsx",
-          "sha256": "c7d42c06db6092bd4071dd9cf13d881d03420abe69ef19c9ec5a1bb8d37b9550"
+          "sha256": "c21c19fa093b4aa43bfc399bbef4aa2cd93b9a0ec41d50a76af34bf42367a316"
         }
       ]
     },

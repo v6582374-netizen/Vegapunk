@@ -8,7 +8,7 @@ import prefixSelector from "postcss-prefix-selector";
 
 const projectRoot = process.cwd();
 const upstreamRoot = path.join(projectRoot, "skills-manager-upstream");
-const sourcePath = path.join(upstreamRoot, "src", "index.css");
+const sourcePath = path.join(projectRoot, "src", "skills-manager", "index.css");
 const outputPath = path.join(projectRoot, "public", "skills-manager.css");
 const tailwindRequire = createRequire(
   path.join(projectRoot, "node_modules", "@tailwindcss", "postcss", "package.json"),
