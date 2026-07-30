@@ -1,6 +1,6 @@
 # Design - Vegapunk
 
-This is the locked visual system for the Unified Workspace.
+This is the locked visual system for the Desktop App workspace.
 Future visual work must extend this system intentionally instead of introducing a second identity language.
 
 ## Genre
@@ -22,7 +22,7 @@ Modern-minimal research workbench.
 
 ## Canonical tokens
 
-`frontend/tokens.css` is the source of truth.
+The Desktop App's visual tokens are maintained in its own GUI source tree. The legacy root `frontend/tokens.css` file is no longer an active source of truth.
 
 ```css
 :root {
@@ -78,5 +78,4 @@ Modern-minimal research workbench.
 
 ## Exports
 
-This Vite application consumes the canonical `frontend/tokens.css` directly.
-Tailwind, DTCG, and shadcn/ui exports are intentionally deferred until the project adopts one of those token consumers.
+The Desktop App consumes its GUI-local styling and token sources. Root-level Web/Vite token exports are intentionally retired now that the product UI is Desktop-first.

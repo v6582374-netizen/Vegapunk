@@ -1,5 +1,7 @@
 # End-User Frontend V1 API Contract Inventory
 
+> Historical research record. This browser-oriented contract is retained for audit context only; the active product UI is the OpenWorker Desktop App.
+
 ## Scope
 
 This inventory covers the current HTTP, SSE, upload, and artifact surfaces relevant to Deep Research Runs and Discovery Launches.
@@ -188,7 +190,7 @@ That ticket should define the smallest local-only, unauthenticated, sole-researc
 - [`admin_console/live.py`](../../admin_console/live.py#L59) defines the raw log-line SSE generator.
 - [`admin_console/artifacts.py`](../../admin_console/artifacts.py#L18) defines launch and artifact path containment.
 - [`admin_console/structured_views.py`](../../admin_console/structured_views.py#L27) defines timeline and Experiment Run projections.
-- [`admin_console/frontend/src/api.ts`](../../admin_console/frontend/src/api.ts#L1) records the current Admin frontend's assumed response shapes.
+- The retired root Web Admin frontend's assumed response shapes were previously recorded in `frontend/src/shared/adminApi.ts`; that source has been removed as part of the Desktop-first transition.
 - [`sci_tasks/evaluation/server.py`](../../sci_tasks/evaluation/server.py#L173) defines the separate benchmark evaluation server.
 
 The focused Admin API suite passed 37 tests with `python -m unittest` after replacing a timing sleep in the force-kill test with runner-readiness synchronization.

@@ -1,5 +1,7 @@
 # End-User Frontend V1 Decision Map
 
+> Historical research record. The planned browser-based End-User Frontend V1 was not retained as the active product surface; implementation focus is now the OpenWorker Desktop App.
+
 This map defines a deployable researcher-facing frontend without changing Vegapunk's research, experiment, queue, model, or GPU logic.
 The existing Admin Console remains an independent developer tool.
 

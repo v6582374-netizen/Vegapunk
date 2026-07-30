@@ -1,4 +1,6 @@
-Status: accepted
+Status: superseded by the Desktop-first product direction
+
+> Historical ADR. The root `frontend/` Web workspace described here has been retired. The active product UI is the OpenWorker Desktop App; this record is retained to explain the earlier same-origin Web architecture.
 
 # Unify the Researcher Workspace and Admin Console Frontends
 

@@ -1,5 +1,7 @@
 # End-User Frontend V1 Product API Contract
 
+> Historical research record. This browser-oriented contract is retained for audit context only; the active product UI is the OpenWorker Desktop App.
+
 ## Decision
 
 Version 1 adds a separate product facade under `/api/v1`.

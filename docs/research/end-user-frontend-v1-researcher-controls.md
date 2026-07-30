@@ -1,5 +1,7 @@
 # End-User Frontend V1 Researcher Controls
 
+> Historical research record. These browser-oriented controls are retained for audit context only; the active product UI is the OpenWorker Desktop App.
+
 ## Decision
 
 Version 1 exposes only settings that express a researcher's intent and already flow through the current runtime.

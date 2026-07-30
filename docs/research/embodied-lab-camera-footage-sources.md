@@ -11,15 +11,17 @@
 
 ## 当前应用内的派生 GIF
 
+这些素材原先作为已退休根 Web 工作台的演示资源。根 Web 前端已移除；本记录保留来源、授权和改动说明，供未来 Desktop App 重新接入时复用。
+
 四段 GIF 均由下列原始媒体中截取可循环的 5 秒片段，缩放为 800 × 450、10 fps、50 帧，并以静音循环方式嵌入。
 派生处理仅包括片段裁切、尺寸缩放、帧率调整和 GIF 转码，不改变原始画面内容或表达含义。
 
-| 应用文件 | 界面机位 | 原始来源 | 授权与署名 |
+| 已退役 Web 应用文件（历史路径） | 界面机位 | 原始来源 | 授权与署名 |
 | --- | --- | --- | --- |
-| `frontend/public/embodied/lab-main.gif` | C-01 主机位 / 样本制备站 | [R1 样品制备机械臂 WebM](https://upload.wikimedia.org/wikipedia/commons/0/0f/Robot_arm_R1_operation_of_the_autonomous_laboratory_for_the_accelerated_synthesis_of_novel_materials_%28handling_powders_and_slurries_in_the_sample_preparation_station%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
-| `frontend/public/embodied/lab-overhead.gif` | C-02 高位总览 / 样品转移台 | [R2 坩埚转移机械臂 WebM](https://upload.wikimedia.org/wikipedia/commons/1/18/Robot_arm_R2_operation_of_the_autonomous_laboratory_for_the_accelerated_synthesis_of_novel_materials_%28moving_crucibles%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
-| `frontend/public/embodied/lab-close.gif` | C-03 操作近景 / 精密处理单元 | [R3 UR5e 与 X 射线衍射仪 WebM](https://upload.wikimedia.org/wikipedia/commons/e/ef/Robot_arm_R3_%28UR5e%29_retrieving_powder_samples_%28post-annealing%29_and_cooperating_with_an_Aeris_X-ray_diffractometer_for_their_characterization_%28autonomous_lab%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
-| `frontend/public/embodied/lab-wide.gif` | C-04 环境广角 / 工程测试场 | [NASA JPL Perseverance 测试车库 MP4](https://images-assets.nasa.gov/video/JPL-20201006-M2020f-0001-Twin%20Rover%20Gets%20to%20Work/JPL-20201006-M2020f-0001-Twin%20Rover%20Gets%20to%20Work~mobile.mp4) | NASA/JPL-Caltech，已裁切与循环转码，仅作展示用途，不暗示 NASA 背书。 |
+| `frontend/public/embodied/lab-main.gif`（已退役） | C-01 主机位 / 样本制备站 | [R1 样品制备机械臂 WebM](https://upload.wikimedia.org/wikipedia/commons/0/0f/Robot_arm_R1_operation_of_the_autonomous_laboratory_for_the_accelerated_synthesis_of_novel_materials_%28handling_powders_and_slurries_in_the_sample_preparation_station%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
+| `frontend/public/embodied/lab-overhead.gif`（已退役） | C-02 高位总览 / 样品转移台 | [R2 坩埚转移机械臂 WebM](https://upload.wikimedia.org/wikipedia/commons/1/18/Robot_arm_R2_operation_of_the_autonomous_laboratory_for_the_accelerated_synthesis_of_novel_materials_%28moving_crucibles%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
+| `frontend/public/embodied/lab-close.gif`（已退役） | C-03 操作近景 / 精密处理单元 | [R3 UR5e 与 X 射线衍射仪 WebM](https://upload.wikimedia.org/wikipedia/commons/e/ef/Robot_arm_R3_%28UR5e%29_retrieving_powder_samples_%28post-annealing%29_and_cooperating_with_an_Aeris_X-ray_diffractometer_for_their_characterization_%28autonomous_lab%29.webm) | Nathan J. Szymanski 等，CC BY 4.0，via Wikimedia Commons，已裁切与循环转码。 |
+| `frontend/public/embodied/lab-wide.gif`（已退役） | C-04 环境广角 / 工程测试场 | [NASA JPL Perseverance 测试车库 MP4](https://images-assets.nasa.gov/video/JPL-20201006-M2020f-0001-Twin%20Rover%20Gets%20to%20Work/JPL-20201006-M2020f-0001-Twin%20Rover%20Gets%20to%20Work~mobile.mp4) | NASA/JPL-Caltech，已裁切与循环转码，仅作展示用途，不暗示 NASA 背书。 |
 
 ## 授权与使用边界
 

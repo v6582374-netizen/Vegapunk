@@ -1,3 +1,7 @@
+Status: superseded by the Desktop-first product direction
+
+> Historical ADR. The browser-based Unified Workspace described here was the retired root Web frontend. The active product UI is now the OpenWorker Desktop App.
+
 # Replace role-separated frontends with a unified workspace
 
 Vegapunk will replace its separate researcher and administrator browser surfaces with one local Unified Workspace.

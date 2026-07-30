@@ -144,7 +144,7 @@ launch_dossier.py                    # 历史 Launch 的独立入口
 
 不迁移或不进入运行路径：
 
-- `frontend/`
+- `third_party/paper_orchestra/frontend/` (upstream-only source, not part of the Vegapunk product UI)
 - `methods/agents/plotting_agent.py`
 - `methods/paper_writer_with_plotting.py`
 - `utils/gemini_utils.py`

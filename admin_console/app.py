@@ -19,7 +19,6 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError
@@ -231,7 +230,6 @@ def create_app(
     prompt_mirror_translator: PromptMirrorTranslator | None = None,
     discovery_input_conversion_prompt_path: Path | None = None,
     discovery_input_converter: DiscoveryInputConverter | None = None,
-    frontend_dist: Path | None = None,
     prompt_baseline_root: Path | None = None,
     secret_store: SecretStore | None = None,
     provider_probe: ProviderProbe | None = None,
@@ -250,7 +248,6 @@ def create_app(
         discovery_input_conversion_prompt_path
         or DEFAULT_DISCOVERY_INPUT_CONVERSION_PROMPT_PATH
     )
-    resolved_frontend_dist = frontend_dist or (REPOSITORY_ROOT / "frontend" / "dist")
     prompt_library = PromptLibrary(resolved_prompt_root)
     resolved_prompt_library = DesktopPromptLibrary(
         prompt_library,
@@ -1134,31 +1131,5 @@ def create_app(
         return entry.to_dict()
 
     app.include_router(admin_router)
-
-    if resolved_frontend_dist.is_dir():
-        assets_root = resolved_frontend_dist / "assets"
-        if assets_root.is_dir():
-            app.mount(
-                "/assets",
-                StaticFiles(directory=assets_root),
-                name="frontend-assets",
-            )
-
-        index_path = resolved_frontend_dist / "index.html"
-
-        @app.get("/{full_path:path}", include_in_schema=False)
-        def frontend_entry(full_path: str) -> FileResponse:
-            if full_path.startswith("api/"):
-                raise HTTPException(status_code=404, detail="not found")
-            candidate = (resolved_frontend_dist / full_path).resolve()
-            try:
-                candidate.relative_to(resolved_frontend_dist.resolve())
-            except ValueError:
-                raise HTTPException(status_code=404, detail="not found")
-            if candidate.is_file():
-                return FileResponse(candidate)
-            if index_path.is_file():
-                return FileResponse(index_path)
-            raise HTTPException(status_code=404, detail="frontend entry not found")
 
     return app

@@ -1,5 +1,7 @@
 # End-User Frontend V1 Visual System
 
+> Historical research record. This browser-oriented visual system is retained for audit context only; future visual implementation belongs to the OpenWorker Desktop App.
+
 ## Decision
 
 Use an evidence-led workbench built on the prototype's Evidence Ledger variant.

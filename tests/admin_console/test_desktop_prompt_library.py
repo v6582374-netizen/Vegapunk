@@ -23,7 +23,6 @@ class DesktopPromptLibraryApiTest(unittest.TestCase):
             create_app(
                 prompt_library_root=self.prompt_root,
                 prompt_baseline_root=self.baseline_root,
-                frontend_dist=root / "missing-frontend",
             )
         )
 
