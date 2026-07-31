@@ -39,7 +39,10 @@ export function setThemePref(pref: ThemePref) {
 export function initTheme() {
   apply(getThemePref());
   media?.addEventListener("change", () => {
-    if (getThemePref() === "auto") apply("auto");
+    if (getThemePref() === "auto") {
+      apply("auto");
+      window.dispatchEvent(new CustomEvent(PREF_EVENT));
+    }
   });
 }
 

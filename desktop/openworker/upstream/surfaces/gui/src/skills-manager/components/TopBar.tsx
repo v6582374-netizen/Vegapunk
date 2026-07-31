@@ -1,11 +1,7 @@
-import { useState, useEffect, useRef } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "@skills-manager/i18n";
-import { checkUpdate } from "@skills-manager/services/updater";
-import { AuthButton } from "@skills-manager/components/auth/AuthButton";
 import { ScopeSearchField } from "@skills-manager/components/ScopeSearchField";
 import { useActionsTarget } from "@skills-manager/components/PageHeaderContext";
-import { UpdateInfo } from "@skills-manager/types";
 
 interface TopBarProps {
   onOpenPalette: () => void;
@@ -15,27 +11,12 @@ export function TopBar({ onOpenPalette }: TopBarProps) {
   const { t } = useTranslation();
   const actionsSlotRef = useRef<HTMLDivElement | null>(null);
   const { registerActionsTarget } = useActionsTarget();
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   // Register the actions slot as the portal target for PageHeader actions.
   useEffect(() => {
     registerActionsTarget?.(actionsSlotRef.current);
     return () => registerActionsTarget?.(null);
   }, [registerActionsTarget]);
-
-  useEffect(() => {
-    checkUpdate()
-      .then((info) => {
-        if (info.has_update) setUpdateInfo(info);
-      })
-      .catch((err) => console.warn("Failed to check for updates:", err));
-  }, []);
-
-  async function handleUpdateClick() {
-    if (updateInfo?.download_url) {
-      await openUrl(updateInfo.download_url);
-    }
-  }
 
   return (
     <header
@@ -71,31 +52,6 @@ export function TopBar({ onOpenPalette }: TopBarProps) {
         >
           {t("topbar.brand")}
         </span>
-        {updateInfo?.has_update && (
-          <button
-            type="button"
-            onClick={handleUpdateClick}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-            title={`${t("settings.updateAvailable")}: ${updateInfo.latest_version}`}
-            style={{
-              marginLeft: 4,
-              fontSize: 10,
-              padding: "2px 8px",
-              background: "var(--primary)",
-              color: "var(--primary-foreground)",
-              borderRadius: 9999,
-              border: "none",
-              cursor: "pointer",
-              fontWeight: 600,
-              lineHeight: 1.4,
-              flexShrink: 0,
-              transition: "opacity 0.2s",
-            }}
-          >
-            {t("marketplace.update")}
-          </button>
-        )}
       </div>
 
       {/* Left spacer — pairs with the right spacer to center the search
@@ -115,10 +71,6 @@ export function TopBar({ onOpenPalette }: TopBarProps) {
         style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, minHeight: 28 }}
       />
 
-      {/* Right: auth */}
-      <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
-        <AuthButton variant="sidebar" />
-      </div>
     </header>
   );
 }

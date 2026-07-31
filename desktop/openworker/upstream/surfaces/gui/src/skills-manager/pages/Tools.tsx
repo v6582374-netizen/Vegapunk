@@ -37,7 +37,7 @@ function getSkillDisplayName(skillIdentity: string, skills: Skill[]): string {
 
 // Module-level cache: survives route changes so revisiting the Tools page
 // renders the last-known data immediately (no PageLoader flash) while a
-// silent background refresh runs. Same pattern Marketplace uses.
+// silent background refresh runs without blocking the tools surface.
 interface ToolsPageCache {
   tools: Tool[];
   skills: Skill[];

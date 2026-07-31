@@ -13,14 +13,6 @@
     "core:window:allow-destroy",
     "dialog:default",
     "autostart:default",
-    "deep-link:default",
-    "opener:default",
-    {
-      "identifier": "opener:allow-open-url",
-      "allow": [
-        { "url": "skills-manager://*" },
-        { "url": "skillsmanager://*" }
-      ]
-    }
+    "opener:default"
   ]
 }

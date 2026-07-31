@@ -11,13 +11,6 @@ export interface SkillTranslationOutput {
   cached: boolean;
 }
 
-export interface MarketplaceTranslationInput {
-  id: string;
-  name: string;
-  description: string | null;
-  content_md?: string | null;
-}
-
 export interface BatchTranslationProgress {
   current: number;
   total: number;
@@ -76,11 +69,6 @@ interface SkillTranslationContextValue {
   isConfigured: boolean;
   refreshConfigured: () => Promise<boolean>;
   translateSkill: (instanceId: string, targetLang: string, force?: boolean) => Promise<SkillTranslationOutput>;
-  translateMarketplace: (
-    input: MarketplaceTranslationInput,
-    targetLang: string,
-    force?: boolean
-  ) => Promise<SkillTranslationOutput>;
   translateBatch: (
     instanceIds: string[],
     targetLang: string,
@@ -97,10 +85,6 @@ interface SkillTranslationContextValue {
   getView: (key: string) => ViewMode;
   setView: (key: string, mode: ViewMode) => void;
   preloadCachedSkills: (instanceIds: string[], targetLang: string) => Promise<void>;
-  preloadCachedMarketplace: (
-    inputs: MarketplaceTranslationInput[],
-    targetLang: string
-  ) => Promise<void>;
   clearAll: () => void;
   clearCache: () => Promise<void>;
 }
@@ -156,37 +140,6 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
       const promise = (async () => {
         const result = await invoke<SkillTranslationOutput>("translate_skill", {
           instanceId,
-          targetLang,
-          force,
-        });
-        storeRef.current.results.set(key, result);
-        storeRef.current.view.set(key, "translated");
-        bump();
-        return result;
-      })().finally(() => {
-        storeRef.current.inFlight.delete(inflightKey);
-      });
-
-      storeRef.current.inFlight.set(inflightKey, promise);
-      return promise;
-    },
-    [bump]
-  );
-
-  const translateMarketplace = useCallback(
-    async (
-      input: MarketplaceTranslationInput,
-      targetLang: string,
-      force: boolean = false
-    ): Promise<SkillTranslationOutput> => {
-      const key = cacheKey(input.id, targetLang);
-      const inflightKey = force ? `${key}::force` : key;
-      const existing = storeRef.current.inFlight.get(inflightKey);
-      if (existing) return existing;
-
-      const promise = (async () => {
-        const result = await invoke<SkillTranslationOutput>("translate_marketplace_skill", {
-          input,
           targetLang,
           force,
         });
@@ -349,31 +302,6 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
     [bump],
   );
 
-  const preloadCachedMarketplace = useCallback(
-    async (inputs: MarketplaceTranslationInput[], targetLang: string): Promise<void> => {
-      if (inputs.length === 0) return;
-      try {
-        const entries = await invoke<Array<{ key: string; translation: SkillTranslationOutput | null }>>(
-          "get_cached_marketplace_translations",
-          { inputs, targetLang },
-        );
-        let changed = false;
-        for (const entry of entries) {
-          if (!entry.translation) continue;
-          const key = cacheKey(entry.key, targetLang);
-          if (!storeRef.current.results.has(key)) {
-            storeRef.current.results.set(key, entry.translation);
-            changed = true;
-          }
-        }
-        if (changed) bump();
-      } catch {
-        // ignore preload failure
-      }
-    },
-    [bump],
-  );
-
   // 自动缓存预热：仅在语言变化时预热当前路由对应页面的翻译。
   // 不在每次路由切换时运行 — 那会重复调用 list_skills 并触发 bump(),
   // 导致整个应用树重渲染（SkillTranslationProvider 包裹整个 app），
@@ -392,22 +320,11 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
       }
 
       try {
-        if (location.pathname === '/skills') {
+        if (location.pathname === '/') {
           // Skills 页面：预热所有已安装 skill
           const skills = await invoke<Array<{ instance_id: string }>>('list_skills');
           const instanceIds = skills.map(s => s.instance_id);
           await preloadCachedSkills(instanceIds, language);
-        } else if (location.pathname === '/marketplace') {
-          // Marketplace 页面：预热前 50 个
-          const items = await invoke<Array<{ id: string; name: string; description: string }>>(
-            'get_marketplace_skills'
-          );
-          const top50 = items.slice(0, 50).map(s => ({
-            id: s.id,
-            name: s.name,
-            description: s.description,
-          }));
-          await preloadCachedMarketplace(top50, language);
         }
         lastPreloadedLangRef.current = language;
         lastPreloadedPathRef.current = location.pathname;
@@ -418,13 +335,12 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
     };
 
     preloadForRoute();
-  }, [location.pathname, language, isConfigured, preloadCachedSkills, preloadCachedMarketplace]);
+  }, [location.pathname, language, isConfigured, preloadCachedSkills]);
 
   const value: SkillTranslationContextValue = {
     isConfigured,
     refreshConfigured,
     translateSkill,
-    translateMarketplace,
     translateBatch,
     translateSkillFiles,
     getTranslation,
@@ -432,7 +348,6 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
     getView,
     setView,
     preloadCachedSkills,
-    preloadCachedMarketplace,
     clearAll,
     clearCache,
   };

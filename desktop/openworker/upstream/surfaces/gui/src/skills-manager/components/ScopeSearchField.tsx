@@ -22,9 +22,7 @@ interface PageEntry {
 const PAGES: PageEntry[] = [
   { path: "/", labelKey: "nav.skills" },
   { path: "/tools", labelKey: "nav.tools" },
-  { path: "/marketplace", labelKey: "nav.marketplace" },
   { path: "/settings", labelKey: "nav.settings" },
-  { path: "/feedback", labelKey: "nav.feedback" },
 ];
 
 export function ScopeSearchField({ onOpenPalette }: ScopeSearchFieldProps) {

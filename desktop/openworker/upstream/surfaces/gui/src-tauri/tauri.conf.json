@@ -48,11 +48,6 @@
     }
   },
   "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["skills-manager", "skillsmanager"]
-      }
-    },
     "updater": {
       "endpoints": [
         "https://download.openworker.com/latest.json",

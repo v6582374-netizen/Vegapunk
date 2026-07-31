@@ -165,8 +165,6 @@ mod tests {
             description: None,
             version: "1.0".to_string(),
             source: SkillSource::Local,
-            marketplace_meta: None,
-            vault_meta: None,
             package_meta: None,
             enabled: Default::default(),
             path: skill_dir,

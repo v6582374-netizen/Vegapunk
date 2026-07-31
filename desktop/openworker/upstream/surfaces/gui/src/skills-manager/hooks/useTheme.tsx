@@ -1,96 +1,48 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
-import { FontFamilyPreset, getFontFamilyStack } from "@skills-manager/lib/fontFamily";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
-type Theme = "light" | "dark" | "system";
-type ResolvedTheme = "light" | "dark";
+export type Theme = "light" | "dark";
 
 interface ThemeContextValue {
-  theme: Theme;
-  resolvedTheme: ResolvedTheme;
-  fontFamily: FontFamilyPreset;
-  setTheme: (theme: Theme) => void;
-  setFontFamily: (fontFamily: FontFamilyPreset) => void;
+  resolvedTheme: Theme;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function getSystemTheme(): ResolvedTheme {
-  if (typeof window === "undefined") return "light";
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-function resolveTheme(theme: Theme): ResolvedTheme {
-  return theme === "system" ? getSystemTheme() : theme;
-}
-
 interface ThemeProviderProps {
   children: ReactNode;
-  theme: Theme;
-  fontFamily: FontFamilyPreset;
-  onThemeChange?: (theme: Theme) => void;
-  onFontFamilyChange?: (fontFamily: FontFamilyPreset) => void;
 }
 
-export function ThemeProvider({
-  children,
-  theme,
-  fontFamily,
-  onThemeChange,
-  onFontFamilyChange,
-}: ThemeProviderProps) {
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => resolveTheme(theme));
+function readDesktopTheme(): Theme {
+  return typeof document !== "undefined" && document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+const desktopThemeValue: ThemeContextValue = {
+  resolvedTheme: typeof document === "undefined" ? "light" : readDesktopTheme(),
+};
+
+export function ThemeProvider({ children }: ThemeProviderProps) {
+  const [resolvedTheme, setResolvedTheme] = useState<Theme>(readDesktopTheme);
 
   // The migrated app shares a document with OpenWorker, so its theme stays inside its workspace.
   useEffect(() => {
-    const resolved = resolveTheme(theme);
+    const resolved = readDesktopTheme();
     setResolvedTheme(resolved);
-
     const root = document.querySelector<HTMLElement>(".skills-manager-root");
-    if (!root) return;
-    if (resolved === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-  }, [theme]);
+    root?.classList.toggle("dark", resolved === "dark");
+  }, []);
 
   useEffect(() => {
-    document
-      .querySelector<HTMLElement>(".skills-manager-root")
-      ?.style.setProperty("--app-font-family", getFontFamilyStack(fontFamily));
-  }, [fontFamily]);
-
-  // Listen for system theme changes when theme is "system"
-  useEffect(() => {
-    if (theme !== "system") return;
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const handleChange = () => {
-      const resolved = getSystemTheme();
+    const sync = () => {
+      const resolved = readDesktopTheme();
       setResolvedTheme(resolved);
-      const root = document.querySelector<HTMLElement>(".skills-manager-root");
-      if (!root) return;
-      if (resolved === "dark") {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
+      document.querySelector<HTMLElement>(".skills-manager-root")?.classList.toggle("dark", resolved === "dark");
     };
-
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, [theme]);
-
-  const setTheme = useCallback((newTheme: Theme) => {
-    onThemeChange?.(newTheme);
-  }, [onThemeChange]);
-
-  const setFontFamily = useCallback((newFontFamily: FontFamilyPreset) => {
-    onFontFamilyChange?.(newFontFamily);
-  }, [onFontFamilyChange]);
+    window.addEventListener("openwork:theme-pref", sync);
+    return () => window.removeEventListener("openwork:theme-pref", sync);
+  }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, resolvedTheme, fontFamily, setTheme, setFontFamily }}>
+    <ThemeContext.Provider value={{ resolvedTheme }}>
       {children}
     </ThemeContext.Provider>
   );
@@ -98,8 +50,5 @@ export function ThemeProvider({
 
 export function useTheme() {
   const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error("useTheme must be used within a ThemeProvider");
-  }
-  return context;
+  return context ?? desktopThemeValue;
 }

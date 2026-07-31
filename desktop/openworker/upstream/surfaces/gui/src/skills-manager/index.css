@@ -247,6 +247,70 @@
   --glow-ash: rgba(255, 255, 255, 0.03);
 }
 
+/* Integrated surface contract: Skills Manager consumes the same OpenWorker
+   paper, panel, border, signal, and font tokens as the surrounding Desktop.
+   The legacy Raycast palette above remains in the complete upstream copy and
+   is intentionally shadowed here only for the integrated surface.  Desktop
+   aliases are used where the upstream token names would otherwise collide
+   (notably `--muted`, `--accent`, and `--glass`). */
+:root,
+.dark {
+  --background: var(--openworker-paper);
+  --foreground: var(--openworker-ink);
+  --card: var(--openworker-panel);
+  --card-foreground: var(--openworker-ink);
+  --popover: var(--openworker-panel);
+  --popover-foreground: var(--openworker-ink);
+  --primary: var(--openworker-accent);
+  --primary-foreground: var(--openworker-accent-foreground);
+  --secondary: color-mix(in srgb, var(--openworker-panel) 94%, var(--openworker-paper));
+  --secondary-foreground: var(--openworker-ink);
+  /* Upstream uses `--muted` for quiet surfaces and `--muted-foreground` for
+     the text on them.  Desktop's `--muted` is a text token, so keep the two
+     meanings separate at this integration boundary. */
+  --muted-surface: color-mix(in srgb, var(--openworker-panel) 92%, var(--openworker-paper));
+  --muted: var(--muted-surface);
+  --muted-foreground: var(--openworker-muted);
+  --accent: var(--openworker-accent-soft);
+  --accent-foreground: var(--openworker-ink);
+  --border: var(--openworker-line);
+  --input: var(--openworker-line-strong);
+  --ring: var(--openworker-accent);
+  --sidebar: var(--openworker-panel);
+  --sidebar-foreground: var(--openworker-ink);
+  --sidebar-primary: var(--openworker-accent);
+  --sidebar-primary-foreground: var(--openworker-accent-foreground);
+  --sidebar-border: var(--openworker-line);
+  --ember: var(--openworker-accent);
+  --ember-dark: var(--openworker-accent-soft);
+  --primary-tint: var(--openworker-accent-soft);
+  --primary-tint-border: color-mix(in srgb, var(--openworker-accent) 42%, var(--openworker-line-strong));
+  --surface-hover: color-mix(in srgb, var(--openworker-accent-soft) 55%, var(--openworker-panel));
+  --glass-bg: var(--openworker-glass);
+  --glass-bg-elevated: var(--openworker-glass-strong);
+  --glass-border: var(--openworker-line);
+  --glass-border-strong: var(--openworker-line-strong);
+  --glass-highlight: 0 1px 0 color-mix(in srgb, var(--openworker-ink) 8%, transparent) inset;
+  --glass-shadow: 0 4px 20px color-mix(in srgb, var(--openworker-ink) 10%, transparent);
+  --glow-ember: color-mix(in srgb, var(--openworker-accent) 12%, transparent);
+  --glow-ash: color-mix(in srgb, var(--openworker-ink) 4%, transparent);
+  --color-error: var(--openworker-danger);
+  --color-error-bg: var(--openworker-danger-soft);
+  --color-error-border: color-mix(in srgb, var(--openworker-danger) 42%, var(--openworker-line-strong));
+  --color-success: var(--openworker-ok);
+  --color-success-bg: var(--openworker-ok-soft);
+  --color-success-border: var(--openworker-ok-line);
+  --color-warning: var(--openworker-warn-ink);
+  --color-warning-bg: var(--openworker-warn-soft);
+  --color-warning-border: color-mix(in srgb, var(--openworker-warn-ink) 42%, var(--openworker-line-strong));
+  --color-info: var(--openworker-accent);
+  --color-info-bg: var(--openworker-accent-soft);
+  --color-info-border: color-mix(in srgb, var(--openworker-accent) 38%, var(--openworker-line-strong));
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  font-family: var(--sans);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -259,7 +323,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: var(--app-font-family, var(--font-sans));
+    font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -373,24 +437,6 @@
 
 .animate-slide-down {
   animation: slideDown 0.2s ease-out;
-}
-
-@keyframes marketplaceSkeletonShimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
-.marketplace-skeleton-bar {
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--secondary) 0%,
-    var(--border) 50%,
-    var(--secondary) 100%
-  );
-  background-size: 200% 100%;
-  animation: marketplaceSkeletonShimmer 1.4s ease-in-out infinite;
 }
 
 /* ===== Responsive utilities for page layouts ===== */
@@ -863,8 +909,8 @@
 }
 
 .skills-selection-indicator[data-state="checked"] {
-  border-color: var(--foreground);
-  background: var(--foreground);
+  border-color: var(--primary);
+  background: var(--primary);
 }
 
 .skills-selection-indicator[data-state="mixed"] {
@@ -1204,7 +1250,7 @@
 
 .skills-workbench-inventory .skills-group-header.is-active {
   background: var(--primary-tint);
-  box-shadow: inset 2px 0 0 var(--foreground);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 
 .skills-group-disclosure {
@@ -1278,7 +1324,7 @@
 
 .skills-workbench-inventory .skills-list-row.is-active {
   background: var(--primary-tint);
-  box-shadow: inset 2px 0 0 var(--foreground);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 
 .skills-workbench-inventory .skills-list-row-main {
@@ -1491,13 +1537,13 @@
 }
 
 .skills-detail-command.is-primary {
-  border-color: var(--foreground);
+  border-color: var(--primary);
   color: var(--primary-foreground);
-  background: var(--foreground);
+  background: var(--primary);
 }
 
 .skills-detail-command.is-primary:hover {
-  background: color-mix(in srgb, var(--foreground) 88%, var(--background));
+  background: color-mix(in srgb, var(--primary) 88%, var(--background));
 }
 
 .skills-detail-command:active {
@@ -1899,46 +1945,6 @@
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
-  }
-}
-
-.marketplace-main {
-  padding: 12px 20px;
-}
-
-@media (max-width: 1023px) {
-  .marketplace-main {
-    padding: 12px 16px;
-  }
-}
-
-@media (max-width: 767px) {
-  .marketplace-main {
-    padding: 12px;
-  }
-}
-
-.marketplace-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-@media (max-width: 1599px) {
-  .marketplace-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1279px) {
-  .marketplace-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 767px) {
-  .marketplace-grid {
-    grid-template-columns: 1fr;
   }
 }
 

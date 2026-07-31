@@ -6,7 +6,7 @@ import "./skills-manager-prototype.css";
 // The selected Skill can enter the retained upstream Editor state. Actions are intentionally inert.
 
 type VariantKey = "A";
-type PageKey = "skills" | "tools" | "marketplace" | "settings" | "feedback" | "editor";
+type PageKey = "skills" | "tools" | "settings" | "editor";
 
 type SkillRow = {
   id: string;
@@ -26,9 +26,7 @@ const VARIANTS: Array<{ key: VariantKey; name: string; description: string }> = 
 const PAGE_NAV: Array<{ key: PageKey; label: string; icon: IconName; upstream: boolean }> = [
   { key: "skills", label: "Skills", icon: "sparkle", upstream: true },
   { key: "tools", label: "Tools", icon: "wrench", upstream: true },
-  { key: "marketplace", label: "Marketplace", icon: "library", upstream: true },
   { key: "settings", label: "Settings", icon: "gear", upstream: true },
-  { key: "feedback", label: "Feedback", icon: "chat", upstream: true },
   { key: "editor", label: "Editor", icon: "fileCode", upstream: true },
 ];
 
@@ -259,16 +257,8 @@ function ToolsPage({ onAction }: { onAction: (message: string) => void }) {
   return <PageFrame eyebrow="UPSTREAM / TOOLS" title="Tools" description="Detected tools and the paths where Skills are projected." action={<ActionButton onClick={() => onAction("Tool detection refreshed")}> <Icon name="refresh" size={14} /> Refresh detection</ActionButton>}><div className="sm-proto-tool-grid">{TOOLS.map((tool) => <article className="sm-proto-tool-card" key={tool.name}><div className="sm-proto-tool-card-head"><span className="sm-proto-tool-icon"><Icon name="wrench" size={16} /></span><div><strong>{tool.name}</strong><small>{tool.detected}</small></div><StatusPill tone={tool.detected === "Detected" ? "ok" : "warn"}>{tool.detected === "Detected" ? "Ready" : "Review"}</StatusPill></div><code>{tool.path}</code><p>{tool.enabled}</p><ActionButton onClick={() => onAction(`${tool.name} detail opened`)}>Manage targets</ActionButton></article>)}</div></PageFrame>;
 }
 
-function MarketplacePage({ onAction }: { onAction: (message: string) => void }) {
-  return <PageFrame eyebrow="UPSTREAM / MARKETPLACE" title="Marketplace" description="Browse, inspect, translate, and install Skills from configured upstream sources." action={<ActionButton onClick={() => onAction("Marketplace retry requested")}> <Icon name="refresh" size={14} /> Retry</ActionButton>}><div className="sm-proto-network-banner"><span className="sm-proto-network-dot" /><div><strong>Marketplace source is unavailable in this prototype</strong><p>The full upstream behavior remains present; this state represents a failed network request, not a removed feature.</p></div><SourceTag tone="warning">NETWORK</SourceTag></div><div className="sm-proto-market-grid">{["scientific-writing", "pdf", "security-review"].map((name, index) => <article key={name} className="sm-proto-market-card"><div className="sm-proto-market-card-top"><span className="sm-proto-market-mark">{index === 0 ? "GH" : index === 1 ? "CH" : "GH"}</span><span>{index === 1 ? "ClawHub" : "GitHub"}</span></div><h3>{name}</h3><p>{index === 0 ? "Draft and review scientific text with evidence discipline." : index === 1 ? "Extract and inspect local PDF content." : "Review security-sensitive implementation details."}</p><div><span className="sm-proto-muted-label">Updated recently</span><ActionButton onClick={() => onAction(`Install preview opened for ${name}`)}>Install</ActionButton></div></article>)}</div></PageFrame>;
-}
-
 function SettingsPage({ onAction }: { onAction: (message: string) => void }) {
-  return <PageFrame eyebrow="UPSTREAM / SETTINGS" title="Settings" description="Skills Manager configuration stays separate from OpenWorker Desktop Settings." action={<SourceTag>UPSTREAM DATA NAMESPACE</SourceTag>}><div className="sm-proto-settings-grid"><article className="sm-proto-setting-card"><span className="sm-proto-card-label">STORAGE</span><h3>Central Skills directory</h3><code>~/.skills-manager/skills</code><p>67 Skills · migrated from legacy hub when applicable</p><ActionButton onClick={() => onAction("Directory picker opened")}>Choose directory</ActionButton></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">LOCAL CONFIG</span><h3>Configuration</h3><code>~/.skills-manager/config.json</code><p>Atomic writes · versioned migrations · tool bindings</p><StatusPill tone="ok">Writable</StatusPill></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">RISK SCANNING</span><h3>Safety scan</h3><p>Rules, cache, and optional LLM review remain upstream behavior.</p><button type="button" className="sm-proto-toggle is-on" onClick={() => onAction("Risk scan toggle changed in prototype")}><span />Deep scan enabled</button></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">DESKTOP INTEGRATION</span><h3>Outer shell boundary</h3><p>One Tauri window · one Rust command boundary · OpenWorker sidecar retained.</p><SourceTag tone="desktop">INTEGRATION ONLY</SourceTag></article></div></PageFrame>;
-}
-
-function FeedbackPage({ onAction }: { onAction: (message: string) => void }) {
-  return <PageFrame eyebrow="UPSTREAM / FEEDBACK" title="Feedback" description="The upstream feedback surface remains available, with its configured network endpoint shown explicitly." action={<SourceTag tone="warning">NETWORK ACTION</SourceTag>}><div className="sm-proto-feedback-layout"><article className="sm-proto-feedback-card"><label>Message<textarea placeholder="Describe what happened…" /></label><label>Contact (optional)<input placeholder="you@example.com" /></label><div className="sm-proto-feedback-actions"><ActionButton onClick={() => onAction("Feedback draft kept local")}>Save draft</ActionButton><ActionButton primary onClick={() => onAction("Feedback send confirmation opened")}>Send feedback</ActionButton></div></article><aside className="sm-proto-feedback-note"><Icon name="shield" size={18} /><strong>Before sending</strong><p>The upstream endpoint, payload, and network state remain visible. No request is made by this prototype.</p><code>open.feishu.cn / feedback webhook</code></aside></div></PageFrame>;
+  return <PageFrame eyebrow="DESKTOP / SETTINGS" title="Settings" description="Appearance, typography, and language follow the OpenWorker Desktop surface." action={<SourceTag tone="desktop">DESKTOP CONTRACT</SourceTag>}><div className="sm-proto-settings-grid"><article className="sm-proto-setting-card"><span className="sm-proto-card-label">STORAGE</span><h3>Central Skills directory</h3><code>~/.skills-manager/skills</code><p>Local Skills and tool projections remain on this machine.</p><ActionButton onClick={() => onAction("Directory picker opened")}>Choose directory</ActionButton></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">LOCAL CONFIG</span><h3>Configuration</h3><code>~/.skills-manager/config.json</code><p>Atomic writes, migrations, and local tool bindings.</p><StatusPill tone="ok">Writable</StatusPill></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">RISK SCANNING</span><h3>Safety scan</h3><p>Rules, cache, and optional LLM review remain available for local Skills.</p><button type="button" className="sm-proto-toggle is-on" onClick={() => onAction("Risk scan toggle changed in prototype")}><span />Deep scan enabled</button></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">DESKTOP INTEGRATION</span><h3>Shared visual contract</h3><p>Theme, font, and language are owned by the OpenWorker Desktop shell.</p><SourceTag tone="desktop">INHERITED</SourceTag></article></div></PageFrame>;
 }
 
 function PageFrame({ eyebrow, title, description, action, children }: { eyebrow: string; title: string; description: string; action?: ReactNode; children: ReactNode }) {
@@ -309,9 +299,7 @@ export function SkillsManagerPrototype() {
             <div className="sm-proto-prototype-ribbon"><span>THROWAWAY UI STUDY</span><span>Upstream pages and behavior are labeled; controls are inert.</span><span className="sm-proto-ribbon-skill">selected: {selectedLabel}</span></div>
             {activePage === "skills" && <SkillsPage selected={selected} onSelect={setSelected} onAction={action} onOpenEditor={() => { setActivePage("editor"); action(`Opening the Skills Manager editor for ${selected.source}/SKILL.md`); }} />}
             {activePage === "tools" && <ToolsPage onAction={action} />}
-            {activePage === "marketplace" && <MarketplacePage onAction={action} />}
             {activePage === "settings" && <SettingsPage onAction={action} />}
-            {activePage === "feedback" && <FeedbackPage onAction={action} />}
             {activePage === "editor" && <VariantC selected={selected} onAction={action} />}
           </main>
         </div>

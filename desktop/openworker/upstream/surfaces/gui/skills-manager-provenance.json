@@ -47,13 +47,13 @@
         "src/skills-manager/hooks/useTheme.tsx .skills-manager-root mutations"
       ],
       "reason": "The embedded module shares a document with OpenWorker.",
-      "behavioral_impact": "Theme and font variables affect only the Skills Manager workspace.",
+      "behavioral_impact": "The module inherits the Desktop theme and keeps its workspace class synchronized without a second visual preference.",
       "regression_coverage": [
         "npm run build",
         "CSS scope verification",
         "user-owned visual theme acceptance"
       ],
-      "upstream_sync_strategy": "Keep upstream theme resolution logic and retarget only its DOM mutation root."
+      "upstream_sync_strategy": "Keep the desktop theme event bridge and update the workspace class when the host theme changes."
     },
     {
       "id": "react-18-file-tree-ref",
@@ -104,13 +104,33 @@
         "src-tauri/src/lib.rs"
       ],
       "reason": "A Tauri process supports one host builder, command handler, plugin set, and application lifecycle.",
-      "behavioral_impact": "All upstream Skills Manager commands and services execute inside OpenWorker's existing Tauri process.",
+      "behavioral_impact": "All retained local Skills Manager commands and services execute inside OpenWorker's existing Tauri process.",
       "regression_coverage": [
-        "all 86 upstream invoke commands are verified in the host handler",
+        "all retained upstream invoke commands are verified in the host handler",
         "cargo check",
         "cargo test"
       ],
-      "upstream_sync_strategy": "Merge upstream Rust modules, register every new command and plugin, then rerun handler coverage and Rust tests."
+      "upstream_sync_strategy": "Merge upstream Rust modules, register every retained command and plugin, then rerun handler coverage and Rust tests."
+    },
+    {
+      "id": "local-only-skill-management",
+      "upstream_scope": [
+        "Marketplace, account, feedback, telemetry, cloud-sync, and standalone updater surfaces"
+      ],
+      "integrated_scope": [
+        "src/skills-manager/**/*",
+        "src-tauri/src/**/*"
+      ],
+      "reason": "This desktop module manages Skills already present on the local machine and does not own a remote account or catalog.",
+      "behavioral_impact": "Remote Marketplace, account, feedback, telemetry, cloud-sync, and module updater commands are omitted from the integrated runtime while the exact upstream copy remains preserved for audit.",
+      "regression_coverage": [
+        "npm run skills-manager:verify",
+        "npm run build",
+        "npm run skills-manager:test",
+        "cargo check",
+        "cargo test"
+      ],
+      "upstream_sync_strategy": "Keep the explicit retired-path and retired-command lists synchronized with any upstream additions to remote-only features."
     },
     {
       "id": "host-ownership-boundaries",
@@ -143,53 +163,6 @@
         "cargo check"
       ],
       "upstream_sync_strategy": "Re-evaluate registration when upstream supplies the missing model or begins calling the module."
-    },
-    {
-      "id": "pinned-module-updater-version",
-      "upstream_scope": [
-        "src-tauri/src/commands/updater.rs package version lookup"
-      ],
-      "integrated_scope": [
-        "src-tauri/src/commands/updater.rs Skills Manager 2.1.7 constant"
-      ],
-      "reason": "OpenWorker and the embedded Skills Manager module have independent release versions.",
-      "behavioral_impact": "Skills Manager GitHub releases are compared against module version 2.1.7 instead of OpenWorker 0.1.6.",
-      "regression_coverage": [
-        "update_check_uses_the_pinned_skills_manager_version"
-      ],
-      "upstream_sync_strategy": "Update this constant together with the pinned upstream commit and provenance record."
-    },
-    {
-      "id": "restore-cloud-sync-workflow",
-      "upstream_scope": [
-        "upstream history 4165c6f src/services/cloudSyncWorkflow.ts"
-      ],
-      "integrated_scope": [
-        "src/skills-manager/services/cloudSyncWorkflow.ts"
-      ],
-      "reason": "Pinned commit c0b16ba contains the workflow test but accidentally omits its implementation.",
-      "behavioral_impact": "The copied cloud pull-push-conflict workflow is executable and its inherited tests run.",
-      "regression_coverage": [
-        "src/skills-manager/services/__tests__/cloudSyncWorkflow.test.ts",
-        "npm run skills-manager:test"
-      ],
-      "upstream_sync_strategy": "Prefer the file from a future upstream commit once restored there; until then retain the exact 4165c6f implementation."
-    },
-    {
-      "id": "wechat-validation-alignment",
-      "upstream_scope": [
-        "src/services/feedbackContact.ts"
-      ],
-      "integrated_scope": [
-        "src/skills-manager/services/feedbackContact.ts"
-      ],
-      "reason": "The pinned frontend regex conflicts with its own test and the upstream Rust validator.",
-      "behavioral_impact": "WeChat IDs may begin with an underscore, matching backend validation.",
-      "regression_coverage": [
-        "validateFeedbackContact accepts wechat ids starting with underscore",
-        "validate_feedback_request_should_accept_wechat_starting_with_underscore"
-      ],
-      "upstream_sync_strategy": "Remove the patch after upstream accepts underscore-prefixed IDs in the frontend regex."
     },
     {
       "id": "broken-projection-classification",
@@ -264,7 +237,6 @@
         "src/skills-manager/pages/Skills.tsx",
         "src/skills-manager/index.css",
         "src/skills-manager/i18n/locales/en.ts",
-        "src/skills-manager/i18n/locales/zh.ts",
         "public/skills-manager.css"
       ],
       "reason": "The selected Wayfinder Variant A prototype defines the OpenWorker Skills workspace information hierarchy.",
@@ -280,7 +252,9 @@
   "verification": {
     "handler_coverage": {
       "upstream_count": 86,
-      "host_count": 106,
+      "retained_count": 63,
+      "retired_count": 23,
+      "host_count": 83,
       "upstream_commands": [
         "get_config",
         "save_config",
@@ -368,22 +342,40 @@
         "scan_all_risks",
         "rescan_skill",
         "clear_risk_cache_command"
+      ],
+      "retired_commands": [
+        "fetch_marketplace_skills",
+        "fetch_marketplace_skill_descriptions",
+        "fetch_skill_files",
+        "fetch_clawhub_skill_files",
+        "fetch_skill_file_content",
+        "install_marketplace_skill",
+        "install_marketplace_skill_by_ref",
+        "sync_marketplace_installed_skills",
+        "check_marketplace_updates_if_stale",
+        "get_marketplace_sources",
+        "toggle_marketplace_source",
+        "toggle_marketplace_favorite",
+        "list_marketplace_favorites",
+        "check_update",
+        "submit_feedback",
+        "translate_marketplace_skill",
+        "get_cached_marketplace_translations",
+        "start_github_auth",
+        "start_google_auth",
+        "exchange_github_auth",
+        "exchange_google_auth",
+        "get_auth_profile",
+        "logout_auth"
       ]
     },
     "css_scope": {
       "path": "public/skills-manager.css",
       "root_selector": ".skills-manager-root",
-      "checked_selectors": 625
+      "checked_selectors": 619
     }
   },
-  "supplemental_integrated_files": [
-    {
-      "path": "src/skills-manager/services/cloudSyncWorkflow.ts",
-      "upstream_commit": "4165c6f",
-      "upstream_path": "src/services/cloudSyncWorkflow.ts",
-      "sha256": "fd471a2ae1c6fedb83095ed1c93627053bdad37b259147b774026ed58a9b1b99"
-    }
-  ],
+  "supplemental_integrated_files": [],
   "files": [
     {
       "path": ".github/workflows/build.yml",
@@ -592,7 +584,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/Cargo.lock",
-          "sha256": "13330eceac5a1871697a78c08e67ba842ce7bde5341cd185ef3f4649fc9c6af0"
+          "sha256": "0d47d1c480e9cdef34d60a4205df0dcf06dd1f8c92460edcd5f51eb22b507d38"
         }
       ]
     },
@@ -609,7 +601,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/Cargo.toml",
-          "sha256": "9e44cfe5714146cff6550ecd5bb22370644425fd85d6cfb5581b4ff734829d45"
+          "sha256": "6f159ae1db2f1a91dee82aacb38db2c6b26f35352c36a7402201ff98008b79d9"
         }
       ]
     },
@@ -643,7 +635,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/capabilities/default.json",
-          "sha256": "938400b1efbf185c7a7793f4f1da763abf425dff8279c43d7bf62eb87edf0363"
+          "sha256": "cecc08a903917dc414698c5d4dc5b51674b920b5447e60a0909fd786d806769d"
         }
       ]
     },
@@ -1173,16 +1165,9 @@
       "git_blob": "2e74619c669135b63c46a4d84f9d7c732245a0b1",
       "sha256": "96a869f978465b1b55b6361c2269195e077b98208817266af84d1c3d76a76a90",
       "exact_copy": "skills-manager-upstream/src-tauri/src/commands/auth.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/commands/auth.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/commands/auth.rs",
-          "sha256": "96a869f978465b1b55b6361c2269195e077b98208817266af84d1c3d76a76a90"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/commands/config.rs",
@@ -1231,7 +1216,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/commands/favorites.rs",
-          "sha256": "a8fcb384d0be4b4f0f3ab6f81016ad4f36384746fc538800f8bea38137fe2abf"
+          "sha256": "967deed117942cfe69edc0677cbe30616b9e7289b6594d4bd3fdb13461d44ae1"
         }
       ]
     },
@@ -1241,16 +1226,9 @@
       "git_blob": "279fbefe891d5bd1c5da1feee11e55985a07746d",
       "sha256": "061c3462e181e12071b7598b7177916dd7b0cbb8b076152bfaa51302c57ea554",
       "exact_copy": "skills-manager-upstream/src-tauri/src/commands/feedback.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/commands/feedback.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/commands/feedback.rs",
-          "sha256": "061c3462e181e12071b7598b7177916dd7b0cbb8b076152bfaa51302c57ea554"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/commands/files.rs",
@@ -1282,7 +1260,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/commands/llm.rs",
-          "sha256": "df769284e31f25772605317e3282e31b9a718d2b3688dc9e39db6700b712e915"
+          "sha256": "203e1799948999aec48cad736e2998d66bad34b2c80ae56de5e432743f3a3835"
         }
       ]
     },
@@ -1292,16 +1270,9 @@
       "git_blob": "5cfcdb098af61dec743362977c28d111d74c5365",
       "sha256": "c98173c93a5ab47d29a3b32947409c75fa34f1ce545f4795bb11d4f6109101a6",
       "exact_copy": "skills-manager-upstream/src-tauri/src/commands/marketplace.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/commands/marketplace.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/commands/marketplace.rs",
-          "sha256": "c9ef692228b49f25decd2557d98fc42e0bcb775c744c5104e4c1e1c41ae7db3d"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/commands/mod.rs",
@@ -1316,7 +1287,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/commands/mod.rs",
-          "sha256": "714c2d9c77875993d6b08110a819cebbbdeaa1ef3bce25d8994801cc7dfad0b0"
+          "sha256": "c4b9e22b6b223ba86f784864dd6cbbb6c5710800554c411a9acaf90ed9a0dd2a"
         }
       ]
     },
@@ -1384,7 +1355,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/commands/skills.rs",
-          "sha256": "34e319c1164904f177d2641389f45cc41e21f0907cdb9cf3e6bc611ef48ba2ab"
+          "sha256": "3fb7968bd4e5987d633b1470980c4910cd5dbbfd92e646f69ea69b5e1d373fbe"
         }
       ]
     },
@@ -1428,16 +1399,9 @@
       "git_blob": "09f42025c44f24689c33d424dd4a25b17387f930",
       "sha256": "8e4ce9725cee6884cebb066c8bea435fb3cf21b41210f1d87f8d78e34dc5b6fb",
       "exact_copy": "skills-manager-upstream/src-tauri/src/commands/updater.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/commands/updater.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/commands/updater.rs",
-          "sha256": "45e244428e5f13413447dc1b15b1c9e37c51c2d836b0c31bf81b64acc2ba660c"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/commands/usage.rs",
@@ -1486,7 +1450,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/lib.rs",
-          "sha256": "45b83910f01bb12f8b6b42c24ff876df88adfd3bc264509bab44aa77152a3ae3"
+          "sha256": "f422a4ca78fc3d28cc1d83fdabd628eedca7e4e2c0ecf283d7ba8b89fae447a2"
         }
       ]
     },
@@ -1506,16 +1470,9 @@
       "git_blob": "12998f78caaf56d6e4197185b9c553ce3373405c",
       "sha256": "c5bcca37f7eab45c65a06b4d226c5db1fb563170f994a4fb7d29678edf9b03f6",
       "exact_copy": "skills-manager-upstream/src-tauri/src/models/auth.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/models/auth.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/models/auth.rs",
-          "sha256": "c5bcca37f7eab45c65a06b4d226c5db1fb563170f994a4fb7d29678edf9b03f6"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/models/config.rs",
@@ -1530,7 +1487,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/models/config.rs",
-          "sha256": "911ff90d8e8633bbb24c3184cc296bc6934d62d9d90680ae30fd52278d6df09c"
+          "sha256": "c391653bba7ab9571a9fde1cca180516d0dc6210163722689b7115d2927068d5"
         }
       ]
     },
@@ -1557,16 +1514,9 @@
       "git_blob": "9a51eed624f9c61f8a7e66dcd70076d7639bcd38",
       "sha256": "303ca2cc51bcc4c5a9ccdf5cb223fe0a46c1f0874de451ff12e5e60258b8b9cc",
       "exact_copy": "skills-manager-upstream/src-tauri/src/models/marketplace.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/models/marketplace.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/models/marketplace.rs",
-          "sha256": "303ca2cc51bcc4c5a9ccdf5cb223fe0a46c1f0874de451ff12e5e60258b8b9cc"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/models/mod.rs",
@@ -1581,7 +1531,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/models/mod.rs",
-          "sha256": "c14b36ef5cb6c80b0a34a9f7eb5f70603a801901c0c3e2aa369ebcf808c91356"
+          "sha256": "908098a6710cd7689a4a6009600ac5b342dfb75ecaa926ac7ffb4cceaef3b7fd"
         }
       ]
     },
@@ -1615,7 +1565,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/models/skill.rs",
-          "sha256": "c494577c40ad90e793406c3045377fe433971e5e1573f6a5b1858d5933253e1c"
+          "sha256": "235a5ae708c2f077233ffe7a7b5ad9b616e95b1647f8b3a3e47d58b0152706a0"
         }
       ]
     },
@@ -1659,16 +1609,9 @@
       "git_blob": "aa2a8c0824e0a1d2a3d6db3aefc0188e3289fae0",
       "sha256": "6733287f91c9feb861fccd1877144338bf1e37587a3c6930d9cf910297d84969",
       "exact_copy": "skills-manager-upstream/src-tauri/src/models/update.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/models/update.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/models/update.rs",
-          "sha256": "6733287f91c9feb861fccd1877144338bf1e37587a3c6930d9cf910297d84969"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/services/auth.rs",
@@ -1676,16 +1619,9 @@
       "git_blob": "97787d5f08a8978922ae8e0e7ba654db58591f15",
       "sha256": "05b63bb72cda66515ac74d877834110b9cd5240d550436bd63f166afc69e8267",
       "exact_copy": "skills-manager-upstream/src-tauri/src/services/auth.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/services/auth.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/services/auth.rs",
-          "sha256": "05b63bb72cda66515ac74d877834110b9cd5240d550436bd63f166afc69e8267"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/services/cache.rs",
@@ -1717,7 +1653,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/services/config_manager.rs",
-          "sha256": "b99984fc2994080668a72341ab1bf550f3b4dd449201c331216bbb1c5d675a3d"
+          "sha256": "ca5e0cb282e509399ecaf0b4c88437bf22fc4503ad0695a76115aa488794aff9"
         }
       ]
     },
@@ -1812,16 +1748,9 @@
       "git_blob": "cc031fb1c08af68f27d77f9bc03c5de8af637cd4",
       "sha256": "231f6645591ac2a6c0957d2a5db69eef4882cb1606af244f72276f81acf6f45d",
       "exact_copy": "skills-manager-upstream/src-tauri/src/services/marketplace.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/services/marketplace.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/services/marketplace.rs",
-          "sha256": "8ecb5fe4347a18027de2b15fb885471183466037b7b0d67277ed8fdb5abeef39"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/services/mod.rs",
@@ -1836,7 +1765,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/services/mod.rs",
-          "sha256": "3e437596968c9219fa7ddc5bea37fe9e7fb8b0027cc9aff2c359de417a5bad6b"
+          "sha256": "0b983e916464de3bc1b8182b3501f2cbcdb9200896b810b6e1c84e530676c04b"
         }
       ]
     },
@@ -1887,7 +1816,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/services/risk/mod.rs",
-          "sha256": "d2ccb5032733d6aff96d9783cfd9a2d5d08ecb8db38fc8bf0839c5c95367e223"
+          "sha256": "a2acfed6cfa718fa6f83a8e40911e227a0afbe8995bf6f8034c3f9d99790b16e"
         }
       ]
     },
@@ -1938,7 +1867,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/services/scanner.rs",
-          "sha256": "1e71c18a154c5124657ac23c5f0df33fcc9687a1108e010d1cbbf6808274ec33"
+          "sha256": "b362fd56067fb31647e1cca7c6285d2a06b2650d8bc7e0844eb9af09372d54dc"
         }
       ]
     },
@@ -1972,7 +1901,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/src/services/skill_transfer.rs",
-          "sha256": "257740422526d8a542f1e740155463b51db9bb7109914a39c049a4f39099a51d"
+          "sha256": "0ec68b76a84177ccfea3a9a538065831ba6b95f273392ab8c72237997eb18c39"
         }
       ]
     },
@@ -2016,16 +1945,9 @@
       "git_blob": "665733a7a39ef37d11b80229c4d34b9e5a8c5cbf",
       "sha256": "9adbf4b9aa45267843eea9556ab74ac59bae018ddf35b15812688e6fbf42c7a9",
       "exact_copy": "skills-manager-upstream/src-tauri/src/services/updater.rs",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src-tauri/src/services/updater.rs"
-      ],
-      "integrated_files": [
-        {
-          "path": "src-tauri/src/services/updater.rs",
-          "sha256": "9adbf4b9aa45267843eea9556ab74ac59bae018ddf35b15812688e6fbf42c7a9"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src-tauri/src/test_support.rs",
@@ -2057,7 +1979,7 @@
       "integrated_files": [
         {
           "path": "src-tauri/tauri.conf.json",
-          "sha256": "499728c29cdfa8d50d2bd3c53b8ffc4cc43c3b05951e449a88e91071e17b9eb2"
+          "sha256": "7c781e9c74a1da54c69f3dad2d8bcb50b720ccb33ceeca1811ade0fff5334e13"
         }
       ]
     },
@@ -2074,7 +1996,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/App.tsx",
-          "sha256": "74de98264db78e8484ec9c7533afc6e7db5036cebd375104d59caf64ebd49ab1"
+          "sha256": "a1081947a2d9ee9a12a61620665a5babf0ecf490742c703ea3a381859733b6d7"
         }
       ]
     },
@@ -2737,7 +2659,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/components/CommandPalette.tsx",
-          "sha256": "969110347d9f3fb04321039c7270fcc9cd4c155639c98c8da58232a09aa1db55"
+          "sha256": "4c318a077d7977c9ae22fff7162aadafd6d888921b09cd0f43b19b23e3afefa1"
         }
       ]
     },
@@ -2771,7 +2693,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/components/ScopeSearchField.tsx",
-          "sha256": "9bb57bfb95e0ff7dd5a652c46a6219656001d4d93913dc9f6a2293cdb62d1bfa"
+          "sha256": "a2bea5812d58b1f76d00b2da5222a26c30067f52296d7e856741e49164ecada6"
         }
       ]
     },
@@ -2788,7 +2710,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/components/TopBar.tsx",
-          "sha256": "db55c2ff3fc99c7656c0e01a3d322e37dbd921abe7871a4c975a5d238a567c4d"
+          "sha256": "f29a1be4c733dc4a67faf768b209f870e2fd16d71a8678feaf9da973dd44cc85"
         }
       ]
     },
@@ -2798,16 +2720,9 @@
       "git_blob": "79dbf25c8ec93bb90f661ddc926ffb62deb82c1e",
       "sha256": "7050d57e8a48d67f739be60a77ca24e6ea6147aea554b450de97b87bc2a40af4",
       "exact_copy": "skills-manager-upstream/src/components/auth/AuthButton.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/auth/AuthButton.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/auth/AuthButton.tsx",
-          "sha256": "dfd1befc0d61d81599c9dcb00e077f6e71c18c14b550017cf540f47de1991b4a"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/auth/AuthModal.tsx",
@@ -2815,16 +2730,9 @@
       "git_blob": "4483acbef8b14493518719efa76e9fc3eedaba65",
       "sha256": "c98eba85875833aa146d69c7ddf5641a18845378852a217789c47ac40e21b124",
       "exact_copy": "skills-manager-upstream/src/components/auth/AuthModal.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/auth/AuthModal.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/auth/AuthModal.tsx",
-          "sha256": "ce8cccb59b2b2365b6a65dc3cb8b3ca5571d0bc1b4eac1507f63e9fbf96adfba"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/editor/FileTree.tsx",
@@ -2917,16 +2825,9 @@
       "git_blob": "d000b6ddc63cdedad7cd179d67e9d21bd212ce13",
       "sha256": "daf87b46cecd77665006f2a1e76abad5f774a9adff6ef6e881f95770808ba4c2",
       "exact_copy": "skills-manager-upstream/src/components/marketplace/InstallCountBadge.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/marketplace/InstallCountBadge.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/marketplace/InstallCountBadge.tsx",
-          "sha256": "daf87b46cecd77665006f2a1e76abad5f774a9adff6ef6e881f95770808ba4c2"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/marketplace/SkillDetailModal.tsx",
@@ -2934,16 +2835,9 @@
       "git_blob": "85b615cd4fca86211c95a7731b289fb7922a4af2",
       "sha256": "42f2a901e7b8b31b095eeda1dc9fd2c7f433ce98b77aeb9832611deaf0503820",
       "exact_copy": "skills-manager-upstream/src/components/marketplace/SkillDetailModal.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/marketplace/SkillDetailModal.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/marketplace/SkillDetailModal.tsx",
-          "sha256": "5d99296c9a2b58e9d8bd631b396d7bc873d076952d5d4c40353350b3247fcf42"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/marketplace/highlightMatch.tsx",
@@ -2951,16 +2845,9 @@
       "git_blob": "3bd1c80f796de7e3f7d531d69d5dabc9dae08bc6",
       "sha256": "23094fbb27bbec9397dad185213d62b273530e614cb39996987d40b60c9adde6",
       "exact_copy": "skills-manager-upstream/src/components/marketplace/highlightMatch.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/marketplace/highlightMatch.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/marketplace/highlightMatch.tsx",
-          "sha256": "23094fbb27bbec9397dad185213d62b273530e614cb39996987d40b60c9adde6"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/marketplace/marketplaceMetaChipStyle.test.ts",
@@ -2968,16 +2855,9 @@
       "git_blob": "18fc90656cf09cf17cf0a4df1a0a8bb1c418174e",
       "sha256": "814bb6cd60dd30ee99c39803658c966c0abea446b02a0aa16d24d0be2846f070",
       "exact_copy": "skills-manager-upstream/src/components/marketplace/marketplaceMetaChipStyle.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/marketplace/marketplaceMetaChipStyle.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/marketplace/marketplaceMetaChipStyle.test.ts",
-          "sha256": "814bb6cd60dd30ee99c39803658c966c0abea446b02a0aa16d24d0be2846f070"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/marketplace/marketplaceMetaChipStyle.ts",
@@ -2985,16 +2865,9 @@
       "git_blob": "cbf157a237f19a299a9cb5f3576589d3da54ded4",
       "sha256": "d07870ccf2aa2765bad607fce8141b49ba23056af0d42bf0e35b00c79e3b6bf1",
       "exact_copy": "skills-manager-upstream/src/components/marketplace/marketplaceMetaChipStyle.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/marketplace/marketplaceMetaChipStyle.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/marketplace/marketplaceMetaChipStyle.ts",
-          "sha256": "d07870ccf2aa2765bad607fce8141b49ba23056af0d42bf0e35b00c79e3b6bf1"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/skills/RelationToggleDialog.tsx",
@@ -3019,16 +2892,9 @@
       "git_blob": "fd1dfda2188252b248e630017c2d4bbed9a02835",
       "sha256": "34c513ddcb5571583de4b42675b27a621dd25f0255b00753e185d8a178f6f8a2",
       "exact_copy": "skills-manager-upstream/src/components/telemetry/TelemetryConsentDialog.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/components/telemetry/TelemetryConsentDialog.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/components/telemetry/TelemetryConsentDialog.tsx",
-          "sha256": "62579771a2dfd09fe66c75a0dbb30a5266f81c9546aa201e4f975aee6f76401d"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/components/translation/TranslateIconButton.tsx",
@@ -3400,7 +3266,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/constants/preferences.ts",
-          "sha256": "fa714310dfd31cefc082655d809bbca2e95e58f95112cbcf91e94ab6c1cb51a7"
+          "sha256": "7e41f1e9ae93561bc4a53f54eb97eb64a149950311dcf21101888fa97c4d1958"
         }
       ]
     },
@@ -3410,16 +3276,9 @@
       "git_blob": "cc9a9335ecba3ffc5168a4ffd51cbc0ec7b249c4",
       "sha256": "54d69135d2545785e92c51cb9e09406c426d81bd7410410ac219d2c3710818be",
       "exact_copy": "skills-manager-upstream/src/contexts/AuthContext.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/contexts/AuthContext.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/contexts/AuthContext.tsx",
-          "sha256": "54f601404d9183b8b6faff0d7340565c53036c554d13b32d9e0ded8f15ca0aaa"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/hooks/useClickOutside.ts",
@@ -3444,16 +3303,9 @@
       "git_blob": "0b380e010715b7ee14863c981571e2153fa3b33f",
       "sha256": "97387cf4d1b46eabbb0b6c1db065a697182f5f06f2abd392ae83494ad18575c9",
       "exact_copy": "skills-manager-upstream/src/hooks/useCloudSyncAgent.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/hooks/useCloudSyncAgent.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/hooks/useCloudSyncAgent.tsx",
-          "sha256": "97387cf4d1b46eabbb0b6c1db065a697182f5f06f2abd392ae83494ad18575c9"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/hooks/useFavorites.ts",
@@ -3468,7 +3320,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/hooks/useFavorites.ts",
-          "sha256": "586aea791e4618971325313b59a532d262e74bc20fef844fad0d21a85a334989"
+          "sha256": "96ecc9837febb29f78c9b4a08c37ff9a5e2419e6f3e95e20e7314220bea59955"
         }
       ]
     },
@@ -3502,7 +3354,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/hooks/useSkillTranslation.tsx",
-          "sha256": "9ca264e4baa15ab344e38f9504f4ce65a1badc9df453321a8e0a71372627568b"
+          "sha256": "3fb167e461deec161d7660e38d1b1a448cdbe155c911ae67330947aa66a2042c"
         }
       ]
     },
@@ -3519,7 +3371,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/hooks/useTheme.tsx",
-          "sha256": "75fc7aa2b66c14f62ff7bacea761c89cf58e491b1f01c4c6213bd6646941e9f4"
+          "sha256": "280791d3c81b598ed31ec6d094276f73298f5ae3bb343497234ff50b0ae1258a"
         }
       ]
     },
@@ -3536,7 +3388,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/i18n/index.tsx",
-          "sha256": "78a8484031493628f4c87ba14e342e07687f9d3db8bad332d4e21ce158ab21d0"
+          "sha256": "ba92ff790f76409d71861b59b83b37ea1b465138e98ec5f9025a49c73223c9c9"
         }
       ]
     },
@@ -3553,7 +3405,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/i18n/locales/en.ts",
-          "sha256": "5a9abdf74eb42182317535c23f5cc736339f58281ac86ae6f447245f45d3fe76"
+          "sha256": "eb6251030718bd9189ff0f1ea3dcc76ee3f8a6098c6a31f97042ff0f74d8b859"
         }
       ]
     },
@@ -3563,16 +3415,9 @@
       "git_blob": "e0ab4b15b7bfc4a28d0fb088ca34a541652305cb",
       "sha256": "f3ebbf1b5e45452d7e49ef66cf8d1cfe9333e1287737241a095d593d10090045",
       "exact_copy": "skills-manager-upstream/src/i18n/locales/zh.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/i18n/locales/zh.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/i18n/locales/zh.ts",
-          "sha256": "58170413a8daab94bfa0e97aee4bad35c15eaca0a726004de8dcedf81b546c7a"
-        }
-      ]
+      "status": "retired-integrated-surface",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/index.css",
@@ -3588,11 +3433,11 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/index.css",
-          "sha256": "3a8bf5a28312a4cbb1e58e4233ecf9d16cad5c546efe26e7c26005279dcb745b"
+          "sha256": "35eb60e63820ad2fc38187dfeab45e99df938d6fd105498c8bdcbc80e9a46d44"
         },
         {
           "path": "public/skills-manager.css",
-          "sha256": "5c9c43ffc565cc9164f4dfb849a387ff47be94b7a3bbd622ca3badd03a2137a3"
+          "sha256": "56f094078129f93fc2340c1231489a5c0941047e10d52bd39a7b5428e6fbca7d"
         }
       ]
     },
@@ -3602,16 +3447,9 @@
       "git_blob": "9b03ab002ece823330fb071ce60451301f891bad",
       "sha256": "52559ffe0efaeb748b504ba39e00bd33e575ec0c49fbde1a59adafd6c5821b5d",
       "exact_copy": "skills-manager-upstream/src/lib/fontFamily.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/lib/fontFamily.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/lib/fontFamily.test.ts",
-          "sha256": "52559ffe0efaeb748b504ba39e00bd33e575ec0c49fbde1a59adafd6c5821b5d"
-        }
-      ]
+      "status": "retired-integrated-surface",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/lib/fontFamily.ts",
@@ -3619,16 +3457,9 @@
       "git_blob": "df75a11ff62587e0c84e4e0b0fe76f94ee328fdd",
       "sha256": "d6c04600e23de242462a40ee7c28b7206f6a7888047bc07494901fb04c760b49",
       "exact_copy": "skills-manager-upstream/src/lib/fontFamily.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/lib/fontFamily.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/lib/fontFamily.ts",
-          "sha256": "d6c04600e23de242462a40ee7c28b7206f6a7888047bc07494901fb04c760b49"
-        }
-      ]
+      "status": "retired-integrated-surface",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/lib/utils.ts",
@@ -3677,7 +3508,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Editor.tsx",
-          "sha256": "1424085a66ec4bda77c6afbc3e5657a47ee5aab4ecd5d86f61b853968c744065"
+          "sha256": "fb46284885bbe027a6d2b6d4cd853e44adabfb610b873a790385dcb78b49c5b7"
         }
       ]
     },
@@ -3687,16 +3518,9 @@
       "git_blob": "1dc850c8f000b35ac46b6b29fc5738c1aa2e3f63",
       "sha256": "d5bc93d9ad59be800cacd124714913946078bc27a981bd9ed2be189a446248d3",
       "exact_copy": "skills-manager-upstream/src/pages/Feedback.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/Feedback.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/Feedback.tsx",
-          "sha256": "f0819ec9e2ee308d5f8b87c8d65b72c565f202df775ffa7ced32860398ab9dce"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/Marketplace.tsx",
@@ -3704,16 +3528,9 @@
       "git_blob": "fcf2e14f8a346d24f0f0ff7e521fd95e969ed56f",
       "sha256": "628d5428a8b466af534afab2c4113ee049fb5442629680b416d85dd5b5e0050c",
       "exact_copy": "skills-manager-upstream/src/pages/Marketplace.tsx",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/Marketplace.tsx"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/Marketplace.tsx",
-          "sha256": "b19f1d2398cc20181035a3c6191dd3646cacd9aeaa0ab58961d9ba9702fb11eb"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/ProjectBindingsDialog.tsx",
@@ -3745,7 +3562,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Settings.tsx",
-          "sha256": "19c0c9011d17dd396bf6c3fb8f5f7e7257570aa6c1a94acd458cdaa55cbd9398"
+          "sha256": "e866b5dc251970656a5528ab833a86b4e8e05fb645b9254dae634ff940e27eb4"
         }
       ]
     },
@@ -3762,7 +3579,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Skills.tsx",
-          "sha256": "c21c19fa093b4aa43bfc399bbef4aa2cd93b9a0ec41d50a76af34bf42367a316"
+          "sha256": "6d56c81307e5bc9e4260319ab33f86ee3a8404c3058d929978b2102a9d2a7572"
         }
       ]
     },
@@ -3779,7 +3596,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Tools.tsx",
-          "sha256": "0d4691fcdd43a17e204bbb7fc72cd027eee986ef55536595e3d758722bc4bbcc"
+          "sha256": "b6985e3c0be9673e5178af5b38e76b429a76c9f15e50f58cfea5d9eb3084f75f"
         }
       ]
     },
@@ -3796,7 +3613,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/pages/Welcome.tsx",
-          "sha256": "caeaca473656c1dfb34603d9f5d29ba7af9235dcf26271ee03dd6b321f35f6ab"
+          "sha256": "ae7f6d85b24648d694fc213be8eb002b02aee3192c24e205446b3a7b725c69f3"
         }
       ]
     },
@@ -3806,16 +3623,9 @@
       "git_blob": "1f9b7d6b0cbf8f274c931e9b78d8b2d59ecd1183",
       "sha256": "b6b12fe997757a606aa54b622fe630f0d465a1809ccb91fb2e0f4ca56a9edff9",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/buildMarketplaceMetaItems.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/buildMarketplaceMetaItems.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/buildMarketplaceMetaItems.test.ts",
-          "sha256": "b6b12fe997757a606aa54b622fe630f0d465a1809ccb91fb2e0f4ca56a9edff9"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/marketplace/buildMarketplaceMetaItems.ts",
@@ -3823,16 +3633,9 @@
       "git_blob": "6a5d41307d41a753860e0ce0ef5d38d31726fdf2",
       "sha256": "9df2dec04c9be4c9e1188f9faa7334bf6ec8e94e0bd00ef982cec4e3ef119aaf",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/buildMarketplaceMetaItems.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/buildMarketplaceMetaItems.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/buildMarketplaceMetaItems.ts",
-          "sha256": "9df2dec04c9be4c9e1188f9faa7334bf6ec8e94e0bd00ef982cec4e3ef119aaf"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/marketplace/formatInstallCount.test.ts",
@@ -3840,16 +3643,9 @@
       "git_blob": "654ff4c2dddb0054f48fe94474625649a1212dc7",
       "sha256": "9d7ef57886299426cb186b39726f13a1e80f8d1e0cf5cd998f040b8f6a8a0fbb",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/formatInstallCount.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/formatInstallCount.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/formatInstallCount.test.ts",
-          "sha256": "9d7ef57886299426cb186b39726f13a1e80f8d1e0cf5cd998f040b8f6a8a0fbb"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/marketplace/formatInstallCount.ts",
@@ -3857,16 +3653,9 @@
       "git_blob": "6cef1896c407f4a9b653a2073747fa7c12eeccc6",
       "sha256": "5321fe7190b844319983ea4c1537a7d0baaf18050a0911c8d153a84a9afc6978",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/formatInstallCount.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/formatInstallCount.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/formatInstallCount.ts",
-          "sha256": "5321fe7190b844319983ea4c1537a7d0baaf18050a0911c8d153a84a9afc6978"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/marketplace/sortMarketplaceSkillsByInstallStatus.test.ts",
@@ -3874,16 +3663,9 @@
       "git_blob": "ffdfae6c4467679684284d67a24fdd8921e302f9",
       "sha256": "4fb58918990a68f4e359c65b487533371c1761c631e89259e3b8462d59a27ac8",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/sortMarketplaceSkillsByInstallStatus.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/sortMarketplaceSkillsByInstallStatus.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/sortMarketplaceSkillsByInstallStatus.test.ts",
-          "sha256": "4fb58918990a68f4e359c65b487533371c1761c631e89259e3b8462d59a27ac8"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/marketplace/sortMarketplaceSkillsByInstallStatus.ts",
@@ -3891,16 +3673,9 @@
       "git_blob": "7ea27fc03ce01c4470b2543b74602cc47c240908",
       "sha256": "8803d89b9299bb1d3a9284879e757d60eb6c632ef79631c34fb52d91370a9598",
       "exact_copy": "skills-manager-upstream/src/pages/marketplace/sortMarketplaceSkillsByInstallStatus.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/pages/marketplace/sortMarketplaceSkillsByInstallStatus.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/pages/marketplace/sortMarketplaceSkillsByInstallStatus.ts",
-          "sha256": "8803d89b9299bb1d3a9284879e757d60eb6c632ef79631c34fb52d91370a9598"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/pages/polls/buildPollOptionStats.test.ts",
@@ -4588,16 +4363,9 @@
       "git_blob": "5486c654a7359e56e351e74d5ee25406af7c29db",
       "sha256": "44711259c891bd86c66d33f3c65b6f44b838f2a7886879af5a59f1faebf4f2b2",
       "exact_copy": "skills-manager-upstream/src/services/__tests__/cloudSyncWorkflow.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/__tests__/cloudSyncWorkflow.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/__tests__/cloudSyncWorkflow.test.ts",
-          "sha256": "44711259c891bd86c66d33f3c65b6f44b838f2a7886879af5a59f1faebf4f2b2"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/auth.ts",
@@ -4605,16 +4373,9 @@
       "git_blob": "b469fa6cfa6da3645ebe07fe1395c01978f1cc77",
       "sha256": "5497eb6a2980447834b12937b8357a96b7d14ae6e7ad7ee677be7429b22116a5",
       "exact_copy": "skills-manager-upstream/src/services/auth.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/auth.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/auth.ts",
-          "sha256": "7fe96d345f5cbb43985f9f7089c06ac9100d4836dbd73abcf43e5972ee30389f"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/authError.ts",
@@ -4622,16 +4383,9 @@
       "git_blob": "857a0e022c83ca31785e86340668431b02d15058",
       "sha256": "f9f394171e59355ac07d35219ac4222c8e994e6aa697b9785bf6e5c5f43a1f33",
       "exact_copy": "skills-manager-upstream/src/services/authError.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/authError.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/authError.ts",
-          "sha256": "f9f394171e59355ac07d35219ac4222c8e994e6aa697b9785bf6e5c5f43a1f33"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/authProfileStore.ts",
@@ -4639,16 +4393,9 @@
       "git_blob": "da71e24a70190237e3a2711c4d6ee8f20105ccf8",
       "sha256": "6082b8ea9b77d56e41d5139183fe1ecd4ec15e384d7cdaf88ff388de7bfabef5",
       "exact_copy": "skills-manager-upstream/src/services/authProfileStore.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/authProfileStore.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/authProfileStore.ts",
-          "sha256": "6082b8ea9b77d56e41d5139183fe1ecd4ec15e384d7cdaf88ff388de7bfabef5"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/feedback.ts",
@@ -4656,16 +4403,9 @@
       "git_blob": "50346d685192f65ffe4e6d6081a0b9b68d3e2385",
       "sha256": "52cb1df8913c02f340a798d36026319204257fab0a392733e3538696a9db1f9c",
       "exact_copy": "skills-manager-upstream/src/services/feedback.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/feedback.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/feedback.ts",
-          "sha256": "5d2e80085d7031691ff83beff1d5ed1b500d655b2b7a009b0e6b27ba316e22e3"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/feedbackContact.test.ts",
@@ -4673,16 +4413,9 @@
       "git_blob": "826105102ebf38088dffbf00006985a7daa1d41d",
       "sha256": "c5e5eacfa48881cd06c0ec349c30608d378928867f35a44856790a9f64d0b834",
       "exact_copy": "skills-manager-upstream/src/services/feedbackContact.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/feedbackContact.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/feedbackContact.test.ts",
-          "sha256": "c5e5eacfa48881cd06c0ec349c30608d378928867f35a44856790a9f64d0b834"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/feedbackContact.ts",
@@ -4690,16 +4423,9 @@
       "git_blob": "a4c5d5fbbcec03e2e52c834c2d7bf087555a4308",
       "sha256": "e99cdece23ba6d8399c4c836a0df5ead98340936374ba0603709f546e07bddfd",
       "exact_copy": "skills-manager-upstream/src/services/feedbackContact.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/feedbackContact.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/feedbackContact.ts",
-          "sha256": "de81431d1c8fa2d601fdfabadec291c37fc0fa0345690a45c5c8a717626f2842"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/feedbackDirectContacts.test.ts",
@@ -4707,16 +4433,9 @@
       "git_blob": "a4d006eada343734dd8d98c0508c164066db218b",
       "sha256": "e4853b25fa857877fe32c1cc1b1f7cc59802d27b8e4f497ecd122f4a2d3e7a2e",
       "exact_copy": "skills-manager-upstream/src/services/feedbackDirectContacts.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/feedbackDirectContacts.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/feedbackDirectContacts.test.ts",
-          "sha256": "e4853b25fa857877fe32c1cc1b1f7cc59802d27b8e4f497ecd122f4a2d3e7a2e"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/feedbackDirectContacts.ts",
@@ -4724,16 +4443,9 @@
       "git_blob": "2de618bc4b6d518ce14c42282d6667876158aa7b",
       "sha256": "90283d82bc37e92736e30035c847e7ae5dc1ff7cef87452dcd79960bb07e5376",
       "exact_copy": "skills-manager-upstream/src/services/feedbackDirectContacts.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/feedbackDirectContacts.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/feedbackDirectContacts.ts",
-          "sha256": "90283d82bc37e92736e30035c847e7ae5dc1ff7cef87452dcd79960bb07e5376"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/services/updater.ts",
@@ -4741,16 +4453,9 @@
       "git_blob": "01beabc2a375b685b3aaab74864eb0816c8c23ed",
       "sha256": "3959118675caedd2769bd76d60dcf1a1d30f4b100041ea8d312de0226404613a",
       "exact_copy": "skills-manager-upstream/src/services/updater.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/services/updater.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/services/updater.ts",
-          "sha256": "3959118675caedd2769bd76d60dcf1a1d30f4b100041ea8d312de0226404613a"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/telemetry/consent.test.ts",
@@ -4758,16 +4463,9 @@
       "git_blob": "12df1bd1dab6ce4a29a7c75cef47884e17702a10",
       "sha256": "50aced24cd7a25c438a7682c1a4ede786c63e2b8e93bf8f47edaed82dfe24968",
       "exact_copy": "skills-manager-upstream/src/telemetry/consent.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/telemetry/consent.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/telemetry/consent.test.ts",
-          "sha256": "50aced24cd7a25c438a7682c1a4ede786c63e2b8e93bf8f47edaed82dfe24968"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/telemetry/consent.ts",
@@ -4775,16 +4473,9 @@
       "git_blob": "55bcc52b46b6be054306ea41abc15cd24a91aaee",
       "sha256": "fb2582ba63c45da77538f4b91272790c0edc02a207e1bde4feee93b92c29c4b2",
       "exact_copy": "skills-manager-upstream/src/telemetry/consent.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/telemetry/consent.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/telemetry/consent.ts",
-          "sha256": "fb2582ba63c45da77538f4b91272790c0edc02a207e1bde4feee93b92c29c4b2"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/telemetry/registerTelemetryCloseHandler.test.ts",
@@ -4792,16 +4483,9 @@
       "git_blob": "5d7201f223e10603f6e906e04f791edba5325bdb",
       "sha256": "806a763291eda7fbc0657a45f22638491685f664fe94b476165db15e186b16ac",
       "exact_copy": "skills-manager-upstream/src/telemetry/registerTelemetryCloseHandler.test.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/telemetry/registerTelemetryCloseHandler.test.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/telemetry/registerTelemetryCloseHandler.test.ts",
-          "sha256": "806a763291eda7fbc0657a45f22638491685f664fe94b476165db15e186b16ac"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/telemetry/registerTelemetryCloseHandler.ts",
@@ -4809,16 +4493,9 @@
       "git_blob": "5966c341338cc1b80e0b4de6820a53792861f37e",
       "sha256": "32c82b9454caec149be2b89a53e8e4b1d8ce031ad505afb658986f3d1f363078",
       "exact_copy": "skills-manager-upstream/src/telemetry/registerTelemetryCloseHandler.ts",
-      "status": "adapted-runtime-copy",
-      "integrated_paths": [
-        "src/skills-manager/telemetry/registerTelemetryCloseHandler.ts"
-      ],
-      "integrated_files": [
-        {
-          "path": "src/skills-manager/telemetry/registerTelemetryCloseHandler.ts",
-          "sha256": "32c82b9454caec149be2b89a53e8e4b1d8ce031ad505afb658986f3d1f363078"
-        }
-      ]
+      "status": "retired-remote-feature",
+      "integrated_paths": [],
+      "integrated_files": []
     },
     {
       "path": "src/types/index.ts",
@@ -4833,7 +4510,7 @@
       "integrated_files": [
         {
           "path": "src/skills-manager/types/index.ts",
-          "sha256": "acf23e03bc62d8032f94b7c3b43cd3c48387ab9628d41c8e0ff4874077c19a37"
+          "sha256": "e5a9a229ed0f06fe35ca49832b2bfbd753e0bd4631bbb23ecee89ea9129d5c1c"
         }
       ]
     },

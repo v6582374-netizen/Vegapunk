@@ -1,5 +1,3 @@
-use crate::models::auth::AuthSession;
-use crate::models::marketplace::{MarketplaceSource, SourceType};
 use crate::models::RiskScanMode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -7,12 +5,6 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPreferences {
-    #[serde(default = "default_theme")]
-    pub theme: String,
-    #[serde(default = "default_font_family")]
-    pub font_family: String,
-    #[serde(default = "default_language")]
-    pub language: String,
     #[serde(default = "default_true")]
     pub auto_sync: bool,
     #[serde(default = "default_true")]
@@ -27,8 +19,6 @@ pub struct UserPreferences {
     pub remove_links_when_disabling_tool: bool,
     #[serde(default = "default_true")]
     pub skill_usage_monitor: bool,
-    #[serde(default)]
-    pub github_token: Option<String>,
     #[serde(default)]
     pub risk_scan_mode: RiskScanMode,
 }
@@ -54,44 +44,6 @@ pub struct SkillMetadata {
     pub favorited_at: Option<i64>,
 }
 
-/// 收藏时的市场 skill 快照，断网也能展示基本信息
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MarketplaceFavoriteMeta {
-    pub favorited_at: i64,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub source_id: String,
-    #[serde(default)]
-    pub source_name: String,
-    #[serde(default)]
-    pub repo_url: Option<String>,
-    #[serde(default)]
-    pub skill_path: Option<String>,
-    #[serde(default)]
-    pub external_url: Option<String>,
-    #[serde(default)]
-    pub install_count: Option<u64>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub clawhub_slug: Option<String>,
-    #[serde(default)]
-    pub clawhub_owner: Option<String>,
-    #[serde(default)]
-    pub clawhub_version: Option<String>,
-}
-
-fn default_theme() -> String {
-    "system".to_string()
-}
-fn default_language() -> String {
-    "en".to_string()
-}
-fn default_font_family() -> String {
-    "system".to_string()
-}
 fn default_editor() -> String {
     "builtin".to_string()
 }
@@ -104,24 +56,9 @@ fn default_true() -> bool {
 fn default_false() -> bool {
     false
 }
-fn default_marketplace_sources() -> Vec<MarketplaceSource> {
-    vec![MarketplaceSource {
-        id: "src_clawhub".to_string(),
-        name: "ClawHub".to_string(),
-        url: "https://clawhub.ai".to_string(),
-        source_type: SourceType::ClawhubApi,
-        enabled: true,
-        builtin: true,
-        api_key: None,
-    }]
-}
-
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
-            theme: default_theme(),
-            font_family: default_font_family(),
-            language: default_language(),
             auto_sync: true,
             sync_on_save: true,
             default_editor: default_editor(),
@@ -129,7 +66,6 @@ impl Default for UserPreferences {
             show_sync_notifications: true,
             remove_links_when_disabling_tool: false,
             skill_usage_monitor: true,
-            github_token: None,
             risk_scan_mode: RiskScanMode::Off,
         }
     }
@@ -208,19 +144,13 @@ pub struct AppConfig {
     #[serde(default)]
     pub skill_metadata: HashMap<String, SkillMetadata>,
     #[serde(default)]
-    pub marketplace_favorites: HashMap<String, MarketplaceFavoriteMeta>,
-    #[serde(default)]
     pub preferences: Option<UserPreferences>,
-    #[serde(default)]
-    pub marketplace_sources: Option<Vec<MarketplaceSource>>,
     #[serde(default)]
     pub projects: Vec<ProjectBinding>,
     #[serde(default)]
     pub active_project_id: Option<String>,
     #[serde(default)]
     pub llm_provider: Option<LlmProvider>,
-    #[serde(default)]
-    pub auth_session: Option<AuthSession>,
     #[serde(default)]
     pub initialized: bool,
 }
@@ -252,13 +182,10 @@ impl Default for AppConfig {
             tools: HashMap::new(),
             custom_tools: HashMap::new(),
             skill_metadata: HashMap::new(),
-            marketplace_favorites: HashMap::new(),
             preferences: Some(UserPreferences::default()),
-            marketplace_sources: Some(default_marketplace_sources()),
             projects: Vec::new(),
             active_project_id: None,
             llm_provider: None,
-            auth_session: None,
             initialized: false,
         }
     }
@@ -326,40 +253,9 @@ impl AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::default_marketplace_sources;
     use super::AppConfig;
     use super::SkillMetadata;
-    use crate::models::SourceType;
     use std::collections::HashMap;
-
-    #[test]
-    fn default_marketplace_sources_matches_remote_source_ids() {
-        let sources = default_marketplace_sources();
-        assert_eq!(sources.len(), 1);
-        assert_eq!(sources[0].id, "src_clawhub");
-        assert_eq!(sources[0].source_type, SourceType::ClawhubApi);
-    }
-
-    #[test]
-    fn font_family_preference_defaults_and_persists() {
-        let config = AppConfig::default();
-        let value = serde_json::to_value(&config).expect("config should serialize");
-        let font_family = value
-            .get("preferences")
-            .and_then(|prefs| prefs.get("font_family"))
-            .and_then(|value| value.as_str());
-        assert_eq!(font_family, Some("system"));
-
-        let json = serde_json::to_string(&config).expect("config should serialize");
-        let restored: AppConfig = serde_json::from_str(&json).expect("config should deserialize");
-        let restored_value =
-            serde_json::to_value(&restored).expect("restored config should serialize");
-        let restored_font_family = restored_value
-            .get("preferences")
-            .and_then(|prefs| prefs.get("font_family"))
-            .and_then(|value| value.as_str());
-        assert_eq!(restored_font_family, Some("system"));
-    }
 
     #[test]
     fn skill_tags_default_to_empty_when_loading_legacy_config() {

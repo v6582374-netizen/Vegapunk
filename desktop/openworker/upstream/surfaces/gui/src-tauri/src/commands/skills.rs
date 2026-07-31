@@ -490,8 +490,6 @@ mod tests {
             description: None,
             version: "1.0.0".to_string(),
             source: SkillSource::Local,
-            marketplace_meta: None,
-            vault_meta: None,
             package_meta: None,
             enabled: enabled
                 .iter()
@@ -512,8 +510,6 @@ mod tests {
             description: None,
             version: "1.0.0".to_string(),
             source: SkillSource::Local,
-            marketplace_meta: None,
-            vault_meta: None,
             package_meta: None,
             enabled: enabled
                 .iter()
@@ -591,13 +587,10 @@ mod tests {
             tools,
             custom_tools: HashMap::new(),
             skill_metadata: HashMap::new(),
-            marketplace_favorites: HashMap::new(),
             preferences: None,
-            marketplace_sources: None,
             projects: Vec::new(),
             active_project_id: None,
             llm_provider: None,
-            auth_session: None,
             initialized: true,
         }
     }
@@ -629,13 +622,10 @@ mod tests {
                 )]),
                 custom_tools: HashMap::new(),
                 skill_metadata: HashMap::new(),
-                marketplace_favorites: HashMap::new(),
                 preferences: None,
-                marketplace_sources: None,
                 projects: Vec::new(),
                 active_project_id: None,
                 llm_provider: None,
-                auth_session: None,
                 initialized: true,
             };
 
@@ -685,13 +675,10 @@ mod tests {
                 )]),
                 custom_tools: HashMap::new(),
                 skill_metadata: HashMap::new(),
-                marketplace_favorites: HashMap::new(),
                 preferences: None,
-                marketplace_sources: None,
                 projects: Vec::new(),
                 active_project_id: None,
                 llm_provider: None,
-                auth_session: None,
                 initialized: true,
             };
 
@@ -912,7 +899,6 @@ mod tests {
                 "custom_tools": {},
                 "skill_metadata": {},
                 "preferences": null,
-                "marketplace_sources": null,
                 "projects": [{
                     "id": "project-alpha",
                     "name": "Project Alpha",

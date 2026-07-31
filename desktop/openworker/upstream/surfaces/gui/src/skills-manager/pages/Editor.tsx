@@ -26,7 +26,7 @@ const LINUX_NOTICE_DISMISSED_KEY = "skills-manager:linux-editor-notice-dismissed
 
 export function EditorPage() {
   const { t, language } = useTranslation();
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const translation = useSkillTranslation();
   const isLinux = navigator.userAgent.includes("Linux");
   const navigate = useNavigate();
@@ -831,7 +831,7 @@ export function EditorPage() {
                   suggestOnTriggerCharacters: false,
                   parameterHints: { enabled: false },
                 }}
-                theme={theme === "dark" ? RAYCAST_MONACO_THEME_DARK : RAYCAST_MONACO_THEME_LIGHT}
+                theme={resolvedTheme === "dark" ? RAYCAST_MONACO_THEME_DARK : RAYCAST_MONACO_THEME_LIGHT}
               />
             )
           )}

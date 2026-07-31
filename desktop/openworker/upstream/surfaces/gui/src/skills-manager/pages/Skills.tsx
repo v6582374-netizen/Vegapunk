@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Check,
   ChevronRight,
@@ -725,7 +725,7 @@ function SkillCardActionMenu({
 
 // Module-level cache: survives route changes so revisiting the Skills page
 // renders the last-known data immediately (no PageLoader flash) while a
-// silent background refresh runs. Same pattern Marketplace uses.
+// silent background refresh runs without blocking the inventory surface.
 interface SkillsPageCache {
   skills: Skill[];
   skillPackages: InstalledSkillPackage[];
@@ -792,16 +792,13 @@ export function Skills() {
   const [expandedSkillGroups, setExpandedSkillGroups] = useState<Set<string>>(loadExpandedSkillGroups);
   const [expandedCardKeys, setExpandedCardKeys] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
-  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [usageStats, setUsageStats] = useState<Record<string, SkillUsageStats>>({});
   const [riskReports, setRiskReports] = useState<Record<string, SkillRiskReport>>({});
-  const [searchParams, setSearchParams] = useSearchParams();
   const { toasts, addToast, updateToast, removeToast } = useToast();
   const skillMetadata = config?.skill_metadata;
   const favorites = useFavorites(skillMetadata);
   const listContainerRef = useRef<HTMLDivElement | null>(null);
   const hasRestoredScrollRef = useRef(false);
-  const highlightTargetRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -1637,46 +1634,6 @@ export function Skills() {
     : flatSkillItems.length > 0;
 
   const forceExpandFilteredGroups = hasActiveSkillFilters;
-
-  useEffect(() => {
-    const highlight = searchParams.get("highlight");
-    if (!highlight || initialLoading) return;
-
-    const matched = sortedUnifiedItems.find(
-      (item) => item.skill?.marketplace_meta?.marketplace_skill_id === highlight,
-    );
-    if (!matched) return;
-
-    setHighlightKey(matched.key);
-    setSelectedInventoryKey(matched.key);
-    const owningGroup = groupedSkillCollection.groupBySkillKey.get(matched.key);
-    if (owningGroup) {
-      setExpandedSkillGroups((current) => {
-        const next = new Set(current);
-        next.add(owningGroup.id);
-        return next;
-      });
-    }
-    setSearchParams(
-      (prev) => {
-        prev.delete("highlight");
-        return prev;
-      },
-      { replace: true },
-    );
-  }, [groupedSkillCollection.groupBySkillKey, searchParams, sortedUnifiedItems, initialLoading, setSearchParams]);
-
-  useEffect(() => {
-    if (!highlightKey) return;
-    const scrollTimer = window.setTimeout(() => {
-      highlightTargetRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 120);
-    const clearTimer = window.setTimeout(() => setHighlightKey(null), 4500);
-    return () => {
-      window.clearTimeout(scrollTimer);
-      window.clearTimeout(clearTimer);
-    };
-  }, [highlightKey]);
 
   const actionableToolIds = useMemo(
     () => getActionableToolIds(tools),
@@ -2870,7 +2827,6 @@ export function Skills() {
       : item.description || t("skills.noDescription");
     const isSelected = selectedBatchItemKeys.has(item.key);
     const isExpanded = selectedInventoryItem?.key === item.key;
-    const isHighlighted = highlightKey === item.key;
     const owningGroup = parentGroup ?? groupedSkillCollection.groupBySkillKey.get(item.key) ?? null;
     const riskReport = riskReports[skill.instance_id];
     const inventoryStateTone = riskReport && riskReport.level !== "safe"
@@ -2898,11 +2854,10 @@ export function Skills() {
     return (
       <div
         key={item.key}
-        ref={isHighlighted ? highlightTargetRef : undefined}
         className="skills-list-row-anchor"
       >
         <article
-          className={`skills-list-row${parentGroup ? " is-group-member" : ""}${isSelected ? " is-selected" : ""}${isExpanded ? " is-active" : ""}${isHighlighted ? " is-highlighted" : ""}`}
+          className={`skills-list-row${parentGroup ? " is-group-member" : ""}${isSelected ? " is-selected" : ""}${isExpanded ? " is-active" : ""}`}
         >
           <div className="skills-list-row-main">
             {isBatchManageMode && (
@@ -3275,12 +3230,9 @@ export function Skills() {
       ? ({
           local: "skills.inventorySourceLocal",
           imported: "skills.inventorySourceImported",
-          marketplace: "skills.inventorySourceMarketplace",
-          vault: "skills.inventorySourceVault",
         } as const)[skill.source]
       : "skills.inventorySourcePackage";
     const revision = skillPackage?.manifest_hash
-      ?? skill?.marketplace_meta?.remote_revision
       ?? (skill?.version ? `v${skill.version}` : null);
     const updatedAt = formatInventoryTimestamp(skillPackage?.updated_at, language);
     const scanTime = formatInventoryTimestamp(highestRiskReport?.scanned_at, language);
@@ -4149,12 +4101,9 @@ export function Skills() {
                 const isBatchSelected = selectedBatchItemKeys.has(item.key);
                 const isCardExpanded = expandedCardKeys.has(item.key);
                 const canToggleExpand = !isBatchManageMode;
-                const isHighlighted = highlightKey === item.key;
-
                 return (
                   <div
                     key={item.key}
-                    ref={isHighlighted ? highlightTargetRef : undefined}
                     onClick={isBatchManageMode
                       ? () => handleToggleBatchItemSelection(item.key)
                       : canToggleExpand
@@ -4166,14 +4115,11 @@ export function Skills() {
                       padding: "18px 20px",
                       backgroundColor: isBatchSelected ? "var(--primary-tint)" : "var(--secondary)",
                       borderRadius: "var(--radius)",
-                      border: isHighlighted
-                        ? "2px solid var(--primary)"
-                        : isBatchSelected
+                      border: isBatchSelected
                           ? "1px solid var(--primary-tint-border)"
                           : isCardExpanded
                             ? "1px solid var(--ring)"
                             : "1px solid var(--border)",
-                      boxShadow: isHighlighted ? "0 0 0 4px var(--primary-tint)" : undefined,
                       transition: canToggleExpand ? "border-color 0.2s, box-shadow 0.2s" : undefined,
                       cursor: canToggleExpand ? "pointer" : isBatchManageMode ? "pointer" : "default",
                     }}

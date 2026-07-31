@@ -5,11 +5,8 @@ import { WelcomeStep } from "@skills-manager/components/welcome/WelcomeStep";
 import { ToolDetectionStep } from "@skills-manager/components/welcome/ToolDetectionStep";
 import { DirectorySetupStep } from "@skills-manager/components/welcome/DirectorySetupStep";
 import { ImportSkillsStep } from "@skills-manager/components/welcome/ImportSkillsStep";
-import { SunIcon, MoonIcon, MonitorIcon } from "@skills-manager/components/icons/theme-icons";
 import { useTranslation } from "@skills-manager/i18n";
-import { useTheme } from "@skills-manager/hooks/useTheme";
 import { AppConfig } from "@skills-manager/types";
-import { defaultPreferences } from "@skills-manager/constants/preferences";
 import { ToastContainer, useToast } from "@skills-manager/components/ui/toast";
 
 type WizardStep = "welcome" | "tools" | "directory" | "import";
@@ -19,8 +16,7 @@ interface WelcomeProps {
 }
 
 export function Welcome({ onComplete }: WelcomeProps) {
-  const { t, language, setLanguage } = useTranslation();
-  const { theme, setTheme } = useTheme();
+  const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState<WizardStep>("welcome");
   const [appVersion, setAppVersion] = useState<string>("");
   const { toasts, addToast, removeToast } = useToast();
@@ -42,32 +38,6 @@ export function Welcome({ onComplete }: WelcomeProps) {
     }
     loadVersion();
   }, []);
-
-  // Save preferences to config whenever they change
-  useEffect(() => {
-    async function savePreferences() {
-      try {
-        const config = await invoke<AppConfig>("get_config");
-        const updatedConfig = {
-          ...config,
-          preferences: {
-            ...defaultPreferences,
-            ...config.preferences,
-            language,
-            theme,
-          },
-        };
-        await invoke("save_config", { config: updatedConfig });
-      } catch (error) {
-        console.error("Failed to save preferences:", error);
-        addToast(
-          `${t("welcome.savePreferencesFailed")}: ${String(error)}`,
-          "error"
-        );
-      }
-    }
-    savePreferences();
-  }, [language, theme, addToast, t]);
 
   async function goNext() {
     if (currentIndex < steps.length - 1) {
@@ -166,35 +136,11 @@ export function Welcome({ onComplete }: WelcomeProps) {
           cursor: 'grab',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'flex-end',
+          justifyContent: 'center',
           padding: '0 16px',
           gap: '8px',
         }}
       >
-        {/* Theme selector */}
-        <div style={{ display: 'flex', gap: '2px', backgroundColor: 'var(--secondary)', borderRadius: '8px', padding: '3px' }}>
-          <ThemeButton
-            active={theme === "light"}
-            onClick={() => setTheme("light")}
-            icon={<SunIcon />}
-          />
-          <ThemeButton
-            active={theme === "dark"}
-            onClick={() => setTheme("dark")}
-            icon={<MoonIcon />}
-          />
-          <ThemeButton
-            active={theme === "system"}
-            onClick={() => setTheme("system")}
-            icon={<MonitorIcon />}
-          />
-        </div>
-
-        {/* Language selector */}
-        <div style={{ display: 'flex', gap: '2px', backgroundColor: 'var(--secondary)', borderRadius: '8px', padding: '3px' }}>
-          <LangButton active={language === "en"} onClick={() => setLanguage("en")} label="EN" />
-          <LangButton active={language === "zh"} onClick={() => setLanguage("zh")} label="中" />
-        </div>
       </div>
 
       {/* Main content */}
@@ -259,51 +205,5 @@ export function Welcome({ onComplete }: WelcomeProps) {
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
-  );
-}
-
-// --- Helper components ---
-
-function ThemeButton({ active, onClick, icon }: { active: boolean; onClick: () => void; icon: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: '28px',
-        height: '28px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: '6px',
-        border: 'none',
-        backgroundColor: active ? 'var(--background)' : 'transparent',
-        color: active ? 'var(--foreground)' : 'var(--muted-foreground)',
-        cursor: 'pointer',
-        transition: 'all 0.15s',
-      }}
-    >
-      {icon}
-    </button>
-  );
-}
-
-function LangButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '4px 10px',
-        fontSize: '12px',
-        fontWeight: 500,
-        borderRadius: '6px',
-        border: 'none',
-        backgroundColor: active ? 'var(--background)' : 'transparent',
-        color: active ? 'var(--foreground)' : 'var(--muted-foreground)',
-        cursor: 'pointer',
-        transition: 'all 0.15s',
-      }}
-    >
-      {label}
-    </button>
   );
 }

@@ -102,7 +102,7 @@ pub struct ImportResult {
     pub failed: Vec<ImportFailure>,
 }
 
-/// Skills eligible for export (global scope, non-marketplace/vault).
+/// Skills eligible for export (global scope).
 pub fn collect_exportable_skills(config: &AppConfig) -> Result<Vec<Skill>, String> {
     let skills = ScannerService::scan_scoped_skills(config)?;
     Ok(skills

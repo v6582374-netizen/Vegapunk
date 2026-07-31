@@ -3,10 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::models::{
-    AppConfig, MarketplaceMeta, ProjectBinding, Skill, SkillPackageMeta, SkillScope, SkillSource,
-    VaultMeta,
-};
+use crate::models::{AppConfig, ProjectBinding, Skill, SkillPackageMeta, SkillScope, SkillSource};
 use crate::services::detector::DetectorService;
 use crate::services::linker::LinkerService;
 
@@ -18,8 +15,6 @@ pub struct SkillMeta {
     pub description: Option<String>,
     pub version: String,
     pub source: SkillSource,
-    pub marketplace_meta: Option<MarketplaceMeta>,
-    pub vault_meta: Option<VaultMeta>,
     pub package_meta: Option<SkillPackageMeta>,
 }
 
@@ -292,8 +287,6 @@ impl ScannerService {
             description: meta.description,
             version: meta.version,
             source: meta.source,
-            marketplace_meta: meta.marketplace_meta,
-            vault_meta: meta.vault_meta,
             package_meta: meta.package_meta,
             enabled,
             path: skill_path.to_path_buf(),
@@ -340,19 +333,6 @@ impl ScannerService {
             description: Option<String>,
             version: Option<String>,
             source: Option<String>,
-            marketplace_source_id: Option<String>,
-            marketplace_skill_id: Option<String>,
-            marketplace_skill_slug: Option<String>,
-            repo_url: Option<String>,
-            skill_path: Option<String>,
-            remote_revision: Option<String>,
-            vault_provider: Option<String>,
-            vault_user_id: Option<String>,
-            vault_skill_id: Option<String>,
-            vault_version: Option<String>,
-            vault_hash: Option<String>,
-            vault_size: Option<u64>,
-            vault_updated_at: Option<i64>,
             package_id: Option<String>,
             package_name: Option<String>,
             package_member_id: Option<String>,
@@ -372,50 +352,8 @@ impl ScannerService {
         });
 
         let source = match meta.source.as_deref() {
-            Some("marketplace") => SkillSource::Marketplace,
-            Some("vault") => SkillSource::Vault,
             Some("imported") => SkillSource::Imported,
             _ => SkillSource::Local,
-        };
-
-        let has_marketplace_meta = meta.marketplace_skill_id.is_some()
-            || meta.marketplace_source_id.is_some()
-            || meta.marketplace_skill_slug.is_some()
-            || meta.repo_url.is_some()
-            || meta.skill_path.is_some()
-            || meta.remote_revision.is_some();
-        let marketplace_meta = if source == SkillSource::Marketplace || has_marketplace_meta {
-            Some(MarketplaceMeta {
-                marketplace_source_id: meta.marketplace_source_id,
-                marketplace_skill_id: meta.marketplace_skill_id,
-                marketplace_skill_slug: meta.marketplace_skill_slug,
-                repo_url: meta.repo_url,
-                skill_path: meta.skill_path,
-                remote_revision: meta.remote_revision,
-            })
-        } else {
-            None
-        };
-
-        let has_vault_meta = meta.vault_skill_id.is_some()
-            || meta.vault_user_id.is_some()
-            || meta.vault_provider.is_some()
-            || meta.vault_version.is_some()
-            || meta.vault_hash.is_some()
-            || meta.vault_size.is_some()
-            || meta.vault_updated_at.is_some();
-        let vault_meta = if source == SkillSource::Vault || has_vault_meta {
-            Some(VaultMeta {
-                provider: meta.vault_provider,
-                user_id: meta.vault_user_id,
-                skill_id: meta.vault_skill_id,
-                version: meta.vault_version,
-                hash: meta.vault_hash,
-                size: meta.vault_size,
-                updated_at: meta.vault_updated_at,
-            })
-        } else {
-            None
         };
 
         let package_meta = match (meta.package_id, meta.package_member_id) {
@@ -433,8 +371,6 @@ impl ScannerService {
             description: meta.description,
             version: meta.version.unwrap_or_else(|| "1.0".to_string()),
             source,
-            marketplace_meta,
-            vault_meta,
             package_meta,
         })
     }
@@ -472,8 +408,6 @@ impl ScannerService {
             description,
             version: "1.0".to_string(),
             source: SkillSource::Local,
-            marketplace_meta: None,
-            vault_meta: None,
             package_meta: None,
         })
     }
@@ -484,8 +418,6 @@ impl ScannerService {
             description: None,
             version: "1.0".to_string(),
             source: SkillSource::Local,
-            marketplace_meta: None,
-            vault_meta: None,
             package_meta: None,
         }
     }
@@ -538,7 +470,7 @@ impl ScannerService {
 #[cfg(test)]
 mod tests {
     use super::ScannerService;
-    use crate::models::{AppConfig, SkillSource};
+    use crate::models::AppConfig;
     use crate::test_support::with_temp_home;
     use serde_json::json;
     use std::fs;
@@ -607,55 +539,6 @@ description: "Description from SKILL.md"
             let skill =
                 ScannerService::load_skill_with_config(&skill_dir, &config).expect("load skill");
             assert_eq!(skill.description, Some("Description from meta".to_string()));
-        });
-    }
-
-    #[test]
-    fn load_skill_reads_marketplace_meta_fields() {
-        with_temp_home(|home| {
-            let config = AppConfig::default();
-            let skill_dir = home
-                .join(".skills-manager")
-                .join("skills")
-                .join("mkt-skill");
-            fs::create_dir_all(&skill_dir).expect("create skill dir");
-
-            let meta_content = r#"{
-  "name": "mkt-skill",
-  "version": "1.0",
-  "source": "marketplace",
-  "marketplace_skill_id": "mkt-123",
-  "marketplace_skill_slug": "mkt-skill",
-  "marketplace_source_id": "source-1",
-  "repo_url": "https://github.com/acme/repo",
-  "skill_path": ".claude/skills/mkt-skill"
-}"#;
-            fs::write(skill_dir.join("meta.json"), meta_content).expect("write meta.json");
-
-            let skill =
-                ScannerService::load_skill_with_config(&skill_dir, &config).expect("load skill");
-            assert_eq!(skill.source, SkillSource::Marketplace);
-            let marketplace = skill.marketplace_meta.expect("marketplace meta");
-            assert_eq!(
-                marketplace.marketplace_skill_id,
-                Some("mkt-123".to_string())
-            );
-            assert_eq!(
-                marketplace.marketplace_skill_slug,
-                Some("mkt-skill".to_string())
-            );
-            assert_eq!(
-                marketplace.marketplace_source_id,
-                Some("source-1".to_string())
-            );
-            assert_eq!(
-                marketplace.repo_url,
-                Some("https://github.com/acme/repo".to_string())
-            );
-            assert_eq!(
-                marketplace.skill_path,
-                Some(".claude/skills/mkt-skill".to_string())
-            );
         });
     }
 
@@ -821,7 +704,6 @@ description: "Description from SKILL.md"
                 "custom_tools": config.custom_tools,
                 "skill_metadata": config.skill_metadata,
                 "preferences": config.preferences,
-                "marketplace_sources": config.marketplace_sources,
                 "initialized": config.initialized,
                 "projects": [
                     {

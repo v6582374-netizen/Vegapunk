@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "@skills-manager/i18n";
-import { Skill, MarketplaceSkill, MarketplaceSkillsResponse } from "@skills-manager/types";
+import { Skill } from "@skills-manager/types";
 import { MODAL_LAYER_Z_INDEX, MODAL_OVERLAY_COLOR } from "@skills-manager/constants/modal";
 import { CustomCaretInput } from "@skills-manager/components/ui/custom-caret-input";
 
@@ -12,7 +12,7 @@ interface CommandItem {
   description?: string;
   meta?: string;
   section: string;
-  icon?: "skill" | "market" | "settings" | "nav";
+  icon?: "skill" | "settings" | "nav";
   action: () => void;
 }
 
@@ -22,29 +22,21 @@ interface CommandPaletteProps {
 }
 
 const MAX_LOCAL_RESULTS = 8;
-const MAX_MARKETPLACE_RESULTS = 6;
-const MARKETPLACE_SEARCH_MIN_LENGTH = 2;
-
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [localSkills, setLocalSkills] = useState<Skill[]>([]);
-  const [marketplaceSkills, setMarketplaceSkills] = useState<MarketplaceSkill[]>([]);
-  const [searchingMarketplace, setSearchingMarketplace] = useState(false);
   const [localLoaded, setLocalLoaded] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const marketRequestSeqRef = useRef(0);
 
   // Reset state when opening
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setActiveIndex(0);
-    setMarketplaceSkills([]);
-    setSearchingMarketplace(false);
     // Focus input on open
     const timer = window.setTimeout(() => {
       inputRef.current?.focus();
@@ -75,45 +67,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     };
   }, [open, localLoaded]);
 
-  // Search marketplace with debounce (only when query is long enough)
-  useEffect(() => {
-    if (!open) return;
-    const trimmed = query.trim();
-    if (trimmed.length < MARKETPLACE_SEARCH_MIN_LENGTH) {
-      setMarketplaceSkills([]);
-      setSearchingMarketplace(false);
-      marketRequestSeqRef.current += 1;
-      return;
-    }
-
-    const seq = marketRequestSeqRef.current + 1;
-    marketRequestSeqRef.current = seq;
-    setSearchingMarketplace(true);
-    const debounceTimer = window.setTimeout(async () => {
-      try {
-        const result = await invoke<MarketplaceSkillsResponse>("fetch_marketplace_skills", {
-          forceRefresh: false,
-          query: trimmed,
-          page: 1,
-          sourceIds: undefined,
-        });
-        if (seq !== marketRequestSeqRef.current) return;
-        setMarketplaceSkills(result.skills.slice(0, MAX_MARKETPLACE_RESULTS));
-      } catch {
-        if (seq !== marketRequestSeqRef.current) return;
-        setMarketplaceSkills([]);
-      } finally {
-        if (seq === marketRequestSeqRef.current) {
-          setSearchingMarketplace(false);
-        }
-      }
-    }, 350);
-
-    return () => {
-      window.clearTimeout(debounceTimer);
-    };
-  }, [query, open]);
-
   const goToSkills = useCallback(() => {
     navigate("/");
     onClose();
@@ -121,11 +74,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const goToTools = useCallback(() => {
     navigate("/tools");
-    onClose();
-  }, [navigate, onClose]);
-
-  const goToMarketplace = useCallback(() => {
-    navigate("/marketplace");
     onClose();
   }, [navigate, onClose]);
 
@@ -144,24 +92,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     onClose();
   }, [navigate, onClose]);
 
-  const goToFeedback = useCallback(() => {
-    navigate("/feedback");
-    onClose();
-  }, [navigate, onClose]);
-
   const openLocalSkill = useCallback((skill: Skill) => {
     navigate(`/editor?root=${encodeURIComponent(skill.path)}`);
     onClose();
-  }, [navigate, onClose]);
-
-  const goToMarketplaceSkill = useCallback((skill: MarketplaceSkill) => {
-    navigate("/marketplace");
-    // Defer close so navigation happens first
-    window.setTimeout(() => onClose(), 0);
-    // Use skill id as a hash so Marketplace can highlight it if needed
-    window.setTimeout(() => {
-      window.location.hash = `skill-${skill.id}`;
-    }, 100);
   }, [navigate, onClose]);
 
   const items = useMemo<CommandItem[]>(() => {
@@ -172,9 +105,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const navItems: CommandItem[] = [
       { id: "nav-skills", label: t("commandPalette.navSkills"), meta: "NAV", section: t("commandPalette.sectionNavigation"), icon: "nav", action: goToSkills },
       { id: "nav-tools", label: t("commandPalette.navTools"), meta: "NAV", section: t("commandPalette.sectionNavigation"), icon: "nav", action: goToTools },
-      { id: "nav-marketplace", label: t("commandPalette.navMarketplace"), meta: "NAV", section: t("commandPalette.sectionNavigation"), icon: "nav", action: goToMarketplace },
       { id: "nav-settings", label: t("commandPalette.navSettings"), meta: "NAV", section: t("commandPalette.sectionNavigation"), icon: "nav", action: goToSettings },
-      { id: "nav-feedback", label: t("commandPalette.navFeedback"), meta: "NAV", section: t("commandPalette.sectionNavigation"), icon: "nav", action: goToFeedback },
     ];
     const filteredNav = trimmed
       ? navItems.filter((item) => item.label.toLowerCase().includes(trimmed))
@@ -185,10 +116,6 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const settingsItems: CommandItem[] = [
       { id: "set-general", label: t("commandPalette.settingGeneral"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-general") },
       { id: "set-appearance", label: t("commandPalette.settingAppearance"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-appearance") },
-      { id: "set-github-token", label: t("commandPalette.settingGithubToken"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-general") },
-      { id: "set-llm", label: t("commandPalette.settingLlm"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-llm") },
-      { id: "set-account", label: t("commandPalette.settingAccount"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-account") },
-      { id: "set-about", label: t("commandPalette.settingAbout"), meta: "SETTING", section: t("commandPalette.sectionSettings"), icon: "settings", action: () => goToSettingsSection("settings-about") },
     ];
     const filteredSettings = trimmed
       ? settingsItems.filter((item) => item.label.toLowerCase().includes(trimmed))
@@ -216,21 +143,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       })),
     );
 
-    // Marketplace skills
-    result.push(
-      ...marketplaceSkills.map((skill) => ({
-        id: `market-${skill.id}`,
-        label: skill.name,
-        description: skill.description ?? skill.author ?? undefined,
-        meta: "SKILL",
-        section: t("commandPalette.sectionMarketplace"),
-        icon: "market" as const,
-        action: () => goToMarketplaceSkill(skill),
-      })),
-    );
-
     return result;
-  }, [query, localSkills, marketplaceSkills, t, goToSkills, goToTools, goToMarketplace, goToSettings, goToSettingsSection, goToFeedback, openLocalSkill, goToMarketplaceSkill]);
+  }, [query, localSkills, t, goToSkills, goToTools, goToSettings, goToSettingsSection, openLocalSkill]);
 
   // Reset active index when results change
   useEffect(() => {
@@ -382,7 +296,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 color: "var(--muted-foreground)",
               }}
             >
-              {searchingMarketplace ? t("commandPalette.searching") : t("commandPalette.noResults")}
+              {t("commandPalette.noResults")}
             </div>
           ) : (
             grouped.map((group) => (
@@ -529,13 +443,6 @@ function renderIcon(icon: CommandItem["icon"]) {
       return (
         <svg {...common}>
           <path d="M12 3L13.5 8.5L19 10L13.5 11.5L12 17L10.5 11.5L5 10L10.5 8.5L12 3Z" />
-        </svg>
-      );
-    case "market":
-      return (
-        <svg {...common}>
-          <path d="M3 7h18l-1.2 12.2a2 2 0 0 1-2 1.8H6.2a2 2 0 0 1-2-1.8L3 7z" />
-          <path d="M3 7l2-4h14l2 4" />
         </svg>
       );
     case "settings":

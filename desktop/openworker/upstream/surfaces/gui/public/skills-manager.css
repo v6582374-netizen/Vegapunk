@@ -1122,6 +1122,93 @@
   --glow-ember: rgba(255, 99, 99, 0.14);
   --glow-ash: rgba(255, 255, 255, 0.03);
 }
+.skills-manager-root,
+.skills-manager-root.dark {
+  --background: var(--openworker-paper);
+  --foreground: var(--openworker-ink);
+  --card: var(--openworker-panel);
+  --card-foreground: var(--openworker-ink);
+  --popover: var(--openworker-panel);
+  --popover-foreground: var(--openworker-ink);
+  --primary: var(--openworker-accent);
+  --primary-foreground: var(--openworker-accent-foreground);
+  --secondary: var(--openworker-panel);
+  @supports (color: color-mix(in lab, red, red)) {
+    --secondary: color-mix(in srgb, var(--openworker-panel) 94%, var(--openworker-paper));
+  }
+  --secondary-foreground: var(--openworker-ink);
+  --muted-surface: var(--openworker-panel);
+  @supports (color: color-mix(in lab, red, red)) {
+    --muted-surface: color-mix(in srgb, var(--openworker-panel) 92%, var(--openworker-paper));
+  }
+  --muted: var(--muted-surface);
+  --muted-foreground: var(--openworker-muted);
+  --accent: var(--openworker-accent-soft);
+  --accent-foreground: var(--openworker-ink);
+  --border: var(--openworker-line);
+  --input: var(--openworker-line-strong);
+  --ring: var(--openworker-accent);
+  --sidebar: var(--openworker-panel);
+  --sidebar-foreground: var(--openworker-ink);
+  --sidebar-primary: var(--openworker-accent);
+  --sidebar-primary-foreground: var(--openworker-accent-foreground);
+  --sidebar-border: var(--openworker-line);
+  --ember: var(--openworker-accent);
+  --ember-dark: var(--openworker-accent-soft);
+  --primary-tint: var(--openworker-accent-soft);
+  --primary-tint-border: var(--openworker-accent);
+  @supports (color: color-mix(in lab, red, red)) {
+    --primary-tint-border: color-mix(in srgb, var(--openworker-accent) 42%, var(--openworker-line-strong));
+  }
+  --surface-hover: var(--openworker-accent-soft);
+  @supports (color: color-mix(in lab, red, red)) {
+    --surface-hover: color-mix(in srgb, var(--openworker-accent-soft) 55%, var(--openworker-panel));
+  }
+  --glass-bg: var(--openworker-glass);
+  --glass-bg-elevated: var(--openworker-glass-strong);
+  --glass-border: var(--openworker-line);
+  --glass-border-strong: var(--openworker-line-strong);
+  --glass-highlight: 0 1px 0 var(--openworker-ink) inset;
+  @supports (color: color-mix(in lab, red, red)) {
+    --glass-highlight: 0 1px 0 color-mix(in srgb, var(--openworker-ink) 8%, transparent) inset;
+  }
+  --glass-shadow: 0 4px 20px var(--openworker-ink);
+  @supports (color: color-mix(in lab, red, red)) {
+    --glass-shadow: 0 4px 20px color-mix(in srgb, var(--openworker-ink) 10%, transparent);
+  }
+  --glow-ember: var(--openworker-accent);
+  @supports (color: color-mix(in lab, red, red)) {
+    --glow-ember: color-mix(in srgb, var(--openworker-accent) 12%, transparent);
+  }
+  --glow-ash: var(--openworker-ink);
+  @supports (color: color-mix(in lab, red, red)) {
+    --glow-ash: color-mix(in srgb, var(--openworker-ink) 4%, transparent);
+  }
+  --color-error: var(--openworker-danger);
+  --color-error-bg: var(--openworker-danger-soft);
+  --color-error-border: var(--openworker-danger);
+  @supports (color: color-mix(in lab, red, red)) {
+    --color-error-border: color-mix(in srgb, var(--openworker-danger) 42%, var(--openworker-line-strong));
+  }
+  --color-success: var(--openworker-ok);
+  --color-success-bg: var(--openworker-ok-soft);
+  --color-success-border: var(--openworker-ok-line);
+  --color-warning: var(--openworker-warn-ink);
+  --color-warning-bg: var(--openworker-warn-soft);
+  --color-warning-border: var(--openworker-warn-ink);
+  @supports (color: color-mix(in lab, red, red)) {
+    --color-warning-border: color-mix(in srgb, var(--openworker-warn-ink) 42%, var(--openworker-line-strong));
+  }
+  --color-info: var(--openworker-accent);
+  --color-info-bg: var(--openworker-accent-soft);
+  --color-info-border: var(--openworker-accent);
+  @supports (color: color-mix(in lab, red, red)) {
+    --color-info-border: color-mix(in srgb, var(--openworker-accent) 38%, var(--openworker-line-strong));
+  }
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  font-family: var(--sans);
+}
 @layer base {
   .skills-manager-root * {
     border-color: var(--border);
@@ -1139,7 +1226,7 @@
   .skills-manager-root {
     background-color: var(--background);
     color: var(--foreground);
-    font-family: var(--app-font-family, var(--font-sans));
+    font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -1268,26 +1355,6 @@
 }
 .skills-manager-root .animate-slide-down {
   animation: slideDown 0.2s ease-out;
-}
-@keyframes marketplaceSkeletonShimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-.skills-manager-root .marketplace-skeleton-bar {
-  height: 8px;
-  border-radius: 4px;
-  background: linear-gradient(
-    90deg,
-    var(--secondary) 0%,
-    var(--border) 50%,
-    var(--secondary) 100%
-  );
-  background-size: 200% 100%;
-  animation: marketplaceSkeletonShimmer 1.4s ease-in-out infinite;
 }
 .skills-manager-root .page-main {
   padding: 24px 32px;
@@ -1694,8 +1761,8 @@
   cursor: pointer;
 }
 .skills-manager-root .skills-selection-indicator[data-state="checked"] {
-  border-color: var(--foreground);
-  background: var(--foreground);
+  border-color: var(--primary);
+  background: var(--primary);
 }
 .skills-manager-root .skills-selection-indicator[data-state="mixed"] {
   border-color: var(--primary-tint-border);
@@ -1982,7 +2049,7 @@
 }
 .skills-manager-root .skills-workbench-inventory .skills-group-header.is-active {
   background: var(--primary-tint);
-  box-shadow: inset 2px 0 0 var(--foreground);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 .skills-manager-root .skills-group-disclosure {
   display: inline-flex;
@@ -2046,7 +2113,7 @@
 }
 .skills-manager-root .skills-workbench-inventory .skills-list-row.is-active {
   background: var(--primary-tint);
-  box-shadow: inset 2px 0 0 var(--foreground);
+  box-shadow: inset 2px 0 0 var(--primary);
 }
 .skills-manager-root .skills-workbench-inventory .skills-list-row-main {
   min-height: 62px;
@@ -2228,14 +2295,14 @@
   background: var(--secondary);
 }
 .skills-manager-root .skills-detail-command.is-primary {
-  border-color: var(--foreground);
+  border-color: var(--primary);
   color: var(--primary-foreground);
-  background: var(--foreground);
+  background: var(--primary);
 }
 .skills-manager-root .skills-detail-command.is-primary:hover {
-  background: var(--foreground);
+  background: var(--primary);
   @supports (color: color-mix(in lab, red, red)) {
-    background: color-mix(in srgb, var(--foreground) 88%, var(--background));
+    background: color-mix(in srgb, var(--primary) 88%, var(--background));
   }
 }
 .skills-manager-root .skills-detail-command:active {
@@ -2578,39 +2645,6 @@
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
-  }
-}
-.skills-manager-root .marketplace-main {
-  padding: 12px 20px;
-}
-@media (max-width: 1023px) {
-  .skills-manager-root .marketplace-main {
-    padding: 12px 16px;
-  }
-}
-@media (max-width: 767px) {
-  .skills-manager-root .marketplace-main {
-    padding: 12px;
-  }
-}
-.skills-manager-root .marketplace-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-@media (max-width: 1599px) {
-  .skills-manager-root .marketplace-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@media (max-width: 1279px) {
-  .skills-manager-root .marketplace-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 767px) {
-  .skills-manager-root .marketplace-grid {
-    grid-template-columns: 1fr;
   }
 }
 .skills-manager-root .compact-grid {

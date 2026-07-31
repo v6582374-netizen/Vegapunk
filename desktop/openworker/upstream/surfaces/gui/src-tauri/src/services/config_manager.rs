@@ -3,9 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::models::{
-    AppConfig, ProjectBinding, SkillMetadata, SourceType, ToolConfig, SUPPORTED_TOOLS,
-};
+use crate::models::{AppConfig, ProjectBinding, SkillMetadata, ToolConfig, SUPPORTED_TOOLS};
 #[cfg(windows)]
 use crate::services::linker::LinkerService;
 use crate::services::linker::{is_symlink_or_junction, normalize_path, remove_symlink_or_junction};
@@ -15,6 +13,58 @@ pub struct ConfigManager {
 }
 
 impl ConfigManager {
+    fn contains_retired_remote_fields(value: &serde_json::Value) -> bool {
+        let Some(root) = value.as_object() else {
+            return false;
+        };
+
+        const RETIRED_TOP_LEVEL_FIELDS: &[&str] = &[
+            "auth_session",
+            "cloud_sync",
+            "marketplace_favorites",
+            "marketplace_sources",
+            "poll_client_state",
+        ];
+        if RETIRED_TOP_LEVEL_FIELDS
+            .iter()
+            .any(|field| root.contains_key(*field))
+        {
+            return true;
+        }
+
+        root.get("preferences")
+            .and_then(serde_json::Value::as_object)
+            .map(|preferences| {
+                [
+                    "theme",
+                    "font_family",
+                    "language",
+                    "github_token",
+                    "cloud_sync_auto",
+                    "cloud_sync_interval_minutes",
+                    "vault_backup_consent",
+                    "telemetry_consent",
+                ]
+                .iter()
+                .any(|field| preferences.contains_key(*field))
+            })
+            .unwrap_or(false)
+    }
+
+    fn remove_retired_marketplace_cache_files() {
+        let Some(home_dir) = dirs::home_dir() else {
+            return;
+        };
+        let cache_dir = home_dir.join(".skills-manager").join("cache");
+        for file_name in [
+            "marketplace-skills.json",
+            "marketplace-skill-descriptions.json",
+            "marketplace-update-check.json",
+        ] {
+            let _ = fs::remove_file(cache_dir.join(file_name));
+        }
+    }
+
     fn atomic_write(path: &PathBuf, content: &str) -> Result<(), String> {
         let parent = path
             .parent()
@@ -413,20 +463,18 @@ impl ConfigManager {
         let content = fs::read_to_string(&self.config_path)
             .map_err(|e| format!("Failed to read config: {}", e))?;
 
+        let raw_config: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
+
         let mut config: AppConfig =
             serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))?;
 
         // Version Check & Migration
         let current_version = AppConfig::default().version;
-        let mut updated = false;
+        let mut updated = Self::contains_retired_remote_fields(&raw_config);
 
         if config.version != current_version {
             config.version = current_version;
-            updated = true;
-        }
-
-        if config.marketplace_sources.is_none() {
-            config.marketplace_sources = AppConfig::default().marketplace_sources;
             updated = true;
         }
 
@@ -437,22 +485,6 @@ impl ConfigManager {
         }
 
         if Self::migrate_project_bindings(&mut config) {
-            updated = true;
-        }
-
-        // Keep marketplace sources constrained to supported providers.
-        // Unknown legacy providers are removed during load to prevent stale config from surfacing.
-        let default_sources = AppConfig::default().marketplace_sources.unwrap_or_default();
-        let previous_sources = config.marketplace_sources.clone();
-        let mut normalized_sources = previous_sources
-            .clone()
-            .unwrap_or_else(|| default_sources.clone());
-        normalized_sources.retain(|source| source.source_type != SourceType::Unknown);
-        if normalized_sources.is_empty() {
-            normalized_sources = default_sources;
-        }
-        if previous_sources.as_ref() != Some(&normalized_sources) {
-            config.marketplace_sources = Some(normalized_sources);
             updated = true;
         }
 
@@ -556,6 +588,7 @@ impl ConfigManager {
 
         // Save updated config if new tools were added or version changed
         if updated {
+            Self::remove_retired_marketplace_cache_files();
             let _ = self.save(&config);
         }
 
@@ -673,28 +706,27 @@ mod tests {
     }
 
     #[test]
-    fn load_preserves_non_github_marketplace_sources_enabled_state() {
+    fn load_removes_retired_remote_preferences_and_marketplace_cache() {
         with_temp_home(|home_dir| {
             let config_dir = home_dir.join(".skills-manager");
-            fs::create_dir_all(&config_dir).expect("create config dir");
+            let cache_dir = config_dir.join("cache");
+            fs::create_dir_all(&cache_dir).expect("create cache dir");
             let config_path = config_dir.join("config.json");
-
             let config_json = json!({
-                "version": "1.1.2",
+                "version": "2.1.7",
                 "skills_dir": config_dir.join("skills").to_string_lossy(),
                 "tools": {},
                 "custom_tools": {},
-                "marketplace_sources": [
-                    {
-                        "id": "src_test_crawler",
-                        "name": "Test Crawler Source",
-                        "url": "https://example.com",
-                        "source_type": "crawler",
-                        "enabled": false,
-                        "builtin": true,
-                        "api_key": null
-                    }
-                ],
+                "marketplace_favorites": {"remote-skill": {"name": "Remote"}},
+                "marketplace_sources": [{"id": "legacy", "name": "Legacy"}],
+                "auth_session": {"provider": "github"},
+                "cloud_sync": {"device_id": "legacy-device"},
+                "preferences": {
+                    "theme": "dark",
+                    "font_family": "serif",
+                    "language": "zh",
+                    "github_token": "legacy-token"
+                },
                 "initialized": true
             });
             fs::write(
@@ -702,19 +734,52 @@ mod tests {
                 serde_json::to_string_pretty(&config_json).expect("serialize config"),
             )
             .expect("write config");
+            for file_name in [
+                "marketplace-skills.json",
+                "marketplace-skill-descriptions.json",
+                "marketplace-update-check.json",
+            ] {
+                fs::write(cache_dir.join(file_name), "{}").expect("write legacy cache");
+            }
 
             let manager = ConfigManager::new();
-            let loaded = manager.load().expect("load config");
-            let sources = loaded
-                .marketplace_sources
-                .expect("marketplace sources should exist");
+            manager.load().expect("load legacy config");
 
-            assert_eq!(sources.len(), 1, "should keep configured source");
-            assert_eq!(sources[0].id, "src_test_crawler");
-            assert!(
-                !sources[0].enabled,
-                "enabled=false should persist after loading config"
-            );
+            let saved: serde_json::Value = serde_json::from_str(
+                &fs::read_to_string(&config_path).expect("read migrated config"),
+            )
+            .expect("parse migrated config");
+            for key in [
+                "marketplace_favorites",
+                "marketplace_sources",
+                "auth_session",
+                "cloud_sync",
+            ] {
+                assert!(
+                    saved.get(key).is_none(),
+                    "retired key should be removed: {key}"
+                );
+            }
+            let preferences = saved
+                .get("preferences")
+                .and_then(serde_json::Value::as_object)
+                .expect("preferences should remain");
+            for key in ["theme", "font_family", "language", "github_token"] {
+                assert!(
+                    !preferences.contains_key(key),
+                    "retired preference should be removed: {key}"
+                );
+            }
+            for file_name in [
+                "marketplace-skills.json",
+                "marketplace-skill-descriptions.json",
+                "marketplace-update-check.json",
+            ] {
+                assert!(
+                    !cache_dir.join(file_name).exists(),
+                    "legacy cache should be removed"
+                );
+            }
         });
     }
 

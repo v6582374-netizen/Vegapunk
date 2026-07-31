@@ -47,6 +47,29 @@
   --serif: var(--sans);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
   --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  /* Stable names consumed by the embedded Skills Manager.  The manager has
+     upstream tokens named `--muted`, `--accent`, and `--glass`, so it cannot
+     safely read those Desktop names directly without shadowing them. */
+  --openworker-paper: var(--paper);
+  --openworker-panel: var(--panel);
+  --openworker-ink: var(--ink);
+  --openworker-muted: var(--muted);
+  --openworker-faint: var(--faint);
+  --openworker-line: var(--line);
+  --openworker-line-strong: var(--line-strong);
+  --openworker-accent: var(--accent);
+  --openworker-accent-soft: var(--accent-soft);
+  --openworker-accent-foreground: #fff;
+  --openworker-ok: var(--ok);
+  --openworker-ok-soft: var(--ok-soft);
+  --openworker-ok-line: var(--ok-line);
+  --openworker-warn-ink: var(--warn-ink);
+  --openworker-warn-soft: var(--warn-soft);
+  --openworker-danger: var(--danger);
+  --openworker-danger-soft: var(--danger-soft);
+  --openworker-glass: var(--glass);
+  --openworker-glass-strong: var(--glass-strong);
+  --openworker-glass-soft: var(--glass-soft);
   /* The right rail's width while reading an artifact (wider than the 332px inspector). */
   --artifact-rail-w: min(62vw, 960px);
 }

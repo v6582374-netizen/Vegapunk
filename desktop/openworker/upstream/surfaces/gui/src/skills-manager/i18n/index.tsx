@@ -1,13 +1,11 @@
 import { createContext, useContext, useCallback, ReactNode } from "react";
 import { en, TranslationKeys } from "./locales/en";
-import { zh } from "./locales/zh";
 
-export type Language = "en" | "zh";
+export type Language = "en";
 
 // Use a more flexible type for translations to allow different string values
 const translations: Record<Language, Record<string, Record<string, string>>> = {
   en: en as unknown as Record<string, Record<string, string>>,
-  zh: zh as unknown as Record<string, Record<string, string>>
 };
 
 // Get nested value from object using dot notation path
@@ -40,21 +38,18 @@ function getNestedValue<T extends Record<string, unknown>>(
 interface I18nContextValue {
   language: Language;
   t: (path: TranslationPath) => string;
-  setLanguage: (lang: Language) => void;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 interface I18nProviderProps {
   children: ReactNode;
-  language: Language;
-  onLanguageChange: (lang: Language) => void;
+  language?: Language;
 }
 
 export function I18nProvider({
   children,
-  language,
-  onLanguageChange,
+  language = "en",
 }: I18nProviderProps) {
   const t = useCallback(
     (path: TranslationPath): string => {
@@ -66,7 +61,6 @@ export function I18nProvider({
   const value: I18nContextValue = {
     language,
     t,
-    setLanguage: onLanguageChange,
   };
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
@@ -85,5 +79,5 @@ export function translate(language: Language, path: string): string {
   return getNestedValue(translations[language], path);
 }
 
-export { en, zh };
+export { en };
 export type { TranslationKeys };

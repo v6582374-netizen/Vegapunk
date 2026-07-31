@@ -8,15 +8,50 @@ const COMMIT = "c0b16ba603d3d110e3e39d587b0a1a3a310ea464";
 const TREE = "12ede09996060fdc329362262759f3635c6bd30c";
 const TRACKED_FILES = 296;
 const UPSTREAM_COMMANDS = 86;
+const RETIRED_REMOTE_COMMANDS = new Set([
+  "fetch_marketplace_skills",
+  "fetch_marketplace_skill_descriptions",
+  "fetch_skill_files",
+  "fetch_clawhub_skill_files",
+  "fetch_skill_file_content",
+  "install_marketplace_skill",
+  "install_marketplace_skill_by_ref",
+  "sync_marketplace_installed_skills",
+  "check_marketplace_updates_if_stale",
+  "get_marketplace_sources",
+  "toggle_marketplace_source",
+  "toggle_marketplace_favorite",
+  "list_marketplace_favorites",
+  "check_update",
+  "submit_feedback",
+  "translate_marketplace_skill",
+  "get_cached_marketplace_translations",
+  "start_github_auth",
+  "start_google_auth",
+  "exchange_github_auth",
+  "exchange_google_auth",
+  "get_auth_profile",
+  "logout_auth",
+]);
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const upstreamRoot = path.join(projectRoot, "skills-manager-upstream");
 const manifestPath = path.join(projectRoot, "skills-manager-provenance.json");
-const SUPPLEMENTAL_INTEGRATED_FILES = [
-  {
-    path: "src/skills-manager/services/cloudSyncWorkflow.ts",
-    upstream_commit: "4165c6f",
-    upstream_path: "src/services/cloudSyncWorkflow.ts",
-  },
+const SUPPLEMENTAL_INTEGRATED_FILES = [];
+
+const RETIRED_REMOTE_PATHS = [
+  /^src-tauri\/src\/(commands|models|services)\/(auth|feedback|marketplace|update|updater)\.rs$/,
+  /^src\/components\/(auth|marketplace|telemetry)\//,
+  /^src\/contexts\/AuthContext\.tsx$/,
+  /^src\/hooks\/useCloudSyncAgent\.tsx$/,
+  /^src\/pages\/(Feedback|Marketplace)\.tsx$/,
+  /^src\/pages\/marketplace\//,
+  /^src\/services\/__tests__\/cloudSyncWorkflow\.test\.ts$/,
+  /^src\/services\/(auth|authError|authProfileStore|cloudSyncWorkflow|feedback|feedbackContact|feedbackDirectContacts|updater)(?:\/|\.)/,
+  /^src\/telemetry\//,
+];
+const RETIRED_INTEGRATED_PATHS = [
+  /^src\/i18n\/locales\/zh\.ts$/,
+  /^src\/lib\/fontFamily(?:\.test)?\.ts$/,
 ];
 
 const ADAPTATIONS = [
@@ -43,9 +78,9 @@ const ADAPTATIONS = [
     upstream_scope: ["src/hooks/useTheme.tsx document.documentElement mutations"],
     integrated_scope: ["src/skills-manager/hooks/useTheme.tsx .skills-manager-root mutations"],
     reason: "The embedded module shares a document with OpenWorker.",
-    behavioral_impact: "Theme and font variables affect only the Skills Manager workspace.",
+    behavioral_impact: "The module inherits the Desktop theme and keeps its workspace class synchronized without a second visual preference.",
     regression_coverage: ["npm run build", "CSS scope verification", "user-owned visual theme acceptance"],
-    upstream_sync_strategy: "Keep upstream theme resolution logic and retarget only its DOM mutation root.",
+    upstream_sync_strategy: "Keep the desktop theme event bridge and update the workspace class when the host theme changes.",
   },
   {
     id: "react-18-file-tree-ref",
@@ -70,9 +105,18 @@ const ADAPTATIONS = [
     upstream_scope: ["src-tauri/src/commands/**/*", "src-tauri/src/models/**/*", "src-tauri/src/services/**/*"],
     integrated_scope: ["src-tauri/src/commands/**/*", "src-tauri/src/models/**/*", "src-tauri/src/services/**/*", "src-tauri/src/lib.rs"],
     reason: "A Tauri process supports one host builder, command handler, plugin set, and application lifecycle.",
-    behavioral_impact: "All upstream Skills Manager commands and services execute inside OpenWorker's existing Tauri process.",
-    regression_coverage: ["all 86 upstream invoke commands are verified in the host handler", "cargo check", "cargo test"],
-    upstream_sync_strategy: "Merge upstream Rust modules, register every new command and plugin, then rerun handler coverage and Rust tests.",
+    behavioral_impact: "All retained local Skills Manager commands and services execute inside OpenWorker's existing Tauri process.",
+    regression_coverage: ["all retained upstream invoke commands are verified in the host handler", "cargo check", "cargo test"],
+    upstream_sync_strategy: "Merge upstream Rust modules, register every retained command and plugin, then rerun handler coverage and Rust tests.",
+  },
+  {
+    id: "local-only-skill-management",
+    upstream_scope: ["Marketplace, account, feedback, telemetry, cloud-sync, and standalone updater surfaces"],
+    integrated_scope: ["src/skills-manager/**/*", "src-tauri/src/**/*"],
+    reason: "This desktop module manages Skills already present on the local machine and does not own a remote account or catalog.",
+    behavioral_impact: "Remote Marketplace, account, feedback, telemetry, cloud-sync, and module updater commands are omitted from the integrated runtime while the exact upstream copy remains preserved for audit.",
+    regression_coverage: ["npm run skills-manager:verify", "npm run build", "npm run skills-manager:test", "cargo check", "cargo test"],
+    upstream_sync_strategy: "Keep the explicit retired-path and retired-command lists synchronized with any upstream additions to remote-only features.",
   },
   {
     id: "host-ownership-boundaries",
@@ -91,33 +135,6 @@ const ADAPTATIONS = [
     behavioral_impact: "The exact source remains auditable without introducing an uncompilable dead module into the host crate.",
     regression_coverage: ["exact Git tree verification", "cargo check"],
     upstream_sync_strategy: "Re-evaluate registration when upstream supplies the missing model or begins calling the module.",
-  },
-  {
-    id: "pinned-module-updater-version",
-    upstream_scope: ["src-tauri/src/commands/updater.rs package version lookup"],
-    integrated_scope: ["src-tauri/src/commands/updater.rs Skills Manager 2.1.7 constant"],
-    reason: "OpenWorker and the embedded Skills Manager module have independent release versions.",
-    behavioral_impact: "Skills Manager GitHub releases are compared against module version 2.1.7 instead of OpenWorker 0.1.6.",
-    regression_coverage: ["update_check_uses_the_pinned_skills_manager_version"],
-    upstream_sync_strategy: "Update this constant together with the pinned upstream commit and provenance record.",
-  },
-  {
-    id: "restore-cloud-sync-workflow",
-    upstream_scope: ["upstream history 4165c6f src/services/cloudSyncWorkflow.ts"],
-    integrated_scope: ["src/skills-manager/services/cloudSyncWorkflow.ts"],
-    reason: "Pinned commit c0b16ba contains the workflow test but accidentally omits its implementation.",
-    behavioral_impact: "The copied cloud pull-push-conflict workflow is executable and its inherited tests run.",
-    regression_coverage: ["src/skills-manager/services/__tests__/cloudSyncWorkflow.test.ts", "npm run skills-manager:test"],
-    upstream_sync_strategy: "Prefer the file from a future upstream commit once restored there; until then retain the exact 4165c6f implementation.",
-  },
-  {
-    id: "wechat-validation-alignment",
-    upstream_scope: ["src/services/feedbackContact.ts"],
-    integrated_scope: ["src/skills-manager/services/feedbackContact.ts"],
-    reason: "The pinned frontend regex conflicts with its own test and the upstream Rust validator.",
-    behavioral_impact: "WeChat IDs may begin with an underscore, matching backend validation.",
-    regression_coverage: ["validateFeedbackContact accepts wechat ids starting with underscore", "validate_feedback_request_should_accept_wechat_starting_with_underscore"],
-    upstream_sync_strategy: "Remove the patch after upstream accepts underscore-prefixed IDs in the frontend regex.",
   },
   {
     id: "broken-projection-classification",
@@ -158,7 +175,7 @@ const ADAPTATIONS = [
   {
     id: "prototype-split-inventory-workspace",
     upstream_scope: ["src/pages/Skills.tsx expandable list and card inventory", "src/index.css Skills page styles"],
-    integrated_scope: ["src/skills-manager/pages/Skills.tsx", "src/skills-manager/index.css", "src/skills-manager/i18n/locales/en.ts", "src/skills-manager/i18n/locales/zh.ts", "public/skills-manager.css"],
+    integrated_scope: ["src/skills-manager/pages/Skills.tsx", "src/skills-manager/index.css", "src/skills-manager/i18n/locales/en.ts", "public/skills-manager.css"],
     reason: "The selected Wayfinder Variant A prototype defines the OpenWorker Skills workspace information hierarchy.",
     behavioral_impact: "Real Skill and group records render in a persistent inventory-detail split while all upstream commands, dialogs, filters, grouping, batch actions, and Editor navigation remain available.",
     regression_coverage: ["npm run build", "npm run skills-manager:test", "user-owned visual acceptance"],
@@ -187,6 +204,14 @@ function sha256(contents) {
 
 function gitSortKey(entry) {
   return Buffer.from(`${entry.name}${entry.isDirectory() ? "/" : ""}`);
+}
+
+function isRetiredRemotePath(upstreamPath) {
+  return RETIRED_REMOTE_PATHS.some((pattern) => pattern.test(upstreamPath));
+}
+
+function isRetiredIntegratedPath(upstreamPath) {
+  return RETIRED_INTEGRATED_PATHS.some((pattern) => pattern.test(upstreamPath));
 }
 
 async function readTrackedContents(absolutePath, stats) {
@@ -228,6 +253,18 @@ async function scanGitTree(root, relative = "") {
 }
 
 function disposition(upstreamPath) {
+  if (isRetiredRemotePath(upstreamPath)) {
+    return {
+      status: "retired-remote-feature",
+      integrated_paths: [],
+    };
+  }
+  if (isRetiredIntegratedPath(upstreamPath)) {
+    return {
+      status: "retired-integrated-surface",
+      integrated_paths: [],
+    };
+  }
   if (upstreamPath === "src/index.css") {
     return {
       status: "adapted-runtime-and-generated-css",
@@ -310,17 +347,31 @@ async function verifyHandlerCoverage() {
   const upstreamCommands = generateHandlerCommands(upstreamSource, upstreamPath);
   const hostCommands = generateHandlerCommands(hostSource, hostPath);
   const hostSet = new Set(hostCommands);
-  const missing = upstreamCommands.filter((command) => !hostSet.has(command));
+  const retiredCommands = upstreamCommands.filter((command) => RETIRED_REMOTE_COMMANDS.has(command));
+  const activeCommands = upstreamCommands.filter((command) => !RETIRED_REMOTE_COMMANDS.has(command));
+  const missing = activeCommands.filter((command) => !hostSet.has(command));
+  const retiredStillRegistered = hostCommands.filter((command) => RETIRED_REMOTE_COMMANDS.has(command));
 
   invariant(upstreamCommands.length === UPSTREAM_COMMANDS, `Expected ${UPSTREAM_COMMANDS} upstream commands, found ${upstreamCommands.length}`);
   invariant(new Set(upstreamCommands).size === upstreamCommands.length, "Duplicate upstream invoke commands");
   invariant(new Set(hostCommands).size === hostCommands.length, "Duplicate host invoke commands");
+  invariant(
+    retiredCommands.length === RETIRED_REMOTE_COMMANDS.size,
+    `Retired command list is stale; expected ${RETIRED_REMOTE_COMMANDS.size} upstream commands, found ${retiredCommands.length}`,
+  );
+  invariant(
+    retiredStillRegistered.length === 0,
+    `Host handler still registers retired remote commands: ${retiredStillRegistered.join(", ")}`,
+  );
   invariant(missing.length === 0, `Host handler is missing upstream commands: ${missing.join(", ")}`);
 
   return {
     upstream_count: upstreamCommands.length,
+    retained_count: activeCommands.length,
+    retired_count: retiredCommands.length,
     host_count: hostCommands.length,
     upstream_commands: upstreamCommands,
+    retired_commands: retiredCommands,
   };
 }
 
@@ -408,5 +459,5 @@ invariant(
 );
 
 console.log(
-  `Verified Skills Manager ${COMMIT.slice(0, 12)}: ${TRACKED_FILES} files, Git tree ${TREE.slice(0, 12)}, ${handlerCoverage.upstream_count} commands, ${cssScope.checked_selectors} scoped selectors.`,
+  `Verified Skills Manager ${COMMIT.slice(0, 12)}: ${TRACKED_FILES} files, Git tree ${TREE.slice(0, 12)}, ${handlerCoverage.retained_count} retained commands (${handlerCoverage.retired_count} retired), ${cssScope.checked_selectors} scoped selectors.`,
 );

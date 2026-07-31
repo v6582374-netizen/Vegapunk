@@ -3,15 +3,6 @@
 
 export type SkillScope = "global" | "project";
 
-export interface SkillMarketplaceMeta {
-  marketplace_source_id?: string | null;
-  marketplace_skill_id?: string | null;
-  marketplace_skill_slug?: string | null;
-  repo_url?: string | null;
-  skill_path?: string | null;
-  remote_revision?: string | null;
-}
-
 export interface Skill {
   id: string;
   instance_id: string;
@@ -21,10 +12,9 @@ export interface Skill {
   name: string;
   description: string | null;
   version: string;
-  source: "local" | "imported" | "marketplace" | "vault";
+  source: "local" | "imported";
   enabled: Record<string, boolean>;
   package_meta?: SkillPackageMeta | null;
-  marketplace_meta?: SkillMarketplaceMeta | null;
   path: string;
 }
 
@@ -60,24 +50,6 @@ export interface SkillMetadata {
 
 export type SkillMetadataMap = Record<string, SkillMetadata>;
 
-export interface MarketplaceFavoriteMeta {
-  favorited_at: number;
-  name: string;
-  description?: string | null;
-  source_id: string;
-  source_name: string;
-  repo_url?: string | null;
-  skill_path?: string | null;
-  external_url?: string | null;
-  install_count?: number | null;
-  tags: string[];
-  clawhub_slug?: string | null;
-  clawhub_owner?: string | null;
-  clawhub_version?: string | null;
-}
-
-export type MarketplaceFavoriteMap = Record<string, MarketplaceFavoriteMeta>;
-
 export interface ToolConfig {
   enabled: boolean;
   detected: boolean;
@@ -94,9 +66,6 @@ export interface Tool {
   source: "builtin" | "custom";
   icon_path?: string | null;
 }
-
-export type VaultBackupConsent = "unknown" | "granted" | "denied";
-export type TelemetryConsent = "unknown" | "granted" | "denied";
 
 // Risk scan
 export type RiskScanMode = "off" | "basic" | "deep";
@@ -131,16 +100,9 @@ export interface SkillRiskReport {
 
 // User preferences for the application
 export interface UserPreferences {
-  // Appearance
-  theme: "light" | "dark" | "system";
-  font_family: "default" | "serif";
-  language: "zh" | "en";
-
   // Sync behavior
   auto_sync: boolean;
   sync_on_save: boolean;
-  cloud_sync_auto: boolean;
-  cloud_sync_interval_minutes: number;
 
   // Editor settings
   default_editor: string;
@@ -149,13 +111,8 @@ export interface UserPreferences {
   // Notifications
   show_sync_notifications: boolean;
   remove_links_when_disabling_tool: boolean;
-  vault_backup_consent: VaultBackupConsent;
-  telemetry_consent: TelemetryConsent;
   skill_usage_monitor: boolean;
   risk_scan_mode: RiskScanMode;
-
-  // Marketplace auth
-  github_token?: string | null;
 }
 
 export interface SkillUsageStats {
@@ -164,126 +121,13 @@ export interface SkillUsageStats {
   last_called_at: number | null;
 }
 
-export interface AuthProfile {
-  username: string;
-  avatar_url?: string | null;
-}
-
-export interface AuthSession {
-  provider: string;
-  access_token?: string | null;
-  refresh_token?: string | null;
-  profile: AuthProfile;
-}
-
-export interface AuthStartResult {
-  auth_url: string;
-  state: string;
-}
-
-export interface AuthMeResponse {
-  user_id: string;
-  provider?: string | null;
-  username?: string | null;
-  avatar_url?: string | null;
-  email?: string | null;
-}
-
-export interface CloudSyncState {
-  device_id: string;
-  last_revision: number;
-  last_synced_at?: number | null;
-  last_payload_hash?: string | null;
-}
-
-export interface CloudSyncSkill {
-  id: string;
-  instance_id?: string | null;
-  scope?: SkillScope | null;
-  project_id?: string | null;
-  project_name?: string | null;
-  name: string;
-  source: "local" | "imported" | "marketplace" | "vault";
-  version: string;
-  marketplace?: CloudSyncMarketplaceMeta | null;
-  vault?: CloudSyncVaultMeta | null;
-}
-
-export interface CloudSyncMarketplaceMeta {
-  marketplace_source_id?: string | null;
-  marketplace_skill_id?: string | null;
-  marketplace_skill_slug?: string | null;
-  repo_url?: string | null;
-  skill_path?: string | null;
-  remote_revision?: string | null;
-}
-
-export interface CloudSyncVaultMeta {
-  provider?: string | null;
-  user_id?: string | null;
-  skill_id?: string | null;
-  version?: string | null;
-  hash?: string | null;
-  size?: number | null;
-  updated_at?: number | null;
-}
-
-export interface CloudSyncToolState {
-  enabled: boolean;
-  enabled_skills: string[];
-}
-
-export interface CloudSyncCustomTool {
-  id: string;
-  name: string;
-  config_path: string;
-  skills_path: string;
-  enabled: boolean;
-}
-
-export interface CloudSyncPayload {
-  version: number;
-  updated_at: number;
-  device_id: string;
-  skills: CloudSyncSkill[];
-  tool_states: Record<string, CloudSyncToolState>;
-  custom_tools: CloudSyncCustomTool[];
-  preferences?: UserPreferences | null;
-}
-
-export interface CloudSyncSnapshot {
-  revision: number;
-  payload: CloudSyncPayload | null;
-}
-
-export interface VaultBackupResult {
-  uploaded: number;
-  skipped: number;
-  failed: string[];
-}
-
-export type CloudSyncPushResult =
-  | { status: "synced"; revision: number }
-  | { status: "skipped"; reason: string }
-  | {
-      status: "conflict";
-      revision: number;
-      payload: CloudSyncPayload;
-      local_payload: CloudSyncPayload;
-    };
-
 export interface AppConfig {
   version: string;
   skills_dir: string;
   tools: Record<string, ToolConfig>;
   custom_tools?: Record<string, CustomToolConfig>;
   skill_metadata?: SkillMetadataMap;
-  marketplace_favorites?: MarketplaceFavoriteMap;
   preferences?: UserPreferences;
-  marketplace_sources?: MarketplaceSource[];
-  poll_client_state?: PollClientStateConfig | null;
-  auth_session?: AuthSession | null;
-  cloud_sync?: CloudSyncState | null;
   projects?: ProjectBinding[];
   active_project_id?: string | null;
   llm_provider?: LlmProvider | null;
@@ -296,11 +140,6 @@ export interface LlmProvider {
   temperature?: number | null;
   max_tokens?: number | null;
   timeout_secs?: number | null;
-}
-
-export interface PollClientStateConfig {
-  voter_id?: string | null;
-  voted_options?: Record<string, string>;
 }
 
 export interface CustomToolConfig {
@@ -375,98 +214,6 @@ export interface FileNode {
   path: string;
   is_dir: boolean;
   children?: FileNode[];
-}
-
-export interface MarketplaceSource {
-  id: string;
-  name: string;
-  url: string;
-  source_type: "github_repo" | "api" | "crawler" | "manual" | "unknown" | "clawhub_api";
-  enabled: boolean;
-  builtin: boolean;
-  api_key?: string | null;
-}
-
-export interface MarketplaceSkill {
-  id: string;
-  slug?: string | null;
-  name: string;
-  description: string | null;
-  author: string | null;
-  source_id: string;
-  source_name: string;
-  install_count?: number | null;
-  install_url?: string | null;
-  created_at?: number | null;
-  repo_url: string | null;
-  skill_path: string | null;
-  external_url: string | null;
-  remote_revision?: string | null;
-  tags: string[];
-  install_status: "not_installed" | "installed" | "update_available";
-  clawhub_slug?: string | null;
-  clawhub_owner?: string | null;
-  clawhub_version?: string | null;
-}
-
-export interface MarketplaceSkillsResponse {
-  skills: MarketplaceSkill[];
-  has_more: boolean;
-}
-
-export interface SkillFileNode {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  download_url: string | null;
-  sha?: string | null;
-  children?: SkillFileNode[];
-}
-
-/** fetch_clawhub_skill_files 返回结构：文件树 + 解析出的 owner/version */
-export interface ClawhubSkillFilesResponse {
-  tree: SkillFileNode;
-  resolved_owner?: string | null;
-  resolved_version?: string | null;
-}
-
-export interface InstallResult {
-  success: boolean;
-  skill_id: string;
-  message: string | null;
-  installed_path: string | null;
-}
-
-export interface MarketplaceSyncResult {
-  checked: number;
-  updated: number;
-  failed: string[];
-}
-
-export interface MarketplaceUpdateCheckResult {
-  performed: boolean;
-  checked: number;
-  update_available: number;
-}
-
-export interface UpdateInfo {
-  has_update: boolean;
-  latest_version: string;
-  download_url: string;
-  release_notes?: string;
-}
-
-export type FeedbackContactType =
-  | "wechat"
-  | "email"
-  | "other";
-
-export interface FeedbackRequest {
-  contact_type: FeedbackContactType;
-  contact_value: string;
-  content: string;
-  source?: string | null;
-  language?: string | null;
 }
 
 export interface PollOption {

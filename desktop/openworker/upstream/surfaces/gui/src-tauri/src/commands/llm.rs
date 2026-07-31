@@ -4,7 +4,7 @@ use crate::services::scanner::ScannerService;
 use crate::services::translation::{self, SkillTranslationInput, SkillTranslationOutput};
 use crate::services::translation_cache::{CacheKey, TranslationCache};
 use crate::services::ConfigManager;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -49,16 +49,6 @@ pub async fn test_llm_provider(provider: LlmProvider) -> Result<String, LlmError
     llm::test_connection(&provider).await
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketplaceTranslationInput {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub content_md: Option<String>,
-}
-
 fn load_provider_or_error() -> Result<LlmProvider, LlmError> {
     let manager = ConfigManager::new();
     let config = manager.load().map_err(|e| LlmError::NetworkError(e))?;
@@ -69,18 +59,6 @@ fn find_skill_by_instance(skills: &[Skill], instance_id: &str) -> Option<Skill> 
     skills
         .iter()
         .find(|s| s.instance_id == instance_id)
-        .cloned()
-}
-
-fn find_installed_for_marketplace(skills: &[Skill], marketplace_skill_id: &str) -> Option<Skill> {
-    skills
-        .iter()
-        .find(|s| {
-            s.marketplace_meta
-                .as_ref()
-                .and_then(|m| m.marketplace_skill_id.as_deref())
-                == Some(marketplace_skill_id)
-        })
         .cloned()
 }
 
@@ -416,36 +394,6 @@ pub async fn translate_skill_files(
     })
 }
 
-#[tauri::command]
-pub async fn translate_marketplace_skill(
-    input: MarketplaceTranslationInput,
-    target_lang: String,
-    force: Option<bool>,
-) -> Result<SkillTranslationOutput, LlmError> {
-    let provider = load_provider_or_error()?;
-    let manager = ConfigManager::new();
-    let installed_match = manager.load().ok().and_then(|config| {
-        ScannerService::scan_scoped_skills(&config)
-            .ok()
-            .and_then(|skills| find_installed_for_marketplace(&skills, &input.id))
-    });
-
-    let payload = if let Some(skill) = installed_match {
-        SkillTranslationInput {
-            name: skill.name.clone(),
-            description: skill.description.clone().unwrap_or_default(),
-            content_md: read_skill_md(&skill),
-        }
-    } else {
-        SkillTranslationInput {
-            name: input.name,
-            description: input.description.unwrap_or_default(),
-            content_md: input.content_md,
-        }
-    };
-    translation::translate_skill(&provider, &target_lang, payload, force.unwrap_or(false)).await
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct BatchTranslationProgress {
     pub current: usize,
@@ -649,59 +597,6 @@ pub fn get_cached_skill_translations(
                 .and_then(|skill| lookup_skill_cache(&provider, &target_lang, skill, &cache));
             CachedTranslationEntry {
                 key: id,
-                translation,
-            }
-        })
-        .collect();
-    Ok(entries)
-}
-
-#[tauri::command]
-pub fn get_cached_marketplace_translations(
-    inputs: Vec<MarketplaceTranslationInput>,
-    target_lang: String,
-) -> Result<Vec<CachedTranslationEntry>, String> {
-    let manager = ConfigManager::new();
-    let config = manager.load()?;
-    let provider = match config.llm_provider.clone() {
-        Some(p) => p,
-        None => {
-            return Ok(inputs
-                .into_iter()
-                .map(|input| CachedTranslationEntry {
-                    key: input.id,
-                    translation: None,
-                })
-                .collect());
-        }
-    };
-    let installed_skills = ScannerService::scan_scoped_skills(&config).unwrap_or_default();
-    let cache = TranslationCache::new();
-    let entries = inputs
-        .into_iter()
-        .map(|input| {
-            let translation =
-                if let Some(skill) = find_installed_for_marketplace(&installed_skills, &input.id) {
-                    lookup_skill_cache(&provider, &target_lang, &skill, &cache)
-                } else {
-                    let description = input.description.clone().unwrap_or_default();
-                    let key = CacheKey {
-                        base_url: &provider.base_url,
-                        model: &provider.model,
-                        target_lang: &target_lang,
-                        source_name: &input.name,
-                        source_description: &description,
-                        source_content_md: input.content_md.as_deref(),
-                    };
-                    cache.get(&key).map(|hit| SkillTranslationOutput {
-                        name: hit.name,
-                        description: hit.description,
-                        content_md: hit.content_md,
-                        cached: true,
-                    })
-                };
-            CachedTranslationEntry {
-                key: input.id,
                 translation,
             }
         })
