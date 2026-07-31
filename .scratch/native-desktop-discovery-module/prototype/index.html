@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discovery Preparation prototype</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --paper: #f5f6f7;
+        --panel: #ffffff;
+        --panel-soft: #fafbfc;
+        --ink: #17191c;
+        --muted: #5b616b;
+        --faint: #9299a3;
+        --line: #e5e8ec;
+        --line-strong: #d4d9df;
+        --accent: #2563eb;
+        --accent-soft: #e9f0fd;
+        --ok: #2f7d57;
+        --ok-soft: #eef6f0;
+        --warn: #a16207;
+        --warn-soft: #fff8e1;
+        --danger: #b42318;
+        --danger-soft: #fef0ee;
+        --serif: Georgia, "Times New Roman", serif;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+        --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+        --shadow: 0 14px 38px rgba(24, 31, 42, 0.09);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; margin: 0; }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font: 13px/1.45 var(--sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      button, input, textarea { font: inherit; }
+      button { cursor: pointer; }
+      button:disabled { cursor: not-allowed; opacity: 0.48; }
+
+      .prototype-shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr);
+      }
+
+      .app-sidebar {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        padding: 18px 14px 16px;
+        border-right: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.76);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 3px 9px 24px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .brand-mark {
+        display: grid;
+        width: 25px;
+        height: 25px;
+        place-items: center;
+        border-radius: 8px;
+        color: white;
+        background: var(--ink);
+        font-size: 13px;
+      }
+      .nav-label {
+        margin: 14px 9px 7px;
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 36px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 9px;
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+      }
+      .nav-item:hover { background: var(--paper); color: var(--ink); }
+      .nav-item.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+      .nav-icon { width: 17px; color: currentColor; text-align: center; font-size: 15px; }
+      .nav-count {
+        margin-left: auto;
+        color: var(--faint);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+      .side-footer {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-top: auto;
+        padding: 12px 9px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+      }
+      .avatar {
+        display: grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        border-radius: 50%;
+        color: #744210;
+        background: #f7e7bb;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .side-footer small { display: block; color: var(--faint); font-size: 11px; }
+
+      .app-main { min-width: 0; min-height: 100vh; padding: 0 0 86px; }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        min-height: 64px;
+        padding: 0 30px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(12px);
+      }
+      .eyebrow {
+        margin-bottom: 2px;
+        color: var(--faint);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .topbar h1 { margin: 0; font-size: 18px; letter-spacing: -0.03em; }
+      .topbar-facts { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 26px;
+        padding: 0 9px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+      .pill-dot.warn { background: var(--warn); }
+      .prototype-note {
+        margin: 18px auto 0;
+        width: min(1420px, calc(100% - 60px));
+        color: var(--faint);
+        font-size: 11px;
+      }
+
+      .canvas {
+        width: min(1420px, calc(100% - 60px));
+        margin: 12px auto 0;
+      }
+      .variant-head {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 18px;
+        margin: 0 0 18px;
+      }
+      .variant-head h2 { margin: 0; font-size: 25px; letter-spacing: -0.04em; }
+      .variant-head p { max-width: 640px; margin: 5px 0 0; color: var(--muted); }
+      .head-actions { display: flex; align-items: center; gap: 8px; }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        color: var(--ink);
+        background: var(--panel);
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .button:hover { border-color: #b6bec8; background: var(--panel-soft); }
+      .button.primary { border-color: var(--accent); color: white; background: var(--accent); }
+      .button.primary:hover { background: #1d4ed8; }
+      .button.ghost { border-color: transparent; color: var(--muted); background: transparent; }
+      .button.danger-ghost { border-color: transparent; color: var(--danger); background: transparent; }
+      .button.small { min-height: 28px; padding: 0 9px; font-size: 11px; }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        background: var(--panel);
+        box-shadow: 0 1px 1px rgba(17, 24, 39, 0.02);
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 15px 17px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .card-head h3 { margin: 0; font-size: 13px; }
+      .card-head p { margin: 2px 0 0; color: var(--faint); font-size: 11px; }
+      .card-body { padding: 16px 17px; }
+      .section-label {
+        margin-bottom: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .muted { color: var(--muted); }
+      .faint { color: var(--faint); }
+      .mono { font-family: var(--mono); }
+      .divider { height: 1px; margin: 16px 0; background: var(--line); }
+      .status-line { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+      .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+      .status-dot.ok { background: var(--ok); }
+      .status-dot.warn { background: var(--warn); }
+      .status-dot.danger { background: var(--danger); }
+      .source-list { display: grid; gap: 7px; }
+      .source-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 47px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--panel-soft);
+      }
+      .source-row.invalid { border-color: #f2c2bc; background: var(--danger-soft); }
+      .file-icon {
+        display: grid;
+        width: 28px;
+        height: 32px;
+        place-items: center;
+        flex: 0 0 auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        color: var(--accent);
+        background: var(--panel);
+        font-size: 9px;
+        font-weight: 800;
+      }
+      .source-copy { min-width: 0; flex: 1; }
+      .source-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+      .source-meta { display: block; color: var(--faint); font-size: 11px; }
+      .source-error { margin-top: 2px; color: var(--danger); font-size: 11px; }
+      .remove { border: 0; color: var(--faint); background: transparent; font-size: 17px; line-height: 1; }
+      .remove:hover { color: var(--danger); }
+      .add-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+      .text-input, .formatted-input {
+        width: 100%;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        outline: none;
+        color: var(--ink);
+        background: var(--panel);
+        resize: vertical;
+      }
+      .text-input { min-height: 108px; padding: 11px 12px; }
+      .formatted-input { min-height: 330px; padding: 15px 16px; font: 13px/1.6 var(--serif); }
+      .text-input:focus, .formatted-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+      .field-note { margin-top: 6px; color: var(--faint); font-size: 11px; }
+      .notice {
+        display: flex;
+        align-items: flex-start;
+        gap: 9px;
+        padding: 10px 11px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: var(--muted);
+        background: var(--panel-soft);
+        font-size: 11.5px;
+      }
+      .notice.warn { border-color: #f2d58b; color: #7c5a0a; background: var(--warn-soft); }
+      .notice.danger { border-color: #f2c2bc; color: var(--danger); background: var(--danger-soft); }
+      .notice strong { display: block; margin-bottom: 2px; color: var(--ink); }
+
+      /* Variant A: a dense preparation workbench with an internal index. */
+      .variant-a {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr) 270px;
+        gap: 14px;
+        align-items: start;
+      }
+      .module-index { padding: 13px 10px; }
+      .module-index .index-title { padding: 2px 8px 12px; color: var(--faint); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+      .index-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 34px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 8px;
+        color: var(--muted);
+        background: transparent;
+        text-align: left;
+      }
+      .index-item.active { color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+      .index-item + .index-item { margin-top: 3px; }
+      .index-rule { height: 1px; margin: 13px 8px; background: var(--line); }
+      .index-meta { padding: 0 8px; color: var(--faint); font-size: 11px; }
+      .work-stack { display: grid; gap: 14px; }
+      .work-card { overflow: hidden; }
+      .work-body { padding: 17px; }
+      .run-gate { display: grid; gap: 10px; }
+      .gate-row { display: flex; align-items: flex-start; gap: 9px; color: var(--muted); font-size: 12px; }
+      .gate-check { display: grid; width: 17px; height: 17px; place-items: center; flex: 0 0 auto; border-radius: 50%; color: white; background: var(--line-strong); font-size: 10px; font-weight: 800; }
+      .gate-check.done { background: var(--ok); }
+      .gate-check.blocked { color: var(--danger); background: var(--danger-soft); }
+      .shell-mini { padding: 12px 0 0; border-top: 1px solid var(--line); }
+      .shell-mini:first-child { padding-top: 0; border-top: 0; }
+      .shell-mini h4 { margin: 0 0 2px; font-size: 12px; }
+      .shell-mini p { margin: 0; color: var(--faint); font-size: 11px; }
+      .shell-status { float: right; color: var(--ok); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+
+      /* Variant B: a document-first surface that keeps sources in a narrow drawer. */
+      .variant-b {
+        display: grid;
+        grid-template-columns: 265px minmax(0, 1fr) 235px;
+        gap: 14px;
+        align-items: start;
+      }
+      .source-drawer { overflow: hidden; }
+      .source-drawer .card-body { padding: 13px; }
+      .drawer-copy { margin: -2px 0 13px; color: var(--muted); font-size: 12px; }
+      .drawer-actions { display: grid; gap: 7px; }
+      .drawer-actions .button { justify-content: flex-start; }
+      .document-card { overflow: hidden; }
+      .document-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); background: var(--panel-soft); }
+      .document-toolbar strong { font-size: 12px; }
+      .document-toolbar span { color: var(--faint); font-size: 11px; }
+      .document-body { padding: 22px 32px 26px; }
+      .document-title { margin: 0 0 4px; font: 700 23px/1.15 var(--serif); letter-spacing: -0.025em; }
+      .document-subtitle { margin: 0 0 20px; color: var(--muted); }
+      .document-body .formatted-input { min-height: 415px; border-color: transparent; border-radius: 0; padding: 0; background: transparent; }
+      .document-body .formatted-input:focus { box-shadow: none; border-color: transparent; }
+      .revision-card { overflow: hidden; }
+      .revision-item { display: flex; gap: 9px; padding: 11px 0; border-top: 1px solid var(--line); }
+      .revision-item:first-child { padding-top: 0; border-top: 0; }
+      .revision-index { display: grid; width: 22px; height: 22px; place-items: center; flex: 0 0 auto; border-radius: 50%; color: var(--accent); background: var(--accent-soft); font-size: 10px; font-weight: 800; }
+      .revision-item strong { display: block; font-size: 11.5px; }
+      .revision-item span { display: block; margin-top: 2px; color: var(--faint); font-size: 10.5px; }
+      .run-block { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); }
+      .run-block h4 { margin: 0 0 3px; font-size: 12px; }
+      .run-block p { margin: 0 0 10px; color: var(--muted); font-size: 11px; }
+
+      /* Variant C: a stage-driven canvas with the run gate as a persistent footer. */
+      .variant-c { display: grid; gap: 14px; }
+      .stage-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--line); }
+      .stage { min-height: 67px; padding: 12px 15px; background: var(--panel); }
+      .stage.active { background: var(--accent-soft); }
+      .stage-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+      .stage-number { display: block; color: var(--faint); font-size: 10px; font-weight: 800; letter-spacing: 0.08em; }
+      .stage-complete { display: grid; width: 18px; height: 18px; place-items: center; border-radius: 50%; color: white; background: var(--ok); font-size: 11px; font-weight: 800; line-height: 1; }
+      .stage strong { font-size: 12px; }
+      .stage small { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; }
+      .canvas-grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 14px; align-items: start; }
+      .drop-zone { display: grid; min-height: 205px; place-items: center; padding: 24px; border: 1.5px dashed #b7c7e7; border-radius: 13px; color: var(--muted); background: linear-gradient(135deg, #fbfdff, #f3f7ff); text-align: center; }
+      .drop-icon { display: grid; width: 46px; height: 46px; margin: 0 auto 10px; place-items: center; border: 1px solid #c9d7f0; border-radius: 14px; color: var(--accent); background: white; font-size: 22px; }
+      .drop-zone strong { display: block; margin-bottom: 3px; color: var(--ink); }
+      .drop-zone p { max-width: 280px; margin: 0 auto; font-size: 11px; }
+      .source-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+      .source-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--panel); font-size: 11px; }
+      .source-chip.invalid { color: var(--danger); border-color: #f2c2bc; background: var(--danger-soft); }
+      .canvas-panel { overflow: hidden; }
+      .canvas-panel .card-body { padding: 16px; }
+      .canvas-panel .formatted-input { min-height: 276px; }
+      .footer-gate { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); }
+      .footer-gate strong { display: block; font-size: 12px; }
+      .footer-gate span { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+      .footer-gate-actions { display: flex; align-items: center; gap: 8px; }
+
+      .prototype-switcher {
+        position: fixed;
+        z-index: 20;
+        right: 50%;
+        bottom: 18px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 43px;
+        padding: 5px 7px;
+        border: 1px solid #30343b;
+        border-radius: 999px;
+        color: #f6f7f8;
+        background: #25282d;
+        box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+        transform: translateX(50%);
+      }
+      .switch-arrow, .switch-key { display: grid; height: 31px; place-items: center; border: 0; color: #f6f7f8; background: transparent; }
+      .switch-arrow { width: 30px; border-radius: 50%; font-size: 17px; }
+      .switch-arrow:hover { background: rgba(255, 255, 255, 0.1); }
+      .switch-label { min-width: 174px; padding: 0 8px; font-size: 11px; text-align: center; }
+      .switch-label strong { font-size: 12px; }
+      .switch-key { width: 27px; color: #aeb6c2; font: 11px var(--mono); }
+
+      @media (max-width: 1120px) {
+        .prototype-shell { grid-template-columns: 208px minmax(0, 1fr); }
+        .variant-a { grid-template-columns: 170px minmax(0, 1fr); }
+        .variant-a > .context-panel { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .variant-b { grid-template-columns: 235px minmax(0, 1fr); }
+        .variant-b > .revision-card { grid-column: 1 / -1; }
+      }
+      @media (max-width: 780px) {
+        .prototype-shell { display: block; }
+        .app-sidebar { min-height: auto; padding: 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+        .brand { padding-bottom: 10px; }
+        .nav-label, .side-footer { display: none; }
+        .app-sidebar nav { display: flex; gap: 5px; overflow-x: auto; }
+        .nav-item { width: auto; white-space: nowrap; }
+        .topbar, .prototype-note, .canvas { width: auto; margin-left: 16px; margin-right: 16px; }
+        .topbar { margin: 0; padding: 0 16px; }
+        .topbar-facts { display: none; }
+        .variant-head { display: block; }
+        .head-actions { margin-top: 12px; }
+        .variant-a, .variant-b, .canvas-grid { grid-template-columns: 1fr; }
+        .variant-a > .context-panel, .variant-b > .revision-card { grid-column: auto; display: block; }
+        .stage-bar { grid-template-columns: 1fr 1fr; }
+        .document-body { padding: 18px; }
+        .footer-gate { align-items: flex-start; flex-direction: column; }
+        .footer-gate-actions { width: 100%; }
+        .footer-gate-actions .button { flex: 1; }
+        .prototype-switcher { right: 16px; left: 16px; transform: none; justify-content: space-between; }
+        .switch-label { min-width: 0; flex: 1; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-shell">
+      <aside class="app-sidebar" aria-label="Application sidebar">
+        <div class="brand"><span class="brand-mark">✦</span><span>Vegapunk Desktop</span></div>
+        <nav>
+          <div class="nav-label">Workspace</div>
+          <button class="nav-item"><span class="nav-icon">＋</span><span>New Session</span></button>
+          <button class="nav-item active"><span class="nav-icon">◈</span><span>Discovery</span><span class="nav-count">1</span></button>
+          <button class="nav-item"><span class="nav-icon">◌</span><span>Skills</span></button>
+          <button class="nav-item"><span class="nav-icon">⚙</span><span>Settings</span></button>
+          <div class="nav-label">Discovery</div>
+          <button class="nav-item active"><span class="nav-icon">◫</span><span>Preparation</span></button>
+          <button class="nav-item"><span class="nav-icon">◷</span><span>Launch history</span><span class="nav-count">0</span></button>
+        </nav>
+        <div class="side-footer"><span class="avatar">SR</span><span><strong>Sole Researcher</strong><small>Native Desktop</small></span></div>
+      </aside>
+
+      <main class="app-main">
+        <header class="topbar">
+          <div><div class="eyebrow">Standalone Sidebar module</div><h1>Discovery</h1></div>
+          <div class="topbar-facts"><span class="pill"><span class="pill-dot"></span>Current Preparation</span><span class="pill">Global default · gpt-5.6-sol</span></div>
+        </header>
+        <div class="prototype-note">PROTOTYPE ONLY · State is in memory. This page explores Preparation intake, conversion review, and Run gating.</div>
+        <section id="canvas" class="canvas" aria-live="polite"></section>
+      </main>
+    </div>
+    <div id="switcher" class="prototype-switcher" aria-label="Prototype variant switcher"></div>
+
+    <script>
+      const demoSources = [
+        { id: "notes", name: "research-notes.md", type: "MD", size: "18 KB", valid: true },
+        { id: "paper", name: "baseline-paper.pdf", type: "PDF", size: "2.4 MB", valid: true },
+        { id: "data", name: "observations.csv", type: "CSV", size: "86 KB", valid: true },
+      ];
+      const state = {
+        sources: demoSources.slice(0, 2),
+        text: "Investigate whether the proposed method improves sample efficiency under the constrained baseline.",
+        formatted: "",
+        converted: false,
+        revisionSaved: false,
+        launched: false,
+        lastAction: "",
+      };
+      const variants = {
+        A: "Workbench",
+        B: "Document first",
+        C: "Stage canvas",
+      };
+      const variantParam = () => {
+        const value = new URLSearchParams(window.location.search).get("variant");
+        return variants[value] ? value : "A";
+      };
+      const escapeHtml = (value) => String(value).replace(/[&<>\"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[char]));
+      const sourceCount = () => state.sources.length;
+      const hasInvalidSource = () => state.sources.some((source) => !source.valid);
+      const canConvert = () => Boolean(state.text.trim() || sourceCount()) && !hasInvalidSource();
+      const canRun = () => state.converted && state.revisionSaved && !hasInvalidSource();
+      const formattedValue = () => state.formatted || [
+        "# Discovery Input",
+        "",
+        "## Research question",
+        state.text || "Add a research question in the source text area.",
+        "",
+        "## Source material",
+        ...state.sources.filter((source) => source.valid).map((source) => `- ${source.name}`),
+        "",
+        "## Expected evidence",
+        "Define the comparison, measurable outcome, and evidence required for a useful result.",
+      ].join("\\n");
+      const sourceRows = (compact = false) => state.sources.map((source) => compact ? `
+        <span class="source-chip ${source.valid ? "" : "invalid"}"><span>${escapeHtml(source.type)}</span>${escapeHtml(source.name)}<button class="remove" data-action="remove-source" data-id="${source.id}" aria-label="Remove ${escapeHtml(source.name)}">×</button></span>` : `
+        <div class="source-row ${source.valid ? "" : "invalid"}">
+          <span class="file-icon">${escapeHtml(source.type)}</span>
+          <span class="source-copy"><span class="source-name">${escapeHtml(source.name)}</span><span class="source-meta">${escapeHtml(source.size)} · ${source.valid ? "Ready for conversion" : "Rejected"}</span>${source.valid ? "" : `<span class="source-error">${escapeHtml(source.error)}</span>`}</span>
+          <button class="remove" data-action="remove-source" data-id="${source.id}" aria-label="Remove ${escapeHtml(source.name)}">×</button>
+        </div>`).join("");
+      const errorNotice = () => hasInvalidSource() ? `<div class="notice danger"><span>!</span><span><strong>Conversion is blocked</strong>Remove the rejected source before converting. Accepted types: .txt, .md, .pdf, .docx, .csv, .zip.</span></div>` : "";
+      const conversionStatus = () => state.converted ? `<div class="status-line"><span class="status-dot ok"></span>Converted draft ready for review</div>` : `<div class="status-line"><span class="status-dot ${canConvert() ? "warn" : ""}"></span>${canConvert() ? "Ready to convert" : "Add text or one source to begin"}</div>`;
+      const gateRows = () => `
+        <div class="run-gate">
+          <div class="gate-row"><span class="gate-check ${sourceCount() && !hasInvalidSource() ? "done" : hasInvalidSource() ? "blocked" : ""}">${sourceCount() && !hasInvalidSource() ? "✓" : hasInvalidSource() ? "!" : ""}</span><span><strong>Sources valid</strong><br><span class="faint">${hasInvalidSource() ? "Remove rejected files" : `${sourceCount()} individual file${sourceCount() === 1 ? "" : "s"} · no folders`}</span></span></div>
+          <div class="gate-row"><span class="gate-check ${state.converted ? "done" : ""}">${state.converted ? "✓" : ""}</span><span><strong>Conversion completed</strong><br><span class="faint">Uses the global default text model</span></span></div>
+          <div class="gate-row"><span class="gate-check ${state.revisionSaved ? "done" : ""}">${state.revisionSaved ? "✓" : ""}</span><span><strong>Formatted input saved</strong><br><span class="faint">Launch reads this explicit revision</span></span></div>
+        </div>`;
+      const launchButton = () => `<button class="button primary" data-action="run" ${canRun() ? "" : "disabled"}>${state.launched ? "Launch started" : "Run Discovery"}</button>`;
+      const actionMessage = () => state.lastAction ? `<div class="notice"><span>i</span><span>${escapeHtml(state.lastAction)}</span></div>` : "";
+
+      function variantA() {
+        return `
+          <div class="variant-head"><div><div class="eyebrow">Preparation / current</div><h2>Gather context, then make it runnable.</h2><p>A dense workbench keeps the single Preparation visible while conversion and Run remain explicit.</p></div><div class="head-actions"><button class="button" data-action="add-source">＋ Add files</button><button class="button primary" data-action="convert" ${canConvert() ? "" : "disabled"}>Convert input</button></div></div>
+          <div class="variant-a">
+            <aside class="card module-index"><div class="index-title">Discovery</div><button class="index-item active"><span>◫</span><span>Preparation</span></button><button class="index-item"><span>◷</span><span>Launch history</span><span class="nav-count">0</span></button><div class="index-rule"></div><div class="index-meta">One current Preparation<br>One active Launch</div></aside>
+            <div class="work-stack">
+              <section class="card work-card"><div class="card-head"><div><h3>Current Preparation</h3><p>Editable sources and text used for the next Launch.</p></div><span class="pill">Draft</span></div><div class="work-body">
+                <div class="section-label">Source files</div><div class="source-list">${sourceRows()}</div><div class="add-row"><button class="button small" data-action="add-source">＋ Add individual file</button><button class="button small ghost" data-action="fail-source">Simulate rejected file</button></div>
+                <div class="divider"></div><div class="section-label">Research text</div><textarea class="text-input" data-field="text" placeholder="Describe the research question or starting idea...">${escapeHtml(state.text)}</textarea><div class="field-note">Free-form text stays separate from uploaded file entries.</div>
+              </div></section>
+              <section class="card work-card"><div class="card-head"><div><h3>Conversion and review</h3><p>Conversion creates a draft. It never starts a Launch.</p></div>${conversionStatus()}</div><div class="work-body">${errorNotice()}${state.converted ? `<textarea class="formatted-input" data-field="formatted">${escapeHtml(formattedValue())}</textarea><div class="add-row"><button class="button small" data-action="save-revision">Save formatted revision</button><button class="button small ghost" data-action="convert">Convert again</button></div>` : `<div class="notice"><span>→</span><span><strong>Review comes after conversion</strong>The formatted input will appear here as an editable revision.</span></div>`}</div></section>
+              ${actionMessage()}
+            </div>
+            <aside class="card context-panel"><div class="card-head"><div><h3>Run gate</h3><p>Every check is visible before Run.</p></div></div><div class="card-body">${gateRows()}<div class="divider"></div><div class="add-row">${launchButton()}</div><div class="field-note">No local model picker. Defaults come from Settings.</div><div class="divider"></div><div class="shell-mini"><span class="shell-status">ready</span><h4>Progress</h4><p>Reusable runtime shell, empty until Launch.</p></div><div class="shell-mini"><span class="shell-status">ready</span><h4>Artifacts</h4><p>Will show files for the selected Launch.</p></div><div class="shell-mini"><span class="shell-status">ready</span><h4>Access</h4><p>Not used as a Discovery source picker.</p></div></div></aside>
+          </div>`;
+      }
+
+      function variantB() {
+        return `
+          <div class="variant-head"><div><div class="eyebrow">Preparation / document first</div><h2>Write the input you intend to run.</h2><p>The formatted input is the primary canvas, while source intake stays in a quiet left drawer.</p></div><div class="head-actions">${launchButton()}</div></div>
+          <div class="variant-b">
+            <aside class="card source-drawer"><div class="card-head"><div><h3>Sources</h3><p>${sourceCount()} entries · no folders</p></div></div><div class="card-body"><p class="drawer-copy">Add context one file at a time, or write directly below. Nothing converts automatically.</p><div class="source-list">${sourceRows()}</div><div class="drawer-actions"><button class="button small" data-action="add-source">＋ Add individual file</button><button class="button small ghost" data-action="fail-source">Simulate rejected file</button></div><div class="divider"></div><div class="section-label">Free-form text</div><textarea class="text-input" data-field="text" style="min-height:170px" placeholder="Start with an unfinished research idea...">${escapeHtml(state.text)}</textarea><div class="field-note">Accepted files: .txt · .md · .pdf · .docx · .csv · .zip</div></div></aside>
+            <section class="card document-card"><div class="document-toolbar"><div><strong>Formatted Discovery Input</strong><span> · explicit saved revision</span></div><div class="head-actions"><span>${conversionStatus()}</span><button class="button small" data-action="convert" ${canConvert() ? "" : "disabled"}>${state.converted ? "Convert again" : "Convert"}</button></div></div><div class="document-body"><h3 class="document-title">Research input draft</h3><p class="document-subtitle">Edit the model-assisted structure before it becomes eligible for Run.</p>${errorNotice()}${state.converted ? `<textarea class="formatted-input" data-field="formatted">${escapeHtml(formattedValue())}</textarea><div class="add-row"><button class="button small primary" data-action="save-revision">Save revision</button><span class="field-note">${state.revisionSaved ? "Saved revision is eligible for Run." : "Unsaved edits keep Run disabled."}</span></div>` : `<div class="notice"><span>1</span><span><strong>Start with Convert</strong>This document remains empty until the source bundle is converted.</span></div>`}</div></section>
+            <aside class="card revision-card"><div class="card-head"><div><h3>Revision history</h3><p>Preparation-level, not Launch-level.</p></div></div><div class="card-body"><div class="revision-item"><span class="revision-index">0</span><div><strong>Source bundle</strong><span>Current text and files</span></div></div><div class="revision-item"><span class="revision-index">1</span><div><strong>${state.converted ? "Converted draft" : "Waiting"}</strong><span>${state.converted ? "Editable in the center" : "No draft yet"}</span></div></div><div class="revision-item"><span class="revision-index">2</span><div><strong>${state.revisionSaved ? "Saved revision" : "Pending save"}</strong><span>${state.revisionSaved ? "Run can use this snapshot" : "Explicit save required"}</span></div></div><div class="run-block"><h4>Run gate</h4><p>${canRun() ? "Everything is ready for an explicit Launch." : "Complete the checks before Run."}</p>${gateRows()}<div class="add-row">${launchButton()}</div></div></div></aside>
+          </div>`;
+      }
+
+      function variantC() {
+        const stage = state.revisionSaved ? 4 : state.converted ? 3 : state.text.trim() || sourceCount() ? 2 : 1;
+        const stageTop = (index) => `<div class="stage-top"><span class="stage-number">0${index}</span>${state.launched || stage > index ? '<span class="stage-complete" aria-label="Completed">✓</span>' : ''}</div>`;
+        return `
+          <div class="variant-head"><div><div class="eyebrow">Preparation / stage canvas</div><h2>Move one Preparation through four deliberate stages.</h2><p>A persistent stage bar makes the conversion boundary and the final Run action impossible to mistake.</p></div><div class="head-actions"><span class="pill"><span class="pill-dot ${canRun() ? "" : "warn"}"></span>${canRun() ? "Ready to run" : "Preparation in progress"}</span></div></div>
+          <div class="variant-c">
+            <div class="stage-bar"><div class="stage ${stage >= 1 ? "active" : ""}">${stageTop(1)}<strong>Gather</strong><small>Files and text</small></div><div class="stage ${stage >= 2 ? "active" : ""}">${stageTop(2)}<strong>Convert</strong><small>Explicit model action</small></div><div class="stage ${stage >= 3 ? "active" : ""}">${stageTop(3)}<strong>Review</strong><small>Edit and save</small></div><div class="stage ${stage >= 4 ? "active" : ""}">${stageTop(4)}<strong>Run</strong><small>Immutable Launch snapshot</small></div></div>
+            <div class="canvas-grid"><section class="card"><div class="card-head"><div><h3>Gather context</h3><p>Drop files individually. Folders are intentionally absent.</p></div><button class="button small" data-action="add-source">＋ Add file</button></div><div class="card-body"><div class="drop-zone"><div><div class="drop-icon">⇧</div><strong>Choose individual files</strong><p>.txt, .md, .pdf, .docx, .csv, and .zip are accepted. Add as many as this Preparation needs.</p><div class="add-row" style="justify-content:center"><button class="button small" data-action="add-source">Choose files</button><button class="button small ghost" data-action="fail-source">Show rejection state</button></div></div></div><div class="source-strip">${sourceRows(true) || `<span class="faint">No files yet.</span>`}</div><div class="divider"></div><div class="section-label">Free-form text</div><textarea class="text-input" data-field="text" style="min-height:114px">${escapeHtml(state.text)}</textarea>${errorNotice()}</div></section><section class="card canvas-panel"><div class="card-head"><div><h3>Reviewable input</h3><p>${state.converted ? "Edit the formatted revision before saving it." : "Convert to reveal the editable revision."}</p></div><button class="button small primary" data-action="convert" ${canConvert() ? "" : "disabled"}>${state.converted ? "Convert again" : "Convert"}</button></div><div class="card-body">${state.converted ? `<textarea class="formatted-input" data-field="formatted">${escapeHtml(formattedValue())}</textarea>` : `<div class="notice"><span>→</span><span><strong>Conversion is a boundary</strong>Source changes never start a Launch. The formatted draft appears after explicit conversion.</span></div>`}</div></section></div>
+            <div class="footer-gate"><div><strong>${state.revisionSaved ? "Preparation is ready" : "Run remains gated"}</strong><span>${state.revisionSaved ? "The next Launch will snapshot this saved revision." : "Convert, review, and save before the Launch action unlocks."}</span></div><div class="footer-gate-actions"><button class="button" data-action="save-revision" ${state.converted ? "" : "disabled"}>Save revision</button>${launchButton()}</div></div>
+            ${actionMessage()}
+          </div>`;
+      }
+
+      function renderSwitcher(current) {
+        document.getElementById("switcher").innerHTML = `<button class="switch-arrow" data-action="previous" aria-label="Previous variant">‹</button><div class="switch-label"><strong>${current} · ${variants[current]}</strong><br><span>UI prototype · use ← →</span></div><button class="switch-key" data-variant="A">A</button><button class="switch-key" data-variant="B">B</button><button class="switch-key" data-variant="C">C</button><button class="switch-arrow" data-action="next" aria-label="Next variant">›</button>`;
+      }
+
+      function render() {
+        const current = variantParam();
+        document.getElementById("canvas").innerHTML = current === "A" ? variantA() : current === "B" ? variantB() : variantC();
+        renderSwitcher(current);
+      }
+
+      function switchVariant(next) {
+        const value = variants[next] ? next : "A";
+        const url = new URL(window.location.href);
+        url.searchParams.set("variant", value);
+        window.history.replaceState({}, "", url);
+        render();
+      }
+
+      function addSource() {
+        const next = demoSources.find((source) => !state.sources.some((current) => current.id === source.id));
+        if (next) {
+          state.sources.push(next);
+          state.lastAction = `${next.name} added to the current Preparation.`;
+        } else {
+          state.lastAction = "All three demo files are already attached. The production flow accepts more individual files.";
+        }
+        state.revisionSaved = false;
+        render();
+      }
+
+      function addInvalidSource() {
+        if (!state.sources.some((source) => source.id === "bad")) {
+          state.sources.push({ id: "bad", name: "notes.rtf", type: "RTF", size: "42 KB", valid: false, error: "Unsupported type. Remove this source to continue." });
+          state.lastAction = "Rejected source shown. Conversion and Run are now blocked.";
+          state.revisionSaved = false;
+        }
+        render();
+      }
+
+      function removeSource(id) {
+        state.sources = state.sources.filter((source) => source.id !== id);
+        state.lastAction = "Source removed from the current Preparation.";
+        state.revisionSaved = false;
+        render();
+      }
+
+      document.addEventListener("click", (event) => {
+        const target = event.target.closest("[data-action], [data-variant]");
+        if (!target) return;
+        const action = target.dataset.action;
+        if (target.dataset.variant) return switchVariant(target.dataset.variant);
+        if (action === "previous" || action === "next") {
+          const keys = Object.keys(variants);
+          const index = keys.indexOf(variantParam());
+          return switchVariant(keys[(index + (action === "next" ? 1 : -1) + keys.length) % keys.length]);
+        }
+        if (action === "add-source") return addSource();
+        if (action === "fail-source") return addInvalidSource();
+        if (action === "remove-source") return removeSource(target.dataset.id);
+        if (action === "convert") {
+          if (!canConvert()) return;
+          state.converted = true;
+          state.formatted = formattedValue();
+          state.revisionSaved = false;
+          state.lastAction = "Conversion completed. Review the formatted draft before saving.";
+          return render();
+        }
+        if (action === "save-revision") {
+          if (!state.converted || hasInvalidSource()) return;
+          state.formatted = document.querySelector('[data-field="formatted"]')?.value || formattedValue();
+          state.revisionSaved = true;
+          state.lastAction = "Formatted input revision saved. Run is now eligible.";
+          return render();
+        }
+        if (action === "run") {
+          if (!canRun()) return;
+          state.launched = true;
+          state.lastAction = "Launch started from the saved Preparation revision. Later edits will not change this snapshot.";
+          return render();
+        }
+      });
+
+      document.addEventListener("input", (event) => {
+        const field = event.target.dataset.field;
+        if (!field) return;
+        if (field === "text") {
+          state.text = event.target.value;
+          state.revisionSaved = false;
+        }
+        if (field === "formatted") {
+          state.formatted = event.target.value;
+          state.revisionSaved = false;
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
+        const keys = Object.keys(variants);
+        const index = keys.indexOf(variantParam());
+        switchVariant(keys[(index + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length]);
+      });
+
+      window.addEventListener("popstate", render);
+      render();
+    </script>
+  </body>
+</html>
