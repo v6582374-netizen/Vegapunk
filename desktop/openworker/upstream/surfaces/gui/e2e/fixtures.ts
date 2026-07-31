@@ -334,6 +334,8 @@ const PROVIDERS = [
   // ollama: keyless local provider — "configured" without proving anything runs; the
   // onboarding gallery shows "No key needed" and its form is endpoint + Detect (§39).
   { name: "ollama", title: "Ollama (local models)", needs_key: false, fields: [{ key: "base_url", label: "Endpoint", secret: false, required: false, help: "", placeholder: "http://127.0.0.1:11434", default: "http://127.0.0.1:11434" }], configured: true, values: {}, suggested_models: ["qwen3-coder:30b"], key_set_at: null, last_used_at: null },
+  // relay: Responses-native text provider, intentionally last in the gallery.
+  { name: "relay", title: "Relay", needs_key: true, blurb: "Uses Relay's Responses-native API. Add a key, then choose any text model it exposes.", fields: [{ key: "api_key", label: "Relay API key", secret: true, required: true, help: "", placeholder: "Paste your Relay key" }, { key: "base_url", label: "Endpoint", secret: false, required: false, help: "Responses-native Relay endpoint.", placeholder: "https://ai.cloudyz.top/v1", default: "https://ai.cloudyz.top/v1" }], configured: false, values: {}, suggested_models: ["gpt-5.6-sol"], key_set_at: null, last_used_at: null },
 ];
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */

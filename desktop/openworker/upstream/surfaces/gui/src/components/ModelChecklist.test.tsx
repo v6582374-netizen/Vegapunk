@@ -19,7 +19,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const KNOWN = ["openai", "anthropic", "bedrock", "vertex", "openrouter"];
+const KNOWN = ["openai", "anthropic", "bedrock", "vertex", "openrouter", "relay"];
 
 function renderList(provider: string) {
   return render(
@@ -68,5 +68,12 @@ describe("ModelChecklist add-model family dropdown", () => {
     expect(screen.queryByTestId("mlist-family")).toBeNull();
     addTyped("z-ai/glm-5.2");
     expect(addModel).toHaveBeenCalledWith("openrouter:z-ai/glm-5.2");
+  });
+
+  it("lets Relay accept an arbitrary bare model id", async () => {
+    renderList("relay");
+    expect(screen.queryByTestId("mlist-family")).toBeNull();
+    addTyped("my-private-text-model");
+    expect(addModel).toHaveBeenCalledWith("relay:my-private-text-model");
   });
 });

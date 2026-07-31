@@ -71,3 +71,26 @@ test("non-secret fields blur-save on a configured provider (ollama endpoint)", a
   await page.getByTestId("set-provider-ollama").click();
   await expect(page.getByTestId("set-field-base_url")).toHaveValue("http://127.0.0.1:9999");
 });
+
+test("Relay is the last provider and uses the shared detail flow", async ({ page }) => {
+  await openModels(page);
+  const cards = page.locator('[data-testid^="set-provider-"]');
+  await expect(cards.last()).toHaveAttribute("data-testid", "set-provider-relay");
+
+  await page.getByTestId("set-provider-relay").click();
+  await expect(page.getByTestId("set-endpoint-link")).toBeVisible();
+  await page.getByTestId("set-endpoint-link").click();
+  await expect(page.getByText("Responses-native Relay endpoint.")).toBeVisible();
+  await expect(page.getByTestId("set-field-base_url")).toHaveValue("https://ai.cloudyz.top/v1");
+});
+
+test("Relay key saves through the same Test flow as other providers", async ({ page }) => {
+  await openModels(page);
+  await page.getByTestId("set-provider-relay").click();
+  await page.getByTestId("set-field-api_key").fill("relay-key");
+  await page.getByTestId("set-test").click();
+  await expect(page.getByTestId("set-saved-pill")).toContainText("Tested & saved");
+  await expect(page.getByTestId("set-provider-relay")).toContainText("✓ Connected", {
+    timeout: 5_000,
+  });
+});

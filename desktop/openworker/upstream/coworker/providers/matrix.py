@@ -48,6 +48,7 @@ MATRIX: dict[str, ModelEntry] = {
     "gpt-5.6-terra": ModelEntry("GPT-5.6 Terra · OpenAI", _AGENTIC_VISION),
     "gpt-5.6-luna": ModelEntry("GPT-5.6 Luna · OpenAI", _AGENTIC_VISION),
     "gpt-5.5": ModelEntry("GPT-5.5 · OpenAI", _AGENTIC_VISION),
+    "relay:gpt-5.6-sol": ModelEntry("GPT-5.6 Sol · Relay"),
     # Fable 5 (2026-06-09) is GA; its Mythos 5 sibling is approved-orgs-only, so it
     # stays out of a picker meant for the public.
     "anthropic:claude-fable-5": ModelEntry(

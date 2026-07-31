@@ -115,6 +115,9 @@ def test_router_routes_and_strips_prefix(monkeypatch):
     router.complete(model="gpt-5.5", messages=[])  # bare → default openai
     assert state["latest"]["openai"].models == ["gpt-5.5"]
 
+    router.complete(model="relay:my-text-model", messages=[])
+    assert state["latest"]["relay"].models == ["my-text-model"]
+
 
 def test_router_caches_and_invalidates(monkeypatch):
     state = _patch_build(monkeypatch)
@@ -308,6 +311,31 @@ def test_manager_provider_config(tmp_path, monkeypatch):
     assert "api_key" not in provs["openai"].get("values", {})
 
     assert mgr.set_provider("nope", {})["ok"] is False  # unknown provider rejected
+
+
+def test_manager_relay_provider_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("RELAY_API_KEY", raising=False)
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(data_dir=tmp_path)
+    relay = {p["name"]: p for p in mgr.get_providers()}["relay"]
+    assert relay["configured"] is False
+    assert relay["suggested_models"]
+    assert "gpt-5.6-sol" in relay["suggested_models"]
+    assert "api_key" not in relay.get("values", {})
+
+    result = mgr.set_provider(
+        "relay",
+        {"api_key": "relay-key", "base_url": "https://relay.example/v1"},
+    )
+    assert result["ok"] is True
+    assert result["recommended_model"] == "gpt-5.6-sol"
+    relay = {p["name"]: p for p in mgr.get_providers()}["relay"]
+    assert relay["configured"] is True
+    assert relay["values"]["base_url"] == "https://relay.example/v1"
+    assert "api_key" not in relay.get("values", {})
+    assert "relay:gpt-5.6-sol" in mgr.get_settings()["models"]
 
 
 def test_manager_curated_models(tmp_path, monkeypatch):

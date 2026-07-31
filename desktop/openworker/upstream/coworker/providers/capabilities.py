@@ -29,6 +29,13 @@ def capabilities_for(model: str) -> ModelCapabilities:
             tools=True, vision=False, parallel_tool_calls=False, streaming=True
         )
 
+    # Relay V1 is a text-only Responses provider. Its native tool-call stream supports
+    # parallel calls, while image and PDF inputs stay on the local fallback path.
+    if provider == "relay":
+        return ModelCapabilities(
+            tools=True, vision=False, pdf=False, parallel_tool_calls=True, streaming=True
+        )
+
     # Cloud-account providers (custom-added ids; curated ones answered from the matrix).
     # The family segment decides: Claude keeps its native capabilities; everything else
     # stays conservative until probed (Converse tool calling works across families, but

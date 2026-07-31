@@ -10,6 +10,11 @@ from .base import (
 from .capabilities import capabilities_for
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider, resolve_api_key
+from .relay_provider import (
+    DEFAULT_RELAY_BASE_URL,
+    RelayProvider,
+    resolve_relay_api_key,
+)
 from .registry import (
     ProviderDescriptor,
     ProviderField,
@@ -34,8 +39,11 @@ __all__ = [
     "BedrockProvider",
     "GeminiProvider",
     "OpenAIProvider",
+    "RelayProvider",
     "VertexProvider",
     "resolve_api_key",
+    "resolve_relay_api_key",
+    "DEFAULT_RELAY_BASE_URL",
     "capabilities_for",
     "ProviderRouter",
     "ProviderDescriptor",

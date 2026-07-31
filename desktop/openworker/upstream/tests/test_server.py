@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -987,6 +989,55 @@ def test_provider_set_and_remove_roundtrip(tmp_path):
     assert not prov["zai"]["key_set_at"]
 
     assert not client.delete("/v1/providers/nope").json()["ok"]
+
+
+def test_relay_provider_api_roundtrip_uses_responses_verify(tmp_path, monkeypatch):
+    client = _client(tmp_path, [])
+    relay = {p["name"]: p for p in client.get("/v1/providers").json()}["relay"]
+    assert relay["title"] == "Relay"
+    assert relay["recommended_model"] == "gpt-5.6-sol"
+    assert next(f for f in relay["fields"] if f["key"] == "base_url")["default"] == (
+        "https://ai.cloudyz.top/v1"
+    )
+
+    captured: dict = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(
+        "httpx.get",
+        lambda url, **kwargs: SimpleNamespace(
+            status_code=200,
+            json=lambda: {"data": [{"id": "private-text-model"}]},
+        ),
+    )
+    monkeypatch.setattr("httpx.post", fake_post)
+    verify = client.post(
+        "/v1/providers/verify",
+        json={"name": "relay", "fields": {"api_key": "relay-key"}},
+    ).json()
+    assert verify == {"ok": True}
+    assert captured["url"] == "https://ai.cloudyz.top/v1/responses"
+    assert captured["json"]["model"] == "private-text-model"
+
+    saved = client.post(
+        "/v1/providers",
+        json={
+            "name": "relay",
+            "fields": {
+                "api_key": "relay-key",
+                "base_url": "https://relay.example/v1",
+            },
+        },
+    ).json()
+    assert saved["ok"] is True
+    relay = {p["name"]: p for p in client.get("/v1/providers").json()}["relay"]
+    assert relay["configured"] is True
+    assert relay["values"]["base_url"] == "https://relay.example/v1"
+    assert "api_key" not in relay["values"]
 
 
 def test_always_allow_grants_survive_restart(tmp_path):

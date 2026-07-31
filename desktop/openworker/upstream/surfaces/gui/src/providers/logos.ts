@@ -61,6 +61,7 @@ export const PROVIDER_ORDER = [
   "qwen",
   "minimax",
   "xai",
+  "relay",
 ];
 
 export function providerRank(name: string): number {

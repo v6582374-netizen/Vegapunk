@@ -11,7 +11,8 @@ Today: `openai` (the default, with an optional custom endpoint that covers Azure
 `AnthropicProvider`), `gemini` (native Google GenAI API via `GeminiProvider`), `bedrock`
 (models in the user's own AWS account — Claude natively, everything else via Converse),
 `vertex` (the user's own GCP project — Gemini and Claude natively, open-weight via the
-MaaS endpoint), and `ollama` (local, OpenAI-compatible `/v1`).
+MaaS endpoint), `ollama` (local, OpenAI-compatible `/v1`), and `relay` (Responses-native
+text inference through the project's Relay deployment).
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ from .base import ProviderClient
 from .bedrock_provider import BedrockProvider
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider
+from .relay_provider import DEFAULT_RELAY_BASE_URL, RelayProvider
 from .vertex_provider import VertexProvider
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
+RELAY_BASE_URL = DEFAULT_RELAY_BASE_URL
 
 
 @dataclass(frozen=True)
@@ -180,6 +183,17 @@ def _build_ollama(profile: dict[str, Any], secrets: Any) -> ProviderClient:
     # string, so we pass a placeholder. `base_url` comes from the stored profile (or the default).
     base_url = _normalize_ollama_url((profile or {}).get("base_url"))
     return OpenAIProvider(api_key="ollama", base_url=base_url)
+
+
+def _build_relay(profile: dict[str, Any], secrets: Any) -> ProviderClient:
+    p = profile or {}
+    api_key = (p.get("api_key") or "").strip() or None
+    base_url = (p.get("base_url") or "").strip() or RELAY_BASE_URL
+    return RelayProvider(
+        api_key=api_key,
+        base_url=base_url,
+        secrets=secrets,
+    )
 
 
 def _openai_compat(vendor: str, default_base_url: str, env_key: Optional[str] = None):
@@ -563,6 +577,37 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         # `ollama pull qwen3-coder:30b`.
         recommended_model="qwen3-coder:30b",
     ),
+    ProviderDescriptor(
+        name="relay",
+        title="Relay",
+        needs_key=True,
+        fields=[
+            ProviderField(
+                "api_key",
+                "Relay API key",
+                secret=True,
+                placeholder="Paste your Relay key",
+            ),
+            ProviderField(
+                "base_url",
+                "Endpoint",
+                secret=False,
+                required=False,
+                default=RELAY_BASE_URL,
+                placeholder=RELAY_BASE_URL,
+                help=(
+                    "Responses-native Relay endpoint. Change this only when using another Relay "
+                    "gateway."
+                ),
+            ),
+        ],
+        build=_build_relay,
+        recommended_model="gpt-5.6-sol",
+        env_key="RELAY_API_KEY",
+        blurb=(
+            "Uses Relay's Responses-native API. Add a key, then choose any text model it exposes."
+        ),
+    ),
 ]
 
 _BY_NAME = {d.name: d for d in DESCRIPTORS}
@@ -789,6 +834,93 @@ def _verify_vertex(fields: dict[str, Any], timeout: float) -> dict[str, Any]:
     return {"ok": False, "error": f"Vertex AI returned HTTP {resp.status_code}."}
 
 
+_RELAY_VERIFY_MODEL = "gpt-5.6-sol"
+
+
+def _relay_model_ids(response: Any) -> list[str]:
+    try:
+        payload = response.json()
+    except Exception:
+        return []
+    if isinstance(payload, dict):
+        entries = payload.get("data") or payload.get("models") or []
+    else:
+        entries = payload
+    if not isinstance(entries, list):
+        return []
+    ids: list[str] = []
+    for entry in entries:
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry["id"].strip():
+            ids.append(entry["id"].strip())
+    return ids
+
+
+def _verify_relay(api_key: str, base_url: str, timeout: float) -> dict[str, Any]:
+    """Exercise Relay's native Responses endpoint with a one-token probe.
+
+    The model list chooses the probe model so a gateway can recommend a different model
+    without making its credentials look invalid merely because the project default is absent.
+    """
+    import httpx
+
+    base = (base_url or RELAY_BASE_URL).strip().rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        models = httpx.get(base + "/models", headers=headers, timeout=timeout)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Couldn't reach Relay ({exc.__class__.__name__}).",
+        }
+    if models.status_code in (401, 403):
+        return {"ok": False, "error": "Invalid API key."}
+    if models.status_code == 404:
+        return {"ok": False, "error": "Endpoint does not expose a Relay model list."}
+    if models.status_code >= 300:
+        return {"ok": False, "error": f"Relay returned HTTP {models.status_code}."}
+    model_ids = _relay_model_ids(models)
+    model = (
+        _RELAY_VERIFY_MODEL
+        if _RELAY_VERIFY_MODEL in model_ids
+        else (model_ids[0] if model_ids else "")
+    )
+    if not model:
+        return {"ok": False, "error": "Relay returned no usable models."}
+
+    try:
+        resp = httpx.post(
+            base + "/responses",
+            headers=headers,
+            json={
+                "model": model,
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "ping"}],
+                    }
+                ],
+                "max_output_tokens": 1,
+            },
+            timeout=timeout,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": f"Couldn't reach Relay ({exc.__class__.__name__}).",
+        }
+    if resp.status_code < 300:
+        return {"ok": True}
+    if resp.status_code in (401, 403):
+        return {"ok": False, "error": "Invalid API key."}
+    if resp.status_code == 404:
+        return {
+            "ok": False,
+            "error": "Endpoint does not expose the Responses API.",
+        }
+    return {"ok": False, "error": f"Relay returned HTTP {resp.status_code}."}
+
+
 def verify_provider_key(
     name: str,
     *,
@@ -810,6 +942,8 @@ def verify_provider_key(
         return _verify_bedrock(fields or {}, timeout)
     if name == "vertex":
         return _verify_vertex(fields or {}, timeout)
+    if name == "relay":
+        return _verify_relay(key, base_url or RELAY_BASE_URL, timeout)
     try:
         if name == "anthropic":
             resp = httpx.get(

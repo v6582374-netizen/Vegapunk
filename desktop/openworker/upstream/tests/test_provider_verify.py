@@ -29,8 +29,23 @@ def test_detect_provider(key, expected):
 
 
 # -- verify_provider_key: status-code mapping + per-provider request shape -------
-def _patch_get(monkeypatch, status=200, capture=None, raise_exc=None):
+def _patch_get(monkeypatch, status=200, capture=None, raise_exc=None, json_body=None):
     def fake_get(url, **kwargs):
+        if capture is not None:
+            capture["url"] = url
+            capture.update(kwargs)
+        if raise_exc is not None:
+            raise raise_exc
+        response = SimpleNamespace(status_code=status)
+        if json_body is not None:
+            response.json = lambda: json_body
+        return response
+
+    monkeypatch.setattr("httpx.get", fake_get)
+
+
+def _patch_post(monkeypatch, status=200, capture=None, raise_exc=None):
+    def fake_post(url, **kwargs):
         if capture is not None:
             capture["url"] = url
             capture.update(kwargs)
@@ -38,7 +53,7 @@ def _patch_get(monkeypatch, status=200, capture=None, raise_exc=None):
             raise raise_exc
         return SimpleNamespace(status_code=status)
 
-    monkeypatch.setattr("httpx.get", fake_get)
+    monkeypatch.setattr("httpx.post", fake_post)
 
 
 def test_verify_openai_ok(monkeypatch):
@@ -103,3 +118,39 @@ def test_verify_unexpected_status(monkeypatch):
     res = verify_provider_key("anthropic", api_key="sk-ant-x")
     assert res["ok"] is False
     assert "500" in res["error"]
+
+
+def test_verify_relay_uses_responses_probe(monkeypatch):
+    cap: dict = {}
+    _patch_get(
+        monkeypatch,
+        status=200,
+        json_body={"data": [{"id": "private-text-model"}]},
+    )
+    _patch_post(monkeypatch, status=200, capture=cap)
+    assert verify_provider_key(
+        "relay", api_key="relay-key", base_url="https://relay.example/v1/"
+    ) == {"ok": True}
+    assert cap["url"] == "https://relay.example/v1/responses"
+    assert cap["headers"]["Authorization"] == "Bearer relay-key"
+    assert cap["json"]["model"] == "private-text-model"
+    assert cap["json"]["input"][0]["role"] == "user"
+    assert "chat" not in cap["url"]
+
+
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (401, "Invalid API key."),
+        (403, "Invalid API key."),
+        (404, "Endpoint does not expose the Responses API."),
+    ],
+)
+def test_verify_relay_classifies_responses_errors(monkeypatch, status, expected):
+    _patch_get(
+        monkeypatch,
+        status=200,
+        json_body={"data": [{"id": "private-text-model"}]},
+    )
+    _patch_post(monkeypatch, status=status)
+    assert verify_provider_key("relay", api_key="relay-key")["error"] == expected
