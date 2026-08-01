@@ -29,6 +29,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 # (<repo>/packaging). Derive everything else from it — no hardcoded paths.
 PACKAGING = SPECPATH
 ROOT = os.path.dirname(PACKAGING)
+REPOSITORY_ROOT = os.path.abspath(os.path.join(ROOT, "..", "..", ".."))
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -40,6 +41,16 @@ INCLUDE_EXPERIMENTAL = os.environ.get("COWORKER_EXPERIMENTAL") == "1"
 hiddenimports = []
 datas = []
 binaries = []
+
+# Native Discovery's Conversion Prompt is a repo-level config in source checkouts, but the
+# packaged sidecar runs from PyInstaller's `_internal/` root. Stage it beside the bundled
+# modules so Discovery can resolve it through `sys._MEIPASS` at runtime.
+datas.append(
+    (
+        os.path.join(REPOSITORY_ROOT, "config", "discovery_input_conversion_prompt.yaml"),
+        "config",
+    )
+)
 
 for pkg in ("coworker", "aisuite", "mcp", "ddgs", "croniter", "docstring_parser"):
     hiddenimports += collect_submodules(pkg)

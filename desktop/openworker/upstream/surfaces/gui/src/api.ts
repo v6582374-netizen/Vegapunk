@@ -83,11 +83,33 @@ export interface DiscoveryPreparationContent {
   sources: DiscoverySourceEntry[];
 }
 
+export interface DiscoveryInputRevision {
+  revision_id: string;
+  created_at: string;
+  formatted_input: string;
+  model_id: string | null;
+  eligible: boolean;
+}
+
+export type DiscoveryConversionStatus = "pending" | "editing" | "saved" | "dirty" | "failed";
+
+export interface DiscoveryConversionState {
+  status: DiscoveryConversionStatus;
+  draft: string;
+  model_id: string | null;
+  error: string | null;
+  saved_revision_id: string | null;
+  base_fingerprint: string | null;
+  current_fingerprint: string;
+}
+
 export interface DiscoveryPreparation {
   status: "empty" | "draft" | "saved";
   dirty: boolean;
   draft: DiscoveryPreparationContent;
   saved: DiscoveryPreparationContent;
+  revisions: DiscoveryInputRevision[];
+  conversion: DiscoveryConversionState;
 }
 
 export interface DiscoverySnapshot {
@@ -185,6 +207,22 @@ export async function saveDiscoveryPreparation(text: string): Promise<DiscoveryS
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
+  });
+}
+
+export async function convertDiscoveryPreparation(): Promise<DiscoverySnapshot> {
+  return discoveryMutation("/v1/discovery/preparation/convert", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+export async function saveDiscoveryRevision(formattedInput: string): Promise<DiscoverySnapshot> {
+  return discoveryMutation("/v1/discovery/preparation/revisions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ formatted_input: formattedInput }),
   });
 }
 

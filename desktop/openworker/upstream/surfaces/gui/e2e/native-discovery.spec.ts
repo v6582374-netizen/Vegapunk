@@ -171,6 +171,47 @@ test("Preparation follows the Stage Canvas flow with Reviewable input below Gath
     return Boolean(gather && review && (gather.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING));
   });
   expect(order).toBe(true);
-  await expect(view.getByRole("button", { name: "Convert" })).toBeDisabled();
+  await expect(view.getByRole("button", { name: "Convert" })).toBeEnabled();
   await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(1);
+});
+
+test("Conversion produces an editable draft and Save revision appends immutable history", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await view.getByRole("textbox", { name: "Research text" }).fill("Compare two constrained baselines.");
+  await view.getByLabel("Source files").setInputFiles({
+    name: "brief.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("baseline notes"),
+  });
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  await expect(view.getByText("Preparation saved")).toBeVisible();
+
+  const convertRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/convert") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Convert" }).click();
+  await convertRequest;
+  await expect(view.getByRole("textbox", { name: "Formatted Discovery Input" })).toBeVisible();
+  await expect(view.getByText("Draft ready for review")).toBeVisible();
+
+  await view.getByRole("textbox", { name: "Formatted Discovery Input" }).fill("# Reviewed baseline");
+  await expect(view.getByText("Unsaved review changes")).toBeVisible();
+  const revisionRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/revisions") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Save revision" }).click();
+  expect((await revisionRequest).postDataJSON()).toEqual({ formatted_input: "# Reviewed baseline" });
+  await expect(view.getByText("Revision saved")).toBeVisible();
+  await expect(view.getByText("1 saved revision")).toBeVisible();
+  await expect(view.getByText("Eligible", { exact: true })).toBeVisible();
+  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(3);
+
+  await view.getByRole("textbox", { name: "Formatted Discovery Input" }).fill("# Revised again");
+  await expect(view.getByText("Unsaved review changes")).toBeVisible();
+  await expect(view.getByRole("button", { name: "Save revision" })).toBeEnabled();
 });

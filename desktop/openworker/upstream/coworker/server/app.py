@@ -159,7 +159,13 @@ from ..engine import ApprovalOutcome
 from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
-from .discovery import DiscoveryFacade, PreparationValidationError
+from .discovery import (
+    DiscoveryConfigurationError,
+    DiscoveryConversionError,
+    DiscoveryFacade,
+    DiscoverySourceContentError,
+    PreparationValidationError,
+)
 from .manager import SessionManager
 
 
@@ -272,6 +278,36 @@ def create_app(manager: SessionManager) -> FastAPI:
             raise HTTPException(
                 status_code=500,
                 detail="Discovery Preparation could not be saved. Try again.",
+            ) from exc
+
+    @app.post("/v1/discovery/preparation/convert")
+    def discovery_preparation_convert(body: dict | None = None) -> dict[str, Any]:
+        del body
+        try:
+            return app.state.discovery.convert(
+                manager.provider,
+                manager.model,
+                manager.discovery_model_settings(),
+            )
+        except PreparationValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except DiscoverySourceContentError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except DiscoveryConfigurationError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except DiscoveryConversionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/v1/discovery/preparation/revisions")
+    def discovery_preparation_save_revision(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return app.state.discovery.save_revision(body or {})
+        except PreparationValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Formatted Discovery Input revision could not be saved. Try again.",
             ) from exc
 
     @app.get("/v1/agents")

@@ -36,6 +36,16 @@ const DISCOVERY = {
     dirty: false,
     draft: { text: "", sources: [] },
     saved: { text: "", sources: [] },
+    revisions: [],
+    conversion: {
+      status: "pending",
+      draft: "",
+      model_id: null,
+      error: null,
+      saved_revision_id: null,
+      base_fingerprint: null,
+      current_fingerprint: "fixture-empty",
+    },
   },
   current_launch: null,
   history: [],
@@ -367,9 +377,32 @@ export async function mockApi(page: import("@playwright/test").Page) {
       dirty: false,
       draft: { text: "", sources: [] as any[] },
       saved: { text: "", sources: [] as any[] },
+      revisions: [] as any[],
+      conversion: {
+        status: "pending" as "pending" | "editing" | "saved" | "dirty" | "failed",
+        draft: "",
+        model_id: null as string | null,
+        error: null as string | null,
+        saved_revision_id: null as string | null,
+        base_fingerprint: null as string | null,
+        current_fingerprint: "fixture-empty",
+      },
     },
   };
   let nextDiscoverySourceId = 1;
+  let nextDiscoveryRevisionId = 1;
+
+  const invalidateConversion = (status: "pending" | "dirty") => {
+    discovery.preparation.conversion = {
+      status,
+      draft: "",
+      model_id: null,
+      error: null,
+      saved_revision_id: null,
+      base_fingerprint: null,
+      current_fingerprint: `fixture-${discovery.preparation.saved.text.length}-${discovery.preparation.saved.sources.length}`,
+    };
+  };
 
   const updateDiscoveryStatus = () => {
     const dirty =
@@ -382,6 +415,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
       : discovery.preparation.saved.text.trim() || discovery.preparation.saved.sources.length
         ? "saved"
         : "empty";
+    if (dirty) {
+      discovery.preparation.revisions.forEach((revision: any) => {
+        revision.eligible = false;
+      });
+      invalidateConversion("dirty");
+    }
   };
 
   const subscriptions: any[] = [
@@ -952,8 +991,69 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (Object.prototype.hasOwnProperty.call(body, "text")) {
         discovery.preparation.draft.text = body.text;
       }
+      const previousSaved = JSON.stringify(discovery.preparation.saved);
       discovery.preparation.saved = JSON.parse(JSON.stringify(discovery.preparation.draft));
       updateDiscoveryStatus();
+      if (previousSaved !== JSON.stringify(discovery.preparation.saved)) {
+        discovery.preparation.revisions.forEach((revision: any) => {
+          revision.eligible = false;
+        });
+      }
+      invalidateConversion("pending");
+      return json(discovery);
+    }
+    if (p.endsWith("/v1/discovery/preparation/convert") && m === "POST") {
+      const hasInput =
+        discovery.preparation.saved.text.trim() || discovery.preparation.saved.sources.length;
+      if (discovery.preparation.dirty) {
+        return json({ detail: "save the Preparation before Conversion" }, 422);
+      }
+      if (!hasInput) {
+        return json({ detail: "Conversion requires a non-empty saved Preparation" }, 422);
+      }
+      const formattedInput = [
+        "# Converted Discovery Input",
+        "",
+        discovery.preparation.saved.text || "Use the committed source bundle as evidence.",
+        "",
+        "## Sources",
+        ...discovery.preparation.saved.sources.map((source: any) => `- ${source.filename}`),
+      ].join("\n");
+      discovery.preparation.conversion = {
+        status: "editing",
+        draft: formattedInput,
+        model_id: SETTINGS.model,
+        error: null,
+        saved_revision_id: null,
+        base_fingerprint: "fixture-current",
+        current_fingerprint: "fixture-current",
+      };
+      return json(discovery);
+    }
+    if (p.endsWith("/v1/discovery/preparation/revisions") && m === "POST") {
+      const body = req.postDataJSON() ?? {};
+      const formattedInput = body.formatted_input;
+      if (typeof formattedInput !== "string" || !formattedInput.trim()) {
+        return json({ detail: "Formatted Discovery Input must not be empty" }, 422);
+      }
+      if (discovery.preparation.dirty || !discovery.preparation.conversion.draft) {
+        return json({ detail: "convert the committed Preparation before saving a revision" }, 422);
+      }
+      const revisionId = `fixture-revision-${nextDiscoveryRevisionId++}`;
+      discovery.preparation.revisions.push({
+        revision_id: revisionId,
+        created_at: "2026-08-01T00:00:00.000Z",
+        formatted_input: formattedInput,
+        model_id: discovery.preparation.conversion.model_id,
+        eligible: true,
+      });
+      discovery.preparation.conversion = {
+        ...discovery.preparation.conversion,
+        status: "saved",
+        draft: formattedInput,
+        saved_revision_id: revisionId,
+        error: null,
+      };
       return json(discovery);
     }
     const sourceMatch = p.match(/\/v1\/discovery\/preparation\/sources\/([^/]+)$/);

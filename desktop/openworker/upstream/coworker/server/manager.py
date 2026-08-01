@@ -114,6 +114,7 @@ class SessionManager:
         model: str = "gpt-5.6-sol",
         mode: Mode = Mode.INTERACTIVE,
         provider: Optional[ProviderClient] = None,
+        model_settings: Optional[dict[str, Any]] = None,
     ) -> None:
         self.default_workspace = (
             str(Path(workspace).expanduser().resolve()) if workspace else None
@@ -121,6 +122,10 @@ class SessionManager:
         self.model = model
         self.mode = mode
         self.provider = provider
+        # One global generation-settings boundary is shared by native Discovery Conversion
+        # and any caller that injects the manager in tests. Discovery never owns a local model
+        # picker or a second settings store.
+        self.model_settings = dict(model_settings or {})
 
         if data_dir is not None:
             base = Path(data_dir).expanduser()
@@ -1599,6 +1604,28 @@ class SessionManager:
             if get_descriptor(prefix) is not None:
                 return prefix
         return "openai"
+
+    def discovery_model_settings(self) -> dict[str, Any]:
+        """Return the current global settings used for a Discovery text conversion.
+
+        Explicit manager settings are the primary boundary for the running Desktop app.
+        Provider profiles may also carry generation defaults, so recognized values there fill
+        only keys that were not explicitly supplied. Credentials and unrelated profile fields
+        never cross into a model request.
+        """
+        settings = dict(self.model_settings)
+        profile = self.secrets.get(f"provider:{self._model_provider(self.model)}") or {}
+        for key in (
+            "temperature",
+            "top_p",
+            "max_tokens",
+            "max_output_tokens",
+            "reasoning",
+            "reasoning_effort",
+        ):
+            if key not in settings and profile.get(key) is not None:
+                settings[key] = profile[key]
+        return settings
 
     def _provider_configured(self, name: str) -> bool:
         d = get_descriptor(name)
