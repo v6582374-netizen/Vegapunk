@@ -17,7 +17,7 @@ test("Discovery is an independent shell on the native sidecar route", async ({ p
   await expect(view).toBeVisible();
   await expect(view.getByRole("heading", { name: "Discovery" })).toBeVisible();
   await expect(view.getByRole("tab", { name: "Preparation" })).toBeVisible();
-  await expect(view.getByRole("heading", { name: "Your first Preparation is empty" })).toBeVisible();
+  await expect(view.getByRole("heading", { name: "Gather context" })).toBeVisible();
 
   // Preparation, Current Launch, and History are internal tabs, not new sidebar destinations.
   await expect(page.locator(".sidebar").getByRole("button", { name: "Preparation", exact: true })).toHaveCount(0);
@@ -45,7 +45,7 @@ test("Gather accepts multiple files, saves explicitly, and keeps saved state sep
   await page.getByTestId("nav-discovery").click();
 
   const view = page.getByTestId("discovery-view");
-  await expect(view.getByRole("heading", { name: "Your first Preparation is empty" })).toBeVisible();
+  await expect(view.getByRole("heading", { name: "Gather context" })).toBeVisible();
 
   await view.getByRole("textbox", { name: "Research text" }).fill("Compare membrane performance in saline water.");
   const intake = page.waitForRequest(
@@ -86,7 +86,7 @@ test("Gather accepts multiple files, saves explicitly, and keeps saved state sep
   expect(firstSaveRequest.postDataJSON()).toEqual({
     text: "Compare membrane performance in saline water.",
   });
-  await expect(view.getByRole("heading", { name: "Preparation saved" })).toBeVisible();
+  await expect(view.getByText("Preparation saved")).toBeVisible();
 
   const deleteRequest = page.waitForRequest(
     (request) =>
@@ -104,19 +104,19 @@ test("Gather accepts multiple files, saves explicitly, and keeps saved state sep
   );
   await view.getByRole("button", { name: "Save Preparation" }).click();
   await secondSave;
-  await expect(view.getByRole("heading", { name: "Preparation saved" })).toBeVisible();
+  await expect(view.getByText("Preparation saved")).toBeVisible();
   await expect(view.getByText(/Saved Preparation remains unchanged until Save/)).toHaveCount(0);
 
   await view.getByRole("textbox", { name: "Research text" }).fill("");
   await view.getByRole("button", { name: "Remove measurements.csv" }).click();
-  await expect(view.getByRole("heading", { name: "Preparation draft" })).toBeVisible();
+  await expect(view.getByText("Draft changes not saved")).toBeVisible();
   const resetSave = page.waitForRequest(
     (request) =>
       request.url().endsWith("/v1/discovery/preparation/save") && request.method() === "POST",
   );
   await view.getByRole("button", { name: "Save Preparation" }).click();
   expect((await resetSave).postDataJSON()).toEqual({ text: "" });
-  await expect(view.getByRole("heading", { name: "Preparation reset" })).toBeVisible();
+  await expect(view.getByText("Preparation reset")).toBeVisible();
 
   expect(paths.filter((path) => /^\/api\/(workspace|admin)(\/|$)/.test(path))).toEqual([]);
 });
@@ -126,7 +126,7 @@ test("Gather surfaces validation errors without partially accepting a file batch
   await page.getByTestId("nav-discovery").click();
 
   const view = page.getByTestId("discovery-view");
-  await expect(view.getByRole("heading", { name: "Your first Preparation is empty" })).toBeVisible();
+  await expect(view.getByRole("heading", { name: "Gather context" })).toBeVisible();
   await view.getByLabel("Source files").setInputFiles([
     {
       name: "accepted.md",
@@ -142,5 +142,35 @@ test("Gather surfaces validation errors without partially accepting a file batch
 
   await expect(view.getByRole("alert")).toContainText("unsupported source type");
   await expect(view.getByText("accepted.md")).toHaveCount(0);
-  await expect(view.getByText("No Source Entries yet.")).toBeVisible();
+  await expect(view.getByText("No files yet.")).toBeVisible();
+});
+
+test("Preparation follows the Stage Canvas flow with Reviewable input below Gather", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await view.getByRole("textbox", { name: "Research text" }).fill("Compare two constrained baselines.");
+  await view.getByLabel("Source files").setInputFiles({
+    name: "brief.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("baseline notes"),
+  });
+
+  const order = await view.evaluate((root) => {
+    const gather = root.querySelector("#discovery-gather-heading")?.closest("section");
+    const review = root.querySelector("#discovery-review-heading")?.closest("section");
+    return Boolean(gather && review && (gather.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING));
+  });
+  expect(order).toBe(true);
+
+  await view.getByRole("button", { name: "Convert" }).click();
+  await expect(view.getByRole("textbox", { name: "Formatted Discovery Input" })).toBeVisible();
+  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(2);
+
+  await view.getByRole("button", { name: "Save revision" }).click();
+  await expect(view.getByRole("button", { name: "Revision saved" })).toBeVisible();
+  await view.getByRole("button", { name: "Run Discovery" }).click();
+  await expect(view.getByRole("button", { name: "Launch started" })).toBeVisible();
+  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(4);
 });

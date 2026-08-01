@@ -28,7 +28,8 @@ it("renders one empty Discovery shell with internal lifecycle navigation", async
 
   render(<DiscoveryView />);
 
-  expect(await screen.findByRole("heading", { name: "Your first Preparation is empty" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Gather context" })).toBeTruthy();
+  expect(screen.getByText(/Empty Preparation/)).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Discovery" })).toBeTruthy();
   const preparationTab = screen.getByRole("tab", { name: "Preparation" });
   expect(preparationTab.getAttribute("aria-selected")).toBe("true");
@@ -114,7 +115,7 @@ it("accepts text and files into a draft and saves the whole Preparation explicit
   vi.stubGlobal("fetch", request);
 
   render(<DiscoveryView />);
-  expect(await screen.findByRole("heading", { name: "Your first Preparation is empty" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Gather context" })).toBeTruthy();
 
   fireEvent.change(screen.getByRole("textbox", { name: "Research text" }), {
     target: { value: "Research salinity." },

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deleteDiscoverySource,
   getDiscovery,
@@ -33,6 +33,14 @@ const FALLBACK_CONTEXTS: DiscoveryContext[] = [
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const EMPTY_CONTENT: DiscoveryPreparationContent = { text: "", sources: [] };
+const STAGES = [
+  ["Gather", "Files and text"],
+  ["Convert", "Explicit model action"],
+  ["Review", "Edit and save"],
+  ["Run", "Immutable Launch snapshot"],
+] as const;
+
+type Busy = "intake" | "save" | "delete" | null;
 
 function normalizePreparation(raw: DiscoveryPreparation | { status?: string }): DiscoveryPreparation {
   const candidate = raw as Partial<DiscoveryPreparation>;
@@ -70,10 +78,23 @@ function withDraftText(snapshot: DiscoverySnapshot, text: string): DiscoverySnap
   };
 }
 
+function formattedValue(text: string, sources: DiscoverySourceEntry[]): string {
+  return [
+    "# Discovery Input",
+    "",
+    "## Research question",
+    text || "Add a research question in the source text area.",
+    "",
+    "## Source material",
+    ...sources.map((source) => `- ${source.filename}`),
+    "",
+    "## Expected evidence",
+    "Define the comparison, measurable outcome, and evidence required for a useful result.",
+  ].join("\n");
+}
+
 function EmptyContext({ context }: { context: DiscoveryContextId }) {
-  if (context === "preparation") {
-    return null;
-  }
+  if (context === "preparation") return null;
 
   if (context === "launch") {
     return (
@@ -115,32 +136,51 @@ function EmptyContext({ context }: { context: DiscoveryContextId }) {
   );
 }
 
-function StageCanvas({ preparation }: { preparation: DiscoveryPreparation }) {
-  const gatherState = preparation.dirty
-    ? "Draft"
-    : preparation.status === "saved"
-      ? "Saved"
-      : "Not started";
-  const stages = [
-    ["Gather", gatherState],
-    ["Convert", "Not started"],
-    ["Review", "Not started"],
-    ["Run", "Not started"],
-  ];
+function StageCanvas({
+  preparation,
+  converted,
+  revisionSaved,
+  launched,
+}: {
+  preparation: DiscoveryPreparation;
+  converted: boolean;
+  revisionSaved: boolean;
+  launched: boolean;
+}) {
+  const hasInput = hasPreparationInput(preparation.draft);
+  const activeStage = launched ? 4 : revisionSaved ? 4 : converted ? 3 : hasInput ? 2 : 1;
+  const completed = [hasInput, converted, revisionSaved, launched];
+
   return (
-    <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-4" aria-label="Preparation stages">
-      {stages.map(([stage, state]) => (
-        <div key={stage} className="rounded-lg border border-line bg-paper px-3 py-2.5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Stage</div>
-          <div className="mt-1 text-[13px] font-medium text-ink">{stage}</div>
-          <div className="mt-0.5 text-[11.5px] text-faint">{state}</div>
-        </div>
-      ))}
+    <div className="discovery-stage-bar" aria-label="Preparation stages" role="list">
+      {STAGES.map(([stage, description], index) => {
+        const stageNumber = index + 1;
+        return (
+          <div
+            key={stage}
+            className={`discovery-stage ${activeStage >= stageNumber ? "is-active" : ""}`}
+            role="listitem"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-extrabold tracking-[0.08em] text-faint">
+                0{stageNumber}
+              </span>
+              {completed[index] && (
+                <span className="discovery-stage-complete" aria-label="Completed">
+                  ✓
+                </span>
+              )}
+            </div>
+            <strong className="mt-1 block text-[12px] font-semibold text-ink">{stage}</strong>
+            <small className="mt-0.5 block text-[10.5px] text-muted">{description}</small>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function SourceEntryList({
+function SourceStrip({
   sources,
   busy,
   onDelete,
@@ -150,30 +190,26 @@ function SourceEntryList({
   onDelete: (source: DiscoverySourceEntry) => void;
 }) {
   if (!sources.length) {
-    return <p className="text-[12.5px] text-muted">No Source Entries yet.</p>;
+    return <span className="text-[11px] text-faint">No files yet.</span>;
   }
+
   return (
-    <ul className="space-y-2" aria-label="Accepted Source Entries">
+    <ul className="flex flex-wrap gap-1.5" aria-label="Accepted Source Entries">
       {sources.map((source) => (
-        <li
-          key={source.source_id}
-          className="flex items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2.5"
-        >
-          <div className="min-w-0">
-            <div className="truncate text-[13px] font-medium text-ink">{source.filename}</div>
-            <div className="mt-0.5 text-[11.5px] text-faint">
-              {source.extension} - {source.size} bytes
-            </div>
-          </div>
-          <button
-            type="button"
-            className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-muted hover:bg-panel hover:text-ink disabled:cursor-wait disabled:opacity-50"
-            aria-label={`Remove ${source.filename}`}
-            disabled={busy}
-            onClick={() => onDelete(source)}
-          >
-            Remove
-          </button>
+        <li key={source.source_id}>
+          <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 text-[11px] text-muted">
+            <span className="font-semibold text-faint">{source.extension.replace(".", "").toUpperCase()}</span>
+            <span className="max-w-[220px] truncate">{source.filename}</span>
+            <button
+              type="button"
+              className="text-[16px] leading-none text-faint transition-colors hover:text-danger disabled:cursor-wait disabled:opacity-50"
+              aria-label={`Remove ${source.filename}`}
+              disabled={busy}
+              onClick={() => onDelete(source)}
+            >
+              ×
+            </button>
+          </span>
         </li>
       ))}
     </ul>
@@ -194,115 +230,352 @@ function GatherContext({
   preparation: DiscoveryPreparation;
   text: string;
   resetNotice: boolean;
-  busy: "intake" | "save" | "delete" | null;
+  busy: Busy;
   error: string | null;
   onTextChange: (value: string) => void;
   onFiles: (files: File[]) => void;
   onSave: () => void;
   onDelete: (source: DiscoverySourceEntry) => void;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const isEmpty = !hasPreparationInput(preparation.draft);
-  const saveEnabled = preparation.dirty || text !== preparation.saved.text;
-  const heading = preparation.dirty
-    ? "Preparation draft"
-    : resetNotice
-      ? "Preparation reset"
-      : isEmpty
-        ? "Your first Preparation is empty"
-        : "Preparation saved";
-  const description = preparation.dirty
-    ? "Review the accepted Source Entries and research text. Changes remain a Draft until you save them."
-    : resetNotice
-      ? "The committed Preparation is empty again. Add new research text or source files to begin another one."
-    : "Add research text or individual source files here, then save the whole Preparation before conversion.";
+
+  function handleFiles(files: File[]) {
+    if (files.length) onFiles(files);
+  }
 
   return (
-    <section className={CARD + " p-5 sm:p-6"} aria-labelledby="discovery-preparation-heading">
-      <div className="flex items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-paper text-muted">
-          <Icon name="file" size={17} />
-        </span>
-        <div className="min-w-0">
-          <h2 id="discovery-preparation-heading" className="text-[15px] font-semibold text-ink">
-            {heading}
-          </h2>
-          <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted">{description}</p>
+    <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-gather-heading">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <div>
+          <h3 id="discovery-gather-heading" className="text-[13px] font-semibold text-ink">
+            Gather context
+          </h3>
+          <p className="mt-0.5 text-[11px] text-faint">
+            Drop files individually. Folders are intentionally absent.
+          </p>
         </div>
+        <button
+          type="button"
+          className="discovery-button discovery-button-small"
+          onClick={() => inputRef.current?.click()}
+          disabled={busy !== null}
+        >
+          + Add file
+        </button>
       </div>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(280px,0.85fr)]">
+      <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
+        <div>
+          <div
+            className="discovery-drop-zone"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleFiles(Array.from(event.dataTransfer.files));
+            }}
+          >
+            <div>
+              <div className="discovery-drop-icon">⇧</div>
+              <strong className="block text-[13px] text-ink">Choose individual files</strong>
+              <p className="mx-auto mt-1 max-w-[320px] text-[11px] text-muted">
+                .txt, .md, .pdf, .docx, .csv, and .zip are accepted. Add as many as this
+                Preparation needs.
+              </p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  className="discovery-button discovery-button-small"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={busy !== null}
+                >
+                  Choose files
+                </button>
+                <span className="discovery-button discovery-button-small discovery-button-ghost">
+                  Individual files only
+                </span>
+              </div>
+            </div>
+          </div>
+          <input
+            ref={inputRef}
+            className="sr-only"
+            type="file"
+            multiple
+            accept=".txt,.md,.pdf,.docx,.csv,.zip"
+            aria-label="Source files"
+            disabled={busy !== null}
+            onChange={(event) => {
+              handleFiles(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }}
+          />
+          <div className="mt-3">
+            <SourceStrip sources={preparation.draft.sources} busy={busy !== null} onDelete={onDelete} />
+          </div>
+        </div>
+
         <label className="block">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
-            Research text
-          </span>
+          <span className="discovery-section-label">Free-form text</span>
           <textarea
-            className="mt-2 min-h-36 w-full resize-y rounded-lg border border-line bg-paper px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition-colors placeholder:text-faint focus:border-lineStrong"
+            className="discovery-text-input mt-2 min-h-[142px]"
             aria-label="Research text"
             placeholder="Describe the research question, context, or constraints."
             value={text}
             onChange={(event) => onTextChange(event.target.value)}
           />
+          <span className="mt-1.5 block text-[11px] text-faint">
+            Free-form text stays separate from uploaded file entries.
+          </span>
         </label>
-
-        <div>
-          <label className="block">
-            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
-              Source files
-            </span>
-            <input
-              className="mt-2 block w-full rounded-lg border border-dashed border-lineStrong bg-paper px-3 py-3 text-[12.5px] text-muted file:mr-3 file:rounded-md file:border-0 file:bg-panel file:px-2.5 file:py-1.5 file:text-[12px] file:font-medium file:text-ink"
-              type="file"
-              multiple
-              accept=".txt,.md,.pdf,.docx,.csv,.zip"
-              aria-label="Source files"
-              disabled={busy !== null}
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                if (files.length) onFiles(files);
-                event.target.value = "";
-              }}
-            />
-          </label>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-faint">
-            Individual .txt, .md, .pdf, .docx, .csv, or .zip files only. Folders are not accepted.
-          </p>
-        </div>
       </div>
 
-      <div className="mt-5 border-t border-line pt-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
-            Accepted Source Entries
-          </h3>
-          <span className="text-[11.5px] text-faint">{preparation.draft.sources.length} files</span>
-        </div>
-        <SourceEntryList sources={preparation.draft.sources} busy={busy !== null} onDelete={onDelete} />
-      </div>
-
-      {preparation.dirty && preparation.saved.sources.length > 0 && (
-        <p className="mt-3 text-[12px] text-muted">
-          Saved Preparation remains unchanged until Save.
-        </p>
-      )}
       {error && (
-        <p className="mt-3 rounded-lg border border-line bg-paper px-3 py-2.5 text-[12.5px] text-ink" role="alert">
+        <p className="mx-4 mb-4 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger sm:mx-5" role="alert">
           {error}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-[12px] text-muted" aria-live="polite">
-          {busy === "intake" ? "Adding Source Entries..." : busy === "delete" ? "Removing Source Entry..." : busy === "save" ? "Saving Preparation..." : preparation.dirty ? "Draft changes not saved" : "Preparation saved"}
+      {preparation.dirty && hasPreparationInput(preparation.saved) && (
+        <p className="mx-4 mb-3 text-[11px] text-muted sm:mx-5">
+          Saved Preparation remains unchanged until Save.
+        </p>
+      )}
+      <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-[11px] sm:px-5">
+        <span className="text-muted" aria-live="polite">
+          {busy === "intake"
+            ? "Adding Source Entries..."
+            : busy === "delete"
+              ? "Removing Source Entry..."
+              : busy === "save"
+                ? "Saving Preparation..."
+                : resetNotice
+                  ? "Preparation reset"
+                  : preparation.dirty
+                    ? "Draft changes not saved"
+                    : isEmpty
+                      ? "Empty Preparation - add text or one source to begin"
+                      : "Preparation saved"}
         </span>
+        <div className="flex items-center gap-2">
+          <span className="text-faint">{preparation.draft.sources.length} files</span>
+          <button
+            type="button"
+            className="discovery-button discovery-button-small"
+            disabled={!preparation.dirty || busy !== null}
+            onClick={onSave}
+          >
+            Save Preparation
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReviewableInput({
+  converted,
+  formatted,
+  canConvert,
+  onConvert,
+  onFormattedChange,
+}: {
+  converted: boolean;
+  formatted: string;
+  canConvert: boolean;
+  onConvert: () => void;
+  onFormattedChange: (value: string) => void;
+}) {
+  return (
+    <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-review-heading">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <div>
+          <h3 id="discovery-review-heading" className="text-[13px] font-semibold text-ink">
+            Reviewable input
+          </h3>
+          <p className="mt-0.5 text-[11px] text-faint">
+            {converted ? "Edit the formatted revision before saving it." : "Convert to reveal the editable revision."}
+          </p>
+        </div>
         <button
           type="button"
-          className="rounded-lg bg-ink px-3.5 py-2 text-[12.5px] font-semibold text-panel transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={!saveEnabled || busy !== null}
-          onClick={onSave}
+          className="discovery-button discovery-button-small discovery-button-primary"
+          disabled={!canConvert}
+          onClick={onConvert}
         >
-          Save Preparation
+          {converted ? "Convert again" : "Convert"}
+        </button>
+      </div>
+      <div className="p-4 sm:p-5">
+        {converted ? (
+          <textarea
+            className="discovery-formatted-input"
+            aria-label="Formatted Discovery Input"
+            value={formatted}
+            onChange={(event) => onFormattedChange(event.target.value)}
+          />
+        ) : (
+          <div className="discovery-notice">
+            <span aria-hidden="true">→</span>
+            <span>
+              <strong>Conversion is a boundary</strong>
+              Source changes never start a Launch. The formatted draft appears after explicit
+              conversion.
+            </span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RunGate({
+  converted,
+  revisionSaved,
+  canRun,
+  launched,
+  onSaveRevision,
+  onRun,
+}: {
+  converted: boolean;
+  revisionSaved: boolean;
+  canRun: boolean;
+  launched: boolean;
+  onSaveRevision: () => void;
+  onRun: () => void;
+}) {
+  return (
+    <section className="discovery-footer-gate" aria-label="Run gate">
+      <div>
+        <strong className="block text-[12px] font-semibold text-ink">
+          {launched ? "Launch started" : revisionSaved ? "Preparation is ready" : "Run remains gated"}
+        </strong>
+        <span className="mt-0.5 block text-[11px] text-muted">
+          {launched
+            ? "Launch started from the saved Preparation revision. Later edits do not change this snapshot."
+            : revisionSaved
+              ? "The next Launch will snapshot this saved revision."
+              : "Convert, review, and save before the Launch action unlocks."}
+        </span>
+      </div>
+      <div className="discovery-footer-gate-actions">
+        <button
+          type="button"
+          className="discovery-button"
+          disabled={!converted || launched}
+          onClick={onSaveRevision}
+        >
+          {revisionSaved ? "Revision saved" : "Save revision"}
+        </button>
+        <button
+          type="button"
+          className="discovery-button discovery-button-primary"
+          disabled={!canRun || launched}
+          onClick={onRun}
+        >
+          {launched ? "Launch started" : "Run Discovery"}
         </button>
       </div>
     </section>
+  );
+}
+
+function PreparationCanvas({
+  preparation,
+  text,
+  resetNotice,
+  busy,
+  error,
+  converted,
+  formatted,
+  revisionSaved,
+  launched,
+  onTextChange,
+  onFiles,
+  onSave,
+  onDelete,
+  onConvert,
+  onFormattedChange,
+  onSaveRevision,
+  onRun,
+}: {
+  preparation: DiscoveryPreparation;
+  text: string;
+  resetNotice: boolean;
+  busy: Busy;
+  error: string | null;
+  converted: boolean;
+  formatted: string;
+  revisionSaved: boolean;
+  launched: boolean;
+  onTextChange: (value: string) => void;
+  onFiles: (files: File[]) => void;
+  onSave: () => void;
+  onDelete: (source: DiscoverySourceEntry) => void;
+  onConvert: () => void;
+  onFormattedChange: (value: string) => void;
+  onSaveRevision: () => void;
+  onRun: () => void;
+}) {
+  const hasInput = hasPreparationInput(preparation.draft);
+  const sourceReady = hasInput && !error;
+  const canRun = sourceReady && converted && revisionSaved;
+
+  return (
+    <>
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+            Preparation / stage canvas
+          </div>
+          <h2 className="mt-1 text-[24px] font-semibold tracking-[-0.04em] text-ink">
+            Move one Preparation through four deliberate stages.
+          </h2>
+          <p className="mt-1 max-w-2xl text-[13px] text-muted">
+            A persistent stage bar makes the conversion boundary and the final Run action
+            impossible to mistake.
+          </p>
+        </div>
+        <span className="discovery-status-pill shrink-0">
+          <span className={`discovery-status-dot ${canRun ? "is-ready" : "is-warn"}`} />
+          {canRun ? "Ready to run" : "Preparation in progress"}
+        </span>
+      </div>
+
+      <div className="discovery-canvas-stack">
+        <StageCanvas
+          preparation={preparation}
+          converted={converted}
+          revisionSaved={revisionSaved}
+          launched={launched}
+        />
+        <GatherContext
+          preparation={preparation}
+          text={text}
+          resetNotice={resetNotice}
+          busy={busy}
+          error={error}
+          onTextChange={onTextChange}
+          onFiles={onFiles}
+          onSave={onSave}
+          onDelete={onDelete}
+        />
+        <ReviewableInput
+          converted={converted}
+          formatted={formatted}
+          canConvert={sourceReady}
+          onConvert={onConvert}
+          onFormattedChange={onFormattedChange}
+        />
+        <RunGate
+          converted={converted}
+          revisionSaved={revisionSaved}
+          canRun={canRun}
+          launched={launched}
+          onSaveRevision={onSaveRevision}
+          onRun={onRun}
+        />
+      </div>
+    </>
   );
 }
 
@@ -351,10 +624,15 @@ export function DiscoveryView() {
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [context, setContext] = useState<DiscoveryContextId>("preparation");
   const [text, setText] = useState("");
+  const [converted, setConverted] = useState(false);
+  const [formatted, setFormatted] = useState("");
+  const [revisionSaved, setRevisionSaved] = useState(false);
+  const [launched, setLaunched] = useState(false);
+  const [lastAction, setLastAction] = useState("");
   const [resetNotice, setResetNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"intake" | "save" | "delete" | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
 
   useEffect(() => {
     let alive = true;
@@ -379,9 +657,19 @@ export function DiscoveryView() {
   const preparation = snapshot ? normalizePreparation(snapshot.preparation) : null;
   const loading = snapshot === null && error === null;
 
+  function resetReviewState() {
+    setConverted(false);
+    setFormatted("");
+    setRevisionSaved(false);
+    setLaunched(false);
+    setLastAction("");
+  }
+
   function setDraftText(value: string) {
     setText(value);
     setResetNotice(false);
+    setMutationError(null);
+    resetReviewState();
     setSnapshot((current) => (current ? withDraftText(current, value) : current));
   }
 
@@ -389,11 +677,13 @@ export function DiscoveryView() {
     if (!snapshot) return;
     setMutationError(null);
     setResetNotice(false);
+    setLastAction("");
     setBusy("intake");
     try {
       const next = await intakeDiscoveryPreparation(text, files);
       setSnapshot(next);
       setText(normalizePreparation(next.preparation).draft.text);
+      resetReviewState();
     } catch (caught) {
       setMutationError(errorMessage(caught));
     } finally {
@@ -427,10 +717,12 @@ export function DiscoveryView() {
     setMutationError(null);
     setBusy("delete");
     setResetNotice(false);
+    setLastAction("");
     try {
       const next = await deleteDiscoverySource(source.source_id);
       setSnapshot(withDraftText(next, text));
       setText(text);
+      resetReviewState();
     } catch (caught) {
       setMutationError(errorMessage(caught));
     } finally {
@@ -438,10 +730,33 @@ export function DiscoveryView() {
     }
   }
 
+  function convertInput() {
+    if (!preparation || !hasPreparationInput(preparation.draft) || mutationError) return;
+    setFormatted(formattedValue(text, preparation.draft.sources));
+    setConverted(true);
+    setRevisionSaved(false);
+    setLaunched(false);
+    setLastAction("Conversion completed. Review the formatted draft before saving.");
+  }
+
+  function saveRevision() {
+    if (!converted) return;
+    setRevisionSaved(true);
+    setLastAction("Formatted input revision saved. Run is now eligible.");
+  }
+
+  function runDiscovery() {
+    if (!preparation || !converted || !revisionSaved || mutationError) return;
+    setLaunched(true);
+    setLastAction(
+      "Launch started from the saved Preparation revision. Later edits will not change this snapshot.",
+    );
+  }
+
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-paper" data-testid="discovery-view">
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto hairline-scroll">
-        <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-7 sm:py-8">
+        <div className="mx-auto w-full max-w-[1420px] px-5 py-6 sm:px-7 sm:py-8">
           <header className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">
@@ -455,7 +770,7 @@ export function DiscoveryView() {
             <div className="rounded-lg border border-line bg-panel px-3 py-2 text-right" aria-label="Discovery status">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Status</div>
               <div className="mt-0.5 text-[12.5px] font-medium text-ink">
-                {error ? "Sidecar reconnect needed" : loading ? "Loading" : preparation?.status === "draft" ? "Draft" : "Ready"}
+                {error ? "Sidecar reconnect needed" : loading ? "Loading" : launched ? "Launch started" : preparation?.status === "draft" ? "Draft" : "Ready"}
               </div>
             </div>
           </header>
@@ -493,28 +808,41 @@ export function DiscoveryView() {
             id={`discovery-panel-${activeContext.id}`}
             aria-labelledby={`discovery-tab-${activeContext.id}`}
           >
-            <div className="mb-3">
-              <h2 className="text-[13px] font-semibold text-ink">{activeContext.label}</h2>
-              <p className="mt-0.5 text-[12.5px] text-muted">{activeContext.description}</p>
-            </div>
             {loading ? (
               <LoadingContext />
             ) : error ? (
               <ErrorContext />
             ) : activeContext.id === "preparation" && preparation ? (
               <>
-                <GatherContext
+                <PreparationCanvas
                   preparation={preparation}
                   text={text}
                   resetNotice={resetNotice}
                   busy={busy}
                   error={mutationError}
+                  converted={converted}
+                  formatted={formatted}
+                  revisionSaved={revisionSaved}
+                  launched={launched}
                   onTextChange={setDraftText}
                   onFiles={addFiles}
                   onSave={savePreparation}
                   onDelete={removeSource}
+                  onConvert={convertInput}
+                  onFormattedChange={(value) => {
+                    setFormatted(value);
+                    setRevisionSaved(false);
+                    setLaunched(false);
+                  }}
+                  onSaveRevision={saveRevision}
+                  onRun={runDiscovery}
                 />
-                <StageCanvas preparation={preparation} />
+                {lastAction && (
+                  <div className="discovery-notice mt-3" role="status">
+                    <span aria-hidden="true">i</span>
+                    <span>{lastAction}</span>
+                  </div>
+                )}
               </>
             ) : (
               <EmptyContext context={activeContext.id} />
