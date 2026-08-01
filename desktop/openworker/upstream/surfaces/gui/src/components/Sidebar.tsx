@@ -1017,8 +1017,7 @@ export function Sidebar(props: Props) {
         onManage={props.onManagePersonas}
       />
 
-      {/* Search: a borderless nav-style entry (not a boxed input) that opens the command-palette
-          SearchModal over the whole app. Matches the bottom-nav rows to reduce the boxy look. */}
+      {/* Discovery and Search are borderless nav-style entries (not boxed inputs). */}
       <div className="px-2.5 mt-1">
         <button
           className={
@@ -1026,6 +1025,7 @@ export function Sidebar(props: Props) {
             (props.discoveryActive ? "text-ink bg-paper" : "text-muted")
           }
           data-testid="nav-discovery"
+          aria-current={props.discoveryActive ? "page" : undefined}
           onClick={() => props.onOpenDiscovery?.()}
         >
           <Icon name="library" size={15} className="shrink-0" />

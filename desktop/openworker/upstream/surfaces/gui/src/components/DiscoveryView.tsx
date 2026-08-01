@@ -93,6 +93,47 @@ function EmptyContext({ context }: { context: DiscoveryContextId }) {
   );
 }
 
+function ErrorContext() {
+  return (
+    <section
+      className={CARD + " p-5 sm:p-6"}
+      aria-labelledby="discovery-error-heading"
+      role="alert"
+    >
+      <div className="flex items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-paper text-muted">
+          <Icon name="refresh" size={17} />
+        </span>
+        <div>
+          <h2 id="discovery-error-heading" className="text-[15px] font-semibold text-ink">
+            Discovery is unavailable
+          </h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+            The sidecar did not return the Discovery state. Reconnect it and try again.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LoadingContext() {
+  return (
+    <section
+      className={CARD + " p-5 sm:p-6"}
+      aria-labelledby="discovery-loading-heading"
+      aria-busy="true"
+    >
+      <h2 id="discovery-loading-heading" className="text-[15px] font-semibold text-ink">
+        Loading Discovery
+      </h2>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+        Checking the sidecar for the current Preparation and Launch state.
+      </p>
+    </section>
+  );
+}
+
 export function DiscoveryView() {
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [context, setContext] = useState<DiscoveryContextId>("preparation");
@@ -116,6 +157,7 @@ export function DiscoveryView() {
 
   const contexts = snapshot?.contexts?.length ? snapshot.contexts : FALLBACK_CONTEXTS;
   const activeContext = contexts.find((item) => item.id === context) ?? contexts[0];
+  const loading = snapshot === null && error === null;
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-paper" data-testid="discovery-view">
@@ -134,7 +176,7 @@ export function DiscoveryView() {
             <div className="rounded-lg border border-line bg-panel px-3 py-2 text-right" aria-label="Discovery status">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Status</div>
               <div className="mt-0.5 text-[12.5px] font-medium text-ink">
-                {error ? "Sidecar reconnect needed" : "Ready"}
+                {error ? "Sidecar reconnect needed" : loading ? "Loading" : "Ready"}
               </div>
             </div>
           </header>
@@ -149,6 +191,7 @@ export function DiscoveryView() {
                     type="button"
                     role="tab"
                     aria-selected={selected}
+                    id={`discovery-tab-${item.id}`}
                     aria-controls={`discovery-panel-${item.id}`}
                     className={
                       "shrink-0 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors " +
@@ -165,12 +208,17 @@ export function DiscoveryView() {
             </div>
           </nav>
 
-          <div className="mt-5" role="tabpanel" id={`discovery-panel-${activeContext.id}`}>
+          <div
+            className="mt-5"
+            role="tabpanel"
+            id={`discovery-panel-${activeContext.id}`}
+            aria-labelledby={`discovery-tab-${activeContext.id}`}
+          >
             <div className="mb-3">
               <h2 className="text-[13px] font-semibold text-ink">{activeContext.label}</h2>
               <p className="mt-0.5 text-[12.5px] text-muted">{activeContext.description}</p>
             </div>
-            <EmptyContext context={activeContext.id} />
+            {loading ? <LoadingContext /> : error ? <ErrorContext /> : <EmptyContext context={activeContext.id} />}
           </div>
         </div>
       </div>

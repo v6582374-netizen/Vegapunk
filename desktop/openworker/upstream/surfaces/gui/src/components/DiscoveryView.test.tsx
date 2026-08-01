@@ -9,6 +9,8 @@ afterEach(() => {
 
 it("renders one empty Discovery shell with internal lifecycle navigation", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({
+    ok: true,
+    status: 200,
     json: async () => ({
       module: "discovery",
       schema_version: 1,
@@ -26,12 +28,26 @@ it("renders one empty Discovery shell with internal lifecycle navigation", async
 
   render(<DiscoveryView />);
 
-  expect(await screen.findByTestId("discovery-view")).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Your first Preparation is empty" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Discovery" })).toBeTruthy();
-  expect(screen.getByRole("tab", { name: "Preparation" }).getAttribute("aria-selected")).toBe("true");
-  expect(screen.getByRole("heading", { name: "Your first Preparation is empty" })).toBeTruthy();
+  const preparationTab = screen.getByRole("tab", { name: "Preparation" });
+  expect(preparationTab.getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(preparationTab.id);
 
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
   expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("heading", { name: "No Launch history yet" })).toBeTruthy();
+});
+
+it("does not present an empty Preparation when the sidecar is unavailable", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: "missing token" }),
+  })));
+
+  render(<DiscoveryView />);
+
+  expect(await screen.findByRole("heading", { name: "Discovery is unavailable" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Your first Preparation is empty" })).toBeNull();
 });
