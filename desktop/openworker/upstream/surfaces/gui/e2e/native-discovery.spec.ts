@@ -157,20 +157,20 @@ test("Preparation follows the Stage Canvas flow with Reviewable input below Gath
     buffer: Buffer.from("baseline notes"),
   });
 
+  const saveRequest = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/save") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  await saveRequest;
+  await expect(view.getByText("Preparation saved")).toBeVisible();
+
   const order = await view.evaluate((root) => {
     const gather = root.querySelector("#discovery-gather-heading")?.closest("section");
     const review = root.querySelector("#discovery-review-heading")?.closest("section");
     return Boolean(gather && review && (gather.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING));
   });
   expect(order).toBe(true);
-
-  await view.getByRole("button", { name: "Convert" }).click();
-  await expect(view.getByRole("textbox", { name: "Formatted Discovery Input" })).toBeVisible();
-  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(2);
-
-  await view.getByRole("button", { name: "Save revision" }).click();
-  await expect(view.getByRole("button", { name: "Revision saved" })).toBeVisible();
-  await view.getByRole("button", { name: "Run Discovery" }).click();
-  await expect(view.getByRole("button", { name: "Launch started" })).toBeVisible();
-  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(4);
+  await expect(view.getByRole("button", { name: "Convert" })).toBeDisabled();
+  await expect(view.getByLabel("Preparation stages").getByLabel("Completed")).toHaveCount(1);
 });

@@ -125,9 +125,11 @@ it("accepts text and files into a draft and saves the whole Preparation explicit
 
   expect(await screen.findByText("notes.md")).toBeTruthy();
   expect(screen.getByText("Draft changes not saved")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Convert" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Save Preparation" }));
 
   await waitFor(() => expect(screen.getAllByText("Preparation saved").length).toBeGreaterThan(0));
+  expect((screen.getByRole("button", { name: "Convert" }) as HTMLButtonElement).disabled).toBe(true);
   expect(request).toHaveBeenCalled();
 });
 

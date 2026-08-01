@@ -78,21 +78,6 @@ function withDraftText(snapshot: DiscoverySnapshot, text: string): DiscoverySnap
   };
 }
 
-function formattedValue(text: string, sources: DiscoverySourceEntry[]): string {
-  return [
-    "# Discovery Input",
-    "",
-    "## Research question",
-    text || "Add a research question in the source text area.",
-    "",
-    "## Source material",
-    ...sources.map((source) => `- ${source.filename}`),
-    "",
-    "## Expected evidence",
-    "Define the comparison, measurable outcome, and evidence required for a useful result.",
-  ].join("\n");
-}
-
 function EmptyContext({ context }: { context: DiscoveryContextId }) {
   if (context === "preparation") return null;
 
@@ -136,20 +121,11 @@ function EmptyContext({ context }: { context: DiscoveryContextId }) {
   );
 }
 
-function StageCanvas({
-  preparation,
-  converted,
-  revisionSaved,
-  launched,
-}: {
-  preparation: DiscoveryPreparation;
-  converted: boolean;
-  revisionSaved: boolean;
-  launched: boolean;
-}) {
+function StageCanvas({ preparation }: { preparation: DiscoveryPreparation }) {
   const hasInput = hasPreparationInput(preparation.draft);
-  const activeStage = launched ? 4 : revisionSaved ? 4 : converted ? 3 : hasInput ? 2 : 1;
-  const completed = [hasInput, converted, revisionSaved, launched];
+  const preparationSaved = preparation.status === "saved" && !preparation.dirty && hasInput;
+  const activeStage = preparationSaved ? 2 : 1;
+  const completed = [preparationSaved, false, false, false];
 
   return (
     <div className="discovery-stage-bar" aria-label="Preparation stages" role="list">
@@ -373,17 +349,9 @@ function GatherContext({
 }
 
 function ReviewableInput({
-  converted,
-  formatted,
-  canConvert,
-  onConvert,
-  onFormattedChange,
+  preparationSaved,
 }: {
-  converted: boolean;
-  formatted: string;
-  canConvert: boolean;
-  onConvert: () => void;
-  onFormattedChange: (value: string) => void;
+  preparationSaved: boolean;
 }) {
   return (
     <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-review-heading">
@@ -393,87 +361,29 @@ function ReviewableInput({
             Reviewable input
           </h3>
           <p className="mt-0.5 text-[11px] text-faint">
-            {converted ? "Edit the formatted revision before saving it." : "Convert to reveal the editable revision."}
+            {preparationSaved
+              ? "Conversion is the next Discovery frontier."
+              : "Save the Preparation first to unlock later stages."}
           </p>
         </div>
         <button
           type="button"
           className="discovery-button discovery-button-small discovery-button-primary"
-          disabled={!canConvert}
-          onClick={onConvert}
+          disabled
         >
-          {converted ? "Convert again" : "Convert"}
+          Convert
         </button>
       </div>
       <div className="p-4 sm:p-5">
-        {converted ? (
-          <textarea
-            className="discovery-formatted-input"
-            aria-label="Formatted Discovery Input"
-            value={formatted}
-            onChange={(event) => onFormattedChange(event.target.value)}
-          />
-        ) : (
-          <div className="discovery-notice">
-            <span aria-hidden="true">→</span>
-            <span>
-              <strong>Conversion is a boundary</strong>
-              Source changes never start a Launch. The formatted draft appears after explicit
-              conversion.
-            </span>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function RunGate({
-  converted,
-  revisionSaved,
-  canRun,
-  launched,
-  onSaveRevision,
-  onRun,
-}: {
-  converted: boolean;
-  revisionSaved: boolean;
-  canRun: boolean;
-  launched: boolean;
-  onSaveRevision: () => void;
-  onRun: () => void;
-}) {
-  return (
-    <section className="discovery-footer-gate" aria-label="Run gate">
-      <div>
-        <strong className="block text-[12px] font-semibold text-ink">
-          {launched ? "Launch started" : revisionSaved ? "Preparation is ready" : "Run remains gated"}
-        </strong>
-        <span className="mt-0.5 block text-[11px] text-muted">
-          {launched
-            ? "Launch started from the saved Preparation revision. Later edits do not change this snapshot."
-            : revisionSaved
-              ? "The next Launch will snapshot this saved revision."
-              : "Convert, review, and save before the Launch action unlocks."}
-        </span>
-      </div>
-      <div className="discovery-footer-gate-actions">
-        <button
-          type="button"
-          className="discovery-button"
-          disabled={!converted || launched}
-          onClick={onSaveRevision}
-        >
-          {revisionSaved ? "Revision saved" : "Save revision"}
-        </button>
-        <button
-          type="button"
-          className="discovery-button discovery-button-primary"
-          disabled={!canRun || launched}
-          onClick={onRun}
-        >
-          {launched ? "Launch started" : "Run Discovery"}
-        </button>
+        <div className="discovery-notice">
+          <span aria-hidden="true">→</span>
+          <span>
+            <strong>{preparationSaved ? "Preparation committed" : "Conversion is gated"}</strong>
+            {preparationSaved
+              ? "The committed source bundle is ready for the next conversion frontier."
+              : "Save the whole Preparation before later stages can use these inputs."}
+          </span>
+        </div>
       </div>
     </section>
   );
@@ -485,40 +395,23 @@ function PreparationCanvas({
   resetNotice,
   busy,
   error,
-  converted,
-  formatted,
-  revisionSaved,
-  launched,
   onTextChange,
   onFiles,
   onSave,
   onDelete,
-  onConvert,
-  onFormattedChange,
-  onSaveRevision,
-  onRun,
 }: {
   preparation: DiscoveryPreparation;
   text: string;
   resetNotice: boolean;
   busy: Busy;
   error: string | null;
-  converted: boolean;
-  formatted: string;
-  revisionSaved: boolean;
-  launched: boolean;
   onTextChange: (value: string) => void;
   onFiles: (files: File[]) => void;
   onSave: () => void;
   onDelete: (source: DiscoverySourceEntry) => void;
-  onConvert: () => void;
-  onFormattedChange: (value: string) => void;
-  onSaveRevision: () => void;
-  onRun: () => void;
 }) {
   const hasInput = hasPreparationInput(preparation.draft);
-  const sourceReady = hasInput && !error;
-  const canRun = sourceReady && converted && revisionSaved;
+  const preparationSaved = preparation.status === "saved" && !preparation.dirty && hasInput;
 
   return (
     <>
@@ -536,17 +429,14 @@ function PreparationCanvas({
           </p>
         </div>
         <span className="discovery-status-pill shrink-0">
-          <span className={`discovery-status-dot ${canRun ? "is-ready" : "is-warn"}`} />
-          {canRun ? "Ready to run" : "Preparation in progress"}
+          <span className={`discovery-status-dot ${preparationSaved ? "is-ready" : "is-warn"}`} />
+          {preparationSaved ? "Preparation committed" : "Preparation in progress"}
         </span>
       </div>
 
       <div className="discovery-canvas-stack">
         <StageCanvas
           preparation={preparation}
-          converted={converted}
-          revisionSaved={revisionSaved}
-          launched={launched}
         />
         <GatherContext
           preparation={preparation}
@@ -560,19 +450,7 @@ function PreparationCanvas({
           onDelete={onDelete}
         />
         <ReviewableInput
-          converted={converted}
-          formatted={formatted}
-          canConvert={sourceReady}
-          onConvert={onConvert}
-          onFormattedChange={onFormattedChange}
-        />
-        <RunGate
-          converted={converted}
-          revisionSaved={revisionSaved}
-          canRun={canRun}
-          launched={launched}
-          onSaveRevision={onSaveRevision}
-          onRun={onRun}
+          preparationSaved={preparationSaved}
         />
       </div>
     </>
@@ -624,11 +502,6 @@ export function DiscoveryView() {
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [context, setContext] = useState<DiscoveryContextId>("preparation");
   const [text, setText] = useState("");
-  const [converted, setConverted] = useState(false);
-  const [formatted, setFormatted] = useState("");
-  const [revisionSaved, setRevisionSaved] = useState(false);
-  const [launched, setLaunched] = useState(false);
-  const [lastAction, setLastAction] = useState("");
   const [resetNotice, setResetNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -657,19 +530,10 @@ export function DiscoveryView() {
   const preparation = snapshot ? normalizePreparation(snapshot.preparation) : null;
   const loading = snapshot === null && error === null;
 
-  function resetReviewState() {
-    setConverted(false);
-    setFormatted("");
-    setRevisionSaved(false);
-    setLaunched(false);
-    setLastAction("");
-  }
-
   function setDraftText(value: string) {
     setText(value);
     setResetNotice(false);
     setMutationError(null);
-    resetReviewState();
     setSnapshot((current) => (current ? withDraftText(current, value) : current));
   }
 
@@ -677,13 +541,11 @@ export function DiscoveryView() {
     if (!snapshot) return;
     setMutationError(null);
     setResetNotice(false);
-    setLastAction("");
     setBusy("intake");
     try {
       const next = await intakeDiscoveryPreparation(text, files);
       setSnapshot(next);
       setText(normalizePreparation(next.preparation).draft.text);
-      resetReviewState();
     } catch (caught) {
       setMutationError(errorMessage(caught));
     } finally {
@@ -717,40 +579,15 @@ export function DiscoveryView() {
     setMutationError(null);
     setBusy("delete");
     setResetNotice(false);
-    setLastAction("");
     try {
       const next = await deleteDiscoverySource(source.source_id);
       setSnapshot(withDraftText(next, text));
       setText(text);
-      resetReviewState();
     } catch (caught) {
       setMutationError(errorMessage(caught));
     } finally {
       setBusy(null);
     }
-  }
-
-  function convertInput() {
-    if (!preparation || !hasPreparationInput(preparation.draft) || mutationError) return;
-    setFormatted(formattedValue(text, preparation.draft.sources));
-    setConverted(true);
-    setRevisionSaved(false);
-    setLaunched(false);
-    setLastAction("Conversion completed. Review the formatted draft before saving.");
-  }
-
-  function saveRevision() {
-    if (!converted) return;
-    setRevisionSaved(true);
-    setLastAction("Formatted input revision saved. Run is now eligible.");
-  }
-
-  function runDiscovery() {
-    if (!preparation || !converted || !revisionSaved || mutationError) return;
-    setLaunched(true);
-    setLastAction(
-      "Launch started from the saved Preparation revision. Later edits will not change this snapshot.",
-    );
   }
 
   return (
@@ -770,7 +607,7 @@ export function DiscoveryView() {
             <div className="rounded-lg border border-line bg-panel px-3 py-2 text-right" aria-label="Discovery status">
               <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">Status</div>
               <div className="mt-0.5 text-[12.5px] font-medium text-ink">
-                {error ? "Sidecar reconnect needed" : loading ? "Loading" : launched ? "Launch started" : preparation?.status === "draft" ? "Draft" : "Ready"}
+                {error ? "Sidecar reconnect needed" : loading ? "Loading" : preparation?.status === "draft" ? "Draft" : "Ready"}
               </div>
             </div>
           </header>
@@ -820,29 +657,11 @@ export function DiscoveryView() {
                   resetNotice={resetNotice}
                   busy={busy}
                   error={mutationError}
-                  converted={converted}
-                  formatted={formatted}
-                  revisionSaved={revisionSaved}
-                  launched={launched}
                   onTextChange={setDraftText}
                   onFiles={addFiles}
                   onSave={savePreparation}
                   onDelete={removeSource}
-                  onConvert={convertInput}
-                  onFormattedChange={(value) => {
-                    setFormatted(value);
-                    setRevisionSaved(false);
-                    setLaunched(false);
-                  }}
-                  onSaveRevision={saveRevision}
-                  onRun={runDiscovery}
                 />
-                {lastAction && (
-                  <div className="discovery-notice mt-3" role="status">
-                    <span aria-hidden="true">i</span>
-                    <span>{lastAction}</span>
-                  </div>
-                )}
               </>
             ) : (
               <EmptyContext context={activeContext.id} />
