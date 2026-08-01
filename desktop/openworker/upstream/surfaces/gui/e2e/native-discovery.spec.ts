@@ -15,7 +15,7 @@ test("Discovery is an independent shell on the native sidecar route", async ({ p
 
   const view = page.getByTestId("discovery-view");
   await expect(view).toBeVisible();
-  await expect(view.getByRole("heading", { name: "Discovery" })).toBeVisible();
+  await expect(view.getByRole("heading", { name: "Discovery", exact: true })).toBeVisible();
   await expect(view.getByRole("tab", { name: "Preparation" })).toBeVisible();
   await expect(view.getByRole("heading", { name: "Gather context" })).toBeVisible();
 
@@ -214,4 +214,77 @@ test("Conversion produces an editable draft and Save revision appends immutable 
   await view.getByRole("textbox", { name: "Formatted Discovery Input" }).fill("# Revised again");
   await expect(view.getByText("Unsaved review changes")).toBeVisible();
   await expect(view.getByRole("button", { name: "Save revision" })).toBeEnabled();
+});
+
+test("Run confirms before admitting one immutable Launch and exposes its history", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await view.getByRole("textbox", { name: "Research text" }).fill("Compare two constrained baselines.");
+  await view.getByLabel("Source files").setInputFiles({
+    name: "brief.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("baseline notes"),
+  });
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  await expect(view.getByText("Preparation saved")).toBeVisible();
+  await view.getByRole("button", { name: "Convert" }).click();
+  await expect(view.getByRole("textbox", { name: "Formatted Discovery Input" })).toBeVisible();
+  await view.getByRole("textbox", { name: "Formatted Discovery Input" }).fill("# Reviewed baseline");
+  await view.getByRole("button", { name: "Save revision" }).click();
+  await expect(view.getByText("Revision saved")).toBeVisible();
+
+  const startRequest = page.waitForRequest(
+    (request) => request.url().endsWith("/v1/discovery/launches") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Run" }).click();
+  await expect(view.getByRole("dialog")).toContainText("long-running Discovery Launch");
+  await expect(view.getByRole("button", { name: "Start Launch" })).toBeVisible();
+  await view.getByRole("button", { name: "Start Launch" }).click();
+  const request = await startRequest;
+  expect(request.postDataJSON()).toEqual({ preparation_id: "preparation", revision_id: "fixture-revision-1" });
+  expect(request.headers()["idempotency-key"]).toBeTruthy();
+
+  await expect(view.getByRole("tab", { name: "Current Launch" })).toHaveAttribute("aria-selected", "true");
+  await expect(view.getByText(/Discovery Launch fixture-laun/)).toBeVisible();
+  await page.waitForTimeout(5200);
+  await view.getByRole("tab", { name: "History" }).click();
+  await expect(view.getByText(/Discovery Launch fixture-laun/)).toBeVisible();
+  await expect(view.getByText("completed", { exact: true }).first()).toBeVisible();
+});
+
+test("Current Launch exposes graceful Stop and reconciled history exposes Resume", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await view.getByRole("textbox", { name: "Research text" }).fill("Resume a stopped run.");
+  await view.getByLabel("Source files").setInputFiles({
+    name: "brief.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("checkpoint notes"),
+  });
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  await expect(view.getByText("Preparation saved")).toBeVisible();
+  await view.getByRole("button", { name: "Convert" }).click();
+  await expect(view.getByRole("textbox", { name: "Formatted Discovery Input" })).toBeVisible();
+  await view.getByRole("textbox", { name: "Formatted Discovery Input" }).fill("# Stoppable input");
+  await view.getByRole("button", { name: "Save revision" }).click();
+  await expect(view.getByText("Revision saved")).toBeVisible();
+
+  await view.getByRole("button", { name: "Run" }).click();
+  await view.getByRole("button", { name: "Start Launch" }).click();
+  await expect(view.getByRole("tab", { name: "Current Launch" })).toHaveAttribute("aria-selected", "true");
+  await expect(view.getByRole("button", { name: "Stop" })).toBeVisible();
+  await view.getByRole("button", { name: "Stop" }).click();
+  await expect(view.getByRole("button", { name: /Stopping/ })).toBeVisible();
+
+  await page.waitForTimeout(250);
+  await view.getByRole("tab", { name: "History" }).click();
+  await expect(view.getByText("stopped", { exact: true }).first()).toBeVisible();
+  await expect(view.getByRole("button", { name: "Resume" })).toBeVisible();
+  await view.getByRole("button", { name: "Resume" }).click();
+  await expect(view.getByRole("tab", { name: "Current Launch" })).toHaveAttribute("aria-selected", "true");
+  await expect(view.getByText("starting", { exact: true }).first()).toBeVisible();
 });

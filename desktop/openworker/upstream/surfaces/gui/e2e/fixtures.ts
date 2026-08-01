@@ -370,7 +370,7 @@ const PROVIDERS = [
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
-  const discovery = {
+  const discovery: any = {
     ...DISCOVERY,
     preparation: {
       status: "empty" as "empty" | "draft" | "saved",
@@ -391,6 +391,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
   let nextDiscoverySourceId = 1;
   let nextDiscoveryRevisionId = 1;
+  let nextDiscoveryLaunchId = 1;
+  const discoveryLaunchesByKey = new Map<string, { fingerprint: string; result: any }>();
 
   const invalidateConversion = (status: "pending" | "dirty") => {
     discovery.preparation.conversion = {
@@ -1054,6 +1056,157 @@ export async function mockApi(page: import("@playwright/test").Page) {
         saved_revision_id: revisionId,
         error: null,
       };
+      return json(discovery);
+    }
+    if (p.endsWith("/v1/discovery/launches") && m === "POST") {
+      const body = req.postDataJSON() ?? {};
+      const key = req.headers()["idempotency-key"] ?? "";
+      const revisionId = body.revision_id;
+      const revision = discovery.preparation.revisions.find(
+        (candidate: any) => candidate.revision_id === revisionId,
+      );
+      const fingerprint = JSON.stringify({
+        preparation_id: body.preparation_id ?? "preparation",
+        revision_id: revisionId,
+      });
+      const previous = discoveryLaunchesByKey.get(key);
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) {
+          return json({ detail: "Idempotency-Key was already used for a different Launch request" }, 409);
+        }
+        return json(previous.result, 201);
+      }
+      if (!key) return json({ detail: "Idempotency-Key is required to start a Launch" }, 422);
+      if (discovery.current_launch) return json({ detail: "another Discovery Launch is already active" }, 409);
+      if (
+        discovery.preparation.dirty ||
+        !revision ||
+        !revision.eligible ||
+        !String(revision.formatted_input || "").trim()
+      ) {
+        return json({ detail: "the saved Preparation and revision must be current before Run" }, 422);
+      }
+      const launch = {
+        launch_id: `fixture-launch-${nextDiscoveryLaunchId++}`,
+        preparation_id: "preparation",
+        revision_id: revisionId,
+        created_at: "2026-08-01T00:00:00.000Z",
+        started_at: null,
+        completed_at: null,
+        state: "starting",
+        stage: "admission",
+        round: 0,
+        attempts: [{ attempt_id: `fixture-attempt-${nextDiscoveryLaunchId}`, started_at: null, finished_at: null, state: "starting" }],
+        current_attempt_id: `fixture-attempt-${nextDiscoveryLaunchId}`,
+        runner_pid: null,
+        checkpoint: null,
+        resumable: false,
+        stop_requested_at: null,
+        stopped_at: null,
+        stop_reason: null,
+        outcome: null,
+        error: null,
+      };
+      discovery.current_launch = launch;
+      const result = {
+        launch_id: launch.launch_id,
+        state: "starting",
+        snapshot: JSON.parse(JSON.stringify(discovery)),
+      };
+      discoveryLaunchesByKey.set(key, { fingerprint, result });
+      setTimeout(() => {
+        if (discovery.current_launch?.launch_id !== launch.launch_id) return;
+        const completed = {
+          ...launch,
+          state: "completed",
+          stage: "completed",
+          round: 3,
+          outcome: "completed",
+          resumable: false,
+          attempts: launch.attempts.map((attempt: any) => ({ ...attempt, state: "completed", finished_at: "2026-08-01T00:00:01.000Z" })),
+        };
+        discovery.current_launch = null;
+        discovery.history.unshift(completed);
+      }, 1000);
+      return json(result, 201);
+    }
+    const stopMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/stop$/);
+    if (stopMatch && m === "POST") {
+      const launchId = decodeURIComponent(stopMatch[1]);
+      const current = discovery.current_launch;
+      if (!current || current.launch_id !== launchId) {
+        const history = discovery.history.find((candidate: any) => candidate.launch_id === launchId);
+        if (!history) return json({ detail: "Discovery Launch not found" }, 404);
+        return json({ detail: `Stop is unavailable while Launch is ${history.state}` }, 409);
+      }
+      if (current.state === "stopping") return json(discovery);
+      current.state = "stopping";
+      current.stop_requested_at = "2026-08-01T00:00:00.500Z";
+      current.stop_reason = "researcher requested graceful stop";
+      setTimeout(() => {
+        if (discovery.current_launch?.launch_id !== launchId) return;
+        const stopped = {
+          ...discovery.current_launch,
+          state: "stopped",
+          stage: "stopped",
+          outcome: "stopped",
+          resumable: true,
+          stopped_at: "2026-08-01T00:00:01.000Z",
+          checkpoint: { attempt_id: discovery.current_launch.current_attempt_id, stage: "research", round: 2, reason: "stop", created_at: "2026-08-01T00:00:00.900Z" },
+          attempts: discovery.current_launch.attempts.map((attempt: any) => ({ ...attempt, state: "stopped", finished_at: "2026-08-01T00:00:01.000Z" })),
+        };
+        discovery.current_launch = null;
+        discovery.history.unshift(stopped);
+      }, 100);
+      return json(discovery);
+    }
+    const resumeMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/resume$/);
+    if (resumeMatch && m === "POST") {
+      const launchId = decodeURIComponent(resumeMatch[1]);
+      const key = req.headers()["idempotency-key"] ?? "";
+      const fingerprint = JSON.stringify({ launch_id: launchId });
+      const previous = discoveryLaunchesByKey.get(`resume:${key}`);
+      if (previous) {
+        if (previous.fingerprint !== fingerprint) {
+          return json({ detail: "Idempotency-Key was already used for a different Launch request" }, 409);
+        }
+        return json(previous.result, 201);
+      }
+      if (!key) return json({ detail: "Idempotency-Key is required to resume a Launch" }, 422);
+      if (discovery.current_launch) return json({ detail: "another Discovery Launch is already active" }, 409);
+      const historyIndex = discovery.history.findIndex((candidate: any) => candidate.launch_id === launchId);
+      const previousLaunch = historyIndex >= 0 ? discovery.history[historyIndex] : null;
+      if (!previousLaunch) return json({ detail: "Discovery Launch not found" }, 404);
+      if (!["stopped", "interrupted"].includes(previousLaunch.state) || !previousLaunch.resumable) {
+        return json({ detail: `Resume is unavailable while Launch is ${previousLaunch.state}` }, 409);
+      }
+      discovery.history.splice(historyIndex, 1);
+      const resumedAttempt = { attempt_id: `fixture-attempt-${nextDiscoveryLaunchId++}`, started_at: null, finished_at: null, state: "starting", resume_from_round: previousLaunch.checkpoint?.round ?? 0 };
+      const resumed = {
+        ...previousLaunch,
+        state: "starting",
+        stage: "resuming",
+        round: previousLaunch.checkpoint?.round ?? 0,
+        outcome: null,
+        error: null,
+        resumable: false,
+        attempts: [...previousLaunch.attempts, resumedAttempt],
+        current_attempt_id: resumedAttempt.attempt_id,
+        stopped_at: null,
+        stop_reason: null,
+      };
+      discovery.current_launch = resumed;
+      const result = { launch_id: launchId, state: "starting", snapshot: JSON.parse(JSON.stringify(discovery)) };
+      discoveryLaunchesByKey.set(`resume:${key}`, { fingerprint, result });
+      setTimeout(() => {
+        if (discovery.current_launch?.launch_id !== launchId) return;
+        const completed = { ...resumed, state: "completed", stage: "completed", round: 3, outcome: "completed", resumable: false, attempts: resumed.attempts.map((attempt: any) => ({ ...attempt, state: "completed", finished_at: "2026-08-01T00:00:02.000Z" })) };
+        discovery.current_launch = null;
+        discovery.history.unshift(completed);
+      }, 1000);
+      return json(result, 201);
+    }
+    if (p.endsWith("/v1/discovery/launches") && m === "GET") {
       return json(discovery);
     }
     const sourceMatch = p.match(/\/v1\/discovery\/preparation\/sources\/([^/]+)$/);

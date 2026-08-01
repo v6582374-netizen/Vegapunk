@@ -280,3 +280,95 @@ it("deletes one draft Source Entry without changing the saved state", async () =
   await waitFor(() => expect(screen.queryByText("notes.md")).toBeNull());
   expect(screen.getByText(/Saved Preparation remains unchanged until Save/)).toBeTruthy();
 });
+
+it("requires confirmation before admitting an eligible Discovery Launch", async () => {
+  const base = {
+    module: "discovery" as const,
+    schema_version: 1,
+    contexts: [
+      { id: "preparation" as const, label: "Preparation", description: "Prepare inputs." },
+      { id: "launch" as const, label: "Current Launch", description: "Observe a launch." },
+      { id: "history" as const, label: "History", description: "Review history." },
+    ],
+    active_context: "preparation" as const,
+    history: [],
+  };
+  const revision = {
+    revision_id: "revision-1",
+    created_at: "2026-08-01T00:00:00.000Z",
+    formatted_input: "# Reviewed input",
+    model_id: "gpt-test",
+    eligible: true,
+  };
+  const preparation = {
+    status: "saved" as const,
+    dirty: false,
+    draft: { text: "Research question.", sources: [] },
+    saved: { text: "Research question.", sources: [] },
+    revisions: [revision],
+    conversion: {
+      status: "saved" as const,
+      draft: "# Reviewed input",
+      model_id: "gpt-test",
+      error: null,
+      saved_revision_id: revision.revision_id,
+      base_fingerprint: "fingerprint-1",
+      current_fingerprint: "fingerprint-1",
+    },
+  };
+  const launch = {
+    launch_id: "launch-1",
+    preparation_id: "preparation",
+    revision_id: revision.revision_id,
+    created_at: "2026-08-01T00:00:00.000Z",
+    started_at: null,
+    completed_at: null,
+    state: "starting" as const,
+    stage: "admission",
+    round: 0,
+    attempts: [],
+    runner_pid: null,
+    outcome: null,
+    error: null,
+  };
+  const initial = { ...base, preparation, current_launch: null };
+  const admitted = { ...base, preparation, active_context: "launch" as const, current_launch: launch };
+  let launchStarted = false;
+  const request = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/discovery/launches")) {
+      launchStarted = true;
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        preparation_id: "preparation",
+        revision_id: revision.revision_id,
+      });
+      expect(new Headers(init?.headers).get("Idempotency-Key")).toBeTruthy();
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ launch_id: launch.launch_id, state: "starting", snapshot: admitted }),
+      } as Response;
+    }
+    return { ok: true, status: 200, json: async () => (launchStarted ? admitted : initial) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  render(<DiscoveryView />);
+  expect(await screen.findByRole("button", { name: "Run" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(request).not.toHaveBeenCalledWith(
+    expect.stringContaining("/v1/discovery/launches"),
+    expect.anything(),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Start Launch" }));
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: "Current Launch" }).getAttribute("aria-selected")).toBe("true"),
+  );
+  expect(screen.getByText(/Launch launch-1/)).toBeTruthy();
+  expect(request).toHaveBeenCalledWith(
+    expect.stringContaining("/v1/discovery/launches"),
+    expect.anything(),
+  );
+});

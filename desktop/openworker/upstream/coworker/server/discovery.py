@@ -21,6 +21,10 @@ from xml.etree import ElementTree
 
 import yaml
 
+from .discovery_launch import (
+    DiscoveryLaunchStore,
+    LaunchValidationError,
+)
 
 DISCOVERY_CONTEXTS = (
     {
@@ -141,6 +145,7 @@ class DiscoveryFacade:
     def __init__(self, state_root: str | Path):
         self._state_path = Path(state_root) / "discovery" / "preparation.json"
         self._lock = threading.RLock()
+        self._launches = DiscoveryLaunchStore(Path(state_root) / "discovery")
         self._committed = self._load_committed()
         self._draft = _copy_preparation(self._committed)
         self._conversion_draft = ""
@@ -192,12 +197,9 @@ class DiscoveryFacade:
             "current_fingerprint": current_fingerprint,
         }
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, active_context: str = "preparation") -> dict[str, Any]:
         with self._lock:
-            dirty = (
-                self._draft["text"] != self._committed["text"]
-                or self._draft["sources"] != self._committed["sources"]
-            )
+            dirty = self._is_dirty()
             if dirty:
                 status = "draft"
             elif _has_input(self._committed):
@@ -205,6 +207,7 @@ class DiscoveryFacade:
             else:
                 status = "empty"
             current_fingerprint = _preparation_fingerprint(self._committed)
+            current_launch, history = self._launches.snapshot()
             preparation = {
                 "status": status,
                 "dirty": dirty,
@@ -220,11 +223,144 @@ class DiscoveryFacade:
             "module": "discovery",
             "schema_version": 1,
             "contexts": [dict(context) for context in DISCOVERY_CONTEXTS],
-            "active_context": "preparation",
+            "active_context": active_context,
             "preparation": preparation,
-            "current_launch": None,
-            "history": [],
+            "current_launch": current_launch,
+            "history": history,
         }
+
+    def _is_dirty(self) -> bool:
+        return (
+            self._draft["text"] != self._committed["text"]
+            or self._draft["sources"] != self._committed["sources"]
+        )
+
+    def start_launch(
+        self,
+        body: dict[str, Any],
+        *,
+        idempotency_key: str,
+        model_id: str,
+        settings: dict[str, Any],
+    ) -> dict[str, Any]:
+        if not isinstance(body, dict):
+            raise LaunchValidationError("Launch payload must be an object")
+        if not idempotency_key:
+            raise LaunchValidationError("Idempotency-Key is required to start a Launch")
+
+        preparation_id = body.get("preparation_id", "preparation")
+        revision_id = body.get("revision_id")
+        if preparation_id != "preparation":
+            raise LaunchValidationError("unknown Preparation identity")
+        if not isinstance(revision_id, str) or not revision_id.strip():
+            raise LaunchValidationError("revision_id is required to start a Launch")
+
+        try:
+            request_fingerprint = hashlib.sha256(
+                json.dumps(
+                    {"preparation_id": preparation_id, "revision_id": revision_id},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+        except (TypeError, ValueError) as error:
+            raise LaunchValidationError("Launch payload is not valid JSON") from error
+
+        with self._lock:
+            replay = self._launches.replay_idempotent(
+                idempotency_key, request_fingerprint
+            )
+            if replay is not None:
+                return replay
+            dirty = self._is_dirty()
+            current_fingerprint = _preparation_fingerprint(self._committed)
+            revision = next(
+                (
+                    item
+                    for item in self._committed["revisions"]
+                    if item.get("revision_id") == revision_id
+                ),
+                None,
+            )
+            if (
+                dirty
+                or revision is None
+                or revision.get("preparation_fingerprint") != current_fingerprint
+            ):
+                raise LaunchValidationError(
+                    "the saved Preparation and revision must be current before Run"
+                )
+            formatted_input = str(revision.get("formatted_input", "")).strip()
+            if not formatted_input:
+                raise LaunchValidationError(
+                    "the selected Formatted Discovery Input revision is empty"
+                )
+            if (
+                self._conversion_error
+                or self._conversion_saved_revision_id != revision_id
+                or self._conversion_base_fingerprint != current_fingerprint
+                or self._conversion_draft.strip() != formatted_input
+            ):
+                raise LaunchValidationError(
+                    "run requires a successful current Conversion for the selected revision"
+                )
+            input_snapshot = {
+                "preparation_id": preparation_id,
+                "revision_id": revision_id,
+                "preparation_fingerprint": current_fingerprint,
+                "research_text": self._committed["text"],
+                "formatted_input": formatted_input,
+                "sources": [
+                    {
+                        **_public_source(source),
+                        "content_base64": base64.b64encode(source["content"]).decode(
+                            "ascii"
+                        ),
+                    }
+                    for source in self._committed["sources"]
+                ],
+            }
+            configuration_snapshot = {
+                "model_id": model_id,
+                "settings": copy.deepcopy(settings),
+            }
+            return self._launches.admit(
+                request_fingerprint=request_fingerprint,
+                idempotency_key=idempotency_key,
+                input_snapshot=input_snapshot,
+                configuration_snapshot=configuration_snapshot,
+                response_builder=lambda: self.snapshot(active_context="launch"),
+            )
+
+    def launch(self, launch_id: str) -> dict[str, Any]:
+        return self._launches.get(launch_id)
+
+    def list_launches(self, active_context: str = "history") -> dict[str, Any]:
+        return self.snapshot(active_context=active_context)
+
+    def stop_launch(self, launch_id: str) -> dict[str, Any]:
+        with self._lock:
+            self._launches.stop(launch_id)
+            return self.snapshot(active_context="launch")
+
+    def resume_launch(
+        self,
+        launch_id: str,
+        *,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        if not idempotency_key:
+            raise LaunchValidationError("Idempotency-Key is required to resume a Launch")
+        request_fingerprint = hashlib.sha256(
+            json.dumps({"launch_id": launch_id}, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        with self._lock:
+            return self._launches.resume(
+                launch_id,
+                request_fingerprint=request_fingerprint,
+                idempotency_key=idempotency_key,
+                response_builder=lambda: self.snapshot(active_context="launch"),
+            )
 
     def intake(self, body: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(body, dict):
@@ -294,10 +430,7 @@ class DiscoveryFacade:
         settings: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
-            dirty = (
-                self._draft["text"] != self._committed["text"]
-                or self._draft["sources"] != self._committed["sources"]
-            )
+            dirty = self._is_dirty()
             if dirty:
                 raise PreparationValidationError(
                     "save the Preparation before Conversion"
@@ -346,10 +479,7 @@ class DiscoveryFacade:
 
         with self._lock:
             current_fingerprint = _preparation_fingerprint(self._committed)
-            dirty = (
-                self._draft["text"] != self._committed["text"]
-                or self._draft["sources"] != self._committed["sources"]
-            )
+            dirty = self._is_dirty()
             if dirty or current_fingerprint != base_fingerprint:
                 raise PreparationValidationError(
                     "the Preparation changed during Conversion; save and convert again"

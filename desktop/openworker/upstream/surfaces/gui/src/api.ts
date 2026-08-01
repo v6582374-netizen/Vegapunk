@@ -112,14 +112,63 @@ export interface DiscoveryPreparation {
   conversion: DiscoveryConversionState;
 }
 
+export type DiscoveryLaunchState =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "interrupted"
+  | "completed"
+  | "failed";
+
+export interface DiscoveryLaunchAttempt {
+  attempt_id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  state: "starting" | "running" | "stopping" | "stopped" | "interrupted" | "completed" | "failed";
+  adoption_nonce?: string;
+  resume_from_round?: number;
+}
+
+export interface DiscoveryLaunch {
+  launch_id: string;
+  preparation_id: string;
+  revision_id: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  state: DiscoveryLaunchState;
+  stage: string;
+  round: number;
+  attempts: DiscoveryLaunchAttempt[];
+  runner_pid: number | null;
+  current_attempt_id?: string;
+  checkpoint?: {
+    attempt_id: string;
+    stage: string;
+    round: number;
+    reason: string;
+    created_at: string;
+  } | null;
+  resumable?: boolean;
+  stop_requested_at?: string | null;
+  stopped_at?: string | null;
+  stop_reason?: string | null;
+  outcome: string | null;
+  error: string | null;
+  input_snapshot?: Record<string, unknown>;
+  launch_configuration_snapshot?: Record<string, unknown>;
+  configuration_snapshot?: Record<string, unknown>;
+}
+
 export interface DiscoverySnapshot {
   module: "discovery";
   schema_version: number;
   contexts: DiscoveryContext[];
   active_context: DiscoveryContextId;
   preparation: DiscoveryPreparation;
-  current_launch: Record<string, unknown> | null;
-  history: Record<string, unknown>[];
+  current_launch: DiscoveryLaunch | null;
+  history: DiscoveryLaunch[];
 }
 
 export async function getDiscovery(): Promise<DiscoverySnapshot> {
@@ -224,6 +273,77 @@ export async function saveDiscoveryRevision(formattedInput: string): Promise<Dis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ formatted_input: formattedInput }),
   });
+}
+
+export interface DiscoveryLaunchStartResult {
+  launch_id: string;
+  state: DiscoveryLaunchState;
+  snapshot: DiscoverySnapshot;
+}
+
+export function createDiscoveryIdempotencyKey(prefix = "discovery"): string {
+  const cryptoApi = globalThis.crypto as Crypto & { randomUUID?: () => string };
+  return cryptoApi?.randomUUID?.() ?? `${prefix}-${Date.now()}-${Math.random()}`;
+}
+
+export async function startDiscoveryLaunch(
+  revisionId: string,
+  requestKey = createDiscoveryIdempotencyKey("discovery-start"),
+): Promise<DiscoveryLaunchStartResult> {
+  const res = await fetch(`${httpBase()}/v1/discovery/launches`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Idempotency-Key": requestKey,
+    },
+    body: JSON.stringify({ preparation_id: "preparation", revision_id: revisionId }),
+  });
+  if (!res.ok) {
+    let detail = `Discovery request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the status-derived message when the sidecar did not return JSON.
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function stopDiscoveryLaunch(
+  launchId: string,
+): Promise<DiscoverySnapshot> {
+  return discoveryMutation(`/v1/discovery/launches/${encodeURIComponent(launchId)}/stop`, {
+    method: "POST",
+  });
+}
+
+export async function resumeDiscoveryLaunch(
+  launchId: string,
+  requestKey = createDiscoveryIdempotencyKey("discovery-resume"),
+): Promise<DiscoveryLaunchStartResult> {
+  const res = await fetch(
+    `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/resume`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": requestKey,
+      },
+    },
+  );
+  if (!res.ok) {
+    let detail = `Discovery request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the status-derived message when the sidecar did not return JSON.
+    }
+    throw new Error(detail);
+  }
+  return res.json();
 }
 
 export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {

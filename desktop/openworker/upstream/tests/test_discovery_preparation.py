@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import threading
+import time
 import zipfile
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from fastapi.testclient import TestClient
 from coworker.providers.base import AssistantTurn
 from coworker.server import SessionManager, create_app
 from coworker.server import discovery as discovery_module
-
+from coworker.server.discovery_launch import DiscoveryLaunchStore
 
 TOKEN = "a" * 64
 
@@ -23,8 +25,10 @@ def _encoded(value: bytes) -> str:
     return base64.b64encode(value).decode("ascii")
 
 
-def _client(state_root):
-    manager = SessionManager(data_dir=state_root)
+def _client(state_root, *, provider=None, model_settings=None):
+    manager = SessionManager(
+        data_dir=state_root, provider=provider, model_settings=model_settings
+    )
     return TestClient(create_app(manager))
 
 
@@ -667,3 +671,407 @@ def test_failed_reconversion_preserves_earlier_revisions(tmp_path, monkeypatch):
     snapshot = client.get("/v1/discovery", headers=_headers()).json()
     assert snapshot["preparation"]["revisions"] == previous_revisions
     assert snapshot["preparation"]["conversion"]["status"] == "failed"
+
+
+def _prepare_saved_revision(client, *, text: str = "Research question.") -> str:
+    assert client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": text},
+    ).status_code == 200
+    assert client.post(
+        "/v1/discovery/preparation/save", headers=_headers(), json={}
+    ).status_code == 200
+    assert client.post(
+        "/v1/discovery/preparation/convert", headers=_headers(), json={}
+    ).status_code == 200
+    saved = client.post(
+        "/v1/discovery/preparation/revisions",
+        headers=_headers(),
+        json={"formatted_input": "# Reviewed research input"},
+    )
+    assert saved.status_code == 200
+    return saved.json()["preparation"]["revisions"][0]["revision_id"]
+
+
+def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    provider = FakeConversionProvider("# Converted input")
+    state_root = tmp_path / "state"
+    manager = SessionManager(
+        data_dir=state_root,
+        model="relay/test-model",
+        provider=provider,
+        model_settings={"temperature": 0.0, "max_tokens": 512},
+    )
+    client = TestClient(create_app(manager))
+    revision_id = _prepare_saved_revision(client)
+
+    admitted = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "start-1"},
+        json={"preparation_id": "preparation", "revision_id": revision_id},
+    )
+    assert admitted.status_code == 201
+    result = admitted.json()
+    assert result["state"] == "starting"
+    launch_id = result["launch_id"]
+    assert result["snapshot"]["current_launch"]["launch_id"] == launch_id
+    assert result["snapshot"]["current_launch"]["revision_id"] == revision_id
+
+    launch_dir = state_root / "discovery" / "launches" / launch_id
+    input_snapshot = json.loads(
+        (launch_dir / "input_snapshot.json").read_text(encoding="utf-8")
+    )
+    configuration_snapshot = json.loads(
+        (launch_dir / "launch_configuration.json").read_text(encoding="utf-8")
+    )
+    assert input_snapshot["revision_id"] == revision_id
+    assert input_snapshot["formatted_input"] == "# Reviewed research input"
+    assert configuration_snapshot == {
+        "model_id": "relay/test-model",
+        "settings": {"temperature": 0.0, "max_tokens": 512},
+    }
+
+    # The Preparation remains an independent editable draft after admission.
+    assert client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Edited after launch."},
+    ).status_code == 200
+    assert client.get("/v1/discovery", headers=_headers()).json()["preparation"]["dirty"] is True
+    assert json.loads(
+        (launch_dir / "input_snapshot.json").read_text(encoding="utf-8")
+    ) == input_snapshot
+
+    import time
+
+    for _ in range(40):
+        snapshot = client.get("/v1/discovery", headers=_headers()).json()
+        if snapshot["current_launch"] is None:
+            break
+        time.sleep(0.025)
+    assert snapshot["current_launch"] is None
+    assert snapshot["history"][0]["launch_id"] == launch_id
+    assert snapshot["history"][0]["state"] == "completed"
+
+
+def test_run_rejects_ineligible_revision_and_enforces_idempotent_single_active_slot(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    provider = FakeConversionProvider("# Converted input")
+    client = TestClient(
+        create_app(SessionManager(data_dir=tmp_path / "state", provider=provider))
+    )
+    revision_id = _prepare_saved_revision(client)
+
+    client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Make this revision stale."},
+    )
+    stale = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "stale"},
+        json={"revision_id": revision_id},
+    )
+    assert stale.status_code == 422
+    assert "Preparation" in stale.json()["detail"]
+
+    client.post("/v1/discovery/preparation/save", headers=_headers(), json={})
+    client.post("/v1/discovery/preparation/convert", headers=_headers(), json={})
+    current = client.post(
+        "/v1/discovery/preparation/revisions",
+        headers=_headers(),
+        json={"formatted_input": "# Current input"},
+    )
+    current_revision_id = current.json()["preparation"]["revisions"][-1]["revision_id"]
+
+    first = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "start-1"},
+        json={"revision_id": current_revision_id},
+    )
+    assert first.status_code == 201
+    retry = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "start-1"},
+        json={"revision_id": current_revision_id},
+    )
+    assert retry.status_code == 201
+    assert retry.json()["launch_id"] == first.json()["launch_id"]
+
+    conflicting_retry = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "start-1"},
+        json={"revision_id": revision_id},
+    )
+    assert conflicting_retry.status_code == 409
+    active_conflict = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "start-2"},
+        json={"revision_id": current_revision_id},
+    )
+    assert active_conflict.status_code == 409
+
+
+def test_run_requires_a_successful_current_conversion_after_sidecar_restart(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    state_root = tmp_path / "state"
+    client = _client(state_root, provider=FakeConversionProvider())
+    revision_id = _prepare_saved_revision(client)
+
+    restarted = _client(state_root)
+    snapshot = restarted.get("/v1/discovery", headers=_headers()).json()
+    assert snapshot["preparation"]["conversion"]["status"] == "pending"
+    rejected = restarted.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "restart-gate"},
+        json={"revision_id": revision_id},
+    )
+    assert rejected.status_code == 422
+    assert "successful current Conversion" in rejected.json()["detail"]
+
+
+def test_stop_is_graceful_and_resume_appends_one_idempotent_attempt(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    client = _client(tmp_path / "state", provider=FakeConversionProvider())
+    revision_id = _prepare_saved_revision(client)
+    started = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "stop-start"},
+        json={"revision_id": revision_id},
+    )
+    launch_id = started.json()["launch_id"]
+
+    stopped = client.post(
+        f"/v1/discovery/launches/{launch_id}/stop", headers=_headers()
+    )
+    assert stopped.status_code == 200
+    for _ in range(60):
+        snapshot = client.get("/v1/discovery", headers=_headers()).json()
+        if snapshot["history"] and snapshot["history"][0]["launch_id"] == launch_id:
+            break
+        time.sleep(0.01)
+    history = snapshot["history"][0]
+    assert history["state"] == "stopped"
+    assert history["resumable"] is True
+    assert history["checkpoint"]["round"] >= 0
+
+    repeated_stop = client.post(
+        f"/v1/discovery/launches/{launch_id}/stop", headers=_headers()
+    )
+    assert repeated_stop.status_code == 200
+    assert repeated_stop.json()["history"][0]["state"] == "stopped"
+
+    resumed = client.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "resume-1"},
+    )
+    assert resumed.status_code == 201
+    assert resumed.json()["launch_id"] == launch_id
+    assert len(resumed.json()["snapshot"]["current_launch"]["attempts"]) == 2
+    retry = client.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "resume-1"},
+    )
+    assert retry.status_code == 201
+    assert len(retry.json()["snapshot"]["current_launch"]["attempts"]) == 2
+
+    for _ in range(80):
+        snapshot = client.get("/v1/discovery", headers=_headers()).json()
+        if snapshot["history"] and snapshot["history"][0]["state"] == "completed":
+            break
+        time.sleep(0.01)
+    assert snapshot["history"][0]["launch_id"] == launch_id
+    assert len(snapshot["history"][0]["attempts"]) == 2
+    terminal_resume = client.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "resume-terminal"},
+    )
+    assert terminal_resume.status_code == 409
+
+
+def test_restart_adopts_matching_live_runner_without_auto_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    state_root = tmp_path / "state"
+    client = _client(state_root, provider=FakeConversionProvider())
+    revision_id = _prepare_saved_revision(client)
+    started = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "adopt-start"},
+        json={"revision_id": revision_id},
+    )
+    launch_id = started.json()["launch_id"]
+
+    restarted = _client(state_root)
+    adopted = restarted.get("/v1/discovery", headers=_headers()).json()
+    assert adopted["current_launch"]["launch_id"] == launch_id
+    assert adopted["current_launch"]["state"] in {"starting", "running"}
+    assert len(adopted["current_launch"]["attempts"]) == 1
+
+    for _ in range(80):
+        adopted = restarted.get("/v1/discovery", headers=_headers()).json()
+        if adopted["history"] and adopted["history"][0]["state"] == "completed":
+            break
+        time.sleep(0.01)
+    assert adopted["history"][0]["launch_id"] == launch_id
+
+
+def test_missing_runner_reconciles_to_interrupted_and_preserves_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    state_root = tmp_path / "state"
+    client = _client(state_root, provider=FakeConversionProvider())
+    revision_id = _prepare_saved_revision(client)
+    started = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "interrupt-start"},
+        json={"revision_id": revision_id},
+    )
+    launch_id = started.json()["launch_id"]
+    launch_dir = state_root / "discovery" / "launches" / launch_id
+    for _ in range(60):
+        current = client.get("/v1/discovery", headers=_headers()).json()["current_launch"]
+        if current and current["checkpoint"]:
+            break
+        time.sleep(0.01)
+    record = json.loads((launch_dir / "record.json").read_text(encoding="utf-8"))
+    index = json.loads(
+        (state_root / "discovery" / "launches" / "index.json").read_text(encoding="utf-8")
+    )
+    record["state"] = "running"
+    record["runner_pid"] = 999999
+    index["active_launch_id"] = launch_id
+    (launch_dir / "record.json").write_text(json.dumps(record), encoding="utf-8")
+    (state_root / "discovery" / "launches" / "index.json").write_text(
+        json.dumps(index), encoding="utf-8"
+    )
+    (launch_dir / "runner.json").unlink(missing_ok=True)
+
+    restarted = _client(state_root)
+    reconciled = restarted.get("/v1/discovery", headers=_headers()).json()
+    assert reconciled["current_launch"] is None
+    assert reconciled["history"][0]["state"] == "interrupted"
+    assert reconciled["history"][0]["resumable"] is True
+    assert reconciled["history"][0]["checkpoint"] is not None
+    resumed = restarted.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "interrupt-resume"},
+    )
+    assert resumed.status_code == 201
+    assert resumed.json()["launch_id"] == launch_id
+
+
+def test_failed_launch_is_read_only_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    state_root = tmp_path / "state"
+    manager = SessionManager(
+        data_dir=state_root,
+        provider=FakeConversionProvider(),
+        model_settings={"__discovery_fake_failure_stage": "research"},
+    )
+    client = TestClient(create_app(manager))
+    revision_id = _prepare_saved_revision(client)
+    started = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "failed-start"},
+        json={"revision_id": revision_id},
+    )
+    launch_id = started.json()["launch_id"]
+    for _ in range(80):
+        snapshot = client.get("/v1/discovery", headers=_headers()).json()
+        if snapshot["history"] and snapshot["history"][0]["state"] == "failed":
+            break
+        time.sleep(0.01)
+    assert snapshot["history"][0]["launch_id"] == launch_id
+    assert snapshot["history"][0]["state"] == "failed"
+    assert snapshot["history"][0]["resumable"] is False
+    rejected = client.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "failed-resume"},
+    )
+    assert rejected.status_code == 409
+
+
+def test_launch_admission_is_serialized_by_the_durable_lock(tmp_path):
+    root = tmp_path / "discovery"
+    stores = [DiscoveryLaunchStore(root), DiscoveryLaunchStore(root)]
+    outcomes: list[str] = []
+
+    def admit(store: DiscoveryLaunchStore, key: str):
+        try:
+            store.admit(
+                request_fingerprint=key,
+                idempotency_key=key,
+                input_snapshot={"preparation_id": "preparation", "revision_id": key},
+                configuration_snapshot={"model_id": "test", "settings": {}},
+                response_builder=dict,
+            )
+        except RuntimeError as error:
+            outcomes.append(type(error).__name__)
+        else:
+            outcomes.append("admitted")
+
+    threads = [
+        threading.Thread(target=admit, args=(stores[index], f"race-{index}"))
+        for index in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(outcomes) == ["ActiveLaunchConflict", "admitted"]

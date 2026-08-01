@@ -150,6 +150,8 @@ _CONNECT_FAILED_DETAIL = (
 
 from ..attachments import (
     MAX_ATTACHMENTS as _MAX_ATTACHMENTS,
+)
+from ..attachments import (
     MAX_IMAGE_CHARS,
     MAX_PDF_CHARS,
     MAX_TEXT_CHARS,
@@ -164,7 +166,13 @@ from .discovery import (
     DiscoveryConversionError,
     DiscoveryFacade,
     DiscoverySourceContentError,
+    LaunchValidationError,
     PreparationValidationError,
+)
+from .discovery_launch import (
+    ActiveLaunchConflict,
+    IdempotencyConflict,
+    LaunchStateConflict,
 )
 from .manager import SessionManager
 
@@ -309,6 +317,58 @@ def create_app(manager: SessionManager) -> FastAPI:
                 status_code=500,
                 detail="Formatted Discovery Input revision could not be saved. Try again.",
             ) from exc
+
+    @app.post("/v1/discovery/launches", status_code=201)
+    def discovery_launch_start(
+        request: Request, body: dict | None = None
+    ) -> dict[str, Any]:
+        try:
+            return app.state.discovery.start_launch(
+                body or {},
+                idempotency_key=request.headers.get("idempotency-key", "").strip(),
+                model_id=manager.model,
+                settings=manager.discovery_model_settings(),
+            )
+        except LaunchValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (ActiveLaunchConflict, IdempotencyConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/v1/discovery/launches")
+    def discovery_launch_list() -> dict[str, Any]:
+        return app.state.discovery.list_launches()
+
+    @app.get("/v1/discovery/launches/{launch_id}")
+    def discovery_launch_get(launch_id: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.launch(launch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+
+    @app.post("/v1/discovery/launches/{launch_id}/stop")
+    def discovery_launch_stop(launch_id: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.stop_launch(launch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+        except LaunchStateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/discovery/launches/{launch_id}/resume", status_code=201)
+    def discovery_launch_resume(
+        request: Request, launch_id: str
+    ) -> dict[str, Any]:
+        try:
+            return app.state.discovery.resume_launch(
+                launch_id,
+                idempotency_key=request.headers.get("idempotency-key", "").strip(),
+            )
+        except LaunchValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+        except (ActiveLaunchConflict, IdempotencyConflict, LaunchStateConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
