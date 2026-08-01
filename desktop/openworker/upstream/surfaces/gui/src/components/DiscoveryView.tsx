@@ -61,6 +61,10 @@ function hasPreparationInput(content: DiscoveryPreparationContent): boolean {
   return Boolean(content.text.trim() || content.sources.length);
 }
 
+function isCommittedPreparation(preparation: DiscoveryPreparation): boolean {
+  return preparation.status === "saved" && !preparation.dirty && hasPreparationInput(preparation.draft);
+}
+
 function withDraftText(snapshot: DiscoverySnapshot, text: string): DiscoverySnapshot {
   const preparation = normalizePreparation(snapshot.preparation);
   const draft = { ...preparation.draft, text };
@@ -122,8 +126,7 @@ function EmptyContext({ context }: { context: DiscoveryContextId }) {
 }
 
 function StageCanvas({ preparation }: { preparation: DiscoveryPreparation }) {
-  const hasInput = hasPreparationInput(preparation.draft);
-  const preparationSaved = preparation.status === "saved" && !preparation.dirty && hasInput;
+  const preparationSaved = isCommittedPreparation(preparation);
   const activeStage = preparationSaved ? 2 : 1;
   const completed = [preparationSaved, false, false, false];
 
@@ -410,8 +413,7 @@ function PreparationCanvas({
   onSave: () => void;
   onDelete: (source: DiscoverySourceEntry) => void;
 }) {
-  const hasInput = hasPreparationInput(preparation.draft);
-  const preparationSaved = preparation.status === "saved" && !preparation.dirty && hasInput;
+  const preparationSaved = isCommittedPreparation(preparation);
 
   return (
     <>

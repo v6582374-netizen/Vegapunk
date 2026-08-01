@@ -1738,7 +1738,6 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
   resize: vertical;
 }
 .discovery-text-input { padding: 11px 12px; font-size: 13px; line-height: 1.5; }
-.discovery-text-input:focus,
 .discovery-text-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
