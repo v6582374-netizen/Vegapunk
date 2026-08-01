@@ -33,3 +33,114 @@ test("Discovery is an independent shell on the native sidecar route", async ({ p
   await expect.poll(() => paths.includes("/v1/discovery")).toBe(true);
   expect(paths.filter((path) => /^\/api\/(workspace|admin)(\/|$)/.test(path))).toEqual([]);
 });
+
+test("Gather accepts multiple files, saves explicitly, and keeps saved state separate", async ({ page }) => {
+  const paths: string[] = [];
+  page.on("request", (request) => {
+    paths.push(new URL(request.url()).pathname);
+  });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await expect(view.getByRole("heading", { name: "Your first Preparation is empty" })).toBeVisible();
+
+  await view.getByRole("textbox", { name: "Research text" }).fill("Compare membrane performance in saline water.");
+  const intake = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/intake") && request.method() === "POST",
+  );
+  await view.getByLabel("Source files").setInputFiles([
+    {
+      name: "brief.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("Membrane notes"),
+    },
+    {
+      name: "measurements.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("salinity,flux\n10,42\n"),
+    },
+  ]);
+  const intakeRequest = await intake;
+  const intakeBody = intakeRequest.postDataJSON();
+  expect(intakeBody.text).toBe("Compare membrane performance in saline water.");
+  expect(intakeBody.files).toHaveLength(2);
+  expect(intakeBody.files.map((file: { filename: string }) => file.filename)).toEqual([
+    "brief.md",
+    "measurements.csv",
+  ]);
+
+  await expect(view.getByText("brief.md")).toBeVisible();
+  await expect(view.getByText("measurements.csv")).toBeVisible();
+  await expect(view.getByText("Draft changes not saved")).toBeVisible();
+
+  const firstSave = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/save") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  const firstSaveRequest = await firstSave;
+  expect(firstSaveRequest.postDataJSON()).toEqual({
+    text: "Compare membrane performance in saline water.",
+  });
+  await expect(view.getByRole("heading", { name: "Preparation saved" })).toBeVisible();
+
+  const deleteRequest = page.waitForRequest(
+    (request) =>
+      request.url().includes("/v1/discovery/preparation/sources/") && request.method() === "DELETE",
+  );
+  await view.getByRole("button", { name: "Remove brief.md" }).click();
+  await deleteRequest;
+  await expect(view.getByText("brief.md")).toHaveCount(0);
+  await expect(view.getByText("measurements.csv")).toBeVisible();
+  await expect(view.getByText(/Saved Preparation remains unchanged until Save/)).toBeVisible();
+
+  const secondSave = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/save") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  await secondSave;
+  await expect(view.getByRole("heading", { name: "Preparation saved" })).toBeVisible();
+  await expect(view.getByText(/Saved Preparation remains unchanged until Save/)).toHaveCount(0);
+
+  await view.getByRole("textbox", { name: "Research text" }).fill("");
+  await view.getByRole("button", { name: "Remove measurements.csv" }).click();
+  await expect(view.getByRole("heading", { name: "Preparation draft" })).toBeVisible();
+  const resetSave = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/v1/discovery/preparation/save") && request.method() === "POST",
+  );
+  await view.getByRole("button", { name: "Save Preparation" }).click();
+  expect((await resetSave).postDataJSON()).toEqual({ text: "" });
+  await expect(view.getByRole("heading", { name: "Preparation reset" })).toBeVisible();
+
+  expect(paths.filter((path) => /^\/api\/(workspace|admin)(\/|$)/.test(path))).toEqual([]);
+});
+
+test("Gather surfaces validation errors without partially accepting a file batch", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("nav-discovery").click();
+
+  const view = page.getByTestId("discovery-view");
+  await expect(view.getByRole("heading", { name: "Your first Preparation is empty" })).toBeVisible();
+  await view.getByLabel("Source files").setInputFiles([
+    {
+      name: "accepted.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("valid"),
+    },
+    {
+      name: "unsupported.exe",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.from("invalid"),
+    },
+  ]);
+
+  await expect(view.getByRole("alert")).toContainText("unsupported source type");
+  await expect(view.getByText("accepted.md")).toHaveCount(0);
+  await expect(view.getByText("No Source Entries yet.")).toBeVisible();
+});

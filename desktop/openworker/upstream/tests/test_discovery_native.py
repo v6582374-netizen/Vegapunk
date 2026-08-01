@@ -45,7 +45,12 @@ def test_discovery_facade_is_registered_on_the_existing_authenticated_sidecar(
             },
         ],
         "active_context": "preparation",
-        "preparation": {"status": "empty"},
+        "preparation": {
+            "status": "empty",
+            "dirty": False,
+            "draft": {"text": "", "sources": []},
+            "saved": {"text": "", "sources": []},
+        },
         "current_launch": None,
         "history": [],
     }

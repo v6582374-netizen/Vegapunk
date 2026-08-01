@@ -31,10 +31,16 @@ const DISCOVERY = {
     { id: "history", label: "History", description: "Review completed and interrupted Discovery launches." },
   ],
   active_context: "preparation",
-  preparation: { status: "empty" },
+  preparation: {
+    status: "empty",
+    dirty: false,
+    draft: { text: "", sources: [] },
+    saved: { text: "", sources: [] },
+  },
   current_launch: null,
   history: [],
 };
+const DISCOVERY_SOURCE_EXTENSIONS = new Set([".txt", ".md", ".pdf", ".docx", ".csv", ".zip"]);
 
 const SETTINGS = {
   provider: "openai",
@@ -354,6 +360,30 @@ const PROVIDERS = [
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
+  const discovery = {
+    ...DISCOVERY,
+    preparation: {
+      status: "empty" as "empty" | "draft" | "saved",
+      dirty: false,
+      draft: { text: "", sources: [] as any[] },
+      saved: { text: "", sources: [] as any[] },
+    },
+  };
+  let nextDiscoverySourceId = 1;
+
+  const updateDiscoveryStatus = () => {
+    const dirty =
+      discovery.preparation.draft.text !== discovery.preparation.saved.text ||
+      JSON.stringify(discovery.preparation.draft.sources) !==
+        JSON.stringify(discovery.preparation.saved.sources);
+    discovery.preparation.dirty = dirty;
+    discovery.preparation.status = dirty
+      ? "draft"
+      : discovery.preparation.saved.text.trim() || discovery.preparation.saved.sources.length
+        ? "saved"
+        : "empty";
+  };
+
   const subscriptions: any[] = [
     // One existing subscription (a non-pinned session) so the Slack page's per-workspace
     // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
@@ -825,7 +855,119 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
 
     if (p.endsWith("/v1/health")) return json(HEALTH);
-    if (p.endsWith("/v1/discovery")) return json(DISCOVERY);
+    if (p.endsWith("/v1/discovery/preparation/intake") && m === "POST") {
+      const body = req.postDataJSON();
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json({ detail: "intake payload must be an object" }, 422);
+      }
+      const hasText = Object.prototype.hasOwnProperty.call(body, "text");
+      const rawFiles = body.files ?? [];
+      if (!Array.isArray(rawFiles)) {
+        return json({ detail: "files must be a list" }, 422);
+      }
+      if (!hasText && rawFiles.length === 0) {
+        return json({ detail: "intake requires text or at least one file" }, 422);
+      }
+      if (hasText && typeof body.text !== "string") {
+        return json({ detail: "text must be a string" }, 422);
+      }
+      const validatedFiles: Array<{
+        filename: string;
+        extension: string;
+        size: number;
+      }> = [];
+      for (const rawFile of rawFiles) {
+        if (!rawFile || typeof rawFile !== "object" || Array.isArray(rawFile)) {
+          return json({ detail: "each file must be an object" }, 422);
+        }
+        const file = rawFile as Record<string, unknown>;
+        const filename = file.filename;
+        if (typeof filename !== "string" || !filename.trim()) {
+          return json({ detail: "filename is required" }, 422);
+        }
+        const extension = filename.includes(".")
+          ? filename.slice(filename.lastIndexOf(".")).toLowerCase()
+          : "";
+        if (
+          file.is_directory ||
+          file.relative_path ||
+          filename === "." ||
+          filename === ".." ||
+          filename.includes("\0") ||
+          filename.includes("/") ||
+          filename.includes("\\")
+        ) {
+          return json({ detail: "folders are not supported as Discovery sources" }, 422);
+        }
+        if (!DISCOVERY_SOURCE_EXTENSIONS.has(extension)) {
+          return json({ detail: "unsupported source type" }, 422);
+        }
+        const encoded = file.content_base64;
+        if (typeof encoded !== "string") {
+          return json({ detail: "content_base64 is required" }, 422);
+        }
+        if (
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
+        ) {
+          return json({ detail: "content_base64 must contain valid bytes" }, 422);
+        }
+        const content = Buffer.from(encoded, "base64");
+        if (!encoded || content.toString("base64") !== encoded) {
+          return json({ detail: "content_base64 must contain valid bytes" }, 422);
+        }
+        const size = file.size;
+        if (typeof size !== "number" || !Number.isInteger(size) || size < 0 || content.length !== size) {
+          return json({ detail: "received source bytes do not match the declared size" }, 422);
+        }
+        if (content.length === 0) {
+          return json({ detail: "empty source files are not supported" }, 422);
+        }
+        validatedFiles.push({ filename, extension, size });
+      }
+      if (hasText) {
+        discovery.preparation.draft.text = body.text;
+      }
+      for (const file of validatedFiles) {
+        const sourceId = `fixture-source-${nextDiscoverySourceId++}`;
+        discovery.preparation.draft.sources.push({
+          source_id: sourceId,
+          filename: file.filename,
+          extension: file.extension,
+          size: file.size,
+          sha256: `fixture-hash-${sourceId}`,
+        });
+      }
+      updateDiscoveryStatus();
+      return json(discovery);
+    }
+    if (p.endsWith("/v1/discovery/preparation/save") && m === "POST") {
+      const rawBody = req.postDataJSON();
+      const body = rawBody == null ? {} : rawBody;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return json({ detail: "save payload must be an object" }, 422);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "text") && typeof body.text !== "string") {
+        return json({ detail: "text must be a string" }, 422);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, "text")) {
+        discovery.preparation.draft.text = body.text;
+      }
+      discovery.preparation.saved = JSON.parse(JSON.stringify(discovery.preparation.draft));
+      updateDiscoveryStatus();
+      return json(discovery);
+    }
+    const sourceMatch = p.match(/\/v1\/discovery\/preparation\/sources\/([^/]+)$/);
+    if (sourceMatch && m === "DELETE") {
+      const sourceId = decodeURIComponent(sourceMatch[1]);
+      const sourceIndex = discovery.preparation.draft.sources.findIndex(
+        (source) => source.source_id === sourceId,
+      );
+      if (sourceIndex < 0) return json({ detail: "source entry not found" }, 404);
+      discovery.preparation.draft.sources.splice(sourceIndex, 1);
+      updateDiscoveryStatus();
+      return json(discovery);
+    }
+    if (p.endsWith("/v1/discovery")) return json(discovery);
     if (p.endsWith("/v1/settings")) return json(SETTINGS);
     if (p.endsWith("/v1/settings/pdf") && m === "POST") {
       Object.assign(SETTINGS, req.postDataJSON());

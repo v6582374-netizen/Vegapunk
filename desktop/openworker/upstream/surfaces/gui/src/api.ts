@@ -70,12 +70,32 @@ export interface DiscoveryContext {
   description: string;
 }
 
+export interface DiscoverySourceEntry {
+  source_id: string;
+  filename: string;
+  extension: string;
+  size: number;
+  sha256: string;
+}
+
+export interface DiscoveryPreparationContent {
+  text: string;
+  sources: DiscoverySourceEntry[];
+}
+
+export interface DiscoveryPreparation {
+  status: "empty" | "draft" | "saved";
+  dirty: boolean;
+  draft: DiscoveryPreparationContent;
+  saved: DiscoveryPreparationContent;
+}
+
 export interface DiscoverySnapshot {
   module: "discovery";
   schema_version: number;
   contexts: DiscoveryContext[];
   active_context: DiscoveryContextId;
-  preparation: { status: "empty" };
+  preparation: DiscoveryPreparation;
   current_launch: Record<string, unknown> | null;
   history: Record<string, unknown>[];
 }
@@ -84,6 +104,88 @@ export async function getDiscovery(): Promise<DiscoverySnapshot> {
   const res = await fetch(`${httpBase()}/v1/discovery`);
   if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
   return res.json();
+}
+
+async function discoveryMutation(
+  path: string,
+  init: RequestInit,
+): Promise<DiscoverySnapshot> {
+  const res = await fetch(`${httpBase()}${path}`, init);
+  if (!res.ok) {
+    let detail = `Discovery request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the status-derived message when the sidecar did not return JSON.
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function readFileBytes(file: File): Promise<Uint8Array> {
+  if (typeof file.arrayBuffer === "function") {
+    return new Uint8Array(await file.arrayBuffer());
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result));
+      } else {
+        reject(new Error("The selected file could not be read."));
+      }
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("The selected file could not be read."));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+export async function intakeDiscoveryPreparation(
+  text: string,
+  files: File[],
+): Promise<DiscoverySnapshot> {
+  const encodedFiles = await Promise.all(
+    files.map(async (file) => {
+      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "";
+      return {
+        filename: file.name,
+        relative_path: relativePath,
+        size: file.size,
+        content_base64: bytesToBase64(await readFileBytes(file)),
+      };
+    }),
+  );
+  return discoveryMutation("/v1/discovery/preparation/intake", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, files: encodedFiles }),
+  });
+}
+
+export async function deleteDiscoverySource(sourceId: string): Promise<DiscoverySnapshot> {
+  return discoveryMutation(
+    `/v1/discovery/preparation/sources/${encodeURIComponent(sourceId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function saveDiscoveryPreparation(text: string): Promise<DiscoverySnapshot> {
+  return discoveryMutation("/v1/discovery/preparation/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
 }
 
 export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {

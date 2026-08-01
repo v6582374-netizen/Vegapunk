@@ -18,7 +18,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -159,7 +159,7 @@ from ..engine import ApprovalOutcome
 from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
-from .discovery import DiscoveryFacade
+from .discovery import DiscoveryFacade, PreparationValidationError
 from .manager import SessionManager
 
 
@@ -231,7 +231,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.manager = manager
-    app.state.discovery = DiscoveryFacade()
+    app.state.discovery = DiscoveryFacade(manager._data_base)
 
     @app.get("/v1/health")
     def health(request: Request) -> dict[str, Any]:
@@ -247,6 +247,32 @@ def create_app(manager: SessionManager) -> FastAPI:
     def discovery() -> dict[str, Any]:
         """Return the Native Desktop Discovery shell from this sidecar."""
         return app.state.discovery.snapshot()
+
+    @app.post("/v1/discovery/preparation/intake")
+    def discovery_preparation_intake(body: dict) -> dict[str, Any]:
+        try:
+            return app.state.discovery.intake(body or {})
+        except PreparationValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/v1/discovery/preparation/sources/{source_id}")
+    def discovery_preparation_delete_source(source_id: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.delete_source(source_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source entry not found") from exc
+
+    @app.post("/v1/discovery/preparation/save")
+    def discovery_preparation_save(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return app.state.discovery.save(body or {})
+        except PreparationValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Discovery Preparation could not be saved. Try again.",
+            ) from exc
 
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
