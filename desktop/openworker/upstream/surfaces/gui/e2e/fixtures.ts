@@ -22,6 +22,20 @@ export async function sendAppEvent(page: Page, obj: unknown): Promise<void> {
 
 const HEALTH = { status: "ok", default_workspace: null, model: "anthropic:claude-opus-4-8" };
 
+const DISCOVERY = {
+  module: "discovery",
+  schema_version: 1,
+  contexts: [
+    { id: "preparation", label: "Preparation", description: "Gather and review research inputs before a launch." },
+    { id: "launch", label: "Current Launch", description: "Observe the active Discovery launch." },
+    { id: "history", label: "History", description: "Review completed and interrupted Discovery launches." },
+  ],
+  active_context: "preparation",
+  preparation: { status: "empty" },
+  current_launch: null,
+  history: [],
+};
+
 const SETTINGS = {
   provider: "openai",
   model: "anthropic:claude-opus-4-8",
@@ -811,6 +825,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
 
     if (p.endsWith("/v1/health")) return json(HEALTH);
+    if (p.endsWith("/v1/discovery")) return json(DISCOVERY);
     if (p.endsWith("/v1/settings")) return json(SETTINGS);
     if (p.endsWith("/v1/settings/pdf") && m === "POST") {
       Object.assign(SETTINGS, req.postDataJSON());

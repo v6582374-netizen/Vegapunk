@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { getHealth, Session } from "./api";
+import { getDiscovery, getHealth, Session } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,4 +35,28 @@ it("authenticates REST and session WebSocket calls with the launch token", async
   const session = new Session("s1", "/workspace", "code", { onEvent: vi.fn() });
   const socket = (session as unknown as { ws: FakeWebSocket }).ws;
   expect(socket.protocols).toEqual(["openworker", "launch-token"]);
+});
+
+it("uses the injected sidecar address and token for Discovery REST calls", async () => {
+  vi.stubGlobal("__COWORKER_HTTP__", "http://127.0.0.1:43123");
+  vi.stubGlobal("__COWORKER_API_TOKEN__", "discovery-token");
+  const request = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(url).toBe("http://127.0.0.1:43123/v1/discovery");
+    expect(new Headers(init?.headers).get("X-OpenWorker-Token")).toBe("discovery-token");
+    return { ok: true, status: 200, json: async () => ({ module: "discovery" }) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  await getDiscovery();
+  expect(request).toHaveBeenCalledOnce();
+});
+
+it("rejects an unauthenticated Discovery response", async () => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ error: "missing token" }),
+  }) as Response));
+
+  await expect(getDiscovery()).rejects.toThrow("Discovery request failed (401)");
 });

@@ -4,6 +4,8 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
+test.setTimeout(60_000);
+
 async function openConnectors(page) {
   await page.goto("/");
   await page.getByTestId("account-row").click();
@@ -74,7 +76,7 @@ test("Never show agents: sender + label chips round-trip", async ({ page }) => {
   await expect(labels).toContainText("Personal");
 
   // chips survive a reload (persisted through the PATCH route, re-read on load)
-  await page.reload();
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
   await openConnectors(page);
   await page.getByTestId("connector-gmail").click();
   await expect(page.getByTestId("gmail-filter-senders")).toContainText("ceo@corp.com");

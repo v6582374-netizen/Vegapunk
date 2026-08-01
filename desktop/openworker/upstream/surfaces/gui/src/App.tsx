@@ -58,6 +58,7 @@ import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
 import { SkillsManagerPrototype } from "./components/SkillsManagerPrototype";
 import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
+import { DiscoveryView } from "./components/DiscoveryView";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -211,6 +212,7 @@ export function App() {
     | "persona"
     | "settings"
     | "skills-manager"
+    | "discovery"
   >("session");
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
@@ -1293,7 +1295,9 @@ export function App() {
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
         onOpenSkillsManager={() => setSurface("skills-manager")}
+        onOpenDiscovery={() => setSurface("discovery")}
         scheduledActive={surface === "scheduled"}
+        discoveryActive={surface === "discovery"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
@@ -1330,6 +1334,8 @@ export function App() {
         />
       ) : surface === "skills-manager" ? (
         <SkillsManagerWorkspace />
+      ) : surface === "discovery" ? (
+        <DiscoveryView />
       ) : (
       <div className={"main" + (surface === "session" && agent !== "chat" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">

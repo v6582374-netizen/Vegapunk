@@ -159,6 +159,7 @@ from ..engine import ApprovalOutcome
 from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
+from .discovery import DiscoveryFacade
 from .manager import SessionManager
 
 
@@ -230,6 +231,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.manager = manager
+    app.state.discovery = DiscoveryFacade()
 
     @app.get("/v1/health")
     def health(request: Request) -> dict[str, Any]:
@@ -240,6 +242,11 @@ def create_app(manager: SessionManager) -> FastAPI:
             "default_workspace": manager.default_workspace,
             "model": manager.model,
         }
+
+    @app.get("/v1/discovery")
+    def discovery() -> dict[str, Any]:
+        """Return the Native Desktop Discovery shell from this sidecar."""
+        return app.state.discovery.snapshot()
 
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:

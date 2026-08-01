@@ -62,6 +62,30 @@ export async function getHealth(): Promise<Health> {
   return res.json();
 }
 
+export type DiscoveryContextId = "preparation" | "launch" | "history";
+
+export interface DiscoveryContext {
+  id: DiscoveryContextId;
+  label: string;
+  description: string;
+}
+
+export interface DiscoverySnapshot {
+  module: "discovery";
+  schema_version: number;
+  contexts: DiscoveryContext[];
+  active_context: DiscoveryContextId;
+  preparation: { status: "empty" };
+  current_launch: Record<string, unknown> | null;
+  history: Record<string, unknown>[];
+}
+
+export async function getDiscovery(): Promise<DiscoverySnapshot> {
+  const res = await fetch(`${httpBase()}/v1/discovery`);
+  if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
+  return res.json();
+}
+
 export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {
   const res = await fetch(`${httpBase()}/v1/workspaces/recent`);
   return (await res.json()).workspaces ?? [];

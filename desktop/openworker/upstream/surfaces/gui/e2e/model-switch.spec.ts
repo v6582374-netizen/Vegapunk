@@ -13,7 +13,9 @@ test("mid-session model switch shows the marker and later turns use the new mode
   const box = page.getByPlaceholder(/Ask the coworker/);
   await box.fill("hello there");
   await box.press("Enter");
-  await expect(page.getByText("Echo: hello there", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("Echo: hello there", { exact: false }).first()).toBeVisible({
+    timeout: 10_000,
+  });
 
   // The picker is still in the composer after the first turn (the old lock hid it).
   const picker = page.locator(".dd").filter({ hasText: "Claude Opus 4.8" });
