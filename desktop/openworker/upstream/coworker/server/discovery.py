@@ -547,7 +547,7 @@ class DiscoveryFacade:
             files = []
         if not isinstance(files, list):
             raise PreparationValidationError("files must be a list")
-        if not has_text and not files:
+        if not files and (not has_text or not text.strip()):
             raise PreparationValidationError("intake requires text or at least one file")
 
         # Validate and decode every file before touching the in-memory draft. This is the
