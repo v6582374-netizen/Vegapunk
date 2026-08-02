@@ -83,10 +83,18 @@ export interface DiscoveryPreparationContent {
   sources: DiscoverySourceEntry[];
 }
 
+export interface DiscoveryExecutionInput {
+  task_description: string;
+  domain: string;
+  background: string;
+  constraints: string[];
+}
+
 export interface DiscoveryInputRevision {
   revision_id: string;
   created_at: string;
-  formatted_input: string;
+  execution_input?: DiscoveryExecutionInput;
+  formatted_input?: string;
   model_id: string | null;
   eligible: boolean;
 }
@@ -95,7 +103,8 @@ export type DiscoveryConversionStatus = "pending" | "editing" | "saved" | "dirty
 
 export interface DiscoveryConversionState {
   status: DiscoveryConversionStatus;
-  draft: string;
+  execution_input?: DiscoveryExecutionInput;
+  draft?: string;
   model_id: string | null;
   error: string | null;
   saved_revision_id: string | null;
@@ -171,10 +180,144 @@ export interface DiscoverySnapshot {
   history: DiscoveryLaunch[];
 }
 
+export interface DiscoveryTimelineAttempt {
+  number: number;
+  state: string;
+  started_at: string | null;
+  ended_at: string | null;
+  summary: string | null;
+}
+
+export interface DiscoveryTimelineMilestone {
+  id: string;
+  key: string;
+  label: string;
+  position: number;
+  state: string;
+  summary: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  attempts: DiscoveryTimelineAttempt[];
+}
+
+export interface DiscoveryProgressTimeline {
+  revision: number;
+  percent: number;
+  current_milestone_id: string | null;
+  milestones: DiscoveryTimelineMilestone[];
+}
+
+export interface DiscoveryActivityItem {
+  sequence: number;
+  occurred_at: string;
+  level: "info" | "warning" | "error";
+  milestone_id: string | null;
+  text: string;
+}
+
+export interface DiscoveryActivityStream {
+  oldest_sequence: number | null;
+  newest_sequence: number | null;
+  truncated_before_sequence: number;
+  items: DiscoveryActivityItem[];
+}
+
+export interface DiscoveryLaunchStatus {
+  launch: DiscoveryLaunch;
+  state: DiscoveryLaunchState;
+  stage: string;
+  round: number;
+  checkpoint: DiscoveryLaunch["checkpoint"];
+  timeline: DiscoveryProgressTimeline;
+  activity: DiscoveryActivityStream;
+  allowed_actions: string[];
+  produced_outputs: Array<{ path: string; label: string }>;
+  latest_event_sequence: number;
+}
+
+export interface DiscoveryLaunchEvent {
+  sequence: number;
+  occurred_at: string;
+  type: string;
+  data: Record<string, unknown>;
+}
+
 export async function getDiscovery(): Promise<DiscoverySnapshot> {
   const res = await fetch(`${httpBase()}/v1/discovery`);
   if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
   return res.json();
+}
+
+export interface PromptRecord {
+  id: string;
+  name: string;
+  description: string;
+  workflow: string;
+  stage: string;
+  order: number;
+  invocation_type: string;
+  mutual_exclusion_group: string | null;
+  template_variables: string[];
+  required_template_variables: string[];
+  text: string;
+  source_revision: string;
+}
+
+export interface PromptDetail extends PromptRecord {
+  system_original_text: string;
+}
+
+export interface DiscoveryConversionPrompt {
+  instruction: string;
+  configured: boolean;
+}
+
+async function promptLibraryRequest<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${httpBase()}${path}`, init);
+  const body = await res.json();
+  if (!res.ok) {
+    const message = body?.error?.message || body?.detail || `Prompt request failed (${res.status})`;
+    throw new Error(message);
+  }
+  return body as T;
+}
+
+export async function getPromptLibrary(): Promise<{ prompts: PromptRecord[] }> {
+  return promptLibraryRequest("/v1/prompt-library/prompts");
+}
+
+export async function getPrompt(promptId: string): Promise<{ prompt: PromptDetail }> {
+  return promptLibraryRequest(
+    `/v1/prompt-library/prompts/${encodeURIComponent(promptId)}`,
+  );
+}
+
+export async function savePrompt(promptId: string, text: string): Promise<{ prompt: PromptRecord }> {
+  return promptLibraryRequest(
+    `/v1/prompt-library/prompts/${encodeURIComponent(promptId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    },
+  );
+}
+
+export async function getDiscoveryConversionPrompt(): Promise<DiscoveryConversionPrompt> {
+  return promptLibraryRequest("/v1/discovery/input-conversion-prompt");
+}
+
+export async function saveDiscoveryConversionPrompt(
+  instruction: string,
+): Promise<DiscoveryConversionPrompt> {
+  return promptLibraryRequest("/v1/discovery/input-conversion-prompt", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
 }
 
 async function discoveryMutation(
@@ -259,6 +402,10 @@ export async function saveDiscoveryPreparation(text: string): Promise<DiscoveryS
   });
 }
 
+export async function resetDiscoveryPreparation(): Promise<DiscoverySnapshot> {
+  return discoveryMutation("/v1/discovery/preparation/reset", { method: "POST" });
+}
+
 export async function convertDiscoveryPreparation(): Promise<DiscoverySnapshot> {
   return discoveryMutation("/v1/discovery/preparation/convert", {
     method: "POST",
@@ -267,11 +414,13 @@ export async function convertDiscoveryPreparation(): Promise<DiscoverySnapshot> 
   });
 }
 
-export async function saveDiscoveryRevision(formattedInput: string): Promise<DiscoverySnapshot> {
+export async function saveDiscoveryRevision(
+  executionInput: DiscoveryExecutionInput,
+): Promise<DiscoverySnapshot> {
   return discoveryMutation("/v1/discovery/preparation/revisions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ formatted_input: formattedInput }),
+    body: JSON.stringify({ execution_input: executionInput }),
   });
 }
 
@@ -288,13 +437,14 @@ export function createDiscoveryIdempotencyKey(prefix = "discovery"): string {
 
 export async function startDiscoveryLaunch(
   revisionId: string,
-  requestKey = createDiscoveryIdempotencyKey("discovery-start"),
+  requestKey?: string,
 ): Promise<DiscoveryLaunchStartResult> {
+  const idempotencyKey = requestKey || createDiscoveryIdempotencyKey("discovery-start");
   const res = await fetch(`${httpBase()}/v1/discovery/launches`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Idempotency-Key": requestKey,
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify({ preparation_id: "preparation", revision_id: revisionId }),
   });
@@ -344,6 +494,153 @@ export async function resumeDiscoveryLaunch(
     throw new Error(detail);
   }
   return res.json();
+}
+
+export async function getDiscoveryLaunchStatus(
+  launchId: string,
+): Promise<DiscoveryLaunchStatus> {
+  const res = await fetch(
+    `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/status`,
+  );
+  if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
+  return res.json();
+}
+
+export async function getDiscoveryLaunchEvents(
+  launchId: string,
+  after = 0,
+): Promise<{
+  launch_id: string;
+  events: DiscoveryLaunchEvent[];
+  oldest_sequence: number | null;
+  latest_sequence: number;
+  truncated_before_sequence: number;
+}> {
+  const res = await fetch(
+    `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/events?after=${after}`,
+  );
+  if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
+  return res.json();
+}
+
+export async function streamDiscoveryLaunchLog(
+  launchId: string,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/logs/stream`,
+    { signal },
+  );
+  if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
+  if (!res.body) return;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const emitBlock = (block: string) => {
+    const dataLines = block
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"));
+    if (dataLines.length) {
+      onLine(
+        dataLines
+          .map((line) => line.slice(5).replace(/^ /, ""))
+          .join("\n"),
+      );
+    }
+  };
+  const consume = (chunk: string) => {
+    buffer += chunk;
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) emitBlock(block);
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      consume(decoder.decode(value, { stream: true }));
+    }
+    consume(decoder.decode());
+    if (buffer.trim()) {
+      emitBlock(buffer);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export interface DiscoveryArtifactInfo {
+  path: string;
+  name: string;
+  kind: "markdown" | "structured" | "code" | "text" | "image" | "pdf" | "office" | "binary" | string;
+  size: number;
+  modified_at: number;
+  previewable: boolean;
+}
+
+export interface DiscoveryArtifactContent extends DiscoveryArtifactInfo {
+  ok: boolean;
+  error?: string;
+  content?: string | null;
+  data_url?: string | null;
+  truncated?: boolean;
+}
+
+async function discoveryArtifactRequest(
+  path: string,
+  init: RequestInit = {},
+): Promise<unknown> {
+  const res = await fetch(`${httpBase()}${path}`, init);
+  if (!res.ok) {
+    let detail = `Discovery artifact request failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the status-derived message when the sidecar did not return JSON.
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function getDiscoveryArtifacts(
+  launchId: string,
+): Promise<DiscoveryArtifactInfo[]> {
+  const body = await discoveryArtifactRequest(
+    `/v1/discovery/launches/${encodeURIComponent(launchId)}/artifacts`,
+  );
+  return body && typeof body === "object" && "artifacts" in body && Array.isArray(body.artifacts)
+    ? (body.artifacts as DiscoveryArtifactInfo[])
+    : [];
+}
+
+export async function readDiscoveryArtifact(
+  launchId: string,
+  path: string,
+): Promise<DiscoveryArtifactContent> {
+  const query = new URLSearchParams({ path });
+  return (await discoveryArtifactRequest(
+    `/v1/discovery/launches/${encodeURIComponent(launchId)}/artifacts/read?${query.toString()}`,
+  )) as DiscoveryArtifactContent;
+}
+
+export async function revealDiscoveryArtifact(
+  launchId: string,
+  path: string,
+  mode: "reveal" | "open" = "reveal",
+): Promise<{ ok: boolean; path?: string; mode?: string; error?: string }> {
+  return (await discoveryArtifactRequest(
+    `/v1/discovery/launches/${encodeURIComponent(launchId)}/artifacts/reveal`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path, mode }),
+    },
+  )) as { ok: boolean; path?: string; mode?: string; error?: string };
 }
 
 export async function getRecentWorkspaces(): Promise<RecentWorkspace[]> {

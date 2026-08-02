@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 # Origins allowed to talk to the local sidecar. It binds to 127.0.0.1, but a page in the
 # user's own browser can still reach loopback — so without an origin gate, any website they
@@ -169,15 +169,31 @@ from .discovery import (
     LaunchValidationError,
     PreparationValidationError,
 )
+from .discovery_artifacts import DiscoveryArtifactPathError
 from .discovery_launch import (
     ActiveLaunchConflict,
     IdempotencyConflict,
     LaunchStateConflict,
 )
 from .manager import SessionManager
+from .prompt_library import (
+    DesktopPromptLibrary,
+    InvalidPromptError,
+    PromptLibrary,
+    PromptLibraryUnavailableError,
+    UnknownPromptError,
+    default_prompt_roots,
+    violation_for,
+)
 
 
-def create_app(manager: SessionManager) -> FastAPI:
+def create_app(
+    manager: SessionManager,
+    *,
+    prompt_library_root: str | Path | None = None,
+    prompt_baseline_root: str | Path | None = None,
+    discovery_conversion_prompt_path: str | Path | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
@@ -245,7 +261,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.manager = manager
-    app.state.discovery = DiscoveryFacade(manager._data_base)
+    default_library_root, default_baseline_root = default_prompt_roots()
+    app.state.prompt_library = DesktopPromptLibrary(
+        PromptLibrary(
+            Path(prompt_library_root) if prompt_library_root else default_library_root
+        ),
+        Path(prompt_baseline_root) if prompt_baseline_root else default_baseline_root,
+    )
+    app.state.discovery = DiscoveryFacade(
+        manager._data_base,
+        conversion_prompt_path=discovery_conversion_prompt_path,
+    )
 
     @app.get("/v1/health")
     def health(request: Request) -> dict[str, Any]:
@@ -261,6 +287,80 @@ def create_app(manager: SessionManager) -> FastAPI:
     def discovery() -> dict[str, Any]:
         """Return the Native Desktop Discovery shell from this sidecar."""
         return app.state.discovery.snapshot()
+
+    @app.get("/v1/discovery/input-conversion-prompt")
+    def discovery_input_conversion_prompt() -> dict[str, Any]:
+        try:
+            return app.state.discovery.get_conversion_prompt()
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.put("/v1/discovery/input-conversion-prompt")
+    def save_discovery_input_conversion_prompt(body: dict | None = None) -> dict[str, Any]:
+        instruction = (body or {}).get("instruction") if isinstance(body, dict) else None
+        if not isinstance(instruction, str):
+            raise HTTPException(status_code=422, detail="instruction must be a string")
+        try:
+            return app.state.discovery.save_conversion_prompt(instruction)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Discovery Input Conversion Prompt could not be saved.",
+            ) from exc
+
+    def _prompt_error(
+        code: str,
+        message: str,
+        status_code: int,
+        violations: list[dict] | None = None,
+    ) -> JSONResponse:
+        error: dict[str, Any] = {"code": code, "message": message}
+        if violations:
+            error["violations"] = violations
+        return JSONResponse({"error": error}, status_code=status_code)
+
+    @app.get("/v1/prompt-library/health")
+    def prompt_library_health() -> dict[str, str]:
+        return app.state.prompt_library.health()
+
+    @app.get("/v1/prompt-library/prompts", response_model=None)
+    def prompt_library_list() -> dict | JSONResponse:
+        try:
+            return {"prompts": app.state.prompt_library.list_catalogue()}
+        except PromptLibraryUnavailableError as exc:
+            return _prompt_error("library_unavailable", str(exc), 503)
+        except Exception:
+            return _prompt_error("internal_error", "Prompt Library request failed", 500)
+
+    @app.get("/v1/prompt-library/prompts/{prompt_id:path}", response_model=None)
+    def prompt_library_detail(prompt_id: str) -> dict | JSONResponse:
+        try:
+            return {"prompt": app.state.prompt_library.detail(prompt_id)}
+        except UnknownPromptError:
+            return _prompt_error("prompt_not_found", "unknown Prompt", 404)
+        except PromptLibraryUnavailableError as exc:
+            return _prompt_error("library_unavailable", str(exc), 503)
+        except Exception:
+            return _prompt_error("internal_error", "Prompt Library request failed", 500)
+
+    @app.put("/v1/prompt-library/prompts/{prompt_id:path}", response_model=None)
+    def prompt_library_save(prompt_id: str, body: dict | None = None) -> dict | JSONResponse:
+        text = (body or {}).get("text") if isinstance(body, dict) else None
+        if not isinstance(text, str):
+            return _prompt_error("invalid_request", "text must be a string", 422)
+        try:
+            return {"prompt": app.state.prompt_library.save(prompt_id, text)}
+        except UnknownPromptError:
+            return _prompt_error("prompt_not_found", "unknown Prompt", 404)
+        except InvalidPromptError as exc:
+            violation = violation_for(exc).to_dict()
+            return _prompt_error("invalid_prompt", str(exc), 422, [violation])
+        except PromptLibraryUnavailableError as exc:
+            return _prompt_error("library_unavailable", str(exc), 503)
+        except Exception:
+            return _prompt_error("internal_error", "Prompt Library request failed", 500)
 
     @app.post("/v1/discovery/preparation/intake")
     def discovery_preparation_intake(body: dict) -> dict[str, Any]:
@@ -286,6 +386,16 @@ def create_app(manager: SessionManager) -> FastAPI:
             raise HTTPException(
                 status_code=500,
                 detail="Discovery Preparation could not be saved. Try again.",
+            ) from exc
+
+    @app.post("/v1/discovery/preparation/reset")
+    def discovery_preparation_reset() -> dict[str, Any]:
+        try:
+            return app.state.discovery.reset()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Discovery Preparation could not be reset. Try again.",
             ) from exc
 
     @app.post("/v1/discovery/preparation/convert")
@@ -315,7 +425,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         except OSError as exc:
             raise HTTPException(
                 status_code=500,
-                detail="Formatted Discovery Input revision could not be saved. Try again.",
+                detail="Discovery Execution Input revision could not be saved. Try again.",
             ) from exc
 
     @app.post("/v1/discovery/launches", status_code=201)
@@ -344,6 +454,65 @@ def create_app(manager: SessionManager) -> FastAPI:
             return app.state.discovery.launch(launch_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+
+    @app.get("/v1/discovery/launches/{launch_id}/status")
+    def discovery_launch_status(launch_id: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.status(launch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+
+    @app.get("/v1/discovery/launches/{launch_id}/events")
+    def discovery_launch_events(launch_id: str, after: int = 0) -> dict[str, Any]:
+        try:
+            return app.state.discovery.events(launch_id, after=max(after, 0))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+
+    @app.get("/v1/discovery/launches/{launch_id}/logs/stream")
+    def discovery_launch_log_stream(launch_id: str) -> StreamingResponse:
+        try:
+            app.state.discovery.launch(launch_id)
+            stream = app.state.discovery.stream_log(launch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+        return StreamingResponse(
+            stream,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/v1/discovery/launches/{launch_id}/artifacts")
+    def discovery_launch_artifacts(launch_id: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.artifacts(launch_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+
+    @app.get("/v1/discovery/launches/{launch_id}/artifacts/read")
+    def discovery_launch_artifact_read(launch_id: str, path: str) -> dict[str, Any]:
+        try:
+            return app.state.discovery.read_artifact(launch_id, path)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+        except DiscoveryArtifactPathError as exc:
+            raise HTTPException(status_code=404, detail="Discovery artifact is not available") from exc
+
+    @app.post("/v1/discovery/launches/{launch_id}/artifacts/reveal")
+    def discovery_launch_artifact_reveal(
+        launch_id: str, body: dict | None = None
+    ) -> dict[str, Any]:
+        body = body or {}
+        path = body.get("path")
+        mode = body.get("mode", "reveal")
+        if not isinstance(path, str) or not isinstance(mode, str):
+            raise HTTPException(status_code=422, detail="Discovery artifact path and mode are required")
+        try:
+            return app.state.discovery.reveal_artifact(launch_id, path, mode)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
+        except DiscoveryArtifactPathError as exc:
+            raise HTTPException(status_code=404, detail="Discovery artifact is not available") from exc
 
     @app.post("/v1/discovery/launches/{launch_id}/stop")
     def discovery_launch_stop(launch_id: str) -> dict[str, Any]:

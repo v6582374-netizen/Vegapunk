@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  getDiscoveryConversionPrompt,
+  getPrompt,
+  getPromptLibrary,
   getSettings,
   getTrustedWorkspaces,
+  saveDiscoveryConversionPrompt,
+  savePrompt,
   setOnboarded,
   setPdfSettings,
   setScratchBase,
@@ -9,6 +14,7 @@ import {
   setWorkspaceTrusted,
   type ModelSettings,
   type PdfSettings,
+  type PromptRecord,
   type WorkspaceCommandTrust,
 } from "../api";
 import {
@@ -21,6 +27,7 @@ import {
   checkForUpdate,
   installUpdate,
   isTauri,
+  isUpdaterEnabled,
   listenDictationDownloadProgress,
   markDictationTestPassed,
   pickFolder,
@@ -45,26 +52,9 @@ import { showPersonas } from "../flags";
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
-// "appearance" is the General tab's stable key — callers deep-link with it, so the
+// "appearance" is the General tab's stable key - callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
 type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts";
-
-type PromptRecord = {
-  id: string;
-  name: string;
-  description: string;
-  workflow: string;
-  stage: string;
-  order: number;
-  invocation_type: string;
-  mutual_exclusion_group: string | null;
-  template_variables: string[];
-  required_template_variables: string[];
-  text: string;
-  source_revision: string;
-};
-
-const PROMPT_LIBRARY_API = "http://127.0.0.1:8000/api/prompt-library/v1";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -90,7 +80,7 @@ export function SettingsView({
   initialTab?: SetTab;
   onOpenPersona?: (id: string) => void;
 }) {
-  // Personas is flag-gated (hidden for launch) — filter the tab AND coerce a stale
+  // Personas is flag-gated (hidden for launch) - filter the tab AND coerce a stale
   // deep-link to it (openSettings("personas") callers) so the page never opens on a
   // section with no nav entry.
   const personas = showPersonas();
@@ -171,17 +161,6 @@ export function SettingsView({
   );
 }
 
-// -- Prompt Library: desktop-facing core Registered Prompt editor -----------------
-async function promptRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${PROMPT_LIBRARY_API}${path}`, init);
-  const body = await response.json();
-  if (!response.ok) {
-    const error = body?.error;
-    throw new Error(error?.message || "Prompt Library request failed.");
-  }
-  return body as T;
-}
-
 function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
   const [prompts, setPrompts] = useState<PromptRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -193,6 +172,10 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [discoveryPrompt, setDiscoveryPrompt] = useState("");
+  const [discoveryPromptDraft, setDiscoveryPromptDraft] = useState("");
+  const [discoveryPromptSaving, setDiscoveryPromptSaving] = useState(false);
+  const [discoveryPromptError, setDiscoveryPromptError] = useState<string | null>(null);
 
   const selected = prompts.find((prompt) => prompt.id === selectedId) || null;
   const dirty = !!selected && draft !== selected.text;
@@ -209,16 +192,13 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
     return matchesWorkflow && matchesQuery;
   });
 
-  const fetchPrompt = (id: string) =>
-    promptRequest<{ prompt: PromptRecord & { system_original_text: string } }>(
-      `/prompts/${encodeURIComponent(id)}`,
-    );
+  const fetchPrompt = (id: string) => getPrompt(id);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const body = await promptRequest<{ prompts: PromptRecord[] }>("/prompts");
+      const body = await getPromptLibrary();
       setPrompts(body.prompts);
       const first = body.prompts[0];
       if (first) {
@@ -227,10 +207,33 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
         setDraft(detail.prompt.text);
         setSystemOriginal(detail.prompt.system_original_text);
       }
+      try {
+        const prompt = await getDiscoveryConversionPrompt();
+        setDiscoveryPrompt(String(prompt.instruction ?? ""));
+        setDiscoveryPromptDraft(String(prompt.instruction ?? ""));
+      } catch (promptError) {
+        setDiscoveryPromptError(promptError instanceof Error ? promptError.message : "Discovery Conversion Prompt is unavailable.");
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Prompt Library is unavailable.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveDiscoveryPrompt = async () => {
+    if (!discoveryPromptDraft.trim() || discoveryPromptSaving) return;
+    setDiscoveryPromptSaving(true);
+    setDiscoveryPromptError(null);
+    try {
+      const body = await saveDiscoveryConversionPrompt(discoveryPromptDraft);
+      setDiscoveryPrompt(String(body.instruction ?? discoveryPromptDraft));
+      setDiscoveryPromptDraft(String(body.instruction ?? discoveryPromptDraft));
+      setNotice("Discovery Conversion Prompt saved.");
+    } catch (promptError) {
+      setDiscoveryPromptError(promptError instanceof Error ? promptError.message : "Discovery Conversion Prompt could not be saved.");
+    } finally {
+      setDiscoveryPromptSaving(false);
     }
   };
 
@@ -258,14 +261,7 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
     setError(null);
     setNotice(null);
     try {
-      const body = await promptRequest<{ prompt: PromptRecord }>(
-        `/prompts/${encodeURIComponent(selected.id)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: draft }),
-        },
-      );
+      const body = await savePrompt(selected.id, draft);
       setPrompts((current) => current.map((prompt) => prompt.id === body.prompt.id ? body.prompt : prompt));
       setDraft(body.prompt.text);
       setNotice("Saved. This change applies to subsequently started work only; running work keeps its snapshot.");
@@ -296,6 +292,30 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <PanelHead title="Prompt Library" sub="Inspect and revise Registered Prompts used by future Vegapunk work." />
+      <div className={CARD + " mb-4 overflow-hidden"} data-testid="discovery-conversion-prompt-editor">
+        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+          <div>
+            <div className="text-[13px] font-medium text-ink">Discovery Input Conversion Prompt</div>
+            <div className="mt-1 text-[11.5px] text-muted">Compiles raw Preparation material directly into structured Execution Inputs.</div>
+          </div>
+          {discoveryPromptDraft !== discoveryPrompt && <span className="text-[11px] text-accent">Unsaved</span>}
+        </div>
+        <div className="p-4">
+          {discoveryPromptError && <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{discoveryPromptError}</div>}
+          <textarea
+            className="min-h-[180px] w-full resize-y rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
+            aria-label="Discovery Input Conversion Prompt"
+            value={discoveryPromptDraft}
+            onChange={(event) => setDiscoveryPromptDraft(event.target.value)}
+            spellCheck={false}
+            placeholder="Loading the independent Conversion Prompt…"
+          />
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button className={BTN_BORDERED} onClick={() => setDiscoveryPromptDraft(discoveryPrompt)} disabled={discoveryPromptDraft === discoveryPrompt}>Reset</button>
+            <button className={BTN_ACCENT} onClick={() => void saveDiscoveryPrompt()} disabled={discoveryPromptDraft === discoveryPrompt || discoveryPromptSaving}>{discoveryPromptSaving ? "Saving…" : "Save Conversion Prompt"}</button>
+          </div>
+        </div>
+      </div>
       {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
       {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -591,7 +611,7 @@ function VoiceInputSection() {
 }
 
 // -- Personas: installed/enabled/delete management, the dir/Git importer, and the
-// entry point to the Persona Gallery (a screen-sized modal — installs finish back
+// entry point to the Persona Gallery (a screen-sized modal - installs finish back
 // here, disabled pending consent; a gallery install re-mounts the list in place).
 function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => void }) {
   const [galleryBump, setGalleryBump] = useState(0);
@@ -613,7 +633,7 @@ function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => vo
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-medium">Browse the Persona Gallery</span>
           <span className="block text-[12px] text-muted">
-            Curated coworkers from the OpenWorker team — see what each can do before installing.
+            Curated coworkers from the OpenWorker team - see what each can do before installing.
           </span>
         </span>
         <span className="text-[12.5px] text-accent shrink-0">Open →</span>
@@ -691,9 +711,9 @@ function AppearanceSection() {
         </div>
       )}
 
-      {/* One card for the app-lifecycle actions (UX-021): the onboarding replay (§24 —
+      {/* One card for the app-lifecycle actions (UX-021): the onboarding replay (§24 -
           every build, the browser dev shell runs the same first-run flow) and, on
-          desktop, the manual update check (launch also checks automatically). */}
+          stable desktop, the manual Vegapunk update check (launch also checks automatically). */}
       <div className={CARD + " p-4 mt-4"}>
         <div className={FIELD_LABEL + " mb-2"}>Setup &amp; updates</div>
         <div className="flex items-center gap-2">
@@ -764,6 +784,7 @@ function TrustedWorkspacesCard() {
 }
 
 function UpdateInline() {
+  const updaterEnabled = isUpdaterEnabled();
   const [state, setState] = useState<"idle" | "checking" | "none" | "found" | "installing" | "error">("idle");
   const [version, setVersion] = useState("");
 
@@ -791,6 +812,8 @@ function UpdateInline() {
     }
   };
 
+  if (!updaterEnabled) return null;
+
   return (
     <span className="inline-flex items-center gap-2.5">
       {state === "found" ? (
@@ -812,8 +835,8 @@ function UpdateInline() {
           {state === "none"
             ? "You're on the latest version."
             : state === "error"
-              ? "Couldn't check right now — try again later."
-              : "Downloading — OpenWorker restarts by itself when it's ready."}
+              ? "Couldn't check right now - try again later."
+              : "Downloading - Vegapunk restarts by itself when it's ready."}
         </span>
       )}
     </span>
@@ -826,7 +849,7 @@ function UpdateInline() {
 // -- Sidebar density -------------------------------------------------------------
 // -- Token savings (PDF attachments; owner ask, 2026-07-17) ---------------------
 // Attachments replay with EVERY turn, so a big PDF quietly multiplies token spend.
-// Auto-compaction of long histories is a planned follow-up (punchlist §7) — until
+// Auto-compaction of long histories is a planned follow-up (punchlist §7) - until
 // then this card is the user's dial: attach thresholds + the fallback for models
 // without native PDF support.
 function TokenSavingsCard() {
@@ -874,7 +897,7 @@ function TokenSavingsCard() {
         </button>
       </div>
       <div className={FIELD_HELP}>
-        Claude, GPT and Gemini read PDFs natively — this only applies to models that
+        Claude, GPT and Gemini read PDFs natively - this only applies to models that
         don&rsquo;t (GLM, Kimi, DeepSeek, local models…). Text extraction is cheapest; page
         images cost more tokens and need a vision-capable model.
       </div>
@@ -907,7 +930,7 @@ function TokenSavingsCard() {
         </label>
       </div>
       <div className={FIELD_HELP}>
-        PDFs over these limits are not attached — you&rsquo;ll see a notice in the composer
+        PDFs over these limits are not attached - you&rsquo;ll see a notice in the composer
         instead.
       </div>
     </div>
@@ -951,7 +974,7 @@ function SidebarCard() {
   );
 }
 
-// -- Files (scratch location) — one card inside General (UX-021: a single option
+// -- Files (scratch location) - one card inside General (UX-021: a single option
 // doesn't earn its own tab) -----------------------------------------------------
 function FilesCard() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);

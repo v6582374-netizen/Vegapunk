@@ -1,27 +1,51 @@
-"""Desktop-facing, versioned Prompt Library capability.
-
-This module deliberately hides the Prompt Library's filesystem layout and every
-translation/mirror concern. It is the only representation used by the
-OpenWorker desktop integration.
-"""
+"""Native sidecar facade for Vegapunk's source-backed Prompt Library."""
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from vegapunk.prompt_library import (
-    InvalidPromptError,
-    PromptEntry,
-    PromptLibrary,
-    UnknownPromptError,
-)
+
+def _repository_root() -> Path:
+    return Path(__file__).resolve().parents[5]
+
+
+def _config_root(relative: str) -> Path:
+    bundled_root = getattr(sys, "_MEIPASS", None)
+    if bundled_root:
+        return Path(bundled_root) / "config" / relative
+    return _repository_root() / "config" / relative
+
+
+def default_prompt_roots() -> tuple[Path, Path]:
+    return _config_root("prompts"), _config_root("prompt_baseline")
+
+
+try:
+    from vegapunk.prompt_library import (
+        InvalidPromptError,
+        PromptEntry,
+        PromptLibrary,
+        UnknownPromptError,
+    )
+except ModuleNotFoundError:
+    # A source checkout does not install the repository root beside the editable
+    # OpenWorker package. Add it only for this shared, dependency-light module.
+    sys.path.insert(0, str(_repository_root()))
+    from vegapunk.prompt_library import (
+        InvalidPromptError,
+        PromptEntry,
+        PromptLibrary,
+        UnknownPromptError,
+    )
+
 
 API_VERSION = "v1"
 
 
 class PromptLibraryUnavailableError(RuntimeError):
-    """The installed prompt catalog or its immutable baseline is unavailable."""
+    """The installed prompt catalog or its system-original bodies is unavailable."""
 
 
 @dataclass(frozen=True)
@@ -34,13 +58,13 @@ class PromptLibraryViolation:
 
 
 class DesktopPromptLibrary:
-    """A small external facade over active and installed-original prompt bodies."""
+    """Expose active prompts and installed originals without leaking storage layout."""
 
     def __init__(self, library: PromptLibrary, baseline_root: Path) -> None:
         self._library = library
         self._baseline_root = baseline_root.resolve()
 
-    def health(self) -> dict:
+    def health(self) -> dict[str, str]:
         try:
             self._ensure_available()
         except (OSError, ValueError, KeyError, PromptLibraryUnavailableError):
@@ -69,9 +93,7 @@ class DesktopPromptLibrary:
         try:
             entry = self._library.save(prompt_id, text)
             return self._catalogue_record(entry)
-        except UnknownPromptError:
-            raise
-        except InvalidPromptError:
+        except (UnknownPromptError, InvalidPromptError):
             raise
         except (OSError, ValueError, KeyError) as error:
             raise PromptLibraryUnavailableError("Prompt Library is unavailable") from error
@@ -134,3 +156,14 @@ def violation_for(error: InvalidPromptError) -> PromptLibraryViolation:
     else:
         code = "invalid_template"
     return PromptLibraryViolation(code, message)
+
+
+__all__ = [
+    "DesktopPromptLibrary",
+    "InvalidPromptError",
+    "PromptLibrary",
+    "PromptLibraryUnavailableError",
+    "UnknownPromptError",
+    "default_prompt_roots",
+    "violation_for",
+]

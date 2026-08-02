@@ -1,5 +1,7 @@
 # End-User Frontend V1 Core Flow Prototype
 
+> Historical prototype. It describes a retired browser product proposal and is not a current implementation target.
+
 Question: How should task creation, live progress, interruption, completion, failure, and result review behave for Deep Research Runs and Discovery Launches?
 
 Three structurally different lifecycle presentations were compared for both workflows.

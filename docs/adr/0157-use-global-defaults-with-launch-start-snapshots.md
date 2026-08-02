@@ -4,7 +4,7 @@ Status: accepted
 
 Prompts and run parameters exist only as service-wide global defaults: the Prompt Library and the Run Parameter Registry, stored as plain files that remain the single source of truth.
 A Discovery Launch captures the complete effective configuration into its own results directory as the Launch Configuration Snapshot at start; the Launch reads only that snapshot.
-Edits made through the Admin Console affect Launches that start afterwards, never a running Launch, and there are no per-Launch overrides or mid-run edits.
+Edits made through Native Desktop Settings or the local sidecar affect Launches that start afterwards, never a running Launch, and there are no per-Launch overrides or mid-run edits.
 A Launch Resume continues from Workflow Progress checkpoints using exactly its original snapshot and never absorbs Prompt Library or Run Parameter Registry edits made after its original start, so one Launch's results are always explained by one configuration.
 The Library keeps no built-in edit history; traceability comes from the per-Launch snapshots, and the developer's ordinary git workflow covers the files when history is wanted.
 

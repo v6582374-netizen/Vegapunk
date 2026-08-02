@@ -40,13 +40,11 @@ Open `http://localhost:5173` only when working on the GUI harness. The UI talks 
 
 ## Prompt Library backend
 
-Desktop Settings → Prompt Library currently uses the separate Vegapunk FastAPI service at `http://127.0.0.1:8000/api/prompt-library/v1`:
+Desktop Settings → Prompt Library uses the same authenticated `openworker-server` sidecar as Discovery and the rest of the Native Desktop application.
 
-```bash
-python -m uvicorn admin_console.app:create_app --factory --port 8000
-```
+The sidecar exposes `/v1/prompt-library/*` for active Prompt Library bodies and `/v1/discovery/input-conversion-prompt` for the editable Discovery Input Conversion Prompt.
 
-The coworker sidecar and this Prompt Library service use different local ports. Do not replace the Prompt Library URL with the sidecar's injected random worker URL until the API has been migrated into the sidecar.
+The sidecar is the single local service boundary; no second API process or fixed port is required.
 
 ## Tests
 

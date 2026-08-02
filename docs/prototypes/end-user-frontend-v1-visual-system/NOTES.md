@@ -1,5 +1,7 @@
 # End-User Frontend V1 Visual System Prototype
 
+> Historical prototype. It describes a retired browser product proposal and is not a current implementation target.
+
 Question: Which visual system makes Vegapunk feel like a serious scientific workbench rather than an admin dashboard or marketing page?
 
 Three structurally different variants of a completed Discovery Launch Results page were compared in desktop and mobile browsers.

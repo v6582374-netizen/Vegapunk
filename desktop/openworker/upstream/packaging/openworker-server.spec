@@ -42,16 +42,20 @@ hiddenimports = []
 datas = []
 binaries = []
 
-# Native Discovery's Conversion Prompt is a repo-level config in source checkouts, but the
-# packaged sidecar runs from PyInstaller's `_internal/` root. Stage it beside the bundled
-# modules so Discovery can resolve it through `sys._MEIPASS` at runtime.
-datas.append(
-    (
-        os.path.join(REPOSITORY_ROOT, "config", "discovery_input_conversion_prompt.yaml"),
-        "config",
-    )
-)
+# Vegapunk's source-backed Prompt Library and Native Discovery Conversion Prompt are repo-level
+# assets in source checkouts, but the packaged sidecar runs from PyInstaller's `_internal/` root.
+# Stage both the active catalog and the installed system-original bodies beside the bundled
+# modules so the native Settings surface keeps the same source contract after packaging.
+for relative in (
+    os.path.join("config", "prompts"),
+    os.path.join("config", "prompt_baseline"),
+    os.path.join("config", "discovery_input_conversion_prompt.yaml"),
+):
+    source = os.path.join(REPOSITORY_ROOT, relative)
+    destination = os.path.dirname(relative)
+    datas.append((source, destination))
 
+hiddenimports.append("vegapunk.prompt_library")
 for pkg in ("coworker", "aisuite", "mcp", "ddgs", "croniter", "docstring_parser"):
     hiddenimports += collect_submodules(pkg)
 
@@ -100,7 +104,7 @@ for pkg in ("slack_bolt", "telegram"):  # [messaging] extra — optional
 
 a = Analysis(
     [os.path.join(PACKAGING, "server_entry.py")],
-    pathex=[ROOT],
+    pathex=[ROOT, REPOSITORY_ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

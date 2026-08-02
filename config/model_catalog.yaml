@@ -1,4 +1,4 @@
-# Managed by the Admin Console Model Catalog editor.
+# Managed by Native Desktop Settings and the local sidecar.
 version: 1
 active_text_model: relay/gpt-5.6-sol
 capability_models:

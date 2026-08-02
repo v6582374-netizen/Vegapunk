@@ -8,4 +8,4 @@ exemptions:
     not standalone library entries.'
 - pattern: third_party/paper_orchestra/utils/pdf_utils.py|content_parsing_utils.py|paper_banana_utils.py
   reason: Utility scaffolding strings mixed with non-prompt content; not author-facing
-    scientific prompts. Listed for a later pass if Admin Console needs them.
+    scientific prompts. Listed for a later pass if the Prompt Library editor needs them.

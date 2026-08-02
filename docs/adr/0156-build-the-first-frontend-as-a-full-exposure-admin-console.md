@@ -1,6 +1,6 @@
 Status: superseded by the Desktop-first product direction
 
-> Historical ADR. This decision describes the retired root Web/Admin Console and is retained for architectural audit history. The active product UI is now the OpenWorker Desktop App; the Python API capabilities below remain reusable backend services.
+> Historical ADR. This decision describes the retired root Web/Admin Console and is retained for architectural audit history. The active product UI is now the OpenWorker Desktop App; the routes and implementation described below are not active product code.
 
 # Build the First Frontend as a Full-Exposure Admin Console
 

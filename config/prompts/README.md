@@ -1,6 +1,6 @@
 # Prompt Library
 
-Disk-backed registry of editable prompts (ADR-0156 / ADR-0157).
+Disk-backed registry of editable prompts consumed by Vegapunk runtime code and the Native Desktop sidecar.
 
 ## Layout
 
@@ -13,8 +13,7 @@ Disk-backed registry of editable prompts (ADR-0156 / ADR-0157).
 2. Append an entry to `catalog.yaml`.
 3. Read it with `from vegapunk.prompt_library import prompts` then
    `prompts.get("your.id")` or `prompts.render("your.id", key=value)`.
-4. Prefer call-time `get`/`render` over import-time string constants so a
-   Launch Configuration Snapshot can override the root.
+4. Prefer call-time `get`/`render` over import-time string constants so a Launch Configuration Snapshot can override the root.
 
 ## Stages
 
@@ -28,5 +27,7 @@ Disk-backed registry of editable prompts (ADR-0156 / ADR-0157).
 
 See `exemptions.yaml` for patterns still allowed to keep inline strings
 (CAMEL vendored unused paths, dynamic user-prompt assembly, some PDF utils).
-The coverage test in `tests/admin_console/test_prompt_externalization_coverage.py`
-enforces this list.
+The coverage test in `tests/test_prompt_externalization_coverage.py` enforces this list.
+
+Native Desktop Settings accesses the editable bodies through the local `openworker-server` sidecar at `/v1/prompt-library/*`.
+The GUI does not start a separate HTTP API service.

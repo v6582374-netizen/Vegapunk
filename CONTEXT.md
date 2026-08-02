@@ -6,67 +6,203 @@ Vegapunk coordinates LLM-backed agents for research, discovery, memory, and expe
 
 ## Product Experience
 
-**Unified Workspace**:
-The one desktop browser interface for Vegapunk, organized around a persistent Space switcher, a Space-specific sidebar, a central work area, and an optional artifact preview area.
-It has no administrator or user-facing shell, no sign-in, and no role-specific navigation.
-_Avoid_: Admin Console, Researcher Workspace, user-facing interface
+**Native Desktop Application**:
+The macOS application surface for Vegapunk built from a complete OpenWorker source baseline.
+Version 1 targets macOS 12+ on Apple Silicon and owns the application shell, GUI language, local sidecar lifecycle, and macOS packaging.
+_Avoid_: second product shell, source-upstream identity, separate client surface
 
-**Workspace Space**:
-One of the two first-level capability areas within the Unified Workspace, selected through the persistent Space switcher.
-Each Workspace Space owns its sidebar information architecture and central-work-area purpose while preserving the single Unified Workspace product boundary.
-The two Workspace Spaces are Collaboration Space and Autonomous Discovery Space.
-_Avoid_: separate product shell, role-specific console, independent application
+**Application Module**:
+A top-level capability area selected from the Native Desktop Application's module rail.
+Each Application Module owns its internal navigation and central work area while remaining inside the same application shell.
+_Avoid_: role-specific console, independent application, route-driven product split
 
-**Collaboration Space**:
-The Workspace Space for the Sole Researcher's ongoing tools and configuration, including Paper Tools, Embodied Intelligence, Skill Management, and System Settings.
-It excludes Autonomous Discovery Space's preparation, execution observation, and runtime-artifact review for a Discovery Launch.
-_Avoid_: discovery execution console, Project Space, separate product
+**Native Desktop Discovery Module**:
+The Application Module that owns Discovery Preparation, Discovery Launch execution observation, Launch history, and runtime-artifact review.
+Its internal navigation owns the Discovery lifecycle instead of creating several top-level module entries.
+_Avoid_: conversation draft, reusable source library, separate project application
 
-**Autonomous Discovery Space**:
-The Workspace Space dedicated to preparing, starting, observing, and reviewing a Discovery Launch.
-It succeeds the former Project Space as the primary product surface for autonomous scientific discovery.
-_Avoid_: general collaboration tools, one-off project dashboard, separate product
+**Native Desktop Run Gate**:
+The explicit admission boundary that enables Run only after the current Native Desktop Discovery Preparation has valid sources or text, a successful Conversion, an explicitly saved Formatted Discovery Input revision, and no active Discovery Launch.
+It warns before admission, freezes the selected Launch Snapshot, and leaves the Preparation editable for a later Launch.
+_Avoid_: autosave launch, mutable active input, implicit background start
 
 **Sole Researcher**:
 The one person allowed to use the Version 1 product's curated research capabilities.
 Every Version 1 request is implicitly theirs; the product has no sign-in, registration, invitation, account-management, or multi-user flows.
 _Avoid_: Invited Researcher, public user, multi-user account
 
-**Intranet Product Boundary**:
-The Version 1 deployment boundary that serves the Unified Workspace as a Web application from an internal-network server to the Sole Researcher.
-It excludes public Internet exposure and multi-account product access; a later expansion beyond the Sole Researcher requires a separate identity and authorization decision.
-_Avoid_: local-only product, public deployment, multi-user account
+**Local Product Boundary**:
+The Version 1 product runs as one Native Desktop Application with one local HTTP sidecar on a loopback interface.
+It excludes public network exposure and multi-account product access; a later expansion beyond the Sole Researcher requires a separate identity and authorization decision.
+_Avoid_: remote product server, multi-user account, split service deployment
 
-**Desktop Web Console**:
-The Unified Workspace as accessed in a desktop browser, through which a researcher configures, starts, observes, and reviews research work.
-It is a desktop-only product surface rather than a responsive mobile application and does not imply that research execution runs on the user's device.
-_Avoid_: mobile app, touch-first layout, local CLI, execution node
+**Native Desktop Discovery Preparation**:
+The one editable Discovery input record owned by the Native Desktop Discovery Module in Version 1.
+It owns the current individually uploaded files, text, and formatted-input revision from which the next Discovery Launch is started.
+Its source files are uploaded file entries rather than folder-access permissions.
+Version 1 does not expose multiple independent Preparation records.
+_Avoid_: conversation draft, reusable source library, multiple project workspaces
 
-**Desktop-First Web Workspace**:
-The Intranet Product Boundary delivered through a desktop browser rather than a native desktop application.
-It has no mobile product experience in Version 1, while a future native application remains an independent product decision.
-_Avoid_: native desktop app, mobile client, desktop-only deployment
+**Native Desktop Discovery Committed Preparation State**:
+The latest complete state explicitly saved by the Sole Researcher for the Native Desktop Discovery Preparation.
+It includes only source entries and free-form text accepted together as one coherent state.
+In-progress uploads, rejected sources, failed submissions, and unsaved text edits are transient intake attempts rather than Preparation content.
+_Avoid_: partial preparation, upload draft, transient UI state
+
+**Native Desktop Discovery Preparation Draft**:
+The current unsaved working state of the Native Desktop Discovery Preparation.
+It can contain newly added or deleted source entries and edited text, but it is discarded when the application restarts before an explicit save.
+_Avoid_: cached preparation, autosaved state, resumable upload
+
+**Native Desktop Discovery Preparation Save**:
+The Sole Researcher's explicit action that commits the entire current Preparation Draft as one complete Saved Preparation State.
+It never commits only part of the draft.
+_Avoid_: per-file autosave, background persistence, upload checkpoint
+
+**Native Desktop Discovery Empty Preparation**:
+An explicitly saved current Preparation with no source entries and no free-form text.
+It is a valid reset state, but it cannot be converted or run until new input is added.
+_Avoid_: failed upload, deleted Preparation record, incomplete upload
+
+**Native Desktop Discovery Preparation Reset**:
+The Sole Researcher's explicit action that replaces the current Preparation with an Empty Preparation.
+It clears the free-form text, source entries, Conversion draft, and saved Formatted Discovery Input revisions while leaving Discovery Launch records unchanged.
+It remains available while a Current Launch runs because the Launch Snapshot is immutable and independent of the editable Preparation.
+The reset is atomic: a failed reset leaves the prior Preparation unchanged rather than partially clearing it.
+_Avoid_: deleting a Discovery Launch, undoing a Launch Snapshot, clearing Launch history
+
+**Native Desktop Discovery Source Entry**:
+A single individually uploaded file record within the current Native Desktop Discovery Committed Preparation State.
+Its identity stays stable when its display name or position changes, so a delete action targets exactly one entry without changing other source entries.
+_Avoid_: folder, file permission, reusable library item
+
+**Native Desktop Discovery Source Intake Batch**:
+A user action that adds one or more Source Entries to the current Preparation Draft.
+The batch is accepted as a whole or rejected as a whole, a rejected batch creates no Source Entry, and accepted draft changes persist only after an explicit Preparation Save.
+_Avoid_: partially accepted upload, background upload queue, folder import
+
+**Native Desktop Discovery Preparation Storage**:
+The Native Desktop Application-owned persistence boundary for the explicitly saved Preparation and its committed source content.
+It never contains the unsaved Preparation Draft.
+It survives ordinary application restarts and is independent of repository workspaces, conversations, and temporary client state.
+_Avoid_: repository results directory, client draft, conversation attachment
+
+**Native Desktop Discovery Source Validation Boundary**:
+The division between accepting source bytes into a Preparation and interpreting their file contents.
+Source Intake validates identity, whitelist, completeness, and non-empty content; Conversion validates whether an accepted source can be parsed for Discovery.
+_Avoid_: silent source discard, conversion during upload, treating a saved source as automatically readable
+
+**Native Desktop Discovery Source Intake**:
+The Discovery Preparation input surface that accepts multiple individual files and free-form text in one submission.
+Version 1 rejects folders and does not treat AccessSection folder permissions as uploaded Discovery sources.
+All accepted files and text belong to the single current Native Desktop Discovery Preparation.
+_Avoid_: folder upload, shared file library, session working directory
+
+**Native Desktop Discovery RightRail Access Boundary**:
+The Native Desktop Discovery Module does not render or mutate the session-level AccessSection.
+Discovery's source authority is the saved Preparation's Source Entries and free-form text, not connector toggles or folder roots.
+Any future credential or capability visibility uses a separate read-only Discovery summary.
+_Avoid_: session connector controls in Discovery, folder permission as source intake, arbitrary filesystem browsing
+
+**Native Desktop Discovery RightRail Progress Boundary**:
+Discovery progress comes from Preparation stages or durable Launch records, never from conversation Todo items or tool-call activity.
+A reopened Launch renders the same durable timeline and bounded activity, while available actions come from the server-authoritative lifecycle state.
+_Avoid_: chat Todo as runtime truth, React-only progress, terminal history presented as live work
+
+**Native Desktop Discovery RightRail Artifact Visibility**:
+The Preparation view does not show an artifact list because it has no selected Discovery Launch output.
+The active Launch view and a selected read-only history Launch show only artifacts owned by that Launch.
+Artifact visibility never falls back to session workspaces, repository roots, or artifacts from another Launch.
+_Avoid_: mixing inputs with outputs, cross-Launch artifact browsing, session artifact leakage
+
+**Native Desktop Discovery Artifact Access Boundary**:
+Discovery artifact requests use a Launch identity and a Launch-relative path that the sidecar validates against that Launch's artifact root.
+Markdown, text, structured text, code, and images may use in-app viewers, while PDFs, Office files, large files, and other binaries use explicit native Open or Reveal actions.
+The GUI never receives arbitrary absolute paths or filesystem browsing capability, and Raw Discovery Console remains a separate log surface.
+_Avoid_: path escape, arbitrary file browser, absolute-path leakage, raw-log artifact mixing
+
+**Native Desktop Discovery Run Policy**:
+The Version 1 execution rule that permits at most one running Discovery Launch at a time while retaining completed or failed Launches as read-only history.
+It does not permit parallel Discovery Launches or multiple active Preparation records.
+_Avoid_: parallel runs, queued user-visible Launches, disposable run output
+
+**Application Update**:
+A user-facing replacement of the installed Native Desktop Application with a newer Vegapunk release selected by the Product Release Channel.
+It does not import OpenWorker source changes or modify the source baseline.
+_Avoid_: source synchronization, OpenWorker update, Git sync
+
+**Product Release Channel**:
+The Vegapunk-owned authority from which eligible releases of the Native Desktop Application are offered to users.
+Its first release source is Vegapunk's own GitHub Releases, and it is independent of the OpenWorker Source Upstream.
+Its first product stream is a single Stable Release Channel, and it is the only authority for user-facing Application Updates.
+_Avoid_: OpenWorker release feed, source upstream, marketplace update
+
+**Product Version**:
+The version identity owned by Vegapunk for one Native Desktop Application release.
+It is independent of OpenWorker's version sequence and is shared by the application metadata, release tag, update manifest, and signed artifacts.
+_Avoid_: upstream version, inherited OpenWorker version, build-only version
+
+**Anonymous Product Update**:
+An Application Update retrieved from the Product Release Channel without requiring a user identity or account authentication.
+Version 1 uses Anonymous Product Updates.
+_Avoid_: authenticated updater, account-bound update, GitHub login
+
+**Release Signing Authority**:
+The protected Vegapunk release process that signs Stable Release artifacts for the Product Release Channel.
+It is not available to Development Builds or ordinary local development machines.
+_Avoid_: developer signing key, OpenWorker signing authority, unsigned release
+
+**Stable Release Channel**:
+The first-version Application Update stream containing Vegapunk releases approved for general user installation.
+It excludes Development Builds and any future preview stream.
+_Avoid_: development build, preview release, OpenWorker release
+
+**Explicit Update Acceptance**:
+The user's deliberate authorization to download and install an offered Application Update.
+Automatic version checking does not constitute Explicit Update Acceptance.
+_Avoid_: background download, automatic installation, passive update check
+
+**Release Rollback**:
+The maintainer-controlled recovery action that removes a faulty Stable Release from availability and restores a previously verified release as the recovery target.
+It never silently downgrades an installed Native Desktop Application.
+_Avoid_: automatic downgrade, source rollback, OpenWorker sync rollback
+
+**OpenWorker Source Upstream**:
+The external OpenWorker project whose source is manually reviewed as an input to Vegapunk development.
+It is not an Application Update source and is never queried by the Native Desktop Application.
+_Avoid_: user update channel, Vegapunk release channel, automatic upstream sync
+
+**Development Build**:
+A local or internal build used to develop Vegapunk and inspect changes before release.
+It does not automatically check for or install Application Updates; only explicitly designated release or preview builds may connect to the Product Release Channel.
+_Avoid_: production build, user release, auto-updating development app
+
+**App Language Preference**:
+The Native Desktop Application's single shared interface-language decision.
+The current Desktop surface has no language switch, so integrated modules use the same current Desktop language and do not persist or expose a module-level language preference.
+It affects static application GUI text only and never translates runtime logs, model output, user content, or third-party responses.
+_Avoid_: model locale, server language, content translation
 
 **Desktop Visual Baseline**:
-The 1440 CSS-pixel-wide desktop browser viewport used to compose the Unified Workspace's primary visual hierarchy, whitespace, and research texture.
-The workspace remains functionally complete at 1024 CSS pixels without a separate compact visual system, while narrower viewports receive only basic overflow protection.
+The 1440 CSS-pixel-wide Native Desktop Application window used to compose the application's primary visual hierarchy, whitespace, and research texture.
+The application remains functionally complete at 1024 CSS pixels without a separate compact visual system, while narrower windows receive only basic overflow protection.
 _Avoid_: mobile-first composition, native-window assumption, false 1024px parity
 
-**Workspace Module**:
-A top-level capability area selected from a Workspace Space sidebar, such as Paper Tools, Skill Management, or System Settings in Collaboration Space.
-Each Workspace Module owns the central work area while its Space sidebar remains stable.
+**Application Module**:
+A top-level capability area selected from the Native Desktop Application's module rail, such as Paper Tools, Skill Management, or System Settings.
+Each Application Module owns its central work area while the module rail remains stable.
 _Avoid_: role-specific console, page chrome, artifact preview
 
 **Paper Tools**:
-A Workspace Module selected from the Unified Workspace sidebar for finding and later working with scholarly papers.
+A Native Desktop Application module selected for finding and later working with scholarly papers.
 Its Version 1 surface contains the Paper Search, Paper Deep Reading, and Citation Verification Paper Tool Submodules.
 All three Version 1 submodules are visible placeholders until a stable paper-service design is selected.
 _Avoid_: paper artifact preview, literature source, research project
 
 **Paper Tool Submodule**:
 One of the three child capability areas within Paper Tools.
-Paper Tool Submodules use the Paper Tools' internal tab navigation and are not separate Workspace Modules or sidebar destinations.
-_Avoid_: Workspace Module, independent route, sidebar module
+Paper Tool Submodules use the Paper Tools' internal tab navigation and are not separate Application Modules or rail destinations.
+_Avoid_: independent application, independent route, separate rail destination
 
 **Paper Search**:
 The visible but nonfunctional Paper Tool Submodule reserved for future research-question submission and literature reporting.
@@ -113,12 +249,260 @@ One fixed thematic filter applied only to High-Interest Papers.
 The initial domain set is All Fields, AI Scientist, Seawater Desalination, Gas Turbines, Reverse Osmosis, and Embodied Intelligence.
 _Avoid_: Elicit search constraint, arbitrary user-created tag, source database, research task
 
+**Daily Research Brief Domain**:
+A Sole Researcher-authored natural-language research topic that defines one Daily Research Brief subscription.
+Version 1 has no fixed taxonomy; the topic's original text is its canonical meaning, without user-managed aliases, tags, or automatic rewriting.
+_Avoid_: High-Interest Paper Domain, fixed taxonomy, arbitrary tag, generated search query
+
 **Researcher Skill**:
-A reusable Skill created and owned by the Sole Researcher through the top-level Skill Management Workspace Module.
+A reusable Skill created and owned by the Sole Researcher through the Skill Management Application Module inside Harness.
 _Avoid_: system Prompt, built-in Prompt, internal orchestration Prompt
 
+**Local Skill**:
+A Skill definition discovered on the Sole Researcher's machine from any configured local Skill Source, regardless of the AI tool, filesystem scope, or ownership path that exposes it.
+It is the broad inventory term for the Skill Management module and includes Researcher Skills without being limited to them.
+_Avoid_: curated Skill catalog entry, system Prompt, single-tool Skill
+
+**Local Skill Source**:
+A filesystem root, tool-specific directory, user-owned shared directory, or managed link location from which Local Skills are discovered or to which they are projected.
+It may be user-scoped, tool-scoped, shared, or upstream-managed, and no single central directory is authoritative for every Local Skill.
+_Avoid_: one fixed Skill directory, remote marketplace, runtime Prompt source
+
+**Native Tool Project Skill Boundary**:
+A project-level Skill directory that a Tool may continue to read and invoke through its own native behavior, but that Skill Management does not discover, display, bind, project, or modify in Version 1.
+It is outside the manager's Skill identity, Tool applicability, and Apply state.
+_Avoid_: ProjectBinding, active project context, managed project Skill
+
+**Skill Source Package**:
+A stable provenance identity for a coherent set of Local Skills obtained from one external or local source package.
+Repeated downloads, updates, or partial reimports of the same package keep the same identity; download batches, versions, and local directories are metadata rather than separate packages.
+_Avoid_: download batch, local source root, Skill Tool Target
+
+**Anonymous Skill Management**:
+The local-first Skill Management experience available to the Sole Researcher without sign-in, registration, profile, or account state.
+Its inspection, projection, favorites, tags, and local organization operate from local application state rather than a Skill Management identity.
+Version 1 does not include a remote Marketplace or community account surface.
+_Avoid_: Skills Manager account, remote Skill identity, cloud-owned Skill profile, Skill marketplace client
+
+**Local Skill Management Boundary**:
+The boundary containing only the operations needed to inspect, organize, transfer, assess, and project Skills on the local machine, without directly editing Skill content or deleting Skill Bodies.
+Remote catalogs, account services, community interaction, product-support submission, and any Skill Update lifecycle are outside this boundary.
+_Avoid_: full Skills Manager product, Skill marketplace, remote Skill platform
+
+**Non-destructive Skill Management Scope**:
+The current Skill Management scope that discovers, inspects, explains, and may project Local Skills to configured Tools without directly editing Skill content or deleting Skill Bodies.
+An explicit projection operation may create or remove a Tool symlink, but it never edits or deletes the resolved Skill Body.
+Evidence-backed Manual Removal Commands may be displayed as advisory text, but Skill Management never executes them or interprets copying them as deletion intent.
+_Avoid_: content editor, Skill uninstaller, central Skill owner
+
+**Manager-owned Skill Metadata**:
+Local Skill Management data such as favorites, tags, ordering, and private notes that changes only the manager's presentation and organization.
+It never writes to a Skill Body, Tool Skill Target, symlink target, or external installer source.
+_Avoid_: Skill frontmatter, source content, Tool installation state
+
+**External Skill Acquisition Boundary**:
+The boundary that leaves Skill installation, download, import, copying, and moving to npx, curl, git, or Tool-native workflows.
+Skill Management also does not create new Skill Bodies or body-less placeholder Skills; it discovers resulting local bodies and manages only their inventory, explanation, metadata, and explicit Tool projections.
+_Avoid_: Skill Manager installer, central import hub, hidden file migration
+
+**Single-Tool Projection Action**:
+An explicit Apply or On -> Off operation targeting exactly one configured Tool Skill Target.
+Skill Management does not expose a batch projection action that changes multiple Tool paths as one user operation.
+_Avoid_: apply all, disable all, bulk synchronization
+
+**Skill Body Reveal Action**:
+A read-only action that opens a verified Skill Body or installation path in Finder for local inspection.
+It does not edit, delete, move, or otherwise mutate the Skill Body or Tool Skill Target.
+The card-level action reveals the resolved Skill Body, while a Tool-level action reveals that Tool's installation entry; the precise interaction design is deferred to a later prototype.
+_Avoid_: external editor, file operation, automatic cleanup
+
+**Unavailable Skill Tool**:
+A configured or recognized Tool Skill Target whose Tool is not installed or whose Skill root cannot be used.
+It is distinct from an available Tool with a missing Skill (`Off`) and does not expose an Apply action.
+_Avoid_: Off Skill, broken Skill projection, callable Tool
+
+**Shared Skill Analysis Provider**:
+The previously considered Desktop App model provider for Skill translation and risk analysis.
+It is deferred outside the current Skill Management scope and is not required for discovery, inspection, metadata, or projection.
+_Avoid_: current V1 dependency, Skill Manager LLM account, Marketplace provider
+
+**Transient Skill Analysis Result**:
+A deferred AI analysis result that is not part of the current Skill Management scope.
+If analysis returns in a later module, its persistence policy requires a new decision.
+_Avoid_: current Skill fact, authoritative risk state, automatic metadata
+
+**Installed Local Skill**:
+A Skill directory already present on the local machine, including one previously installed from a remote catalog or restored from an older cloud-oriented format.
+Removing remote features never removes its files or local tool projections; only obsolete remote metadata and actions are discarded.
+_Avoid_: Marketplace-owned Skill, cloud Skill, disposable install artifact
+
+**Local Tool Synchronization**:
+The local filesystem operation that observes and, after an explicit user action, updates the relationship between Local Skills and configured Skill Tool Targets.
+It does not require a central Skill directory, upload Skill content, or require a cloud identity.
+_Avoid_: cloud sync, cross-device synchronization, account sync
+
+**Cloud Skill Synchronization**:
+A deferred cross-device capability that would upload Skill metadata or content to a remote service and reconcile it across installations.
+Version 1 does not expose or persist Cloud Skill Synchronization; local import/export is the supported portable transfer mechanism.
+_Avoid_: Local Tool Synchronization, save-time linking, Marketplace refresh
+
+**Local Skill Usage Monitor**:
+The historical on-device collection of Skill invocation counts and recency from configured tool hooks.
+It is outside the current Skill Management scope; the manager does not install or manage those hooks and does not collect or display Skill usage history.
+_Avoid_: product telemetry, cloud analytics, account activity, current V1 capability
+
+**Desktop Product Telemetry**:
+An optional application-wide collection of anonymous product-usage events managed by the Native Desktop Application's privacy boundary.
+Skill Management does not own its consent, storage, initialization, or transport.
+_Avoid_: Local Skill Usage Monitor, Skill invocation history, Skill account
+
+**OpenWorker Global Theme Contract**:
+The shared visual theme contract applied by the Native Desktop Application and its Application Modules through the application theme state and common surface tokens.
+Application Modules inherit this contract, including the shared font stack, instead of maintaining an isolated theme root, font override, or competing background palette.
+_Avoid_: Skills Manager theme, module-local dark mode, independent surface palette
+
+**Skill Tool Target**:
+One product-supported AI coding assistant represented by the fixed Version 1 Skill Tool Set, whether or not it is currently installed or available on the machine.
+Its one or more native Skill roots can be discovered, inspected, enabled, disabled, or projected by Skill Management when the corresponding adapter is available.
+Multiple native roots remain one Tool Target in the UI and metadata; their concrete paths and provenance are retained as installation details.
+_Avoid_: model provider, research agent, independent application
+
+**Tool Skill Root**:
+One concrete native filesystem root through which a Skill Tool Target discovers Skills, such as a user, shared, or fallback Skill directory.
+It is an installation path within one Tool Target, not an additional Tool and not a central Skill Manager repository.
+_Avoid_: separate Tool, central hub, arbitrary filesystem root
+
+**Canonical Tool Projection Root**:
+The one Tool Skill Root declared by a Tool adapter as the default target for an explicit Apply action.
+If this root does not exist, an explicit Apply may create the directory and then create or repair the symlink under it; Refresh never creates it implicitly.
+Apply changes only this root's directory entry and symlink; other user, shared, or fallback roots remain discovery and inspection sources unless a later decision explicitly gives them a projection action.
+It is an adapter fact, not a hidden global/project context and not a user-selectable Custom Tool path.
+_Avoid_: implicit active project, all-roots Apply, central Skill Manager directory
+
+**Predefined Skill Tool Set**:
+The fixed Version 1 allowlist of five Skill Tool Targets supported by Skill Management.
+The allowlist is product-defined rather than inferred from every detected CLI, and it does not expose Custom Tool registration or Custom Tool CRUD.
+The allowlist replaces the former Antigravity entry with Kimi Code.
+_Avoid_: arbitrary tool registry, detected-CLI catalog, Custom Tool surface
+
+**Kimi Code**:
+The Version 1 predefined Skill Tool Target that replaces Antigravity in the Predefined Skill Tool Set.
+Its canonical Tool ID is `kimi-code`, its user-facing name is `Kimi Code`, and its native CLI command is `kimi`.
+Its identity is distinct from the generic Kimi model/provider name; its native configuration and Skill paths are adapter facts and are not inherited from Antigravity.
+Its Canonical Tool Projection Root is `~/.kimi-code/skills/`; `.agents/skills/` is a shared discovery root, while Kimi Code project roots belong to the Native Tool Project Skill Boundary.
+_Avoid_: Antigravity, Kimi model provider, Custom Skill Tool
+
+**Custom Skill Tool**:
+A user-defined Tool integration registered with an arbitrary name, command, or Skill path.
+Custom Skill Tools are outside the Version 1 Skill Management boundary, so the UI provides no create, edit, delete, or arbitrary registration operation for them.
+_Avoid_: Predefined Skill Tool Set, discovered Tool, Tool Skill Installation
+
+**Callable Skill Tool**:
+A Skill Tool Target whose installation path currently contains readable content for a Local Skill, so that the tool can invoke that Skill.
+It is an observed availability fact, not a list of every Tool supported by Skill Management.
+_Avoid_: supported Tool, enabled boolean, configured but empty Tool
+
+**Tool Skill Applicability**:
+The On or Off fact for one Skill at one Tool Skill Target.
+It is On when any usable Tool Skill Root contains readable Skill content through either a real directory or a valid symlink, and Off when no root contains such content.
+Root-level materialization, path, and provenance remain visible in the Skill details even when the Tool row presents one aggregate applicability state.
+When at least one root is a Body-Hosting Root, the aggregate Tool state is green On and its switch is disabled even if another root contains a valid symlink projection.
+When no Body-Hosting Root exists but one or more roots contain valid symlink projections, the aggregate Tool state is yellow On and its switch is enabled; On -> Off removes every valid symlink projection for that Skill under that Tool atomically, without touching the Skill Body.
+If a yellow On Tool also has broken symlink roots, those roots remain visible as errors and the same On -> Off action removes all valid and broken symlink entries for that Skill under that Tool atomically.
+_Avoid_: linked state, installation form, manager ownership
+
+**Mixed Tool Skill State**:
+A Tool Skill Target whose roots contain both a real Skill Body and one or more valid symlink projections for the same Skill.
+It is presented as the Body-Hosting case at the aggregate Tool row: green On with a disabled switch, while the symlink roots remain visible in the detail view.
+The aggregate On -> Off action does not remove those symlinks because the Tool is already applicable through its real Skill Body.
+_Avoid_: partially Off Tool, duplicate Tool row, automatic symlink cleanup
+
+**Body-Hosting Tool**:
+A Skill Tool Target whose path contains the Skill Body directly as a real directory rather than through a symlink projection.
+Its Tool Skill Applicability is On, but its per-Tool switch is disabled because turning it Off would require deleting the Skill Body rather than removing a projection.
+_Avoid_: source toggle, enabled link, editable switch
+
+**Symlink Projection Tool**:
+A Skill Tool Target with one or more valid symlink projections to a Skill Body elsewhere and no Body-Hosting Root for that Skill.
+Its per-Tool switch may remove or restore all of that Tool's symlink projections for the Skill as one atomic Tool-level action without deleting the Skill Body.
+_Avoid_: Skill Body owner, central Tool, delete Skill
+
+**Tool Skill Installation**:
+A Skill directory or symlink that exists under a Skill Tool Target and can be called by that tool.
+Its availability is determined by the target's readable content, while its materialization form remains a separate fact from whether the Skill is applicable to the tool.
+_Avoid_: central Skill copy, managed link, enabled boolean
+
+**Tool Skill Path Collision**:
+An Apply attempt whose target path is already occupied by a real Skill with different content.
+It is a path conflict rather than a Skill identity conflict; Apply fails without overwriting, renaming, or moving the existing Skill.
+_Avoid_: merged Skill, deletion ambiguity, automatic replacement
+
+**Broken Skill Projection**:
+A Skill Tool Installation path that is a symlink whose target cannot be resolved to readable Skill content.
+It is Off/Error during read-only discovery when no other root makes the Tool applicable.
+If another root provides a valid projection, the aggregate Tool remains yellow On while this root is shown as an error detail.
+An explicit Apply may replace the dangling symlink with a projection to the selected Skill Body, and an explicit On -> Off for a yellow Tool removes the broken entry together with the Tool's other symlink entries.
+_Avoid_: callable Skill, valid projection, implicit repair
+
+**Skill Identity**:
+The logical grouping of Tool Skill Installations whose declared identity and complete readable content represent the same Skill.
+Matching directory names alone do not establish identity; installations with divergent content are separate Skill variants and are never included in one another's edit or deletion set.
+_Avoid_: folder name, central copy, enabled state
+
+**Skill Body**:
+The resolved readable directory containing the actual content of a Skill Installation.
+For a symlink installation, the Skill Body is its resolved target, and it does not have to live in a central Skill Manager directory.
+_Avoid_: hub directory, link entry, display card
+
+**Unprojected Skill Body**:
+A known readable Skill Body that currently has neither a Body-Hosting Tool nor a valid symlink projection under the configured Tool Skill Targets.
+It remains in Skill Management's inventory with no callable Tool metadata and all known Tools Off.
+_Avoid_: deleted Skill, missing body, unavailable source
+
+**Synchronized Skill Replica Set**:
+The Tool Skill Installations grouped under one Skill Identity because their complete content agrees.
+An edit to the Skill Body propagates to every equivalent replica, while a shared symlink target is written only once.
+_Avoid_: independent copies, enabled tools, central mirror
+
+**Synchronized Skill Edit Transaction**:
+A single all-or-nothing content edit applied to every equivalent Skill Body or replica in one Synchronized Skill Replica Set.
+If any target cannot be written, the edit fails as a whole and no partial content change is accepted.
+_Avoid_: best-effort fan-out, partial save, divergent write result
+
+**Synchronized Skill Deletion Transaction**:
+A single all-or-nothing deletion of a Skill Body replica set and its related symlink entries.
+The deletion set is limited to verified Skill Body replicas and symlink entries under configured Tool Skill Targets.
+If Skill Management cannot complete that verified deletion set, it fails the operation rather than intentionally accepting a partial deletion; external symlinks outside those targets are not automatically searched for or deleted.
+_Avoid_: best-effort cleanup, partial uninstall, orphaned deletion state
+
+**Symlink Provenance**:
+The evidence-based explanation of a symlink's target and known management source, such as npx skills, Skill Management, a Tool-native installer, or an unknown origin.
+It must not claim who created a historical link when no registry or source metadata proves that fact.
+_Avoid_: guessed creator, installation form, ownership inferred from color
+
+**Installation Provenance**:
+The evidence-backed record of how a Tool Skill Installation entered the machine, including its installer or source, scope, and an appropriate removal route when one is known.
+It determines the recommended deletion command but does not make a historical creator claim without supporting metadata, and a later rescan may invalidate stale provenance.
+Known external provenance does not lock the editor: the Sole Researcher may edit the actual Skill Body, with a warning that the installer or Tool may overwrite local changes later.
+_Avoid_: filesystem guess, symlink target alone, generic rm as universal uninstall
+
+**Manual Removal Command**:
+A copyable installer-specific or filesystem cleanup command that Skill Management recommends for a Local Skill.
+It is advisory display text only: copying it does not express deletion intent, create a pending state, or change Skill Management state; the Sole Researcher may run it manually at any time.
+_Avoid_: automatic shell execution, hidden uninstall, generic command without a known target
+
+**AGENTS.md Application Module**:
+A top-level Application Module in the Native Desktop Application for discovering, inspecting, and editing durable `AGENTS.md` instruction sources.
+It is selected from the Harness Sidebar group alongside Skill Management and does not treat instruction files as Skills or application settings.
+_Avoid_: Settings subsection, Skill card, Prompt Library
+
+**Harness**:
+A top-level Sidebar navigation group for the local coding-agent infrastructure surfaces.
+It contains Skill Management and the `AGENTS.md` Application Module as sibling destinations, but it does not own a separate content surface of its own.
+_Avoid_: standalone Harness page, model provider group, generic application settings
+
 **Artifact Preview**:
-The contextual right-side area of the Unified Workspace that appears when a selected non-PDF artifact has a previewable representation.
+The contextual right-side area of the Native Desktop Application that appears when a selected non-PDF artifact has a previewable representation.
 It remains absent when no artifact is selected and does not replace the central work area.
 _Avoid_: Browser PDF Reader, full-screen reader, artifact explorer, permanent third column
 
@@ -145,14 +529,14 @@ A non-data-bearing visual generated from a stable module or project identity, so
 It expresses research character without claiming to visualize a model state, research result, evidence relation, or runtime metric.
 _Avoid_: simulated telemetry, fake neural-network diagram, unlabelled data visualization
 
-**Rice-White Workspace**:
-The Unified Workspace visual foundation of warm rice-white surfaces, graphite text, restrained rules, and a Unified Tonal Spectrum for non-error interface signals.
+**Rice-White Surface**:
+The Native Desktop Application visual foundation of warm rice-white surfaces, graphite text, restrained rules, and a Unified Tonal Spectrum for non-error interface signals.
 Navigation belongs to the same continuous light field as the work area rather than becoming a dominant dark rail.
 Local Material Expression Layers may enrich this foundation without replacing it with a persistent dark theme.
 _Avoid_: dark dashboard shell, stark cool-white surface, a separate blue identity spectrum, competing semantic accent colors
 
 **Material Expression Layer**:
-A localized visual layer above the Rice-White Workspace that applies a selected craft or art material vocabulary to frame research identity, object focus, or exhibition-oriented content.
+A localized visual layer above the Rice-White Surface that applies a selected craft or art material vocabulary to frame research identity, object focus, or exhibition-oriented content.
 It remains subordinate to text, controls, real charts, and explicit state indicators, and never substitutes for a real research measurement or lifecycle state.
 _Avoid_: global recoloring, decorative wallpaper, implicit data visualization, themed controls on every surface
 
@@ -163,8 +547,8 @@ Other art forms may inform its whitespace, asymmetry, or texture principles, but
 _Avoid_: Japanese-style collage, literal traditional motifs, a second named art direction
 
 **Exhibition Module**:
-A Workspace Module whose primary job is to frame research context, progress, or outputs rather than support dense configuration work.
-Project Space is the Version 1 Exhibition Module and uses a stronger distributed Research Identity Layer in its title, structural whitespace, and current-object states while operational modules remain visually quiet.
+A Native Desktop Application module whose primary job is to frame research context, progress, or outputs rather than support dense configuration work.
+The Exhibition Module uses a stronger distributed Research Identity Layer in its title, structural whitespace, and current-object states while operational modules remain visually quiet.
 _Avoid_: a poster treatment on every module, standalone decorative field, decorative configuration form
 
 **Research Editorial Typography**:
@@ -194,13 +578,13 @@ It does not quantify runtime progress, research evidence, model structure, or an
 _Avoid_: decorative wallpaper, telemetry substitute, unlabeled data chart
 
 **Occluded Point-Cloud Substrate**:
-The persistent, static, and clearly perceptible Unified Tonal Spectrum point-cloud composition anchored to the lower-right of the Unified Workspace's main content background.
+The persistent, static, and clearly perceptible Unified Tonal Spectrum point-cloud composition anchored to the lower-right of the Native Desktop Application's main content background.
 Its subject is a non-figurative directional abstract formation, not a portrait, neural-network diagram, star field, or implicit data visualization.
 Foreground panels, records, and content naturally crop and occlude it, so it remains a single shared research-identity subject without competing with reading or controls.
 _Avoid_: random redraws, full-bleed particle wallpaper, overlap with text or inputs, a generic star field
 
 **Stable Particle Identity**:
-The deterministic particle distribution assigned to one Workspace Module or research object.
+The deterministic particle distribution assigned to one Application Module or research object.
 It remains unchanged while that object is viewed and may make one brief transition when the active module or object changes, but never continuously drifts or reshuffles.
 _Avoid_: random redraw on render, perpetual particle animation, state ambiguity
 
@@ -215,7 +599,7 @@ It excludes unlabeled chart-like curves and large ASCII backgrounds because they
 _Avoid_: fake plot line, ASCII wallpaper, competing decorative language
 
 **Particle Identity Hierarchy**:
-The rule that all interface elements share the Research Texture Set while only Workspace Modules, research objects, workflow groups, and the current record receive their own Stable Particle Identity.
+The rule that all interface elements share the Research Texture Set while only Application Modules, research objects, workflow groups, and the current record receive their own Stable Particle Identity.
 Individual static cards and parameter rows use common local texture rather than independent visual signatures.
 _Avoid_: one illustration per card, record-level visual clutter, noisy catalogue
 
@@ -225,7 +609,7 @@ Particles express identity, interface hierarchy, and permitted interaction state
 _Avoid_: atmospheric progress indicator, ambiguous quantitative texture, decorative telemetry
 
 **Particle Intensity Gradient**:
-The allocation of particle emphasis by Workspace Module: low in System Settings and Prompt Library, medium in Conversations and Skill Management, and high in Project Space.
+The allocation of particle emphasis by Application Module: low in System Settings and Prompt Library, medium in Conversations and Skill Management, and high in the Exhibition Module.
 The gradient keeps frequent configuration work quiet while giving research-context views a stronger, still non-data-bearing identity.
 _Avoid_: uniform decoration, expressive configuration form, silent operational surface
 
@@ -252,12 +636,12 @@ _Avoid_: QA session, Discovery Launch, chat
 **Research Submission**:
 The goal, domain, constraints, reference materials, datasets, and optional baseline code supplied by the Sole Researcher to start a Discovery Launch.
 It remains distinct from generated artifacts and the Paper Input Bundle.
-_Avoid_: Task Authoring Form, Paper Input Bundle, Launch Workspace
+_Avoid_: Task Authoring Form, Paper Input Bundle, Launch filesystem
 
 **Staged Research Upload**:
 A temporary input file stored before one Deep Research Run claims it during creation.
 It may be claimed once, while an unclaimed upload expires; it is neither a reusable file library nor a research artifact.
-Autonomous Discovery Space uses Discovery Preparation source files instead.
+The Native Desktop Discovery Module uses Discovery Preparation source files instead.
 _Avoid_: Discovery Preparation source file, attachment library, permanent upload, research artifact, shared input
 
 **Unstructured Discovery Source**:
@@ -265,15 +649,17 @@ The arbitrary plain text and files that the Sole Researcher supplies to prepare 
 It requires no prescribed schema or complete research-task structure before the model-assisted conversion step.
 Its Version 1 accepted file types are plain text, Markdown, PDF, DOCX, CSV, and ZIP baseline-code packages.
 Other file types are rejected explicitly before conversion.
+Conversion cannot begin while any included accepted source fails validation or text extraction.
+The failed source remains visible in the Discovery Preparation with an explicit reason, and no partial conversion is produced from the remaining sources.
 _Avoid_: Task Authoring Form, structured Research Submission, required intake template
 
 **Formatted Discovery Input**:
 The editable Discovery-ready content generated from an Unstructured Discovery Source by the model-assisted conversion step.
-The Sole Researcher can inspect, revise, and explicitly save a revision in Autonomous Discovery Space before starting the Discovery Launch.
+The Sole Researcher can inspect, revise, and explicitly save a revision in the Native Desktop Discovery Module before starting the Discovery Launch.
 _Avoid_: raw source material, automatically launched task, immutable model output
 
 **Discovery Preparation**:
-A reusable Autonomous Discovery Space record that owns Unstructured Discovery Source files and saved Formatted Discovery Input revisions.
+A reusable Discovery Preparation record that owns Unstructured Discovery Source files and saved Formatted Discovery Input revisions.
 It remains available after a Discovery Launch starts and can create multiple new Launches.
 Each Launch captures the explicitly selected input revision and source files in its own immutable start-time record.
 _Avoid_: one-time Staged Research Upload, mutable Launch input, current-run-only form
@@ -289,20 +675,30 @@ _Avoid_: Discovery generation system prompt, Task Authoring Form, direct launch 
 
 **Discovery Input Conversion Invocation**:
 One explicit model call that applies the Discovery Input Conversion Prompt to an Unstructured Discovery Source.
-It resolves the current System Settings default text model and parameters when invoked and offers no Autonomous Discovery Space-local model override.
+It resolves the current System Settings default text model and parameters when invoked and offers no Discovery Module-local model override.
 _Avoid_: Discovery-local model picker, system orchestration prompt, automatic background conversion
+
+**Native Desktop Prompt Library Module**:
+The OpenWorker System Settings module that exposes Vegapunk's core Prompt Library capabilities: browse, search, inspect, edit, validate, and save Registered Prompts.
+Version 1 excludes Chinese Prompt Mirrors, automatic translation, batch synchronization, creation, deletion, renaming, and metadata editing.
+_Avoid_: App Language Preference, Prompt translation tool, user-created Prompt collection, Researcher Skill
 
 **Prompt Library**:
 The single service-wide collection of every editable system Prompt text, stored as repository source files and including scientific-behavior prompts and infrastructure/scaffolding prompts.
 Each new Deep Research Run or Discovery Launch reads it when it starts; edits affect work that starts afterwards and never change work already running.
 There are no per-Launch prompt overrides.
-Saved Prompt revisions have no built-in history or system-original copy; repository history owns recovery after a successful save.
+Saved Prompt revisions do not retain intermediate user history; each Registered Prompt retains only its current active body and its current-version System-Original Prompt.
 _Avoid_: per-Launch prompt snapshot, mid-run prompt edit, hardcoded prompt, curated prompt subset
 
 **Registered Prompt**:
 A Prompt Library entry with a stable identity and runtime call site supplied by the installed Vegapunk version.
 The Sole Researcher may revise its content but cannot edit its system-maintained metadata or create, delete, or rename Registered Prompts through System Settings.
 _Avoid_: ad hoc Prompt, user-created Prompt, unregistered Prompt
+
+**System-Original Prompt**:
+The default body for one Registered Prompt supplied by the currently installed Vegapunk version.
+It is retained separately from the Sole Researcher's active body so the editor can load that one Prompt's current-version default into a Pending Prompt Revision; no intermediate user revision history is retained.
+_Avoid_: first-ever Prompt body, immutable migration baseline, user revision history
 
 **Pending Prompt Revision**:
 An unsaved proposed body for one Registered Prompt that has no effect until an explicit save passes the Prompt Template Contract and atomically replaces the Prompt's repository source file.
@@ -320,15 +716,15 @@ It rejects empty or malformed Prompt revisions before a research Run can consume
 _Avoid_: runtime-only Prompt validation, undeclared template variable, best-effort save
 
 **Run Parameter Registry**:
-The service-wide catalog of every run parameter and its default, description, type, and validation rule, managed through the Unified Workspace.
+The service-wide catalog of every run parameter and its default, description, type, and validation rule, managed through Native Desktop Settings and the local sidecar.
 Only intentionally configurable parameters with stable identities belong to the Registry; secrets, internal paths, protocol details, and implementation constants do not.
 An allowlisted subset may be supplied as Researcher Run Settings without changing the Registry defaults.
 _Avoid_: raw config file editing, unrestricted researcher override, mid-run change, undocumented parameter
 
 **Settings Activation Boundary**:
 The start of the next new Deep Research Run or Discovery Launch, when committed System Settings changes become effective without requiring a service restart.
-Work already running retains the settings resolved at its own start.
-Queued work has not crossed this boundary and therefore uses the latest committed settings when it starts, while a Launch Resume continues to use its original Launch Configuration Snapshot.
+Work already running retains the settings resolved at its own start, while a newly admitted Discovery Launch uses the latest committed settings.
+A Launch Resume continues to use its original Launch Configuration Snapshot.
 _Avoid_: mid-run settings update, service-restart activation, immediate field activation
 
 **Default Configuration Revision**:
@@ -351,9 +747,10 @@ The complete copy of the Prompt Library and effective run parameters, including 
 The Launch and any Launch Resume read only this snapshot, and it is the authoritative record of the configuration behind that Launch's results.
 _Avoid_: live global config, implicit defaults, post-hoc reconstruction
 
-**Launch Queue**:
-The service-wide first-in-first-out order in which submitted Discovery Launches wait to execute. Exactly one Launch runs at a time; submitting a Launch enqueues it rather than starting it immediately.
-_Avoid_: parallel launches, per-user queue, immediate start
+**Discovery Launch Admission**:
+The product rule that accepts Moonshot only when no Discovery Launch is running.
+An admitted Launch starts immediately, while another request is rejected rather than becoming queued work.
+_Avoid_: Launch Queue, queued Launch, delayed Launch
 
 **Graceful Stop**:
 The default way to stop running research work: it finishes its current smallest unit, persists any supported checkpoint, and exits with the work marked stopped without triggering later stages.
@@ -366,8 +763,8 @@ Its durable progress is reconciled first; if it did not complete, the Sole Resea
 _Avoid_: failed Launch, aborted Launch, automatic resume
 
 **Launch Resume**:
-Re-enqueueing a stopped or reconciled-incomplete Interrupted Launch to continue from its Workflow Progress checkpoints using exactly the prompts and parameters captured at its original start.
-It requires an explicit researcher action, preserves earlier Execution Attempts, adds a new attempt at the current milestone, and never absorbs later Prompt, model-binding, or run-parameter edits.
+An explicit request to continue a stopped or reconciled-incomplete Interrupted Launch from its Workflow Progress checkpoints using exactly the prompts and parameters captured at its original start.
+It is admitted only when no other Discovery Launch is running, preserves earlier Execution Attempts, adds a new attempt at the current milestone, and never absorbs later Prompt, model-binding, or run-parameter edits.
 Each resumed Execution Attempt resolves the current Provider Connection for the originally bound Provider because credentials are never stored in the Launch Configuration Snapshot.
 _Avoid_: new Launch, automatic resume, mixed-configuration continuation, edit absorption on resume
 
@@ -376,13 +773,18 @@ The durable ordered chain of core milestones through which the product presents 
 Milestone state changes are the product's persisted progress events, so live and reopened views share one record while detailed operational output remains in the Research Activity Stream.
 _Avoid_: transient progress, raw internal trace, replacement for activity output
 
+**Selected Launch Status Wheel**:
+The manual-browsable visual presentation of one Selected Discovery Launch's durable, non-repeating Research Progress Timeline.
+It centers the current state and keeps terminal exceptions explicit, while never filtering or controlling the Raw Discovery Console.
+_Avoid_: global status dashboard, progress animation, raw-console filter
+
 **Research Activity Stream**:
 The bounded durable terminal-style sequence of curated and redacted operational messages for one Deep Research Run or Discovery Launch.
 It complements the Research Progress Timeline, resumes after reconnect, may discard its oldest messages at the product limit, and never exposes raw Admin logs, hidden prompts, or internal reasoning.
 _Avoid_: raw Admin log, internal trace, replacement for progress milestones
 
 **Raw Discovery Console**:
-The Autonomous Discovery Space's terminal surface that renders a Discovery Launch's stdout and stderr in their original order without summarization, transformation, or redaction.
+The Native Desktop Discovery Module's terminal surface that renders a Discovery Launch's stdout and stderr in their original order without summarization, transformation, or redaction.
 Its Version 1 scope is the Sole Researcher's private intranet deployment and may expose all process output, including credentials or hidden prompts.
 Selecting a Launch or reconnecting replays its complete durable console history before following appended output.
 Version 1 applies no display-line limit, replay cursor, or output-processing layer.
@@ -395,24 +797,24 @@ A Discovery Launch Resume adds an attempt while preserving earlier attempts; an 
 _Avoid_: Experiment Run, resumed Launch, overwritten attempt
 
 **Live Launch View**:
-The Unified Workspace view that follows the currently running Discovery Launch in real time: its current stage and round, each runtime artifact as soon as it is persisted, and streaming key logs. It does not wait for stage or Launch completion.
-_Avoid_: post-hoc report, final-artifact-only view, completed-Launch browser
+The Native Desktop Discovery Module view that follows the currently running Discovery Launch in real time: its current stage and round, each runtime artifact as soon as it is persisted, and streaming key logs. It does not wait for stage or Launch completion.
+_Avoid_: post-hoc report, final-artifact-only view, completed-Launch-only view
 
 **Artifact Explorer**:
-The Unified Workspace's contextual right sidebar that exposes every non-PDF human-readable file a Launch persists as a browsable tree with content viewers, guaranteeing that all sidebar-eligible runtime information is reachable.
+The Native Desktop Discovery Module's contextual right rail that exposes every non-PDF human-readable file a Launch persists as a browsable tree with content viewers, guaranteeing that all rail-eligible runtime information is reachable.
 Markdown artifacts render as documents while other sidebar-eligible text, data, code, source, and image artifacts use direct human-readable viewers.
 Structured views such as the Launch timeline and Experiment Run detail are navigational overlays on top of it, never the only path to sidebar-eligible artifact information.
-In Autonomous Discovery Space, it is scoped to the Selected Discovery Launch and excludes PDF and machine-only binary runtime files from the tree.
-_Avoid_: central-work-area artifact viewer, PDF sidebar preview, raw filesystem mirror, binary-file browser, final-only gallery, unmodeled human-readable information blind spot
+In the Native Desktop Discovery Module, it is scoped to the Selected Discovery Launch and excludes PDF and machine-only binary runtime files from the tree.
+_Avoid_: central-work-area artifact viewer, PDF right-rail preview, raw filesystem mirror, binary-file browser, final-only gallery, unmodeled human-readable information blind spot
 
 **Discovery Launch Archive**:
-The Autonomous Discovery Space's chronological collection of every running or completed Discovery Launch.
+The Native Desktop Discovery Module's chronological collection of every running or completed Discovery Launch.
 Selecting one Launch makes its complete sidebar-eligible artifact tree available through the Artifact Explorer instead of limiting the researcher to the current Launch.
 Its user-visible PDFs remain available through their dedicated Browser PDF Reader actions.
 _Avoid_: current-run-only output, curated result gallery, discarded completed run
 
 **Selected Discovery Launch**:
-The one Discovery Launch selected from the Discovery Launch Archive as the Autonomous Discovery Space's current viewing context.
+The one Discovery Launch selected from the Discovery Launch Archive as the Native Desktop Discovery Module's current viewing context.
 Its selection simultaneously determines the Raw Discovery Console history in the central work area and Artifact Explorer tree in the right sidebar.
 _Avoid_: independent console selection, independent artifact selection, multiple concurrent viewing contexts
 
@@ -427,11 +829,11 @@ It is a Curated Research Artifact rather than a copy of the complete Launch work
 _Avoid_: full workspace archive, raw artifact dump, configuration snapshot
 
 **Task Authoring Form**:
-The Unified Workspace form through which the researcher directly composes a research task's structured fields (system, task description, domain, background, constraints) and uploads its baseline code package. It performs no LLM assistance; a task without baseline code can only take the report path, not the experiment path.
+The Native Desktop Application form through which the researcher directly composes a research task's structured fields (system, task description, domain, background, constraints) and uploads its baseline code package. It performs no LLM assistance; a task without baseline code can only take the report path, not the experiment path.
 _Avoid_: Task Builder, automatic task generation, topic-only quick start
 
 **Task Builder**:
-The planned later capability that turns a research topic plus uploaded reference materials into a draft task via model assistance, for researcher review before enqueueing. It is not part of the first Unified Workspace delivery.
+The planned later capability that turns a research topic plus uploaded reference materials into a draft task via model assistance, for researcher review before Launch Admission. It is not part of the first Native Desktop Application delivery.
 _Avoid_: Task Authoring Form, fully automatic launch, current capability
 
 **Discovery Launch**:
@@ -454,6 +856,16 @@ _Avoid_: candidate experiment, discovery round, launch
 The configured source of model inference used by LLM-backed agent roles.
 It does not own code-workspace operations or Candidate Experiment execution.
 _Avoid_: model, coding agent CLI, Experiment Backend
+
+**Relay Provider Module**:
+The complete researcher-facing Model Provider entry for the Relay service.
+It includes the provider identity, supported connection fields, connectivity verification, and selectable models needed to route real model calls through Relay after configuration.
+Its model calls use the Relay model's declared Responses protocol so reasoning, tool use, structured output, and continuation semantics remain intact.
+Its connection defaults to the project's current Relay deployment and may expose an explicitly supported Endpoint override as an advanced setting.
+Its visual treatment follows the shared Model Provider gallery and Provider detail view used by the other providers; Relay does not introduce a drawer, split layout, or Relay-specific navigation model.
+Its first text-model offering recommends `gpt-5.6-sol`, keeps image models outside this configuration surface, and permits the Sole Researcher to enter another explicit Relay model identity.
+It is not a decorative provider card and does not create a second Relay identity alongside the project-wide `relay` Provider.
+_Avoid_: Relay placeholder card, separate relay provider, display-only provider
 
 **Unified Model Catalog**:
 The single project-wide vocabulary for selecting Model Providers and the models they expose across all in-process LLM roles.
@@ -567,6 +979,13 @@ The coding-agent runtime that implements and revises a Candidate Experiment insi
 It is selected independently from a Model Provider.
 _Avoid_: Model Provider, Candidate Experiment, model
 
+**Codex CLI Backend**:
+The Experiment Backend implemented through Codex's non-interactive command-line coding-agent runtime.
+It receives the existing experiment task and workspace contract, edits candidate code, and returns execution output without owning Discovery orchestration, Experiment Run validation, or Model Provider selection.
+It is a peer replacement for the Codex CLI Backend at the coding-agent boundary, not a second Unified Model Runtime.
+The active Discovery choice is `codex`, and Codex CLI is not retained as a hidden fallback for Discovery.
+_Avoid_: Codex Model Provider, Discovery orchestrator, experiment result validator
+
 **Qwen Model Provider**:
 The first-class Model Provider for Qwen models.
 It is independently selectable from the Qwen Code Backend.
@@ -574,8 +993,8 @@ _Avoid_: Qwen Code Backend, Qwen model
 
 **Qwen Code Backend**:
 The Experiment Backend implemented through the official Qwen Code coding-agent runtime.
-It is a peer of the Claude Code and iFlow Experiment Backends rather than an alias or mode of either one.
-_Avoid_: Qwen Model Provider, Claude Code Backend, qwen mode
+It is a peer of the Codex CLI and iFlow Experiment Backends rather than an alias or mode of either one.
+_Avoid_: Qwen Model Provider, Codex CLI Backend, qwen mode
 
 **Paper Candidate Round**:
 The most recent completed Discovery Round containing at least one successful Candidate Experiment. Paper candidate comparison is confined to this round.

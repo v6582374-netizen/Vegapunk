@@ -17,7 +17,7 @@ import yaml
 
 from vegapunk.prompt_library import DEFAULT_LIBRARY_ROOT, prompts
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _looks_like_prompt(text: str) -> bool:

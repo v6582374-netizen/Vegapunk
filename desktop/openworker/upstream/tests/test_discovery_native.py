@@ -65,7 +65,7 @@ def test_discovery_facade_is_registered_on_the_existing_authenticated_sidecar(
         "history": [],
     }
 
-    # The native facade must not redirect callers back to Web-only route families.
+    # The native facade must not redirect callers back to retired route families.
     assert client.get(
         "/api/workspace/discovery", headers={"X-OpenWorker-Token": "a" * 64}
     ).status_code == 404

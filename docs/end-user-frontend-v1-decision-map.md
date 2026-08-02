@@ -2,8 +2,10 @@
 
 > Historical research record. The planned browser-based End-User Frontend V1 was not retained as the active product surface; implementation focus is now the OpenWorker Desktop App.
 
-This map defines a deployable researcher-facing frontend without changing Vegapunk's research, experiment, queue, model, or GPU logic.
-The existing Admin Console remains an independent developer tool.
+Do not use this map as a current product or API specification.
+
+This map records a superseded deployable researcher-facing frontend proposal without changing Vegapunk's research, experiment, queue, model, or GPU logic.
+The former Admin Console is retired; its historical references remain only for migration audit context.
 
 ## admin-separation: Separate Product And Admin Surfaces
 

@@ -10,7 +10,7 @@ Modern-minimal research workbench.
 ## Macrostructure family
 
 - App modules: Workbench Field with a persistent module rail and a central work area.
-- Exhibition Module: Project Space may use a stronger Material Expression Layer around research context and outputs.
+- Exhibition Module: research context and outputs may use a stronger Material Expression Layer.
 - Operational modules: configuration and dense records stay quiet and prioritize readability.
 
 ## Theme
@@ -22,7 +22,7 @@ Modern-minimal research workbench.
 
 ## Canonical tokens
 
-The Desktop App's visual tokens are maintained in its own GUI source tree. The legacy root `frontend/tokens.css` file is no longer an active source of truth.
+The Desktop App's visual tokens are maintained in its own GUI source tree. Legacy root-level token files are no longer active sources of truth.
 
 ```css
 :root {
@@ -49,7 +49,7 @@ The Desktop App's visual tokens are maintained in its own GUI source tree. The l
 
 ## Material expression eligibility
 
-- `exhibition`: Project Space receives the high-intensity profile.
+- `exhibition`: the Exhibition Module receives the high-intensity profile.
 - `quiet`: durable modules and stable placeholders with continuing product ownership may receive only the shared quiet substrate.
 - `none`: dense configuration and operational surfaces do not receive an individual Material Expression Layer.
 - Generic temporary scaffolds, ordinary cards, parameter rows, and invalid elements remain unstyled.
@@ -78,4 +78,4 @@ The Desktop App's visual tokens are maintained in its own GUI source tree. The l
 
 ## Exports
 
-The Desktop App consumes its GUI-local styling and token sources. Root-level Web/Vite token exports are intentionally retired now that the product UI is Desktop-first.
+The Desktop App consumes its GUI-local styling and token sources. Legacy root-level token exports are retired and must not be reintroduced as a second product UI source.
