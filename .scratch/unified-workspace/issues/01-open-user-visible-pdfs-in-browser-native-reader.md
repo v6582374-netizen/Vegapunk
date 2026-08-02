@@ -1,5 +1,7 @@
 # Open User-Visible PDFs in the Browser-Native Reader
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 Type: specification
 Status: ready-for-agent
 Labels: ready-for-agent

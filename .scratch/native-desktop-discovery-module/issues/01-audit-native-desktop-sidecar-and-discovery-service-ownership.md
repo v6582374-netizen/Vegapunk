@@ -15,7 +15,8 @@ Blocks: 04-define-single-preparation-upload-persistence-and-error-contract.md, 0
 结论是 Tauri 管理的唯一 `openworker-server` sidecar 承担 Native Desktop 的唯一用户可见本地服务。
 Discovery 应通过 sidecar 内的 `/v1/discovery/...` facade 或 router 接入，并复用 native `SessionManager` data root、`SecretStore`、token middleware、`api.ts` transport，以及通过适配层接入的 Preparation、conversion、queue、live、artifact seams。
 
-`admin_console.app:create_app`、未认证的 `/api/*`、repository-root 的 `results`/`tasks`/config 默认值、8000 端口和 Web-only middleware 保留为兼容或测试边界，不作为 Native Desktop 的生产进程归属。
+`admin_console.app:create_app`、未认证的 `/api/*`、repository-root 的 `results`/`tasks`/config 默认值、8000 端口和 Web-only middleware 已从 Native Desktop 产品边界移除。
+旧路径只保留在负向回归断言或历史审计材料中，不作为 Native Desktop 的生产进程归属。
 
 应用退出时的 active Launch 处理、重启后的 adoption 或 Resume 语义仍由票据 06 决定。
 原生数据根路径和各适配器的具体契约由票据 04 至 07 继续收敛。

@@ -1,5 +1,7 @@
 # 01 - Remove Project Space Test PDF Preview
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher no longer sees a fabricated paper PDF or a right-side PDF preview in Project Space, and the Unified Workspace returns to its normal full-width central work area.
 
 **Blocked by:** None - can start immediately.

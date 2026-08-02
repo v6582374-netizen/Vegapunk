@@ -1,5 +1,7 @@
 # 03 - Convert sources into editable Formatted Discovery Input
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can explicitly convert a Discovery Preparation through the configured Discovery Input Conversion Prompt and default text-model boundary, then inspect, revise, and explicitly save the result in a right-side editor.
 
 **Blocked by:** 02 - Create reusable Discovery Preparation.

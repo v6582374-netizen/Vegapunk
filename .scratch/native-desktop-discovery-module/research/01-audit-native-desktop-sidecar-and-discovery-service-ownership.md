@@ -1,5 +1,9 @@
 # Native Desktop Sidecar and Discovery Service Ownership
 
+> Historical audit snapshot.
+> Since this audit, the former `admin_console` service and its `/api/*` route families have been retired from the product boundary.
+> The current implementation is the authenticated `openworker-server` sidecar and its `/v1/discovery/*` routes.
+
 ## Scope
 
 This audit answers which current native desktop process, API, authentication, and storage conventions can host Discovery without starting a second user-visible service.

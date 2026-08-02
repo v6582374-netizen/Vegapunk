@@ -1,5 +1,7 @@
 # 02 - Create reusable Discovery Preparation
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can create a reusable Discovery Preparation from free-form research text and supported source files, see each accepted source, and receive an explicit rejection for an unsupported file before conversion begins.
 
 **Blocked by:** 01 - Establish dual-Space Unified Workspace shell.

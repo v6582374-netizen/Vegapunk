@@ -1,5 +1,7 @@
 # 01 - Establish dual-Space Unified Workspace shell
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can remain in one unauthenticated Unified Workspace and switch in the lower-left between Collaboration Space and Autonomous Discovery Space, with each Space owning only its declared sidebar modules and retaining its selected module for the browser session.
 
 **Blocked by:** None - can start immediately.

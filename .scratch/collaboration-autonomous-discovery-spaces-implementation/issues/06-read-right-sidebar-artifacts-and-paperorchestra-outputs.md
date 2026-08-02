@@ -1,5 +1,7 @@
 # 06 - Read right-sidebar artifacts and PaperOrchestra outputs
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can inspect the selected Discovery Launch's human-readable Discovery and PaperOrchestra artifacts in a right sidebar, while PDFs use browser-native new tabs and machine-only files remain outside the web artifact experience.
 
 **Blocked by:** 05 - Browse Launch Archive and Raw Discovery Console.

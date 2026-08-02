@@ -1,5 +1,7 @@
 # 05 - Browse Launch Archive and Raw Discovery Console
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can choose a running or completed Discovery Launch from the Autonomous Discovery Space archive and observe that Launch's complete raw terminal history followed by live output in the central work area.
 
 **Blocked by:** 04 - Launch a saved revision as a real Discovery Launch.

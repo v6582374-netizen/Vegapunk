@@ -1,5 +1,7 @@
 # 04 - Launch a saved revision as a real Discovery Launch
 
+> Historical planning artifact superseded by the Native Desktop Application boundary.
+
 **What to build:** The Sole Researcher can explicitly start a Discovery Launch from one saved Formatted Discovery Input revision, with the system materializing an immutable start-time record before handing execution to the existing Launch Queue.
 
 **Blocked by:** 03 - Convert sources into editable Formatted Discovery Input.
