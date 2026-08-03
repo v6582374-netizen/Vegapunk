@@ -43,6 +43,29 @@ Its source files are uploaded file entries rather than folder-access permissions
 Version 1 does not expose multiple independent Preparation records.
 _Avoid_: conversation draft, reusable source library, multiple project workspaces
 
+**Local Web Deployment**:
+The loopback-only browser deployment used to validate the Linux Web Counterpart before a shared Linux server exists.
+It is a development and acceptance environment and does not decide the future network, identity, or multi-user boundary.
+_Avoid_: production server, public deployment, finalized intranet boundary
+
+**macOS Desktop Baseline**:
+The Native Desktop Application surface whose visual hierarchy, interaction semantics, and user-visible content define the parity target for the Linux Web Counterpart.
+_Avoid_: current frontend, platform-neutral reference, native shell only
+
+**Linux Web Counterpart**:
+The browser-delivered version of the macOS Desktop Baseline, hosted first through Local Web Deployment and later deployable on a Linux server.
+It preserves the same production surface and behavior within the same product boundary, subject to explicit Platform Capability Exceptions.
+_Avoid_: Admin Console, responsive redesign, separate web product
+
+**Full Parity Scope**:
+The complete set of production user-visible surfaces and flows reachable through normal navigation in the macOS Desktop Baseline.
+It includes the main workspace, Discovery, settings, integrations, Inbox, automations, and Skills Manager, while excluding test harnesses, internal prototypes, and the native Tauri shell as standalone screens.
+_Avoid_: Discovery-only port, partial frontend, test-page parity
+
+**Platform Capability Exception**:
+A user-visible capability that depends on the native desktop environment and therefore requires an explicitly documented web alternative, degraded behavior, or unavailability in the Linux Web Counterpart.
+_Avoid_: arbitrary web simplification, parity waiver, silent fallback
+
 **Native Desktop Discovery Committed Preparation State**:
 The latest complete state explicitly saved by the Sole Researcher for the Native Desktop Discovery Preparation.
 It includes only source entries and free-form text accepted together as one coherent state.
@@ -182,6 +205,23 @@ The Native Desktop Application's single shared interface-language decision.
 The current Desktop surface has no language switch, so integrated modules use the same current Desktop language and do not persist or expose a module-level language preference.
 It affects static application GUI text only and never translates runtime logs, model output, user content, or third-party responses.
 _Avoid_: model locale, server language, content translation
+
+**macOS Desktop Baseline**:
+The native desktop product surface whose visual hierarchy, interaction semantics, and user-visible content define the parity target for the Linux Web Counterpart.
+_Avoid_: current frontend, platform-neutral reference, native shell only
+
+**Linux Web Counterpart**:
+The browser-delivered version of the macOS Desktop Baseline, hosted by a Linux server and intended to preserve the same product surface and behavior within the Intranet Product Boundary.
+_Avoid_: Admin Console, responsive redesign, separate web product
+
+**Full Parity Scope**:
+The complete set of production user-visible surfaces and flows reachable through normal navigation in the macOS Desktop Baseline.
+It includes the main workspace, Discovery, settings, integrations, Inbox, automations, and Skills Manager, while excluding test harnesses, internal prototypes, and the native Tauri shell as standalone screens.
+_Avoid_: Discovery-only port, partial frontend, test-page parity
+
+**Platform Capability Exception**:
+A user-visible capability that depends on the native desktop environment and therefore requires an explicitly documented web alternative, degraded behavior, or unavailability in the Linux Web Counterpart.
+_Avoid_: arbitrary web simplification, parity waiver, silent fallback
 
 **Desktop Visual Baseline**:
 The 1440 CSS-pixel-wide Native Desktop Application window used to compose the application's primary visual hierarchy, whitespace, and research texture.
