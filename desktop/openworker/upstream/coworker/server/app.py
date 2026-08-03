@@ -205,6 +205,7 @@ from .discovery import (
     PreparationValidationError,
 )
 from .discovery_artifacts import DiscoveryArtifactPathError
+from .discovery_preferences import DiscoveryPreferencesValidationError
 from .discovery_launch import (
     ActiveLaunchConflict,
     IdempotencyConflict,
@@ -228,9 +229,13 @@ def create_app(
     prompt_library_root: str | Path | None = None,
     prompt_baseline_root: str | Path | None = None,
     discovery_conversion_prompt_path: str | Path | None = None,
+    discovery_runner_mode: str | None = None,
+    discovery_repository_root: str | Path | None = None,
     web_dist: str | Path | None = None,
     web_enabled: bool | None = None,
 ) -> FastAPI:
+    web_requested = bool(web_enabled or web_dist)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         try:
@@ -349,6 +354,8 @@ def create_app(
     app.state.discovery = DiscoveryFacade(
         manager._data_base,
         conversion_prompt_path=discovery_conversion_prompt_path,
+        runner_mode=discovery_runner_mode or ("real" if web_requested else "fake"),
+        repository_root=discovery_repository_root,
     )
 
     if web_enabled and web_root is not None:
@@ -574,6 +581,7 @@ def create_app(
                 idempotency_key=request.headers.get("idempotency-key", "").strip(),
                 model_id=manager.model,
                 settings=manager.discovery_model_settings(),
+                discovery_preferences=manager.discovery_launch_preferences_snapshot(),
             )
         except LaunchValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1758,6 +1766,26 @@ def create_app(
     @app.get("/v1/settings")
     def settings_get() -> dict[str, Any]:
         return manager.get_settings()
+
+    @app.get("/v1/settings/discovery-launch")
+    def settings_discovery_launch_get() -> dict[str, Any]:
+        return manager.get_discovery_launch_preferences()
+
+    @app.put("/v1/settings/discovery-launch")
+    @app.post("/v1/settings/discovery-launch")
+    def settings_discovery_launch_set(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return {
+                "ok": True,
+                **manager.set_discovery_launch_preferences(body or {}),
+            }
+        except DiscoveryPreferencesValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Discovery Launch preferences could not be saved. Try again.",
+            ) from exc
 
     @app.post("/v1/settings/model-key")
     def settings_set_model_key(body: dict) -> dict[str, Any]:

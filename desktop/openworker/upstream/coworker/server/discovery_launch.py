@@ -6,6 +6,8 @@ import asyncio
 import copy
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -101,14 +103,24 @@ def _sse_data(payload: str) -> str:
 class DiscoveryLaunchStore:
     """Own one durable active Launch slot and its lifecycle state machine.
 
-    The fake runner is deliberately small, but it follows the same durable boundaries as the
-    native runner: each Launch owns immutable snapshots, a checkpoint, an append-only raw log,
-    and one or more execution attempts. A POSIX lock serializes admission and lifecycle writes
-    across sidecar instances, while the per-attempt runner marker lets a restarted sidecar adopt a
-    still-live runner without starting another one.
+    The deterministic runner remains available for the native test seam, while the Web
+    mode starts one isolated worker process that invokes the production launcher. Both
+    modes share the same durable boundaries: immutable snapshots, a checkpoint, an
+    append-only raw log, and one or more execution attempts. A POSIX lock serializes
+    admission and lifecycle writes across sidecar instances, while the per-attempt
+    runner marker lets a restarted sidecar observe a still-live worker without starting
+    another one.
     """
 
-    def __init__(self, discovery_root: str | Path):
+    def __init__(
+        self,
+        discovery_root: str | Path,
+        *,
+        runner_mode: str = "fake",
+        repository_root: str | Path | None = None,
+    ):
+        if runner_mode not in {"fake", "real"}:
+            raise ValueError("runner_mode must be 'fake' or 'real'")
         self._root = Path(discovery_root)
         self._launches_root = self._root / "launches"
         self._index_path = self._launches_root / "index.json"
@@ -118,6 +130,13 @@ class DiscoveryLaunchStore:
         self._active_launch_id: str | None = None
         self._history_ids: list[str] = []
         self._idempotency: dict[str, dict[str, Any]] = {}
+        self._runner_mode = runner_mode
+        self._repository_root = Path(
+            repository_root
+            or os.environ.get(
+                "VEGAPUNK_REPOSITORY_ROOT", Path(__file__).resolve().parents[5]
+            )
+        ).expanduser().resolve()
         with self._transaction():
             self._load_from_disk()
             if self._reconcile_locked():
@@ -256,7 +275,7 @@ class DiscoveryLaunchStore:
         configuration_snapshot: dict[str, Any],
         response_builder: Callable[[], dict[str, Any]],
     ) -> dict[str, Any]:
-        """Reserve the active slot, persist snapshots, and start one fake execution attempt."""
+        """Reserve the active slot, persist snapshots, and start one execution attempt."""
         with self._transaction():
             self._load_from_disk()
             if self._reconcile_locked():
@@ -302,6 +321,7 @@ class DiscoveryLaunchStore:
                 "stop_reason": None,
                 "outcome": None,
                 "error": None,
+                "paper_orchestra": None,
                 "event_sequence": 0,
                 "timeline": _new_timeline(),
                 "activity": [],
@@ -332,13 +352,12 @@ class DiscoveryLaunchStore:
                 "result": copy.deepcopy(result),
             }
             self._persist_index()
-            worker = threading.Thread(
-                target=self._run_fake,
-                args=(launch_id, attempt_id),
-                name=f"discovery-launch-{launch_id}",
-                daemon=True,
-            )
-            worker.start()
+            self._start_runner_locked(record, attempt_id)
+            if record["state"] != "starting":
+                result["state"] = record["state"]
+                result["snapshot"] = response_builder()
+                self._idempotency[idempotency_key]["result"] = copy.deepcopy(result)
+                self._persist_index()
             return result
 
     def stop(self, launch_id: str) -> dict[str, Any]:
@@ -408,6 +427,7 @@ class DiscoveryLaunchStore:
             record["stage"] = "resuming"
             record["outcome"] = None
             record["error"] = None
+            record["paper_orchestra"] = None
             record["completed_at"] = None
             record["runner_pid"] = os.getpid()
             record["adoption_nonce"] = adoption_nonce
@@ -436,14 +456,242 @@ class DiscoveryLaunchStore:
                 "result": copy.deepcopy(result),
             }
             self._persist_index()
-            worker = threading.Thread(
-                target=self._run_fake,
-                args=(launch_id, attempt_id),
-                name=f"discovery-launch-{launch_id}",
-                daemon=True,
-            )
-            worker.start()
+            self._start_runner_locked(record, attempt_id, resume=True)
+            if record["state"] != "starting":
+                result["state"] = record["state"]
+                result["snapshot"] = response_builder()
+                self._idempotency[idempotency_key]["result"] = copy.deepcopy(result)
+                self._persist_index()
             return result
+
+    def _start_runner_locked(
+        self,
+        record: dict[str, Any],
+        attempt_id: str,
+        *,
+        resume: bool = False,
+    ) -> None:
+        if self._runner_mode == "real":
+            self._start_real_worker_locked(record, attempt_id, resume=resume)
+            return
+        worker = threading.Thread(
+            target=self._run_fake,
+            args=(record["launch_id"], attempt_id),
+            name=f"discovery-launch-{record['launch_id']}",
+            daemon=True,
+        )
+        worker.start()
+
+    def _start_real_worker_locked(
+        self,
+        record: dict[str, Any],
+        attempt_id: str,
+        *,
+        resume: bool,
+    ) -> None:
+        """Start the one Web worker that invokes the production launcher.
+
+        The worker owns the subprocess and finalizes the durable Launch record.  The
+        sidecar only persists its PID/attempt marker here; it never imports Discovery,
+        Experiment, or PaperOrchestra internals into the request-serving process.
+        """
+
+        worker_entry = Path(__file__).with_name("discovery_worker.py")
+        launcher_entry = self._repository_root / "launch_discovery.py"
+        command = [
+            sys.executable,
+            str(worker_entry),
+            str(launcher_entry),
+            "--launch_dir",
+            str(self._launches_root / record["launch_id"]),
+            "--discovery-root",
+            str(self._root),
+            "--attempt-id",
+            attempt_id,
+            "--repository-root",
+            str(self._repository_root),
+            "--mode",
+            "experiment",
+            "--exp_backend",
+            "codex",
+        ]
+        if resume:
+            command.append("--resume")
+
+        environment = os.environ.copy()
+        python_path = [
+            str(self._repository_root),
+            str(self._repository_root / "desktop" / "openworker" / "upstream"),
+        ]
+        existing_python_path = environment.get("PYTHONPATH")
+        if existing_python_path:
+            python_path.append(existing_python_path)
+        environment["PYTHONPATH"] = os.pathsep.join(python_path)
+
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(self._repository_root),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as error:
+            attempt = self._attempt_or_raise(record, attempt_id)
+            self._finish_failed_locked(
+                record, attempt, f"Unable to start Discovery worker: {error}"
+            )
+            return
+
+        record["runner_pid"] = process.pid
+        self._write_runner_marker(record, "starting")
+        self._persist_record(record)
+        self._persist_index()
+
+    def worker_started(
+        self, launch_id: str, attempt_id: str, pid: int | None = None
+    ) -> None:
+        """Mark a real worker as running after it has claimed its attempt."""
+
+        with self._transaction():
+            self._load_from_disk()
+            record = self._record_or_raise_locked(launch_id)
+            if record.get("current_attempt_id") != attempt_id:
+                return
+            attempt = self._attempt_or_raise(record, attempt_id)
+            if record.get("state") != "starting":
+                return
+            if pid is not None:
+                record["runner_pid"] = pid
+            record["state"] = "running"
+            record["stage"] = "preparing"
+            record["started_at"] = record.get("started_at") or _now()
+            attempt["started_at"] = attempt.get("started_at") or _now()
+            attempt["state"] = "running"
+            self._ensure_observation_state(record)
+            self._emit_event_locked(
+                record,
+                "work.state.updated",
+                {
+                    "state": "running",
+                    "stage": "preparing",
+                    "round": int(record.get("round", 0) or 0),
+                },
+                activity_text="Discovery worker is running the production launcher",
+            )
+            self._activate_stage_locked(
+                record, attempt, "preparing", int(record.get("round", 0) or 0) or 1
+            )
+            self._write_runner_marker(record, "running")
+            self._persist_record(record)
+            self._persist_index()
+
+    def worker_stage(
+        self,
+        launch_id: str,
+        attempt_id: str,
+        stage: str,
+        round_number: int,
+    ) -> None:
+        """Project coarse production progress into the existing observation timeline."""
+
+        with self._transaction():
+            self._load_from_disk()
+            record = self._record_or_raise_locked(launch_id)
+            if record.get("current_attempt_id") != attempt_id:
+                return
+            if record.get("state") not in ACTIVE_LAUNCH_STATES:
+                return
+            attempt = self._attempt_or_raise(record, attempt_id)
+            record["round"] = max(
+                int(record.get("round", 0) or 0), int(round_number)
+            )
+            self._activate_stage_locked(record, attempt, stage, int(round_number))
+            self._write_checkpoint_locked(
+                record, attempt, stage, int(round_number), "production-launcher"
+            )
+            self._write_runner_marker(record, "running")
+            self._persist_record(record)
+            self._persist_index()
+
+    def worker_finish(
+        self,
+        launch_id: str,
+        attempt_id: str,
+        *,
+        succeeded: bool,
+        stopped: bool = False,
+        error: str | None = None,
+        paper_orchestra: dict[str, Any] | None = None,
+    ) -> None:
+        """Finalize a worker-owned attempt without executing workflow internals here."""
+
+        with self._transaction():
+            self._load_from_disk()
+            record = self._records.get(launch_id)
+            if record is None or record.get("current_attempt_id") != attempt_id:
+                return
+            # A restarted sidecar may already have reconciled this attempt as
+            # interrupted (or another supervisor may have finalized it).  A stale
+            # worker must not resurrect a terminal Launch after that decision.
+            if record.get("state") in TERMINAL_LAUNCH_STATES:
+                return
+            attempt = self._attempt_or_raise(record, attempt_id)
+            if stopped or record.get("state") == "stopping":
+                self._finish_stopped_locked(
+                    record, attempt, error or "graceful stop"
+                )
+                return
+            if succeeded:
+                self._finish_completed_real_locked(
+                    record, attempt, paper_orchestra=paper_orchestra
+                )
+            else:
+                self._finish_failed_locked(
+                    record, attempt, error or "Discovery worker failed"
+                )
+
+    def _finish_completed_real_locked(
+        self,
+        record: dict[str, Any],
+        attempt: dict[str, Any],
+        *,
+        paper_orchestra: dict[str, Any] | None = None,
+    ) -> None:
+        self._ensure_observation_state(record)
+        finished_at = _now()
+        record["state"] = "completed"
+        record["stage"] = "completed"
+        record["completed_at"] = finished_at
+        record["outcome"] = "completed"
+        record["runner_pid"] = None
+        record["resumable"] = False
+        if paper_orchestra is not None:
+            record["paper_orchestra"] = copy.deepcopy(paper_orchestra)
+        attempt["finished_at"] = finished_at
+        attempt["state"] = "completed"
+        self._finish_timeline_locked(record, "completed", finished_at)
+        if paper_orchestra and paper_orchestra.get("state") == "failed":
+            self._emit_event_locked(
+                record,
+                "work.state.updated",
+                {"state": "completed", "stage": "completed", "round": record["round"]},
+                level="warning",
+                activity_text=(
+                    "Discovery completed; PaperOrchestra failed and its error was "
+                    "kept separate from the Discovery outcome"
+                ),
+            )
+        else:
+            self._emit_event_locked(
+                record,
+                "work.state.updated",
+                {"state": "completed", "stage": "completed", "round": record["round"]},
+                activity_text="Discovery and automatic PaperOrchestra completed",
+            )
+        self._close_active_locked(record)
 
     def _run_fake(self, launch_id: str, attempt_id: str) -> None:
         stages = OBSERVATION_STAGES

@@ -205,13 +205,19 @@ class DiscoveryFacade:
         state_root: str | Path,
         *,
         conversion_prompt_path: str | Path | None = None,
+        runner_mode: str = "fake",
+        repository_root: str | Path | None = None,
     ):
         self._state_path = Path(state_root) / "discovery" / "preparation.json"
         self._conversion_prompt_path = Path(
             conversion_prompt_path or DISCOVERY_INPUT_CONVERSION_PROMPT_PATH
         )
         self._lock = threading.RLock()
-        self._launches = DiscoveryLaunchStore(Path(state_root) / "discovery")
+        self._launches = DiscoveryLaunchStore(
+            Path(state_root) / "discovery",
+            runner_mode=runner_mode,
+            repository_root=repository_root,
+        )
         self._committed = self._load_committed()
         self._draft = _copy_preparation(self._committed)
         self._conversion_draft: dict[str, Any] | None = None
@@ -317,11 +323,18 @@ class DiscoveryFacade:
         idempotency_key: str,
         model_id: str,
         settings: dict[str, Any],
+        discovery_preferences: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(body, dict):
             raise LaunchValidationError("Launch payload must be an object")
         if not idempotency_key:
             raise LaunchValidationError("Idempotency-Key is required to start a Launch")
+
+        unexpected_fields = set(body) - {"preparation_id", "revision_id"}
+        if unexpected_fields:
+            raise LaunchValidationError(
+                "Run accepts only the saved Preparation revision identity"
+            )
 
         preparation_id = body.get("preparation_id", "preparation")
         revision_id = body.get("revision_id")
@@ -409,6 +422,13 @@ class DiscoveryFacade:
                 "model_id": model_id,
                 "settings": copy.deepcopy(settings),
             }
+            if discovery_preferences is not None:
+                # The Launch owns a complete copy of the validated defaults.  The
+                # Discovery runner and every Resume attempt read this snapshot rather
+                # than observing later Settings edits.
+                configuration_snapshot["discovery_launch_preferences"] = copy.deepcopy(
+                    discovery_preferences
+                )
             return self._launches.admit(
                 request_fingerprint=request_fingerprint,
                 idempotency_key=idempotency_key,

@@ -112,7 +112,13 @@ def build_app(
         model=model,
         mode=Mode(mode),
     )
-    return create_app(manager, web_dist=web_dist, web_enabled=web)
+    return create_app(
+        manager,
+        web_dist=web_dist,
+        web_enabled=web,
+        discovery_runner_mode="real" if web else "fake",
+        discovery_repository_root=Path(__file__).resolve().parents[5],
+    )
 
 
 def _ensure_ca_bundle() -> None:

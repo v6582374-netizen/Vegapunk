@@ -83,6 +83,7 @@ from ..providers import (
 from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
 from ..skills import SkillLoader
+from .discovery_preferences import DiscoveryLaunchPreferences
 
 _SCOPES = {s.value for s in Scope}
 
@@ -165,6 +166,13 @@ class SessionManager:
         self._mcp_errors: dict[str, str] = {}
         self.gateway: Optional[Gateway] = None
         self._data_base = base
+        # Discovery Launch defaults are a separate, validated settings module.  Keeping
+        # them out of the general UI prefs file gives the module one atomic persistence
+        # seam and prevents unrelated preference writes from producing a partial Launch
+        # configuration.
+        self.discovery_launch_preferences = DiscoveryLaunchPreferences(
+            base / "discovery_launch_preferences.json"
+        )
         # Desktop/UI prefs (default model, onboarding state) — not secrets; a plain JSON file.
         self._prefs = self._load_prefs()
         if self._prefs.get("default_model"):
@@ -1627,6 +1635,20 @@ class SessionManager:
                 settings[key] = profile[key]
         return settings
 
+    def get_discovery_launch_preferences(self) -> dict[str, Any]:
+        """Return the server-validated Discovery Launch settings document."""
+        return self.discovery_launch_preferences.document()
+
+    def set_discovery_launch_preferences(
+        self, body: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Validate and atomically replace Discovery Launch defaults."""
+        return self.discovery_launch_preferences.save(body or {})
+
+    def discovery_launch_preferences_snapshot(self) -> dict[str, Any]:
+        """Copy the effective defaults for one newly admitted Launch."""
+        return self.discovery_launch_preferences.snapshot()
+
     def _provider_configured(self, name: str) -> bool:
         d = get_descriptor(name)
         if d is None:
@@ -1807,6 +1829,7 @@ class SessionManager:
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
             # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
             "secrets_path": str(self.secrets.path),
+            "discovery_launch_preferences": self.get_discovery_launch_preferences(),
             **self.pdf_settings(),
         }
 

@@ -1046,9 +1046,18 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
     assert input_snapshot["revision_id"] == revision_id
     assert input_snapshot["execution_input"] == _execution_input("Reviewed research input")
     assert "formatted_input" not in input_snapshot
-    assert configuration_snapshot == {
-        "model_id": "relay/test-model",
-        "settings": {"temperature": 0.0, "max_tokens": 512},
+    assert configuration_snapshot["model_id"] == "relay/test-model"
+    assert configuration_snapshot["settings"] == {
+        "temperature": 0.0,
+        "max_tokens": 512,
+    }
+    assert configuration_snapshot["discovery_launch_preferences"]["workflow"] == {
+        "loop_rounds": 10,
+        "loop_mode": "incremental",
+        "max_iterations": 4,
+        "top_ideas_count": 5,
+        "top_ideas_evo": True,
+        "max_concurrent_tasks": 5,
     }
 
     # The Preparation remains an independent editable draft after admission.

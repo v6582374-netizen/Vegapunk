@@ -414,6 +414,14 @@ def parse_arguments():
         help="Results output directory (defaults to results/{task_name})"
     )
     task_group.add_argument(
+        "--launch_dir",
+        "--launch-dir",
+        dest="launch_dir",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    task_group.add_argument(
         "--config",
         type=str,
         default='config/default_config.yaml',
@@ -679,7 +687,35 @@ def _main():
     # ========================================
     # Setup Output Directory
     # ========================================
-    if args.resume and resume_state and resume_state['launch_id']:
+    launch_dir_arg = getattr(args, "launch_dir", None)
+    if launch_dir_arg:
+        # The Web Start Entry already owns one durable Launch directory.  Reuse that
+        # directory verbatim so the existing launcher writes its prompt, summary, and
+        # PaperOrchestra outputs into the Launch observed by the sidecar.
+        launch_dir = Path(launch_dir_arg).expanduser().resolve()
+        launch_id = launch_dir.name
+        base_output_dir = str(launch_dir.parent)
+        args.output_dir = str(launch_dir)
+        args.base_output_dir = base_output_dir
+        launch_dir.mkdir(parents=True, exist_ok=True)
+
+        existing_prompt_path = launch_dir / "prompt.json"
+        if args.resume and existing_prompt_path.exists():
+            args.prompt_path = str(existing_prompt_path)
+        elif args.task_type == 'sci':
+            normalize_sci_task(args.task_dir, str(existing_prompt_path))
+            args.prompt_path = str(existing_prompt_path)
+            logger.info(f"Generated synthetic prompt.json for sci_task: {existing_prompt_path}")
+        else:
+            original_prompt_path = osp.join(args.task_dir, "prompt.json")
+            if osp.exists(original_prompt_path):
+                shutil.copy2(original_prompt_path, existing_prompt_path)
+                args.prompt_path = str(existing_prompt_path)
+            else:
+                raise FileNotFoundError(
+                    f"prompt.json not found in task directory: {original_prompt_path}"
+                )
+    elif args.resume and resume_state and resume_state['launch_id']:
         # Resume mode: use existing launch folder
         launch_id = resume_state['launch_id']
         base_output_dir = resume_state['base_output_dir']
