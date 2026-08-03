@@ -191,6 +191,16 @@ function OpenWorkerApp() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [projects, setProjects] = useState<RecentWorkspace[]>([]);
   const [sessionId, setSessionId] = useState<string>(newId());
+  // A session switch hydrates its transcript asynchronously.  Any live activity that lands
+  // before that request resolves makes the response stale: applying it would erase the local
+  // user message/error/stream (the Retry notice race seen when a session is opened and used
+  // immediately).  Keep one generation for every in-flight hydration and invalidate it as soon
+  // as the live session starts producing state.
+  const transcriptLoadRef = useRef(0);
+  const beginTranscriptLoad = () => ++transcriptLoadRef.current;
+  const invalidateTranscriptLoad = () => {
+    transcriptLoadRef.current += 1;
+  };
   // Automation-run context (§ owner ask 2026-07-04): which task an open __run__ session belongs
   // to, driving the banner + "Back to runs". Best-effort — a run session without context still
   // shows a generic banner (detected by its __run__ id).
@@ -401,14 +411,20 @@ function OpenWorkerApp() {
   // conversation (restores its folder + agent + transcript), else the most recent project
   // folder. Only a true first run (nothing to resume) falls through to the folder gate.
   const resumeLastOrGate = async () => {
+    // StrictMode can run the mount effect twice in development. Capture the generation before
+    // any await so a late duplicate boot request cannot start a fresh hydrate after the user has
+    // already selected or used a session.
+    const bootToken = transcriptLoadRef.current;
     let loadedSessions: SessionInfo[] = [];
     try {
       loadedSessions = (await getSessions()).filter((s) => s.session_id && !s.session_id.startsWith("__"));
+      if (bootToken !== transcriptLoadRef.current) return;
       setSessions(loadedSessions);
       const sess = loadedSessions;
       const ts = (s: SessionInfo) => Date.parse(s.updated_at || "") || Number(s.updated_at) || 0;
       const last = [...sess].sort((a, b) => ts(b) - ts(a))[0];
       if (last) {
+        const loadToken = beginTranscriptLoad();
         setResumedExisting(true);
         if (last.agent) setAgent(last.agent);
         if (last.workspace) {
@@ -416,9 +432,10 @@ function OpenWorkerApp() {
           setBranch(null);
         }
         try {
-          setItems(itemsFromMessages(await getSessionMessages(last.session_id)));
+          const messages = await getSessionMessages(last.session_id);
+          if (loadToken === transcriptLoadRef.current) setItems(itemsFromMessages(messages));
         } catch {
-          setItems([]);
+          if (loadToken === transcriptLoadRef.current) setItems([]);
         }
         setSessionId(last.session_id);
         setShowGate(false);
@@ -429,6 +446,7 @@ function OpenWorkerApp() {
     }
     try {
       const recents = await getRecentWorkspaces();
+      if (bootToken !== transcriptLoadRef.current) return;
       setProjects(recents);
       // Only auto-adopt a recent folder for gated surfaces (Code). Cowork starts orphan.
       if (gatesWorkspace(agent)) {
@@ -561,6 +579,9 @@ function OpenWorkerApp() {
     if (gatesWorkspace(agent) && !workspace) return; // Code needs a folder (gate handles it)
     const handleEvent = (ev: WsEvent) => {
       const d = ev.data || {};
+      // A non-ready event is newer than any pending transcript hydration.  Do not let an old
+      // GET /messages response overwrite live turn state when it resolves after this event.
+      if (ev.type !== "ready") invalidateTranscriptLoad();
       // An interrupted/errored turn never emits assistant_message, so its streamed partial
       // would otherwise live only in the ephemeral buffer until the next turn_start wipes it
       // (owner-hit 2026-07-22). Promote it to a durable transcript item — the engine persists
@@ -756,6 +777,7 @@ function OpenWorkerApp() {
         const p = pendingPromptRef.current;
         if (p) {
           pendingPromptRef.current = null;
+          invalidateTranscriptLoad();
           setItems((prev) => [...prev, { kind: "user", text: p, ts: Date.now() / 1000 }]);
           sessionRef.current?.userMessage(p);
         }
@@ -847,6 +869,7 @@ function OpenWorkerApp() {
   }, [surface, sessionId, browserRefreshKey, markUnattended]);
 
   const send = (text: string, attachments?: Attachment[]) => {
+    invalidateTranscriptLoad();
     setItems((p) => [...p, { kind: "user", text, attachments, ts: Date.now() / 1000 }]);
     // The visible model rides along with the message (single source of truth per turn).
     sessionRef.current?.userMessage(text, attachments, model);
@@ -952,6 +975,7 @@ function OpenWorkerApp() {
 
   const openSessionFromInbox = (sid: string, ws: string, ag: string) => selectSession(sid, ws, ag);
   const selectSession = async (id: string, ws: string, ag: string) => {
+    const loadToken = beginTranscriptLoad();
     setSurface("session"); // selecting a conversation always returns to the conversation view
     setTodo([]);
     setStreaming("");
@@ -965,14 +989,15 @@ function OpenWorkerApp() {
     setSessionId(id);
     try {
       const messages = await getSessionMessages(id);
-      setItems(itemsFromMessages(messages));
+      if (loadToken === transcriptLoadRef.current) setItems(itemsFromMessages(messages));
     } catch {
-      setItems([]);
+      if (loadToken === transcriptLoadRef.current) setItems([]);
     }
   };
   const switchAgent = async (name: string) => {
     setSurface("session");
     if (name === agent) return;
+    const loadToken = beginTranscriptLoad();
     rememberLastSession(agent, sessionId, workspace);
     const knownSessions = sessions.length ? sessions : await getSessions().catch(() => []);
     const knownProjects = projects.length ? projects : await getRecentWorkspaces().catch(() => []);
@@ -1008,9 +1033,10 @@ function OpenWorkerApp() {
       else setShowGate(true);
       setSessionId(target.sessionId);
       try {
-        setItems(itemsFromMessages(await getSessionMessages(target.sessionId)));
+        const messages = await getSessionMessages(target.sessionId);
+        if (loadToken === transcriptLoadRef.current) setItems(itemsFromMessages(messages));
       } catch {
-        setItems([]);
+        if (loadToken === transcriptLoadRef.current) setItems([]);
       }
       return;
     }

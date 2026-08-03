@@ -13,12 +13,23 @@ Tool execution from the (sync) ToolRegistry bridges back here via
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamablehttp_client
+
+try:  # mcp < 2.0
+    from mcp.client.streamable_http import streamablehttp_client
+except ImportError:  # mcp 2.x renamed the helper and moved HTTP options to AsyncClient.
+    import httpx2
+    from mcp.client.streamable_http import streamable_http_client as _streamable_http_client
+
+    @asynccontextmanager
+    async def streamablehttp_client(url: str, *, headers=None, auth=None):
+        async with httpx2.AsyncClient(headers=headers, auth=auth) as client:
+            async with _streamable_http_client(url, http_client=client) as streams:
+                yield streams
 
 from .config import MCPServerDef
 
