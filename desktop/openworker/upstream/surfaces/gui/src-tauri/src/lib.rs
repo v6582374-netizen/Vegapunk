@@ -1,17 +1,17 @@
-//! OpenWorker desktop shell.
+//! Vegapunk desktop shell.
 //!
 //! Tauri is a thin native window over the existing React SPA. It:
 //!   1. picks a free localhost port and starts the Python `openworker-server` as a managed
 //!      sidecar on that port (so it never clashes with a hand-run server on 8765);
 //!   2. injects the sidecar HTTP/WS addresses and per-launch authentication token before the
-//!      SPA loads (single codebase — the browser build still hits 8765);
+//!      SPA loads (single codebase - the browser build still hits 8765);
 //!   3. lives in the system tray: closing the window hides it (keeps MyHelper + the scheduler
 //!      running); only tray → Quit stops the sidecar;
 //!   4. exposes native commands: folder picker, autostart (open-at-login), and keep-awake
 //!      (caffeinate, so scheduled tasks fire while the Mac is idle).
 //!
 //! The sidecar inherits this process's environment, so a shell-launched `npm run tauri dev`
-//! passes `OPENAI_API_KEY` through. A Finder-launched app has no shell env — there the key
+//! passes `OPENAI_API_KEY` through. A Finder-launched app has no shell env - there the key
 //! comes from the SecretStore (Settings tab), see `coworker.providers.resolve_api_key`.
 
 mod commands;
@@ -32,13 +32,13 @@ use commands::{
     create_skill, delete_custom_tool, delete_path, delete_skill, detect_available_editors,
     detect_tools, disable_skill, enable_skill, export_skills, fix_sync_issues,
     get_available_editors, get_cached_skill_translations, get_cached_text_translation, get_config,
-    get_llm_provider, get_risk_report, get_risk_reports_batch, get_risk_scanner_version,
-    get_skill_usage_stats, get_tool_status, get_usage_hook_status, import_skills,
-    import_skills_to_hub, install_skill_package_from_path, install_usage_hook, is_initialized,
-    list_skill_packages, list_skills, mark_initialized, open_in_editor, preview_import_skills,
-    read_directory_tree, read_file, refresh_editors, refresh_skills, refresh_tools,
-    remove_skill_package, rename_path, rescan_skill, save_config, save_llm_provider,
-    scan_all_risks, scan_existing_skills, set_tool_enabled, test_llm_provider,
+    get_home_directory, get_llm_provider, get_risk_report, get_risk_reports_batch,
+    get_risk_scanner_version, get_skill_usage_stats, get_tool_status, get_usage_hook_status,
+    import_skills, import_skills_to_hub, install_skill_package_from_path, install_usage_hook,
+    is_initialized, is_llm_provider_configured, list_skill_packages, list_skills, mark_initialized,
+    open_in_editor, preview_import_skills, read_directory_tree, read_file, refresh_editors,
+    refresh_skills, refresh_tools, remove_skill_package, rename_path, rescan_skill, save_config,
+    save_llm_provider, scan_all_risks, scan_existing_skills, set_tool_enabled, test_llm_provider,
     toggle_skill_favorite, translate_skill, translate_skill_files, translate_skills_batch,
     translate_text_content, uninstall_usage_hook, update_custom_tool, update_tool_paths,
     write_file,
@@ -54,7 +54,7 @@ use tauri::{
 use tauri_plugin_autostart::ManagerExt;
 use uuid::Uuid;
 
-/// The sidecar server child — killed on exit (orphaned servers have bitten us before).
+/// The sidecar server child - killed on exit (orphaned servers have bitten us before).
 struct ServerProcess(Mutex<Option<Child>>);
 /// The active keep-awake guard while keep-awake is on (None when off). Dropping the guard
 /// releases the hold (kills `caffeinate` on macOS, clears the execution state on Windows).
@@ -136,7 +136,7 @@ fn desktop_prefs_path() -> PathBuf {
 
 /// The sidecar's log file: `<state_dir>/logs/openworker-server.log`, fresh per
 /// launch with the previous run kept as `.old`. None (→ /dev/null) only if the
-/// directory can't be created — logging must never block startup.
+/// directory can't be created - logging must never block startup.
 fn server_log_file() -> Option<std::fs::File> {
     let dir = state_dir().join("logs");
     std::fs::create_dir_all(&dir).ok()?;
@@ -223,7 +223,7 @@ fn start_keep_awake() -> Option<KeepAwakeGuard> {
     let stop_thread = stop.clone();
     let handle = std::thread::spawn(move || {
         // SetThreadExecutionState is thread-affine and the ES_CONTINUOUS hold is dropped when
-        // the setting thread exits — so keep this thread alive, re-asserting periodically,
+        // the setting thread exits - so keep this thread alive, re-asserting periodically,
         // until asked to stop, then clear the hold from this same thread.
         unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
         while !stop_thread.load(Ordering::SeqCst) {
@@ -412,7 +412,7 @@ async fn start_dictation(
     state: tauri::State<'_, Arc<Dictation>>,
 ) -> Result<VoiceInputStatus, String> {
     // Off the main thread: opening the input device blocks on macOS's one-time microphone
-    // permission dialog (and CoreAudio device setup) — a sync command would freeze the UI
+    // permission dialog (and CoreAudio device setup) - a sync command would freeze the UI
     // behind the system prompt.
     let (supported, _, reason) = voice_input_compatibility();
     if !supported {
@@ -490,7 +490,7 @@ fn delete_dictation_model(state: tauri::State<Arc<Dictation>>) -> Result<VoiceIn
     Ok(voice_input_status(&state))
 }
 
-/// Instantaneous mic loudness (0..1) while a dictation is recording — the composer polls
+/// Instantaneous mic loudness (0..1) while a dictation is recording - the composer polls
 /// this to draw a real input-driven waveform instead of decorative bars (owner catch,
 /// DMG #28 walkthrough).
 #[tauri::command]
@@ -506,12 +506,11 @@ fn show_main(app: &tauri::AppHandle) {
     }
 }
 
-// --- Auto-update (tauri-plugin-updater) -------------------------------------------
-// The GUI drives updates through these commands (same invoke bridge as everything
-// else — no global plugin JS): check, background pre-download, install. Update
-// artifacts are minisign-verified against the pubkey in tauri.conf.json before
-// anything is installed; the manifest lives at the endpoints configured there
-// (download.openworker.com → GitHub Releases).
+// --- Application update (tauri-plugin-updater) ------------------------------------
+// Stable release builds drive updates through these commands (the same invoke bridge
+// as everything else). Development builds keep the commands disabled and do not
+// register the updater plugin, so a local build cannot reach a release feed.
+// Update artifacts are minisign-verified against the Vegapunk pubkey in tauri.conf.json.
 
 #[derive(serde::Serialize)]
 struct UpdateInfo {
@@ -521,88 +520,47 @@ struct UpdateInfo {
 
 #[tauri::command]
 async fn check_for_update(app: tauri::AppHandle) -> Result<Option<UpdateInfo>, String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater.check().await.map_err(|e| e.to_string())?;
-    Ok(update.map(|u| UpdateInfo {
-        version: u.version.clone(),
-        notes: u.body.clone().unwrap_or_default(),
-    }))
-}
-
-/// Update bytes pre-fetched by `download_update`, keyed by version. The GUI kicks the
-/// download off as soon as a release is offered, so clicking "Restart to update" installs
-/// from memory instead of sitting on a multi-minute download behind a spinner.
-struct PendingUpdate(Mutex<Option<(String, Vec<u8>)>>);
-
-#[tauri::command]
-async fn download_update(
-    app: tauri::AppHandle,
-    pending: tauri::State<'_, PendingUpdate>,
-) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
-        return Err("no update available".into());
-    };
-    // Periodic re-checks re-invoke this for the same release — the cached bytes stand.
-    // (Guard scope stays sync: a std MutexGuard must not live across an await.)
+    #[cfg(debug_assertions)]
     {
-        let slot = pending.0.lock().unwrap();
-        if slot
-            .as_ref()
-            .map(|(v, _)| v == &update.version)
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
+        let _ = app;
+        return Ok(None);
     }
-    let bytes = update
-        .download(|_, _| {}, || {})
-        .await
-        .map_err(|e| e.to_string())?;
-    *pending.0.lock().unwrap() = Some((update.version.clone(), bytes));
-    Ok(())
-}
 
-/// Drop the pre-fetched bundle. Invoked on "Later": a dismissed release would
-/// otherwise pin tens of MB in memory for the rest of an app run that can last
-/// weeks. Changing one's mind just re-downloads.
-#[tauri::command]
-fn clear_pending_update(pending: tauri::State<'_, PendingUpdate>) {
-    *pending.0.lock().unwrap() = None;
+    #[cfg(not(debug_assertions))]
+    {
+        use tauri_plugin_updater::UpdaterExt;
+        let updater = app.updater().map_err(|e| e.to_string())?;
+        let update = updater.check().await.map_err(|e| e.to_string())?;
+        Ok(update.map(|u| UpdateInfo {
+            version: u.version.clone(),
+            notes: u.body.clone().unwrap_or_default(),
+        }))
+    }
 }
 
 #[tauri::command]
-async fn install_update(
-    app: tauri::AppHandle,
-    pending: tauri::State<'_, PendingUpdate>,
-) -> Result<(), String> {
-    use tauri_plugin_updater::UpdaterExt;
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
-        return Err("no update available".into());
-    };
-    // Pre-fetched bytes for this exact version install instantly; a stale or missing
-    // cache falls back to the original blocking download-and-install.
-    let cached = {
-        let mut slot = pending.0.lock().unwrap();
-        match slot.take() {
-            Some((v, bytes)) if v == update.version => Some(bytes),
-            _ => None,
-        }
-    };
-    match cached {
-        Some(bytes) => update.install(bytes).map_err(|e| e.to_string())?,
-        None => update
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(debug_assertions)]
+    {
+        let _ = app;
+        return Err("Application updates are disabled in development builds".into());
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        use tauri_plugin_updater::UpdaterExt;
+        let updater = app.updater().map_err(|e| e.to_string())?;
+        let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+            return Err("no update available".into());
+        };
+        update
             .download_and_install(|_, _| {}, || {})
             .await
-            .map_err(|e| e.to_string())?,
+            .map_err(|e| e.to_string())?;
+        // macOS: the .app was swapped in place - restart into the new version.
+        // The tray Exit path's sidecar kill runs via RunEvent, so no orphaned server remains.
+        app.restart();
     }
-    // Windows never reaches here (the NSIS installer takes over and relaunches).
-    // macOS: the .app was swapped in place — restart into the new version. The tray
-    // Exit path's sidecar kill runs via RunEvent, so no orphaned openworker-server.
-    app.restart();
 }
 
 pub fn run() {
@@ -612,21 +570,26 @@ pub fn run() {
     let ws = format!("ws://127.0.0.1:{port}");
     // Debug-format yields a quoted JS string literal.
     let inject = format!(
-        "window.__COWORKER_HTTP__={http:?};window.__COWORKER_WS__={ws:?};window.__COWORKER_API_TOKEN__={api_token:?};window.__OCW_PLATFORM__={:?};",
-        std::env::consts::OS
+        "window.__COWORKER_HTTP__={http:?};window.__COWORKER_WS__={ws:?};window.__COWORKER_API_TOKEN__={api_token:?};window.__OCW_PLATFORM__={:?};window.__OCW_UPDATER_ENABLED__={:?};",
+        std::env::consts::OS,
+        cfg!(not(debug_assertions))
     );
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // MUST be the first plugin: when a second launch happens (e.g. the user relaunches
         // while the window is closed-to-tray), this fires in the ALREADY-running instance to
         // surface its healthy window, and the second process exits before it can spawn a
-        // duplicate sidecar — which previously left a window stuck on "Starting coworker…".
+        // duplicate sidecar - which previously left a window stuck on "Starting coworker…".
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
         }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init());
+
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -650,8 +613,6 @@ pub fn run() {
             delete_dictation_model,
             dictation_level,
             check_for_update,
-            download_update,
-            clear_pending_update,
             install_update,
             get_config,
             save_config,
@@ -689,12 +650,14 @@ pub fn run() {
             read_directory_tree,
             read_file,
             write_file,
+            get_home_directory,
             create_file,
             create_directory,
             delete_path,
             rename_path,
             toggle_skill_favorite,
             get_llm_provider,
+            is_llm_provider_configured,
             save_llm_provider,
             clear_llm_provider,
             test_llm_provider,
@@ -726,7 +689,7 @@ pub fn run() {
             let mut server_cmd = Command::new(server_bin());
             server_cmd
                 .args(["--host", "127.0.0.1", "--port", &port.to_string()])
-                // The sidecar self-exits if we die abruptly (dev-watcher restart, crash) —
+                // The sidecar self-exits if we die abruptly (dev-watcher restart, crash) -
                 // belt-and-suspenders alongside the RunEvent::ExitRequested kill below.
                 // The explicit PID matters: under PyInstaller onefile the python process is a
                 // *grandchild* (bootloader in between), so getppid() never points at us and a
@@ -778,7 +741,6 @@ pub fn run() {
                 None
             };
             app.manage(KeepAwake(Mutex::new(ka)));
-            app.manage(PendingUpdate(Mutex::new(None)));
             // Voice recordings are transient; only the explicitly installed local Whisper model
             // lives in the existing application state directory.
             app.manage(Arc::new(Dictation::new(state_dir().join("models"))));
@@ -792,7 +754,7 @@ pub fn run() {
                     .min_inner_size(980.0, 640.0)
                     // Let the WEBVIEW receive OS file drags: Tauri's own drag-drop handler
                     // otherwise intercepts them, so the composer's HTML5 onDrop (attach by
-                    // dragging a file in) never fired in the desktop shell — browser dev
+                    // dragging a file in) never fired in the desktop shell - browser dev
                     // worked, DMGs didn't. main.tsx guards against drops outside the
                     // composer navigating the page.
                     .disable_drag_drop_handler()
@@ -825,7 +787,7 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&open_i, &settings_i, &quit_i])?;
 
             // A monochrome template icon (black + alpha, raw RGBA 44×44) so the menu bar tints
-            // it for light/dark automatically — not the full-color app icon.
+            // it for light/dark automatically - not the full-color app icon.
             let tray_icon = tauri::image::Image::new(include_bytes!("../icons/tray.rgba"), 44, 44);
             TrayIconBuilder::new()
                 .tooltip("OpenWorker")

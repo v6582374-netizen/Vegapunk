@@ -867,24 +867,24 @@ class GenerationAgent(BaseAgent):
                     global_config = self.config.get("_global_config", {})
                     exp_backend = global_config.get("exp_backend")
 
-                    if exp_backend == "claudecode":
+                    if exp_backend == "codex":
                         # Import the function when needed
-                        from .codeview_agent import get_repo_structure_claudecode
+                        from .codeview_agent import get_repo_structure_codex
 
                         # Get proxy settings and model from config if available
                         proxy_settings = global_config.get("proxy_settings", None)
-                        claude_model = global_config.get("experiment", {}).get("model", "claude-sonnet-4-5-20250929")
+                        codex_model = global_config.get("experiment", {}).get("model", "gpt-5.6-sol")
 
-                        logger.info(f"Using Claude Code backend to generate code summary with model: {claude_model}")
-                        ref_code = get_repo_structure_claudecode(
+                        logger.info(f"Using Codex CLI backend to generate code summary with model: {codex_model}")
+                        ref_code = get_repo_structure_codex(
                             project_path=ref_code_path,
                             output_dir=ref_code_path,
                             output_name="code_summary.json",
                             proxy_settings=proxy_settings,
-                            model=claude_model
+                            model=codex_model
                         )
                     else:
-                        # Use codeview agent to generate code summary (for claudecode, iflow, or other backends)
+                        # Use codeview agent to generate code summary (for codex, iflow, or other backends)
                         logger.info(f"Using {exp_backend} backend to generate code summary")
                         ref_code = get_repo_structure(
                             project_path=ref_code_path,

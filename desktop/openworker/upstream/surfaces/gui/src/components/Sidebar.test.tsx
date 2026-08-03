@@ -60,11 +60,13 @@ const baseProps = {
   onOpenAudit: vi.fn(),
   onOpenInbox: vi.fn(),
   onOpenSkillsManager: vi.fn(),
+  onOpenAgentsMd: vi.fn(),
   scheduledActive: false,
   integrationsActive: false,
   auditActive: false,
   inboxActive: false,
   skillsManagerActive: false,
+  agentsMdActive: false,
 };
 
 afterEach(() => {
@@ -74,7 +76,7 @@ afterEach(() => {
 });
 
 describe("Skills Manager workspace", () => {
-  it("opens the complete Skills Manager from a dedicated top-level navigation entry", async () => {
+  it("opens the complete Skills Manager from the Harness navigation group", async () => {
     stubFetch([
       { match: "/v1/personas", method: "GET", json: PERSONAS },
       { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
@@ -84,6 +86,41 @@ describe("Skills Manager workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Skills Manager" }));
 
     expect(baseProps.onOpenSkillsManager).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Skills Manager and AGENTS.md as sibling Harness entries", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+
+    const harness = await screen.findByRole("button", { name: "Harness" });
+    expect(screen.getByRole("button", { name: "Skills Manager" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "AGENTS.md" })).toBeTruthy();
+
+    fireEvent.click(harness);
+    expect(screen.queryByRole("button", { name: "Skills Manager" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "AGENTS.md" })).toBeNull();
+
+    fireEvent.click(harness);
+    fireEvent.click(screen.getByRole("button", { name: "AGENTS.md" }));
+    expect(baseProps.onOpenAgentsMd).toHaveBeenCalledOnce();
+  });
+
+  it("reopens Harness when an active child is selected", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    const view = render(<Sidebar {...baseProps} />);
+    const harness = await screen.findByRole("button", { name: "Harness" });
+    fireEvent.click(harness);
+    expect(screen.queryByRole("button", { name: "AGENTS.md" })).toBeNull();
+
+    view.rerender(<Sidebar {...baseProps} agentsMdActive />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "AGENTS.md" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "AGENTS.md" }).getAttribute("aria-current")).toBe("page");
   });
 });
 

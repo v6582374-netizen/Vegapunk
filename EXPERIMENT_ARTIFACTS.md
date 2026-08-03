@@ -173,7 +173,7 @@ results/<task_name>/<launch_id>_launch/session_<id>/<timestamp>_<idea_name>/
 
 含义：
 
-- Claude Code backend 在实验结束后生成的简短实验报告。
+- Codex CLI backend 在实验结束后生成的简短实验报告。
 - 当前提示要求它概述每个 run 做了什么、从 `final_info.json` 得到什么结果，或失败时总结错误。
 
 使用建议：

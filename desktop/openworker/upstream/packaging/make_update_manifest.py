@@ -3,24 +3,22 @@
 
 Run by the release CI job after all platform builds are staged in one directory:
 
-    python3 make_update_manifest.py --version 0.1.2 --tag v0.1.2 \
-        --repo andrewyng/aisuite --dist dist/ --out dist/latest.json
+    python3 make_update_manifest.py --version 0.1.0 --tag v0.1.0 \
+        --repo v6582374-netizen/Vegapunk --dist dist/ --out dist/latest.json
 
 Looks for the updater artifacts by their STABLE names (the same names release.yml
 uploads):
 
-    OpenWorker-macos-arm64.app.tar.gz(.sig)   -> platforms["darwin-aarch64"]
-    OpenWorker-windows-setup.exe(.sig)        -> platforms["windows-x86_64"]
+    Vegapunk-macos-arm64.app.tar.gz(.sig)    -> platforms["darwin-aarch64"]
 
 URLs point at the TAG-pinned GitHub download path (releases/download/<tag>/<asset>),
-never at `latest/` — a manifest must reference exactly the artifacts it shipped with,
+never at `latest/` - a manifest must reference exactly the artifacts it shipped with,
 or a half-published release would mix versions. Platforms whose artifact or .sig is
-missing are SKIPPED with a warning (e.g. a mac-only hotfix release), so shipped apps
-on other platforms simply see no update rather than a broken one.
+missing are skipped with a warning, so a manifest never advertises an unsigned or
+incomplete update.
 
-The desktop app finds this file through https://download.openworker.com/latest.json
-(branded redirect) falling back to the repo's releases/latest/download/latest.json —
-see tauri.conf.json `plugins.updater.endpoints`.
+The desktop app finds this file through the Vegapunk repository's public
+`releases/latest/download/latest.json` endpoint configured in `tauri.conf.json`.
 """
 
 from __future__ import annotations
@@ -33,8 +31,7 @@ import sys
 
 # stable asset name -> Tauri platform key
 ARTIFACTS = {
-    "OpenWorker-macos-arm64.app.tar.gz": "darwin-aarch64",
-    "OpenWorker-windows-setup.exe": "windows-x86_64",
+    "Vegapunk-macos-arm64.app.tar.gz": "darwin-aarch64",
 }
 
 
@@ -44,7 +41,7 @@ def main() -> int:
     ap.add_argument(
         "--tag", required=True, help="git tag the assets live under, e.g. v0.1.2"
     )
-    ap.add_argument("--repo", required=True, help="owner/name, e.g. andrewyng/aisuite")
+    ap.add_argument("--repo", required=True, help="owner/name, e.g. v6582374-netizen/Vegapunk")
     ap.add_argument(
         "--dist", required=True, type=pathlib.Path, help="staged artifacts dir"
     )
@@ -60,13 +57,13 @@ def main() -> int:
         sig = args.dist / (asset + ".sig")
         if not artifact.exists():
             print(
-                f"warning: {asset} not in {args.dist} — skipping {platform}",
+                f"warning: {asset} not in {args.dist} - skipping {platform}",
                 file=sys.stderr,
             )
             continue
         if not sig.exists():
             print(
-                f"warning: {asset} has no .sig — skipping {platform} (unsigned updates never install)",
+                f"warning: {asset} has no .sig - skipping {platform} (unsigned updates never install)",
                 file=sys.stderr,
             )
             continue
@@ -77,7 +74,7 @@ def main() -> int:
 
     if not platforms:
         print(
-            "error: no signed updater artifacts found — refusing to write an empty manifest",
+            "error: no signed updater artifacts found - refusing to write an empty manifest",
             file=sys.stderr,
         )
         return 1

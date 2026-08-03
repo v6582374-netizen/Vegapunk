@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, Re
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { useLocation } from "react-router-dom";
-import { useTranslation } from "../i18n";
+
+export const SKILL_TRANSLATION_TARGET_LANGUAGE = "zh" as const;
 
 export interface SkillTranslationOutput {
   name: string;
@@ -110,8 +111,7 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
 
   const refreshConfigured = useCallback(async (): Promise<boolean> => {
     try {
-      const provider = await invoke<unknown>("get_llm_provider");
-      const configured = provider != null;
+      const configured = await invoke<boolean>("is_llm_provider_configured");
       setIsConfigured(configured);
       return configured;
     } catch {
@@ -307,15 +307,15 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
   // 导致整个应用树重渲染（SkillTranslationProvider 包裹整个 app），
   // 是 Skills 页面切换卡顿的主要根源。页面自己会在数据加载后预热。
   const location = useLocation();
-  const { language } = useTranslation();
   const lastPreloadedLangRef = useRef<string | null>(null);
   const lastPreloadedPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     const preloadForRoute = async () => {
       if (!isConfigured) return;
+      const targetLanguage = SKILL_TRANSLATION_TARGET_LANGUAGE;
       // 同一语言 + 同一路径只预热一次，避免每次 mount 重复触发
-      if (lastPreloadedLangRef.current === language && lastPreloadedPathRef.current === location.pathname) {
+      if (lastPreloadedLangRef.current === targetLanguage && lastPreloadedPathRef.current === location.pathname) {
         return;
       }
 
@@ -324,9 +324,9 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
           // Skills 页面：预热所有已安装 skill
           const skills = await invoke<Array<{ instance_id: string }>>('list_skills');
           const instanceIds = skills.map(s => s.instance_id);
-          await preloadCachedSkills(instanceIds, language);
+          await preloadCachedSkills(instanceIds, targetLanguage);
         }
-        lastPreloadedLangRef.current = language;
+        lastPreloadedLangRef.current = targetLanguage;
         lastPreloadedPathRef.current = location.pathname;
       } catch (err) {
         // 预热失败静默处理，不影响用户
@@ -335,7 +335,7 @@ export function SkillTranslationProvider({ children }: { children: ReactNode }) 
     };
 
     preloadForRoute();
-  }, [location.pathname, language, isConfigured, preloadCachedSkills]);
+  }, [location.pathname, isConfigured, preloadCachedSkills]);
 
   const value: SkillTranslationContextValue = {
     isConfigured,
@@ -365,6 +365,10 @@ export function useSkillTranslation() {
     throw new Error("useSkillTranslation must be used within SkillTranslationProvider");
   }
   return ctx;
+}
+
+export function useOptionalSkillTranslation() {
+  return useContext(SkillTranslationContext);
 }
 
 export function makeTranslationKey(instanceId: string, targetLang: string): string {

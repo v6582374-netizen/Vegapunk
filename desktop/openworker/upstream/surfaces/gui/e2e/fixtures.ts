@@ -39,7 +39,6 @@ const DISCOVERY = {
     revisions: [],
     conversion: {
       status: "pending",
-      draft: "",
       model_id: null,
       error: null,
       saved_revision_id: null,
@@ -370,6 +369,10 @@ const PROVIDERS = [
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
+  const discoveryConversionPrompt = {
+    instruction: "Compile the saved Preparation into one structured Execution Input.",
+    configured: true,
+  };
   const discovery: any = {
     ...DISCOVERY,
     preparation: {
@@ -380,7 +383,6 @@ export async function mockApi(page: import("@playwright/test").Page) {
       revisions: [] as any[],
       conversion: {
         status: "pending" as "pending" | "editing" | "saved" | "dirty" | "failed",
-        draft: "",
         model_id: null as string | null,
         error: null as string | null,
         saved_revision_id: null as string | null,
@@ -393,11 +395,52 @@ export async function mockApi(page: import("@playwright/test").Page) {
   let nextDiscoveryRevisionId = 1;
   let nextDiscoveryLaunchId = 1;
   const discoveryLaunchesByKey = new Map<string, { fingerprint: string; result: any }>();
+  const discoveryArtifactsByLaunch = new Map<string, { report: string; summary: string }>();
+
+  const findDiscoveryLaunch = (launchId: string) =>
+    discovery.current_launch?.launch_id === launchId
+      ? discovery.current_launch
+      : discovery.history.find((candidate: any) => candidate.launch_id === launchId) ?? null;
+
+  const discoveryStatus = (launch: any) => {
+    const completed = launch.state === "completed";
+    const stopped = launch.state === "stopped";
+    const interrupted = launch.state === "interrupted";
+    const active = ["starting", "running", "stopping"].includes(launch.state);
+    const timelineState = completed ? "completed" : stopped || interrupted ? "stopped" : "running";
+    const milestones = [
+      { id: "preparing", key: "preparing", label: "Prepare sources", position: 1, state: completed ? "completed" : "completed", summary: null, started_at: null, ended_at: null, attempts: [] },
+      { id: "research", key: "research", label: "Run discovery", position: 2, state: completed ? "completed" : launch.stage === "research" ? "running" : "pending", summary: null, started_at: null, ended_at: null, attempts: [] },
+      { id: "finalizing", key: "finalizing", label: "Finalize outputs", position: 3, state: completed ? "completed" : "pending", summary: null, started_at: null, ended_at: null, attempts: [] },
+    ];
+    return {
+      launch,
+      state: launch.state,
+      stage: launch.stage,
+      round: launch.round,
+      checkpoint: launch.checkpoint ?? null,
+      timeline: {
+        revision: 1,
+        percent: completed ? 100 : launch.state === "running" ? 33 : 0,
+        current_milestone_id: completed ? null : launch.stage === "research" ? "research" : null,
+        milestones,
+      },
+      activity: {
+        oldest_sequence: 1,
+        newest_sequence: 1,
+        truncated_before_sequence: 0,
+        items: [{ sequence: 1, occurred_at: "2026-08-01T00:00:00.000Z", level: "info", milestone_id: "research", text: "Fixture Discovery runner is observable." }],
+      },
+      allowed_actions: active ? ["stop"] : stopped || interrupted ? ["resume"] : [],
+      produced_outputs: [...(discoveryArtifactsByLaunch.get(launch.launch_id) ? [{ path: "report.md", label: "report.md" }, { path: "summary.json", label: "summary.json" }] : [])],
+      latest_event_sequence: 1,
+      timelineState,
+    };
+  };
 
   const invalidateConversion = (status: "pending" | "dirty") => {
     discovery.preparation.conversion = {
       status,
-      draft: "",
       model_id: null,
       error: null,
       saved_revision_id: null,
@@ -896,6 +939,16 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
 
     if (p.endsWith("/v1/health")) return json(HEALTH);
+    if (p.endsWith("/v1/discovery/input-conversion-prompt")) {
+      if (m === "PUT") {
+        const body = req.postDataJSON() ?? {};
+        if (typeof body.instruction !== "string" || !body.instruction.trim()) {
+          return json({ detail: "instruction is required" }, 422);
+        }
+        discoveryConversionPrompt.instruction = body.instruction;
+      }
+      return json(discoveryConversionPrompt);
+    }
     if (p.endsWith("/v1/discovery/preparation/intake") && m === "POST") {
       const body = req.postDataJSON();
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -1004,6 +1057,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       invalidateConversion("pending");
       return json(discovery);
     }
+    if (p.endsWith("/v1/discovery/preparation/reset") && m === "POST") {
+      discovery.preparation.draft = { text: "", sources: [] };
+      discovery.preparation.saved = { text: "", sources: [] };
+      discovery.preparation.revisions = [];
+      discovery.preparation.dirty = false;
+      discovery.preparation.status = "empty";
+      invalidateConversion("pending");
+      return json(discovery);
+    }
     if (p.endsWith("/v1/discovery/preparation/convert") && m === "POST") {
       const hasInput =
         discovery.preparation.saved.text.trim() || discovery.preparation.saved.sources.length;
@@ -1013,17 +1075,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (!hasInput) {
         return json({ detail: "Conversion requires a non-empty saved Preparation" }, 422);
       }
-      const formattedInput = [
-        "# Converted Discovery Input",
-        "",
-        discovery.preparation.saved.text || "Use the committed source bundle as evidence.",
-        "",
-        "## Sources",
-        ...discovery.preparation.saved.sources.map((source: any) => `- ${source.filename}`),
-      ].join("\n");
+      const executionInput = {
+        task_description: "Compare two constrained baselines against the supplied evidence.",
+        domain: "Scientific ML",
+        background: `${discovery.preparation.saved.text || "Use the committed source bundle as evidence."} ${discovery.preparation.saved.sources.map((source: any) => `[source: ${source.filename}]`).join(" ")}`.trim(),
+        constraints: ["Use only the committed source bundle."],
+      };
       discovery.preparation.conversion = {
         status: "editing",
-        draft: formattedInput,
+        execution_input: executionInput,
         model_id: SETTINGS.model,
         error: null,
         saved_revision_id: null,
@@ -1034,25 +1094,25 @@ export async function mockApi(page: import("@playwright/test").Page) {
     }
     if (p.endsWith("/v1/discovery/preparation/revisions") && m === "POST") {
       const body = req.postDataJSON() ?? {};
-      const formattedInput = body.formatted_input;
-      if (typeof formattedInput !== "string" || !formattedInput.trim()) {
-        return json({ detail: "Formatted Discovery Input must not be empty" }, 422);
+      const executionInput = body.execution_input;
+      if (!executionInput || typeof executionInput !== "object") {
+        return json({ detail: "Discovery Execution Input must not be empty" }, 422);
       }
-      if (discovery.preparation.dirty || !discovery.preparation.conversion.draft) {
+      if (discovery.preparation.dirty || !discovery.preparation.conversion.execution_input) {
         return json({ detail: "convert the committed Preparation before saving a revision" }, 422);
       }
       const revisionId = `fixture-revision-${nextDiscoveryRevisionId++}`;
       discovery.preparation.revisions.push({
         revision_id: revisionId,
         created_at: "2026-08-01T00:00:00.000Z",
-        formatted_input: formattedInput,
+        execution_input: executionInput,
         model_id: discovery.preparation.conversion.model_id,
         eligible: true,
       });
       discovery.preparation.conversion = {
         ...discovery.preparation.conversion,
         status: "saved",
-        draft: formattedInput,
+        execution_input: executionInput,
         saved_revision_id: revisionId,
         error: null,
       };
@@ -1082,7 +1142,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
         discovery.preparation.dirty ||
         !revision ||
         !revision.eligible ||
-        !String(revision.formatted_input || "").trim()
+        !revision.execution_input
       ) {
         return json({ detail: "the saved Preparation and revision must be current before Run" }, 422);
       }
@@ -1127,6 +1187,10 @@ export async function mockApi(page: import("@playwright/test").Page) {
         };
         discovery.current_launch = null;
         discovery.history.unshift(completed);
+        discoveryArtifactsByLaunch.set(launch.launch_id, {
+          report: `# Discovery report\n\nLaunch \`${launch.launch_id}\` completed.\n`,
+          summary: JSON.stringify({ launch_id: launch.launch_id, state: "completed", rounds: 3 }),
+        });
       }, 1000);
       return json(result, 201);
     }
@@ -1203,8 +1267,75 @@ export async function mockApi(page: import("@playwright/test").Page) {
         const completed = { ...resumed, state: "completed", stage: "completed", round: 3, outcome: "completed", resumable: false, attempts: resumed.attempts.map((attempt: any) => ({ ...attempt, state: "completed", finished_at: "2026-08-01T00:00:02.000Z" })) };
         discovery.current_launch = null;
         discovery.history.unshift(completed);
+        discoveryArtifactsByLaunch.set(launchId, {
+          report: `# Discovery report\n\nLaunch \`${launchId}\` completed after Resume.\n`,
+          summary: JSON.stringify({ launch_id: launchId, state: "completed", rounds: 3 }),
+        });
       }, 1000);
       return json(result, 201);
+    }
+    const launchStatusMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/status$/);
+    if (launchStatusMatch && m === "GET") {
+      const launch = findDiscoveryLaunch(decodeURIComponent(launchStatusMatch[1]));
+      return launch ? json(discoveryStatus(launch)) : json({ detail: "Discovery Launch not found" }, 404);
+    }
+    const launchEventsMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/events$/);
+    if (launchEventsMatch && m === "GET") {
+      const launch = findDiscoveryLaunch(decodeURIComponent(launchEventsMatch[1]));
+      return launch ? json({ events: [], latest_sequence: 1 }) : json({ detail: "Discovery Launch not found" }, 404);
+    }
+    const launchLogMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/logs\/stream$/);
+    if (launchLogMatch && m === "GET") {
+      const launch = findDiscoveryLaunch(decodeURIComponent(launchLogMatch[1]));
+      return launch
+        ? route.fulfill({ status: 200, contentType: "text/event-stream", body: "data: fixture-runner: research round=1\n\n" })
+        : json({ detail: "Discovery Launch not found" }, 404);
+    }
+    const artifactsMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/artifacts$/);
+    if (artifactsMatch && m === "GET") {
+      const launchId = decodeURIComponent(artifactsMatch[1]);
+      const launch = findDiscoveryLaunch(launchId);
+      if (!launch) return json({ detail: "Discovery Launch not found" }, 404);
+      const artifacts = discoveryArtifactsByLaunch.has(launchId)
+        ? [
+            { path: "report.md", name: "report.md", kind: "markdown", size: 64, modified_at: 1, previewable: true },
+            { path: "summary.json", name: "summary.json", kind: "structured", size: 64, modified_at: 1, previewable: true },
+          ]
+        : [];
+      return json({ launch_id: launchId, artifacts });
+    }
+    const artifactReadMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/artifacts\/read$/);
+    if (artifactReadMatch && m === "GET") {
+      const launchId = decodeURIComponent(artifactReadMatch[1]);
+      const launch = findDiscoveryLaunch(launchId);
+      const artifact = discoveryArtifactsByLaunch.get(launchId);
+      const artifactPath = new URL(req.url()).searchParams.get("path");
+      if (!launch || !artifact || !artifactPath || !["report.md", "summary.json"].includes(artifactPath)) {
+        return json({ detail: "Discovery artifact is not available" }, 404);
+      }
+      const markdown = artifactPath === "report.md";
+      return json({
+        ok: true,
+        path: artifactPath,
+        name: artifactPath,
+        kind: markdown ? "markdown" : "structured",
+        size: artifactPath === "report.md" ? artifact.report.length : artifact.summary.length,
+        modified_at: 1,
+        previewable: true,
+        content: markdown ? artifact.report : artifact.summary,
+        data_url: null,
+        truncated: false,
+      });
+    }
+    const artifactRevealMatch = p.match(/\/v1\/discovery\/launches\/([^/]+)\/artifacts\/reveal$/);
+    if (artifactRevealMatch && m === "POST") {
+      const launchId = decodeURIComponent(artifactRevealMatch[1]);
+      const launch = findDiscoveryLaunch(launchId);
+      const body = req.postDataJSON() ?? {};
+      if (!launch || !discoveryArtifactsByLaunch.has(launchId) || !["report.md", "summary.json"].includes(body.path)) {
+        return json({ detail: "Discovery artifact is not available" }, 404);
+      }
+      return json({ ok: true, path: body.path, mode: body.mode ?? "reveal" });
     }
     if (p.endsWith("/v1/discovery/launches") && m === "GET") {
       return json(discovery);

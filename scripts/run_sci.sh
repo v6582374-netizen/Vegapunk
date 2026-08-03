@@ -17,4 +17,4 @@ echo "=== Running sci_task: $TASK ==="
 python launch_discovery.py \
     --config config/default_config.yaml \
     --task "$TASK" \
-    --exp_backend claudecode
+    --exp_backend codex

@@ -12,8 +12,8 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::{RiskScanMode, Skill, SkillRiskReport};
 use crate::services::{
-    clear_risk_cache, invalidate_risk_cache, scan_all_skills, scan_skill, ConfigManager,
-    ScannerService,
+    clear_risk_cache, invalidate_risk_cache, scan_all_skills, scan_skill, shared_llm_provider,
+    ConfigManager, ScannerService,
 };
 
 /// 获取单个 skill 的风险报告
@@ -28,7 +28,11 @@ pub async fn get_risk_report(instance_id: String) -> Result<SkillRiskReport, Str
         .as_ref()
         .map(|p| p.risk_scan_mode)
         .unwrap_or(RiskScanMode::Off);
-    let llm_provider = config.llm_provider.as_ref();
+    let llm_provider = if mode.is_deep() {
+        shared_llm_provider::load_provider()?
+    } else {
+        None
+    };
 
     // 找到对应的 skill
     let skills = ScannerService::scan_scoped_skills(&config)?;
@@ -37,7 +41,7 @@ pub async fn get_risk_report(instance_id: String) -> Result<SkillRiskReport, Str
         .find(|s| s.instance_id == instance_id)
         .ok_or_else(|| format!("Skill not found: {}", instance_id))?;
 
-    let report = scan_skill(&skill, mode, llm_provider).await;
+    let report = scan_skill(&skill, mode, llm_provider.as_ref()).await;
     Ok(report)
 }
 
@@ -54,14 +58,18 @@ pub async fn scan_all_risks(app: AppHandle) -> Result<Vec<SkillRiskReport>, Stri
         .as_ref()
         .map(|p| p.risk_scan_mode)
         .unwrap_or(RiskScanMode::Off);
-    let llm_provider = config.llm_provider.as_ref();
-
     if mode.is_off() {
         return Ok(Vec::new());
     }
 
+    let llm_provider = if mode.is_deep() {
+        shared_llm_provider::load_provider()?
+    } else {
+        None
+    };
+
     let skills = ScannerService::scan_scoped_skills(&config)?;
-    let reports = scan_all_skills(&skills, mode, llm_provider).await;
+    let reports = scan_all_skills(&skills, mode, llm_provider.as_ref()).await;
 
     // 通知前端刷新
     let _ = app.emit("risk-scan-completed", ());
@@ -82,7 +90,11 @@ pub async fn rescan_skill(instance_id: String) -> Result<SkillRiskReport, String
         .as_ref()
         .map(|p| p.risk_scan_mode)
         .unwrap_or(RiskScanMode::Off);
-    let llm_provider = config.llm_provider.as_ref();
+    let llm_provider = if mode.is_deep() {
+        shared_llm_provider::load_provider()?
+    } else {
+        None
+    };
 
     let skills = ScannerService::scan_scoped_skills(&config)?;
     let skill = skills
@@ -90,7 +102,7 @@ pub async fn rescan_skill(instance_id: String) -> Result<SkillRiskReport, String
         .find(|s| s.instance_id == instance_id)
         .ok_or_else(|| format!("Skill not found: {}", instance_id))?;
 
-    let report = scan_skill(&skill, mode, llm_provider).await;
+    let report = scan_skill(&skill, mode, llm_provider.as_ref()).await;
     Ok(report)
 }
 
@@ -122,11 +134,15 @@ pub async fn get_risk_reports_batch(
         .as_ref()
         .map(|p| p.risk_scan_mode)
         .unwrap_or(RiskScanMode::Off);
-    let llm_provider = config.llm_provider.as_ref();
-
     if mode.is_off() {
         return Ok(HashMap::new());
     }
+
+    let llm_provider = if mode.is_deep() {
+        shared_llm_provider::load_provider()?
+    } else {
+        None
+    };
 
     let skills = ScannerService::scan_scoped_skills(&config)?;
     let mut reports = HashMap::new();
@@ -142,7 +158,7 @@ pub async fn get_risk_reports_batch(
     };
 
     for skill in matched {
-        let report = scan_skill(skill, mode, llm_provider).await;
+        let report = scan_skill(skill, mode, llm_provider.as_ref()).await;
         reports.insert(skill.instance_id.clone(), report);
     }
 
@@ -172,18 +188,25 @@ pub fn start_background_scan(app: AppHandle) {
                 .as_ref()
                 .map(|p| p.risk_scan_mode)
                 .unwrap_or(RiskScanMode::Off);
-            let llm_provider = manager.llm_provider.as_ref();
-
             if mode.is_off() {
                 return;
             }
+
+            let llm_provider = if mode.is_deep() {
+                match shared_llm_provider::load_provider() {
+                    Ok(provider) => provider,
+                    Err(_) => return,
+                }
+            } else {
+                None
+            };
 
             let skills = match ScannerService::scan_scoped_skills(&manager) {
                 Ok(s) => s,
                 Err(_) => return,
             };
 
-            let _ = scan_all_skills(&skills, mode, llm_provider).await;
+            let _ = scan_all_skills(&skills, mode, llm_provider.as_ref()).await;
             let _ = app.emit("risk-scan-completed", ());
         });
     });

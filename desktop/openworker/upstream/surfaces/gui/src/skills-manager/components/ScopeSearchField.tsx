@@ -196,7 +196,7 @@ export function ScopeSearchField({ onOpenPalette }: ScopeSearchFieldProps) {
             title={t("scope.switchTo")}
           >
             <span style={{ color: "var(--ember)", fontSize: 11 }}>✦</span>
-            <span className="scope-chip-text" style={{ color: "var(--foreground)", fontSize: 12, fontWeight: 500 }}>
+            <span className="scope-chip-text editorial-heading" style={{ color: "var(--foreground)", fontSize: 12, fontWeight: 500 }}>
               {t(currentPage.labelKey)}
             </span>
             <span style={{ color: "var(--muted-foreground)", fontSize: 10 }}>▾</span>

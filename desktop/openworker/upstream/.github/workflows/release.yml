@@ -1,18 +1,16 @@
-# Desktop release builds — macOS (.dmg, arm64 + Intel) and Windows (.msi + NSIS .exe).
+# Vegapunk stable release builds for macOS Apple Silicon (.dmg and updater archive).
 #
-# CI calls the SAME scripts developers run locally (packaging/build_dmg.sh and
-# build_windows.ps1); this file only provisions the toolchain (Node, Rust, a Python venv at
-# .venv with PyInstaller) and publishes the results.
+# CI calls the same packaging/build_dmg.sh script developers run locally.
+# This file only provisions the toolchain (Node, Rust, a Python venv at .venv with PyInstaller)
+# and publishes the results.
 #
 # Triggers:
-#   - tag push `v*`  → builds all targets and attaches them to a DRAFT GitHub Release
+#   - tag push `v*`  → builds the Apple Silicon target and attaches it to a DRAFT GitHub Release
 #                      (review, then publish by hand).
 #   - manual run     → builds and uploads workflow artifacts only (no release).
 #
-# Each installer is uploaded twice: once with its versioned name (archive) and once with a
-# stable name (OpenWorker-macos-arm64.dmg, …) so the website can link to
-#   github.com/<repo>/releases/latest/download/<stable-name>
-# and never need updating.
+# Each artifact is uploaded with a stable Vegapunk name so the manifest can point at the
+# tag-pinned GitHub asset without relying on a moving URL.
 #
 # macOS signing + notarization: Tauri's bundler handles both during `tauri build` when the
 # APPLE_* env vars are present (import cert → sign app + sidecar with hardened runtime →
@@ -23,14 +21,14 @@
 #   APPLE_API_KEY_CONTENT        base64 App Store Connect API .p8 (notarytool)
 #   APPLE_API_KEY                the API key id
 #   APPLE_API_ISSUER             the API issuer id
-# When the secrets are absent (forks, scratch runs) the build degrades to unsigned —
-# installable via `xattr -cr`. Windows remains unsigned (Authenticode is a later step).
+# When the secrets are absent (forks, scratch runs) the build degrades to unsigned and is
+# not eligible for the Stable Release Channel.
 
 name: Release
 
 on:
   push:
-    tags: ["v*", "app-v*"]
+    tags: ["v*"]
   workflow_dispatch:
 
 defaults:
@@ -43,13 +41,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # No Intel macOS target: macos-13 (the last Intel runner image) is deprecated and
-          # its queue waits run to hours, which blocks the release job. Intel Macs are
-          # 2020-and-earlier hardware — revisit only if beta users actually ask.
-          - os: macos-latest # Apple Silicon
+          - os: macos-latest
             slug: macos-arm64
-          - os: windows-latest
-            slug: windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,6 +58,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: surfaces/gui/src-tauri
+
+      - name: Verify Apple Silicon runner
+        run: |
+          HOST_TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          if [ "$HOST_TRIPLE" != "aarch64-apple-darwin" ]; then
+            echo "::error::stable releases require an Apple Silicon runner, got $HOST_TRIPLE"
+            exit 1
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -86,8 +87,30 @@ jobs:
         working-directory: surfaces/gui
         run: npm ci
 
-      - name: Build .dmg (macOS)
-        if: runner.os == 'macOS'
+      - name: Require stable release signing secrets
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          require_secret() {
+            if [ -z "$2" ]; then
+              echo "::error::missing required stable release secret $1"
+              exit 1
+            fi
+          }
+          require_secret APPLE_CERTIFICATE "${APPLE_CERTIFICATE:-}"
+          require_secret APPLE_SIGNING_IDENTITY "${APPLE_SIGNING_IDENTITY:-}"
+          require_secret APPLE_API_KEY_CONTENT "${APPLE_API_KEY_CONTENT:-}"
+          require_secret APPLE_API_KEY "${APPLE_API_KEY:-}"
+          require_secret APPLE_API_ISSUER "${APPLE_API_ISSUER:-}"
+          require_secret TAURI_SIGNING_PRIVATE_KEY "${TAURI_SIGNING_PRIVATE_KEY:-}"
+
+      - name: Build .dmg (macOS Apple Silicon)
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -95,8 +118,10 @@ jobs:
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          # Auto-update artifact signing (minisign, separate from Apple signing). Absent →
+          # Auto-update artifact signing (minisign, separate from Apple signing). Absent ->
           # the build script skips updater artifacts with a warning (fork/scratch runs).
+          # The private key is a protected repository secret; the stable-release environment
+          # gates publication after the signed manifest is composed.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
@@ -112,35 +137,15 @@ jobs:
           unset APPLE_API_KEY_CONTENT
           bash packaging/build_dmg.sh
 
-      - name: Build .msi + NSIS .exe (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: ./packaging/build_windows.ps1
-
-      - name: Stage artifacts (versioned + stable names)
+      - name: Stage artifacts (Vegapunk names)
         run: |
           mkdir -p out
           BUNDLE=surfaces/gui/src-tauri/target/release/bundle
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            cp "$BUNDLE"/nsis/*.exe out/
-            cp "$BUNDLE"/nsis/*.exe out/OpenWorker-windows-setup.exe
-            cp "$BUNDLE"/msi/*.msi out/
-            cp "$BUNDLE"/msi/*.msi out/OpenWorker-windows.msi
-            # Updater signature for the NSIS installer (present only when the updater key
-            # secret is configured). The .sig signs CONTENT, so the stable rename is safe.
-            SIG=$(ls "$BUNDLE"/nsis/*.exe.sig 2>/dev/null | head -1 || true)
-            [ -n "$SIG" ] && cp "$SIG" out/OpenWorker-windows-setup.exe.sig
-          else
-            cp "$BUNDLE"/dmg/*.dmg out/
-            cp "$BUNDLE"/dmg/*.dmg out/OpenWorker-${{ matrix.slug }}.dmg
-            # macOS updater artifact: the signed .app tarball the installed app swaps in.
-            if [ -f "$BUNDLE"/macos/OpenWorker.app.tar.gz ]; then
-              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz out/OpenWorker-${{ matrix.slug }}.app.tar.gz
-              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz.sig out/OpenWorker-${{ matrix.slug }}.app.tar.gz.sig
-            fi
+          cp "$BUNDLE"/dmg/*.dmg out/Vegapunk-${{ matrix.slug }}.dmg
+          # The updater artifact is the signed .app archive the installed app swaps in.
+          if [ -f "$BUNDLE"/macos/OpenWorker.app.tar.gz ]; then
+            cp "$BUNDLE"/macos/OpenWorker.app.tar.gz out/Vegapunk-${{ matrix.slug }}.app.tar.gz
+            cp "$BUNDLE"/macos/OpenWorker.app.tar.gz.sig out/Vegapunk-${{ matrix.slug }}.app.tar.gz.sig
           fi
           ls -la out
 
@@ -154,6 +159,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    environment: stable-release
     permissions:
       contents: write
     steps:
@@ -165,26 +171,29 @@ jobs:
           merge-multiple: true
 
       - name: Compose the auto-update manifest (latest.json)
-        # Shipped apps poll releases/latest/download/latest.json (via the branded
-        # download.openworker.com redirect) — publishing this release IS pushing the
-        # update. The tag must match tauri.conf.json's version or installed apps would
-        # see a permanent phantom update; fail loudly on drift. Runs only when signed
-        # updater artifacts exist (i.e. the TAURI_SIGNING_PRIVATE_KEY secret is set).
+        # Shipped apps poll releases/latest/download/latest.json from Vegapunk. Publishing
+        # this release pushes the update. The tag must match tauri.conf.json's version or installed apps would
+        # see a permanent phantom update; fail loudly on drift. Stable tags also fail
+        # before publication when any signed updater artifact is missing.
         run: |
           TAG="${GITHUB_REF_NAME}"
           CONF_VERSION=$(python3 -c "import json; print(json.load(open('surfaces/gui/src-tauri/tauri.conf.json'))['version'])")
-          if [ "${TAG#v}" != "$CONF_VERSION" ]; then
-            echo "::error::tag $TAG != tauri.conf.json version $CONF_VERSION — bump the config before tagging"
+          if [[ "${TAG#v}" == *-* ]]; then
+            echo "::error::stable releases cannot use a pre-release tag: $TAG"
             exit 1
           fi
-          if ls dist/*.sig >/dev/null 2>&1; then
-            python3 packaging/make_update_manifest.py \
-              --version "${TAG#v}" --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --dist dist --out dist/latest.json \
-              --notes "OpenWorker ${TAG#v}"
-          else
-            echo "::warning::no updater signatures in dist/ — release ships WITHOUT auto-update manifest"
+          if [ "${TAG#v}" != "$CONF_VERSION" ]; then
+            echo "::error::tag $TAG != tauri.conf.json version $CONF_VERSION - bump the config before tagging"
+            exit 1
           fi
+          if [ ! -f dist/Vegapunk-macos-arm64.app.tar.gz ] || [ ! -f dist/Vegapunk-macos-arm64.app.tar.gz.sig ]; then
+            echo "::error::missing signed Vegapunk macOS updater artifact - stable releases require the archive and signature"
+            exit 1
+          fi
+          python3 packaging/make_update_manifest.py \
+            --version "${TAG#v}" --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dist dist --out dist/latest.json \
+            --notes "Vegapunk ${TAG#v}"
 
       - uses: softprops/action-gh-release@v2
         with:

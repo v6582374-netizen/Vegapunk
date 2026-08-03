@@ -1,6 +1,6 @@
 """
-MCTS experiments for Claude Code backend
-Using MCTS tree structure (node_X) + Claude Code native run_experiment mechanism
+MCTS experiments for Codex CLI backend
+Using MCTS tree structure (node_X) + Codex CLI native run_experiment mechanism
 """
 
 import os
@@ -13,8 +13,8 @@ from vegapunk.prompts import (
     CODER_PROMPT_MCTS_DRAFT,
     MCTS_IMPROVE_PROMPT
 )
-from vegapunk.experiments_utils_claude import (
-    ClaudeCodeRunner,
+from vegapunk.experiments_utils_codex import (
+    CodexRunner,
     run_experiment,
     extract_idea_info
 )
@@ -46,8 +46,8 @@ def _get_metric_config(task_key: str) -> Optional[tuple]:
     return None
 
 
-class ClaudeCodeMCTSSearch:
-    """Claude Code MCTS Searcher - MCTS tree structure + Claude Code native execution"""
+class CodexMCTSSearch:
+    """Codex CLI MCTS Searcher - MCTS tree structure + Codex CLI native execution"""
 
     def __init__(
         self,
@@ -55,14 +55,14 @@ class ClaudeCodeMCTSSearch:
         baseline_results: Dict[str, Any],
         idea_info: Dict[str, str],
         proxy_settings=None,
-        model='claude-sonnet-4-5-20250929'
+        model='gpt-5.6-sol'
     ):
         self.folder_name = folder_name
         self.baseline_results = baseline_results
         self.idea_info = idea_info
 
-        # Create Claude runner
-        self.claude_runner = ClaudeCodeRunner(proxy_settings, model)
+        # Create Codex runner
+        self.codex_runner = CodexRunner(proxy_settings, model)
 
         # Create root node
         if USE_BASELINE_AS_ROOT:
@@ -94,7 +94,7 @@ class ClaudeCodeMCTSSearch:
         # MCTS logging
         import logging
         self.mcts_log_path = os.path.join(self.folder_name, "mcts.log")
-        self.mcts_logger = logging.getLogger(f"mcts-claude-{id(self)}")
+        self.mcts_logger = logging.getLogger(f"mcts-codex-{id(self)}")
         self.mcts_logger.setLevel(logging.INFO)
         file_handler = logging.FileHandler(self.mcts_log_path)
         file_handler.setFormatter(logging.Formatter("%(asctime)s | %(message)s"))
@@ -300,18 +300,18 @@ class ClaudeCodeMCTSSearch:
                 )
                 self._log(f"[draft] node={node.id} generating initial code")
 
-                # Claude works in code directory
+                # Codex works in code directory
                 code_dir = os.path.join(node.workspace_folder, "code")
-                claude_output = self.claude_runner.run(prompt, cwd=code_dir)
-                if claude_output:
-                    print(f"Claude output: {claude_output}...")
+                codex_output = self.codex_runner.run(prompt, cwd=code_dir)
+                if codex_output:
+                    print(f"Codex output: {codex_output}...")
 
                 # Autodebug loop: run → check → fix
                 return_code = 1
                 for current_iter in range(MAX_ITERS):
                     self._log(f"[draft] node={node.id} iteration {current_iter+1}/{MAX_ITERS} running experiment")
 
-                    # Run experiment (Claude Code native way, creates node_X/run_1)
+                    # Run experiment (Codex CLI native way, creates node_X/run_1)
                     return_code, next_prompt, _, _ = run_experiment(
                         node.workspace_folder, 1
                     )
@@ -325,10 +325,10 @@ class ClaudeCodeMCTSSearch:
                         self._log(f"[draft] node={node.id} run FAILED, attempting to fix")
                         # If not last iteration, try to fix
                         if current_iter < MAX_ITERS - 1 and next_prompt:
-                            # Claude fixes code in code directory
-                            fix_output = self.claude_runner.run(next_prompt, cwd=code_dir)
+                            # Codex fixes code in code directory
+                            fix_output = self.codex_runner.run(next_prompt, cwd=code_dir)
                             if fix_output:
-                                print(f"Claude debug output: {fix_output}...")
+                                print(f"Codex debug output: {fix_output}...")
                 else:
                     # Max iterations reached but still failed
                     print(f"[MCTS] Max iterations reached for draft node_{node.id}")
@@ -377,18 +377,18 @@ class ClaudeCodeMCTSSearch:
                 prompt = MCTS_IMPROVE_PROMPT.format(RESULTS=ancestor_results)
                 self._log(f"[improve] parent={parent_node.id} node={node.id} improving code")
 
-                # Claude works in code directory
+                # Codex works in code directory
                 code_dir = os.path.join(node.workspace_folder, "code")
-                improve_output = self.claude_runner.run(prompt, cwd=code_dir)
+                improve_output = self.codex_runner.run(prompt, cwd=code_dir)
                 if improve_output:
-                    print(f"Claude improve output: {improve_output}...")
+                    print(f"Codex improve output: {improve_output}...")
 
                 # Autodebug loop: run → check → fix
                 return_code = 1
                 for current_iter in range(MAX_ITERS):
                     self._log(f"[improve] node={node.id} iteration {current_iter+1}/{MAX_ITERS} running experiment")
 
-                    # Run experiment (Claude Code native way, creates node_X/run_1)
+                    # Run experiment (Codex CLI native way, creates node_X/run_1)
                     return_code, next_prompt, _, _ = run_experiment(
                         node.workspace_folder, 1
                     )
@@ -402,10 +402,10 @@ class ClaudeCodeMCTSSearch:
                         self._log(f"[improve] node={node.id} run FAILED, attempting to fix")
                         # If not last iteration, try to fix
                         if current_iter < MAX_ITERS - 1 and next_prompt:
-                            # Claude fixes code in code directory
-                            fix_output = self.claude_runner.run(next_prompt, cwd=code_dir)
+                            # Codex fixes code in code directory
+                            fix_output = self.codex_runner.run(next_prompt, cwd=code_dir)
                             if fix_output:
-                                print(f"Claude debug output: {fix_output}...")
+                                print(f"Codex debug output: {fix_output}...")
                 else:
                     # Max iterations reached but still failed
                     print(f"[MCTS] Max iterations reached for improve node_{node.id}")
@@ -710,10 +710,10 @@ def perform_experiments_mcts(
     idea,
     folder_name: str,
     proxy_settings=None,
-    model='claude-sonnet-4-5-20250929'
+    model='gpt-5.6-sol'
 ) -> bool:
     """
-    Execute Claude Code experiments using MCTS
+    Execute Codex CLI experiments using MCTS
 
     Args:
         idea: Experiment idea
@@ -725,7 +725,7 @@ def perform_experiments_mcts(
         bool: Whether experiment succeeded
     """
     print("=" * 50)
-    print("CLAUDE CODE MCTS EXPERIMENTS STARTED")
+    print("CODEX CLI MCTS EXPERIMENTS STARTED")
     print("=" * 50)
 
     idea_info = extract_idea_info(idea)
@@ -743,7 +743,7 @@ def perform_experiments_mcts(
 
     # Run MCTS
     try:
-        mcts_search = ClaudeCodeMCTSSearch(
+        mcts_search = CodexMCTSSearch(
             folder_name=folder_name,
             baseline_results=baseline_results,
             idea_info=idea_info,

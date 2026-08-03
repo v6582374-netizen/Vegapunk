@@ -12,6 +12,8 @@ export type RelationToggleItem = {
   enabled: boolean;
   disabled: boolean;
   tooltip?: string;
+  statusLabel?: string;
+  statusTone?: "success" | "warning" | "error" | "muted";
   dimmed?: boolean;
   tags?: string[];
 };
@@ -503,7 +505,11 @@ export function RelationToggleDialog({
                       flexShrink: 0,
                       backgroundColor: item.enabled
                         ? "var(--ember)"
-                        : "var(--border)",
+                        : item.statusTone === "warning"
+                          ? "var(--color-warning)"
+                          : item.statusTone === "error"
+                            ? "var(--destructive)"
+                            : "var(--border)",
                       transition: "background-color 0.15s",
                     }}
                   />
@@ -522,6 +528,22 @@ export function RelationToggleDialog({
                   >
                     {item.label}
                   </div>
+                  {item.statusLabel && item.statusTone !== "success" && (
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        color: item.statusTone === "warning"
+                          ? "var(--color-warning)"
+                          : item.statusTone === "error"
+                            ? "var(--destructive)"
+                            : "var(--muted-foreground)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {item.statusLabel}
+                    </span>
+                  )}
                   {item.tags && item.tags.length > 0 && (
                     <div
                       style={{

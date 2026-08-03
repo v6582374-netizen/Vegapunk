@@ -142,9 +142,9 @@ prompts:
   template_variables: [task, subtask_trace]
   required_template_variables: [task, subtask_trace]
   file: deep_research/task_summary.txt
-- id: discovery.codeview.claudecode_repo_analysis
-  name: Claudecode Repo Analysis Prompt
-  description: Codeview agent prompt formerly CLAUDECODE_REPO_ANALYSIS_PROMPT
+- id: discovery.codeview.codex_repo_analysis
+  name: Codexcode Repo Analysis Prompt
+  description: Codeview agent prompt formerly CODEX_REPO_ANALYSIS_PROMPT
   workflow: discovery
   stage: code_understanding
   order: 30
@@ -152,7 +152,7 @@ prompts:
   mutual_exclusion_group: null
   template_variables: []
   required_template_variables: []
-  file: discovery/codeview_claudecode_repo_analysis.txt
+  file: discovery/codeview_codex_repo_analysis.txt
 - id: discovery.codeview.code_view
   name: Code View Prompt
   description: Codeview agent prompt formerly CODE_VIEW_PROMPT
@@ -320,7 +320,7 @@ prompts:
   file: experiment/coder_mcts_draft.txt
 - id: experiment.coder_openhands
   name: OpenHands coder prompt
-  description: Baseline-to-idea coding instruction for OpenHands/Claude backends
+  description: Baseline-to-idea coding instruction for OpenHands/Codex backends
   workflow: experiment
   stage: implementation
   order: 10

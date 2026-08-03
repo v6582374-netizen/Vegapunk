@@ -87,7 +87,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 skip_idea_generation=True,
                 idea_path=str(ideas_path),
                 mode="report",
-                exp_backend="claudecode",
+                exp_backend="codex",
             )
 
             previous_directory = Path.cwd()
@@ -157,7 +157,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 skip_idea_generation=False,
                 idea_path=None,
                 mode="experiment",
-                exp_backend="claudecode",
+                exp_backend="codex",
             )
 
             previous_directory = Path.cwd()
@@ -217,7 +217,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 skip_idea_generation=True,
                 idea_path=str(ideas_path),
                 mode="experiment",
-                exp_backend="claudecode",
+                exp_backend="codex",
             )
 
             previous_directory = Path.cwd()

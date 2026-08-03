@@ -53,7 +53,6 @@ def test_discovery_facade_is_registered_on_the_existing_authenticated_sidecar(
             "revisions": [],
             "conversion": {
                 "status": "pending",
-                "draft": "",
                 "model_id": None,
                 "error": None,
                 "saved_revision_id": None,

@@ -30,7 +30,7 @@ pip install -r requirements.txt
 ```
 OPENAI_API_KEY=        # OpenAI Responses API 密钥
 DASHSCOPE_API_KEY=     # 千问 DashScope API 密钥
-ANTHROPIC_API_KEY=     # Anthropic API 密钥（用于基于 Claude 的实验后端）
+ANTHROPIC_API_KEY=     # 若统一模型运行时选择 Anthropic Provider，则填写
 ```
 
 所有模型 Provider、Canonical Model Identity 与能力绑定统一配置于
@@ -49,7 +49,7 @@ Runtime 统一负责 Provider 并发与有界重试，且不会使用 provider-s
 python launch_discovery.py \
     --config ./config/default_config.yaml \
     --task AutoDebug \
-    --exp_backend claudecode
+    --exp_backend codex
 ```
 
 实验模式完成全部 Discovery 工作后，会自动发生一次 Paper Handoff，并在
@@ -87,7 +87,7 @@ python launch_qa.py -q "What are recent advances in memory-augmented LLMs?" -o a
 `launch.py` 是两种模式的统一入口：
 
 ```bash
-python launch.py --mode discovery --task AutoDebug --exp_backend claudecode
+python launch.py --mode discovery --task AutoDebug --exp_backend codex
 python launch.py --mode qa --question "What are recent advances in memory-augmented LLMs?"
 ```
 

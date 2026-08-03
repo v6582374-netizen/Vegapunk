@@ -94,7 +94,6 @@ export interface DiscoveryInputRevision {
   revision_id: string;
   created_at: string;
   execution_input?: DiscoveryExecutionInput;
-  formatted_input?: string;
   model_id: string | null;
   eligible: boolean;
 }
@@ -104,7 +103,6 @@ export type DiscoveryConversionStatus = "pending" | "editing" | "saved" | "dirty
 export interface DiscoveryConversionState {
   status: DiscoveryConversionStatus;
   execution_input?: DiscoveryExecutionInput;
-  draft?: string;
   model_id: string | null;
   error: string | null;
   saved_revision_id: string | null;

@@ -26,7 +26,7 @@ class ExperimentRunnerRuntimeTest(unittest.TestCase):
             results.mkdir()
             runner = ExperimentRunner(
                 Namespace(
-                    exp_backend="claudecode",
+                    exp_backend="codex",
                     task_dir=str(baseline),
                     task_type="auto",
                 ),
@@ -43,10 +43,10 @@ class ExperimentRunnerRuntimeTest(unittest.TestCase):
             )
 
             with patch(
-                "vegapunk.stage.perform_experiments_claudecode",
+                "vegapunk.stage.perform_experiments_codex",
                 return_value=False,
             ) as perform_experiments:
-                success, _ = runner.run_claude_experiment(
+                success, _ = runner.run_codex_experiment(
                     str(baseline),
                     str(results),
                     {
@@ -66,7 +66,7 @@ class IdeaGeneratorRuntimeTest(unittest.TestCase):
         runtime = object()
         args = Namespace(
             config="config/default_config.yaml",
-            exp_backend="claudecode",
+            exp_backend="codex",
             task_dir="tasks/AutoClsSST",
             task_name="AutoClsSST",
         )

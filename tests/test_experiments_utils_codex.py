@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from vegapunk.experiments_utils_claude import perform_experiments
+from vegapunk.experiments_utils_codex import perform_experiments
 
 
 class PerformExperimentsArtifactTest(unittest.TestCase):
@@ -18,10 +18,10 @@ class PerformExperimentsArtifactTest(unittest.TestCase):
 
     def _perform(self, directory: str) -> bool:
         with patch(
-            "vegapunk.experiments_utils_claude.ClaudeCodeRunner.run",
+            "vegapunk.experiments_utils_codex.CodexRunner.run",
             return_value="ALL_COMPLETED",
         ), patch(
-            "vegapunk.experiments_utils_claude._generate_report_with_claude"
+            "vegapunk.experiments_utils_codex._generate_report_with_codex"
         ):
             return perform_experiments(
                 self.IDEA,

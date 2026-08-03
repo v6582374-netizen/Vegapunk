@@ -57,7 +57,10 @@ import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
 import { SkillsManagerPrototype } from "./components/SkillsManagerPrototype";
+import { AgentsMdPrototype } from "./components/AgentsMdPrototype";
 import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
+import { AgentsMdWorkspace, type AgentsMdFileTarget } from "./components/AgentsMdWorkspace";
+import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
 import { DiscoveryView } from "./components/DiscoveryView";
 
 const newId = () =>
@@ -147,6 +150,13 @@ function fallbackWorkspace(current: string | null, projects: RecentWorkspace[]):
 }
 
 export function App() {
+  const prototype = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("prototype") : null;
+  if (prototype === "skills-manager") return <SkillsManagerPrototype />;
+  if (prototype === "agents-md") return <AgentsMdPrototype />;
+  return <OpenWorkerApp />;
+}
+
+function OpenWorkerApp() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
   const [showGate, setShowGate] = useState(false);
@@ -212,8 +222,11 @@ export function App() {
     | "persona"
     | "settings"
     | "skills-manager"
+    | "agents-md"
+    | "agents-md-editor"
     | "discovery"
   >("session");
+  const [agentsMdTarget, setAgentsMdTarget] = useState<AgentsMdFileTarget | null>(null);
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
   // possibly-deleted automation's dead detail.
@@ -1119,7 +1132,6 @@ export function App() {
   const activeTitle = activeInfo?.title || "New session";
 
   const desktop = isTauri();
-  const skillsManagerPrototype = import.meta.env.DEV && new URLSearchParams(window.location.search).get("prototype") === "skills-manager";
   // Dev-only: `?overlay=1` simulates the desktop overlay layout in the browser (adds the
   // tauri-overlay class + draws fake traffic lights at the real position) so the top-left can be
   // tuned in the preview without a DMG build. Never active in the real app (isTauri() short-circuits).
@@ -1132,10 +1144,6 @@ export function App() {
     if (!desktop || event.button !== 0) return;
     startWindowDrag();
   };
-
-  if (skillsManagerPrototype) {
-    return <SkillsManagerPrototype />;
-  }
 
   if (booting || !uiReady) {
     return (
@@ -1295,6 +1303,10 @@ export function App() {
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
         onOpenSkillsManager={() => setSurface("skills-manager")}
+        onOpenAgentsMd={() => {
+          setAgentsMdTarget(null);
+          setSurface("agents-md");
+        }}
         onOpenDiscovery={() => setSurface("discovery")}
         scheduledActive={surface === "scheduled"}
         discoveryActive={surface === "discovery"}
@@ -1302,6 +1314,7 @@ export function App() {
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
         skillsManagerActive={surface === "skills-manager"}
+        agentsMdActive={surface === "agents-md" || surface === "agents-md-editor"}
         collapsed={navCollapsed}
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
@@ -1334,6 +1347,23 @@ export function App() {
         />
       ) : surface === "skills-manager" ? (
         <SkillsManagerWorkspace />
+      ) : surface === "agents-md-editor" && agentsMdTarget ? (
+        <AgentsMdEditorWorkspace
+          rootPath={agentsMdTarget.rootPath}
+          filePath={agentsMdTarget.filePath}
+          onBack={() => {
+            setAgentsMdTarget(null);
+            setSurface("agents-md");
+          }}
+        />
+      ) : surface === "agents-md" ? (
+        <AgentsMdWorkspace
+          workspacePath={workspace || ""}
+          onOpenFile={(target) => {
+            setAgentsMdTarget(target);
+            setSurface("agents-md-editor");
+          }}
+        />
       ) : surface === "discovery" ? (
         <DiscoveryView />
       ) : (

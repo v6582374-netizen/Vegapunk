@@ -72,7 +72,7 @@ Life_000/
 python launch_discovery.py \
     --task tasks/sci_tasks/Life_000 \
     --config config/default_config.yaml \
-    --exp_backend claudecode
+    --exp_backend codex
 ```
 
 关键 CLI 参数：
@@ -81,7 +81,7 @@ python launch_discovery.py \
 |------|------|
 | `--task` | 任务名 (`Life_000`) 或完整路径 |
 | `--config` | YAML 配置文件 |
-| `--exp_backend` | `claudecode` / `openhands` / `iflow` / `aider` |
+| `--exp_backend` | `codex` / `openhands` / `iflow` |
 | `--output_dir` | 结果目录 (默认 `results/{task}/`) |
 | `--resume` | 从已有 launch 文件夹断点续跑 |
 | `--skip_idea_generation` | 跳过 idea 生成，用 `--idea_path` 指定现有 ideas |

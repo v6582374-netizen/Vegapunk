@@ -139,12 +139,14 @@ interface Props {
   onOpenAudit: () => void;
   onOpenInbox: () => void;
   onOpenSkillsManager: () => void;
+  onOpenAgentsMd: () => void;
   scheduledActive: boolean;
   discoveryActive?: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
   skillsManagerActive: boolean;
+  agentsMdActive: boolean;
   // Collapse controls (⌘B / hover-peek). `onCollapse` docks/undocks; `onPeekLeave` hides the
   // floating peek when the pointer leaves the panel.
   collapsed?: boolean;
@@ -177,6 +179,7 @@ const compactAge = (iso?: string | null): string => {
 export function Sidebar(props: Props) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
+  const [harnessExpanded, setHarnessExpanded] = useState(true);
   // The account row (§26): cloud sign-in status drives the avatar/name/dot; refreshed on
   // focus and whenever the menu opens (sign-in completes out-of-band in the browser).
   const [cloud, setCloud] = useState<CloudStatus | null>(null);
@@ -264,6 +267,12 @@ export function Sidebar(props: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowMenu]);
+
+  useEffect(() => {
+    if (props.skillsManagerActive || props.agentsMdActive) {
+      setHarnessExpanded(true);
+    }
+  }, [props.skillsManagerActive, props.agentsMdActive]);
   const [showArchived, setShowArchived] = useState(false);
   // Surfaced + enabled personas drive the surface list + family-aware behavior.
   // Refetched on the personas-changed event so an enable/install/delete in Settings
@@ -1058,17 +1067,54 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
-      <div className="px-2.5 mt-1">
+      <div className="px-2.5 mt-1" data-testid="nav-harness-group">
         <button
           className={
             "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
-            (props.skillsManagerActive ? "text-ink bg-paper" : "text-muted")
+            ((props.skillsManagerActive || props.agentsMdActive) ? "text-ink" : "text-muted")
           }
-          onClick={props.onOpenSkillsManager}
+          type="button"
+          aria-expanded={harnessExpanded}
+          aria-controls="harness-nav-items"
+          data-testid="nav-harness"
+          onClick={() => setHarnessExpanded((expanded) => !expanded)}
         >
-          <Icon name="sparkle" size={15} className="shrink-0" />
-          <span className="flex-1">Skills Manager</span>
+          <Icon name="wrench" size={15} className="shrink-0" />
+          <span className="flex-1">Harness</span>
+          <Icon name={harnessExpanded ? "chevronDown" : "chevronRight"} size={14} className="text-faint shrink-0" />
         </button>
+
+        {harnessExpanded && (
+          <div id="harness-nav-items" className="mt-0.5 ml-4 pl-2 border-l border-line/70 space-y-0.5">
+            <button
+              className={
+                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left hover:bg-paper hover:text-ink " +
+                (props.skillsManagerActive ? "text-ink bg-paper" : "text-muted")
+              }
+              type="button"
+              data-testid="nav-skills-manager"
+              aria-current={props.skillsManagerActive ? "page" : undefined}
+              onClick={props.onOpenSkillsManager}
+            >
+              <Icon name="sparkle" size={14} className="shrink-0" />
+              <span className="flex-1">Skills Manager</span>
+            </button>
+
+            <button
+              className={
+                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left hover:bg-paper hover:text-ink " +
+                (props.agentsMdActive ? "text-ink bg-paper" : "text-muted")
+              }
+              type="button"
+              data-testid="nav-agents-md"
+              aria-current={props.agentsMdActive ? "page" : undefined}
+              onClick={props.onOpenAgentsMd}
+            >
+              <Icon name="fileCode" size={14} className="shrink-0" />
+              <span className="flex-1">AGENTS.md</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Scroll area: Pinned band + the RECENT header (with group/filter control), then the body —

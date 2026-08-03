@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::models::{AppConfig, ProjectBinding, Skill, SkillPackageMeta, SkillScope, SkillSource};
+use crate::models::{
+    AppConfig, ProjectBinding, Skill, SkillLinkStatus, SkillPackageMeta, SkillScope, SkillSource,
+};
 use crate::services::detector::DetectorService;
 use crate::services::linker::LinkerService;
 
@@ -58,12 +60,14 @@ impl ScannerService {
                     Some(project_binding.id.clone()),
                     Some(project_binding.name.clone()),
                 );
-                scoped_skill.enabled = Self::check_enabled_status_for_scope(
+                let (enabled, link_status) = Self::check_link_status_for_scope(
                     &scoped_skill.path,
                     &scoped_skill.id,
                     &scoped_skill.scope,
                     config,
                 );
+                scoped_skill.enabled = enabled;
+                scoped_skill.link_status = link_status;
                 scoped_skill
             })
             .collect::<Vec<_>>();
@@ -273,9 +277,8 @@ impl ScannerService {
             }
         }
 
-        // Check enabled status by looking for symlinks in each tool's skills directory
-        let enabled =
-            Self::check_enabled_status_for_scope(skill_path, &id, &SkillScope::Global, config);
+        let (enabled, link_status) =
+            Self::check_link_status_for_scope(skill_path, &id, &SkillScope::Global, config);
 
         Ok(Skill {
             id: id.clone(),
@@ -289,27 +292,42 @@ impl ScannerService {
             source: meta.source,
             package_meta: meta.package_meta,
             enabled,
+            link_status,
             path: skill_path.to_path_buf(),
         })
     }
 
-    /// Check if this skill is enabled for each tool by looking for symlinks
-    fn check_enabled_status_for_scope(
+    /// Report both the managed-link state and whether a tool already has a local copy.
+    ///
+    /// `enabled` intentionally remains limited to managed, valid links so existing
+    /// toggle and deletion safety rules continue to protect user-owned directories.
+    fn check_link_status_for_scope(
         skill_path: &Path,
         skill_id: &str,
         scope: &SkillScope,
         config: &AppConfig,
-    ) -> HashMap<String, bool> {
+    ) -> (HashMap<String, bool>, HashMap<String, SkillLinkStatus>) {
         let mut enabled = HashMap::new();
+        let mut link_status = HashMap::new();
 
         for (tool_id, tool_config) in config.collect_tool_configs() {
-            match LinkerService::check_link_for_scoped_skill(
+            let status = LinkerService::check_link_for_scoped_skill(
                 skill_path,
                 &tool_config.skills_path,
                 skill_id,
                 &tool_id,
                 scope,
-            ) {
+            );
+            let public_status = match &status {
+                crate::services::LinkStatus::Valid => SkillLinkStatus::Linked,
+                crate::services::LinkStatus::Broken => SkillLinkStatus::Broken,
+                crate::services::LinkStatus::WrongTarget => SkillLinkStatus::WrongTarget,
+                crate::services::LinkStatus::NotALink => SkillLinkStatus::Unmanaged,
+                crate::services::LinkStatus::Missing => SkillLinkStatus::Missing,
+            };
+            link_status.insert(tool_id.clone(), public_status);
+
+            match status {
                 crate::services::LinkStatus::Valid => {
                     enabled.insert(tool_id, true);
                 }
@@ -320,7 +338,7 @@ impl ScannerService {
             }
         }
 
-        enabled
+        (enabled, link_status)
     }
 
     fn load_meta(meta_path: &Path) -> Result<SkillMeta, String> {
@@ -470,7 +488,7 @@ impl ScannerService {
 #[cfg(test)]
 mod tests {
     use super::ScannerService;
-    use crate::models::AppConfig;
+    use crate::models::{AppConfig, SkillLinkStatus};
     use crate::test_support::with_temp_home;
     use serde_json::json;
     use std::fs;
@@ -878,6 +896,74 @@ description: "Description from SKILL.md"
                 .expect("global skill");
 
             assert_eq!(global.enabled.get("iflow").copied(), Some(true));
+        });
+    }
+
+    #[test]
+    fn scan_global_skills_distinguishes_managed_link_from_unmanaged_copy() {
+        with_temp_home(|home| {
+            let global_skills_dir = home.join(".skills-manager").join("skills");
+            let global_skill_dir = global_skills_dir.join("doc");
+            fs::create_dir_all(&global_skill_dir).expect("create global skill dir");
+            fs::write(global_skill_dir.join("SKILL.md"), "---\nname: doc\n---\n")
+                .expect("write global skill");
+
+            let claude_skills_dir = home.join(".claude").join("skills");
+            fs::create_dir_all(&claude_skills_dir).expect("create Claude skills dir");
+            std::os::unix::fs::symlink(&global_skill_dir, claude_skills_dir.join("doc"))
+                .expect("link Claude skill");
+
+            let codex_skills_dir = home.join(".codex").join("skills");
+            let codex_skill_dir = codex_skills_dir.join("doc");
+            fs::create_dir_all(&codex_skill_dir).expect("create Codex copy");
+            fs::write(codex_skill_dir.join("SKILL.md"), "---\nname: doc\n---\n")
+                .expect("write Codex copy");
+
+            let config: AppConfig = serde_json::from_value(json!({
+                "version": "2.0.1",
+                "skills_dir": global_skills_dir,
+                "tools": {
+                    "claude-code": {
+                        "enabled": true,
+                        "detected": true,
+                        "skills_path": claude_skills_dir,
+                        "config_path": home.join(".claude")
+                    },
+                    "codex": {
+                        "enabled": true,
+                        "detected": true,
+                        "skills_path": codex_skills_dir,
+                        "config_path": home.join(".codex")
+                    }
+                },
+                "custom_tools": {},
+                "initialized": true
+            }))
+            .expect("deserialize config");
+
+            let skill = ScannerService::scan_global_skills(&config)
+                .expect("scan global skills")
+                .into_iter()
+                .find(|skill| skill.instance_id == "global:doc")
+                .expect("global doc skill");
+
+            assert_eq!(skill.enabled.get("claude-code"), Some(&true));
+            assert_eq!(skill.enabled.get("codex"), Some(&false));
+            assert_eq!(
+                skill.link_status.get("claude-code"),
+                Some(&SkillLinkStatus::Linked)
+            );
+            assert_eq!(
+                skill.link_status.get("codex"),
+                Some(&SkillLinkStatus::Unmanaged)
+            );
+            assert_eq!(
+                serde_json::to_value(&skill)
+                    .expect("serialize skill")
+                    .get("link_status")
+                    .and_then(|statuses| statuses.get("codex")),
+                Some(&json!("unmanaged"))
+            );
         });
     }
 

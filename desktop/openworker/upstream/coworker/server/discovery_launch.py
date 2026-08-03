@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import os
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,7 +23,38 @@ except ImportError:  # pragma: no cover - the native desktop target is POSIX.
 
 ACTIVE_LAUNCH_STATES = frozenset({"starting", "running", "stopping"})
 TERMINAL_LAUNCH_STATES = frozenset({"stopped", "interrupted", "completed", "failed"})
-FAKE_RUNNER_DELAY_SECONDS = 0.05
+# Leave enough time for a second sidecar instance to reconnect while the deterministic
+# runner is observable in its active state.
+FAKE_RUNNER_DELAY_SECONDS = 0.1
+OBSERVATION_STAGES = ("preparing", "research", "finalizing")
+ACTIVITY_LIMIT = 64
+
+
+def _new_timeline() -> dict[str, Any]:
+    labels = {
+        "preparing": "Prepare sources",
+        "research": "Run discovery",
+        "finalizing": "Finalize outputs",
+    }
+    return {
+        "revision": 0,
+        "percent": 0,
+        "current_milestone_id": None,
+        "milestones": [
+            {
+                "id": stage,
+                "key": stage,
+                "label": labels[stage],
+                "position": position,
+                "state": "pending",
+                "summary": None,
+                "started_at": None,
+                "ended_at": None,
+                "attempts": [],
+            }
+            for position, stage in enumerate(OBSERVATION_STAGES, start=1)
+        ],
+    }
 
 
 class LaunchValidationError(ValueError):
@@ -59,6 +91,11 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _sse_data(payload: str) -> str:
+    """Frame one raw-log payload without losing embedded line breaks."""
+    return "".join(f"data: {line}\n" for line in payload.split("\n")) + "\n"
 
 
 class DiscoveryLaunchStore:
@@ -123,6 +160,76 @@ class DiscoveryLaunchStore:
             if record is None:
                 raise KeyError(launch_id)
             return self._public_record(record)
+
+    def status(self, launch_id: str) -> dict[str, Any]:
+        """Return the server-authoritative Runtime Desk observation for one Launch."""
+        if self._lock_owned():
+            return self._status_unlocked(launch_id)
+        with self._transaction():
+            self._load_from_disk()
+            if self._reconcile_locked():
+                self._persist_index()
+            return self._status_unlocked(launch_id)
+
+    def events(self, launch_id: str, after: int = 0) -> dict[str, Any]:
+        """Return structured durable events after an increasing per-Launch cursor."""
+        if self._lock_owned():
+            return self._events_unlocked(launch_id, after)
+        with self._transaction():
+            self._load_from_disk()
+            if self._reconcile_locked():
+                self._persist_index()
+            return self._events_unlocked(launch_id, after)
+
+    async def stream_log(
+        self, launch_id: str, poll_interval: float = 0.05
+    ) -> AsyncIterator[str]:
+        """Replay one Launch's merged runner.log, then follow it while active."""
+        position = 0
+        pending = ""
+        log_path = self.log_path(launch_id)
+        while True:
+            record = self.get(launch_id)
+            active = record["state"] in ACTIVE_LAUNCH_STATES
+            if log_path.is_file():
+                with log_path.open("r", encoding="utf-8", errors="replace") as stream:
+                    stream.seek(position)
+                    chunk = stream.read()
+                    position = stream.tell()
+                pending += chunk
+                complete_lines = pending.split("\n")
+                pending = complete_lines.pop() or ""
+                for line in complete_lines:
+                    yield _sse_data(f"{line}\n")
+            if not active:
+                if pending:
+                    yield _sse_data(pending)
+                return
+            await asyncio.sleep(poll_interval)
+
+    def log_path(self, launch_id: str) -> Path:
+        """Return the selected Launch's only Raw Discovery Console source."""
+        if self._lock_owned():
+            self._record_or_raise_locked(launch_id)
+        else:
+            with self._transaction():
+                self._load_from_disk()
+                if self._reconcile_locked():
+                    self._persist_index()
+                self._record_or_raise_locked(launch_id)
+        return self._launches_root / launch_id / "runner.log"
+
+    def artifacts_root(self, launch_id: str) -> Path:
+        """Return the selected Launch's dedicated artifact root after identity validation."""
+        if self._lock_owned():
+            self._record_or_raise_locked(launch_id)
+        else:
+            with self._transaction():
+                self._load_from_disk()
+                if self._reconcile_locked():
+                    self._persist_index()
+                self._record_or_raise_locked(launch_id)
+        return self._launches_root / launch_id / "artifacts"
 
     def replay_idempotent(
         self, idempotency_key: str, request_fingerprint: str
@@ -195,6 +302,10 @@ class DiscoveryLaunchStore:
                 "stop_reason": None,
                 "outcome": None,
                 "error": None,
+                "event_sequence": 0,
+                "timeline": _new_timeline(),
+                "activity": [],
+                "activity_truncated_before_sequence": 0,
                 "input_snapshot": copy.deepcopy(input_snapshot),
                 "launch_configuration_snapshot": copy.deepcopy(
                     configuration_snapshot
@@ -202,6 +313,12 @@ class DiscoveryLaunchStore:
             }
             self._records[launch_id] = record
             self._active_launch_id = launch_id
+            self._emit_event_locked(
+                record,
+                "work.state.updated",
+                {"state": "starting", "stage": "admission", "round": 0},
+                activity_text="Launch admitted and awaiting runner startup",
+            )
             self._write_runner_marker(record, "starting")
             self._persist_record(record)
 
@@ -235,6 +352,12 @@ class DiscoveryLaunchStore:
                 record["state"] = "stopping"
                 record["stop_requested_at"] = _now()
                 record["stop_reason"] = "researcher requested graceful stop"
+                self._emit_event_locked(
+                    record,
+                    "work.state.updated",
+                    {"state": "stopping", "stage": record["stage"], "round": record["round"]},
+                    activity_text="Graceful Stop requested",
+                )
                 self._persist_record(record)
                 self._persist_index()
             elif state not in {"stopping", "stopped"}:
@@ -293,6 +416,13 @@ class DiscoveryLaunchStore:
             record["stop_reason"] = None
             self._active_launch_id = launch_id
             self._history_ids = [item for item in self._history_ids if item != launch_id]
+            self._ensure_observation_state(record)
+            self._emit_event_locked(
+                record,
+                "work.state.updated",
+                {"state": "starting", "stage": "resuming", "round": record["round"]},
+                activity_text="Launch resume admitted as a new execution attempt",
+            )
             self._write_runner_marker(record, "starting")
             self._persist_record(record)
 
@@ -316,12 +446,13 @@ class DiscoveryLaunchStore:
             return result
 
     def _run_fake(self, launch_id: str, attempt_id: str) -> None:
-        stages = ("preparing", "research", "finalizing")
+        stages = OBSERVATION_STAGES
         try:
             with self._transaction():
                 self._load_from_disk()
                 record = self._record_or_raise_locked(launch_id)
                 attempt = self._attempt_or_raise(record, attempt_id)
+                self._ensure_observation_state(record)
                 if record["state"] == "stopping":
                     self._write_checkpoint_locked(
                         record,
@@ -340,6 +471,13 @@ class DiscoveryLaunchStore:
                 record["runner_pid"] = os.getpid()
                 attempt["started_at"] = _now()
                 attempt["state"] = "running"
+                self._emit_event_locked(
+                    record,
+                    "work.state.updated",
+                    {"state": "running", "stage": stages[0], "round": 0},
+                    activity_text="Discovery runner is running",
+                )
+                self._activate_stage_locked(record, attempt, stages[0], 1)
                 self._write_runner_marker(record, "running")
                 self._persist_record(record)
                 self._persist_index()
@@ -370,6 +508,7 @@ class DiscoveryLaunchStore:
                         return
                     record["stage"] = stage
                     record["round"] = round_number
+                    self._activate_stage_locked(record, attempt, stage, round_number)
                     self._write_checkpoint_locked(
                         record, attempt, stage, round_number, "progress"
                     )
@@ -408,7 +547,9 @@ class DiscoveryLaunchStore:
     def _finish_completed_locked(
         self, record: dict[str, Any], attempt: dict[str, Any]
     ) -> None:
+        self._ensure_observation_state(record)
         finished_at = _now()
+        self._write_fake_artifacts(record)
         record["state"] = "completed"
         record["stage"] = "completed"
         record["completed_at"] = finished_at
@@ -417,11 +558,36 @@ class DiscoveryLaunchStore:
         record["resumable"] = False
         attempt["finished_at"] = finished_at
         attempt["state"] = "completed"
+        self._finish_timeline_locked(record, "completed", finished_at)
+        self._emit_event_locked(
+            record,
+            "work.state.updated",
+            {"state": "completed", "stage": "completed", "round": record["round"]},
+            activity_text="Discovery Launch completed",
+        )
         self._close_active_locked(record)
+
+    def _write_fake_artifacts(self, record: dict[str, Any]) -> None:
+        """Create deterministic researcher-facing outputs for the native fake-runner seam."""
+        root = self._launches_root / record["launch_id"] / "artifacts"
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "report.md").write_text(
+            f"# Discovery report\n\nLaunch `{record['launch_id']}` completed.\n",
+            encoding="utf-8",
+        )
+        _atomic_write_json(
+            root / "summary.json",
+            {
+                "launch_id": record["launch_id"],
+                "state": "completed",
+                "rounds": record.get("round", 0),
+            },
+        )
 
     def _finish_failed_locked(
         self, record: dict[str, Any], attempt: dict[str, Any], error: str
     ) -> None:
+        self._ensure_observation_state(record)
         finished_at = _now()
         record["state"] = "failed"
         record["stage"] = "failed"
@@ -432,11 +598,20 @@ class DiscoveryLaunchStore:
         record["resumable"] = False
         attempt["finished_at"] = finished_at
         attempt["state"] = "failed"
+        self._finish_timeline_locked(record, "failed", finished_at)
+        self._emit_event_locked(
+            record,
+            "work.state.updated",
+            {"state": "failed", "stage": "failed", "round": record["round"]},
+            level="error",
+            activity_text=record["error"],
+        )
         self._close_active_locked(record)
 
     def _finish_stopped_locked(
         self, record: dict[str, Any], attempt: dict[str, Any], reason: str
     ) -> None:
+        self._ensure_observation_state(record)
         finished_at = _now()
         record["state"] = "stopped"
         record["stage"] = "stopped"
@@ -447,6 +622,13 @@ class DiscoveryLaunchStore:
         record["resumable"] = True
         attempt["finished_at"] = finished_at
         attempt["state"] = "stopped"
+        self._finish_timeline_locked(record, "stopped", finished_at)
+        self._emit_event_locked(
+            record,
+            "work.state.updated",
+            {"state": "stopped", "stage": "stopped", "round": record["round"]},
+            activity_text="Discovery Launch stopped at a durable checkpoint",
+        )
         self._close_active_locked(record)
 
     def _close_active_locked(self, record: dict[str, Any]) -> None:
@@ -483,6 +665,15 @@ class DiscoveryLaunchStore:
         record["error"] = "runner disappeared before a trusted terminal outcome"
         record["runner_pid"] = None
         record["resumable"] = bool(record.get("checkpoint"))
+        self._ensure_observation_state(record)
+        self._finish_timeline_locked(record, "interrupted", _now())
+        self._emit_event_locked(
+            record,
+            "work.state.updated",
+            {"state": "interrupted", "stage": "interrupted", "round": record["round"]},
+            level="warning",
+            activity_text="Runner interruption reconciled; explicit Resume is required",
+        )
         self._remove_runner_marker(launch_id)
         self._active_launch_id = None
         self._add_history_locked(launch_id)
@@ -561,6 +752,265 @@ class DiscoveryLaunchStore:
             "a", encoding="utf-8"
         ) as log:
             log.write(f"{line}\n")
+
+    def _ensure_observation_state(self, record: dict[str, Any]) -> None:
+        if not isinstance(record.get("event_sequence"), int):
+            record["event_sequence"] = 0
+        persisted_event_sequence = self._latest_persisted_event_sequence(
+            record["launch_id"]
+        )
+        record["event_sequence"] = max(
+            record["event_sequence"], persisted_event_sequence
+        )
+        timeline = record.get("timeline")
+        if not isinstance(timeline, dict) or not isinstance(timeline.get("milestones"), list):
+            record["timeline"] = _new_timeline()
+        if not isinstance(record.get("activity"), list):
+            record["activity"] = []
+        if not isinstance(record.get("activity_truncated_before_sequence"), int):
+            record["activity_truncated_before_sequence"] = 0
+
+    def _latest_persisted_event_sequence(self, launch_id: str) -> int:
+        event_path = self._launches_root / launch_id / "events.jsonl"
+        if not event_path.is_file():
+            return 0
+        latest = 0
+        try:
+            lines = event_path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            return 0
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            sequence = event.get("sequence") if isinstance(event, dict) else None
+            if isinstance(sequence, int):
+                latest = max(latest, sequence)
+        return latest
+
+    def _activate_stage_locked(
+        self,
+        record: dict[str, Any],
+        attempt: dict[str, Any],
+        stage: str,
+        round_number: int,
+    ) -> None:
+        self._ensure_observation_state(record)
+        if stage not in OBSERVATION_STAGES:
+            return
+        timeline = record["timeline"]
+        milestones = timeline["milestones"]
+        index = OBSERVATION_STAGES.index(stage)
+        milestone = milestones[index]
+        if (
+            timeline.get("current_milestone_id") == stage
+            and milestone.get("state") == "active"
+        ):
+            return
+
+        now = _now()
+        for prior in milestones[:index]:
+            if prior.get("state") == "active":
+                prior["state"] = "completed"
+                prior["ended_at"] = now
+                attempts = prior.get("attempts", [])
+                if attempts and attempts[-1].get("state") == "active":
+                    attempts[-1]["state"] = "completed"
+                    attempts[-1]["ended_at"] = now
+
+        previous_state = milestone.get("state")
+        if previous_state in {"completed", "stopped", "interrupted", "failed"}:
+            number = len(milestone.get("attempts", [])) + 1
+            milestone.setdefault("attempts", []).append(
+                {
+                    "number": number,
+                    "state": "active",
+                    "started_at": now,
+                    "ended_at": None,
+                    "summary": None,
+                }
+            )
+        elif not milestone.get("attempts"):
+            milestone["attempts"] = [
+                {
+                    "number": 1,
+                    "state": "active",
+                    "started_at": now,
+                    "ended_at": None,
+                    "summary": None,
+                }
+            ]
+        else:
+            milestone["attempts"][-1].update(
+                {"state": "active", "started_at": now, "ended_at": None}
+            )
+        milestone["state"] = "active"
+        milestone["started_at"] = milestone.get("started_at") or now
+        milestone["ended_at"] = None
+        milestone["summary"] = f"Round {round_number}"
+        timeline["current_milestone_id"] = stage
+        timeline["revision"] = int(timeline.get("revision", 0)) + 1
+        timeline["percent"] = int(
+            sum(item.get("state") == "completed" for item in milestones)
+            * 100
+            / len(milestones)
+        )
+        record["stage"] = stage
+        self._emit_event_locked(
+            record,
+            "progress.milestone.updated",
+            {"milestone": copy.deepcopy(milestone), "timeline": copy.deepcopy(timeline)},
+            milestone_id=stage,
+            activity_text=f"Stage {milestone['label']} started at round {round_number}",
+        )
+
+    def _finish_timeline_locked(
+        self, record: dict[str, Any], state: str, ended_at: str
+    ) -> None:
+        self._ensure_observation_state(record)
+        timeline = record["timeline"]
+        milestones = timeline["milestones"]
+        current_id = timeline.get("current_milestone_id")
+        current = next(
+            (item for item in milestones if item.get("id") == current_id), None
+        )
+        if current is not None and current.get("state") == "active":
+            current["state"] = state
+            current["ended_at"] = ended_at
+            attempts = current.get("attempts", [])
+            if attempts and attempts[-1].get("state") == "active":
+                attempts[-1]["state"] = state
+                attempts[-1]["ended_at"] = ended_at
+        if state == "completed":
+            for milestone in milestones:
+                milestone["state"] = "completed"
+                milestone["ended_at"] = milestone.get("ended_at") or ended_at
+                attempts = milestone.get("attempts", [])
+                if attempts and attempts[-1].get("state") == "active":
+                    attempts[-1]["state"] = "completed"
+                    attempts[-1]["ended_at"] = ended_at
+            timeline["current_milestone_id"] = None
+        timeline["revision"] = int(timeline.get("revision", 0)) + 1
+        timeline["percent"] = int(
+            sum(item.get("state") == "completed" for item in milestones)
+            * 100
+            / len(milestones)
+        )
+        self._emit_event_locked(
+            record,
+            "progress.milestone.updated",
+            {"timeline": copy.deepcopy(timeline)},
+            milestone_id=current_id,
+        )
+
+    def _emit_event_locked(
+        self,
+        record: dict[str, Any],
+        event_type: str,
+        data: dict[str, Any],
+        *,
+        level: str = "info",
+        milestone_id: str | None = None,
+        activity_text: str | None = None,
+    ) -> dict[str, Any]:
+        self._ensure_observation_state(record)
+        sequence = int(record.get("event_sequence", 0)) + 1
+        occurred_at = _now()
+        event = {
+            "sequence": sequence,
+            "occurred_at": occurred_at,
+            "type": event_type,
+            "data": copy.deepcopy(data),
+        }
+        event_path = self._launches_root / record["launch_id"] / "events.jsonl"
+        event_path.parent.mkdir(parents=True, exist_ok=True)
+        with event_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        record["event_sequence"] = sequence
+        if activity_text:
+            activity = {
+                "sequence": sequence,
+                "occurred_at": occurred_at,
+                "level": level,
+                "milestone_id": milestone_id,
+                "text": activity_text,
+            }
+            record["activity"].append(activity)
+            if len(record["activity"]) > ACTIVITY_LIMIT:
+                record["activity_truncated_before_sequence"] = record["activity"][
+                    -ACTIVITY_LIMIT
+                ]["sequence"] - 1
+                record["activity"] = record["activity"][-ACTIVITY_LIMIT:]
+        return event
+
+    def _status_unlocked(self, launch_id: str) -> dict[str, Any]:
+        record = self._record_or_raise_locked(launch_id)
+        self._ensure_observation_state(record)
+        activity = copy.deepcopy(record["activity"])
+        return {
+            "launch": self._public_record(record),
+            "state": record["state"],
+            "stage": record["stage"],
+            "round": record["round"],
+            "checkpoint": copy.deepcopy(record.get("checkpoint")),
+            "timeline": copy.deepcopy(record["timeline"]),
+            "activity": {
+                "oldest_sequence": activity[0]["sequence"] if activity else None,
+                "newest_sequence": activity[-1]["sequence"] if activity else None,
+                "truncated_before_sequence": record[
+                    "activity_truncated_before_sequence"
+                ],
+                "items": activity,
+            },
+            "allowed_actions": self._allowed_actions(record),
+            "produced_outputs": self._produced_outputs(launch_id),
+            "latest_event_sequence": record["event_sequence"],
+        }
+
+    def _events_unlocked(self, launch_id: str, after: int) -> dict[str, Any]:
+        record = self._record_or_raise_locked(launch_id)
+        self._ensure_observation_state(record)
+        event_path = self._launches_root / launch_id / "events.jsonl"
+        events: list[dict[str, Any]] = []
+        if event_path.is_file():
+            for line in event_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and int(event.get("sequence", 0)) > after:
+                    events.append(event)
+        all_sequences = [int(event["sequence"]) for event in events if "sequence" in event]
+        latest_sequence = int(record.get("event_sequence", 0))
+        return {
+            "launch_id": launch_id,
+            "events": events,
+            "oldest_sequence": min(all_sequences) if all_sequences else None,
+            "latest_sequence": latest_sequence,
+            "truncated_before_sequence": 0,
+        }
+
+    def _produced_outputs(self, launch_id: str) -> list[dict[str, str]]:
+        root = self._launches_root / launch_id / "artifacts"
+        if not root.is_dir():
+            return []
+        outputs = []
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and not path.is_symlink():
+                outputs.append({"path": path.relative_to(root).as_posix(), "label": path.name})
+        return outputs
+
+    @staticmethod
+    def _allowed_actions(record: dict[str, Any]) -> list[str]:
+        state = record.get("state")
+        if state in {"starting", "running"}:
+            return ["stop"]
+        if state in {"stopped", "interrupted"} and record.get("resumable"):
+            return ["resume"]
+        return []
 
     def _raise_if_active_locked(self) -> None:
         active_id = self._active_launch_id
@@ -673,6 +1123,7 @@ class DiscoveryLaunchStore:
             except (FileNotFoundError, OSError, ValueError):
                 continue
             if isinstance(record, dict) and record.get("launch_id") == launch_id:
+                self._ensure_observation_state(record)
                 records[launch_id] = record
         self._records = records
         self._history_ids = [

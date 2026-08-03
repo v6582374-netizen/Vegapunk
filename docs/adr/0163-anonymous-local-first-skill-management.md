@@ -2,6 +2,8 @@ Status: accepted
 
 # Make Skill Management Anonymous and Local-First
 
+The feature list in this historical ADR is narrowed by ADR 0172; current Skill Management excludes body editing, deletion, acquisition, usage monitoring, risk scanning, translation, and other AI analysis.
+
 Skill Management will not own an account, sign-in flow, profile, token store, cloud identity, or account-gated feature.
 Editing, tool synchronization, risk scanning, translation, favorites, tags, import/export, usage monitoring, and anonymous feedback remain available through local state or explicitly configured local services without bridging to the Desktop App's separate cloud identity.
 Remote Marketplace browsing, installation, updates, and community interactions are excluded by ADR-0165.

@@ -18,7 +18,19 @@ pub struct Skill {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_meta: Option<SkillPackageMeta>,
     pub enabled: HashMap<String, bool>,
+    #[serde(default)]
+    pub link_status: HashMap<String, SkillLinkStatus>,
     pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillLinkStatus {
+    Linked,
+    Broken,
+    WrongTarget,
+    Unmanaged,
+    Missing,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,6 +95,7 @@ impl Skill {
             source: SkillSource::Local,
             package_meta: None,
             enabled: HashMap::new(),
+            link_status: HashMap::new(),
             path,
         }
     }

@@ -463,8 +463,8 @@ def parse_arguments():
         "--exp_backend",
         type=str,
         required=True,
-        default="claudecode",
-        choices=["openhands", "claudecode", "iflow"],
+        default="codex",
+        choices=["openhands", "codex", "iflow"],
         help="Experiment backend to use (required for experiment mode)"
     )
     # Note: Model configuration is handled through config file (experiment.model)
@@ -1166,7 +1166,7 @@ def _main():
         summary['exp_backend'] = args.exp_backend
         summary['model'] = (
             config.get("experiment", {}).get("model") or
-            "anthropic/claude-3-7-sonnet-20250219"
+            "gpt-5.6-sol"
         )
 
     summary_path = osp.join(args.output_dir, "discovery_summary.json")

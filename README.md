@@ -25,7 +25,7 @@ Vegapunk 是一个面向长程自主科学发现的多智能体框架。系统�
 | --- | --- |
 | 多智能体科研编排 | 串联生成、调研、反思、证据检索、演化、排序、方法开发与精炼 Agent |
 | 多轮 Discovery Loop | 支持 `fresh` 与 `incremental` 模式，在多轮实验间更新候选和基线 |
-| 可插拔实验执行 | 支持 Claude Code、iFlow 和 OpenHands 后端，以及顺序、并行和可选 MCTS 搜索 |
+| 可插拔实验执行 | 支持 Codex CLI、iFlow 和 OpenHands 后端，以及顺序、并行和可选 MCTS 搜索 |
 | 算法发现与论文复现 | 提供 `tasks/` 算法任务，并通过 `sci_tasks` 子模块支持 ResearchClawBench 论文复现任务 |
 | 记忆与深度研究 | 提供任务记忆、在线记忆、IdeaGraph、经验生成、MCP 工具和独立 QA/Deep Research 流程 |
 | 自动论文闭环 | Discovery 结束后自动执行候选选择、原料整理、提纲、写作、内容反思、PDF 编译和 VLM 版式审查 |
@@ -69,7 +69,7 @@ Vegapunk 是一个面向长程自主科学发现的多智能体框架。系统�
 - Conda 或兼容的 Python 环境管理器
 - Python 3.11
 - 完整流程需要已在 `config/model_catalog.yaml` 选择的 Relay 或 Qwen Provider
-- 至少一个实验执行后端：Claude Code、iFlow 或 OpenHands
+- 至少一个实验执行后端：Codex CLI、iFlow 或 OpenHands
 - 生成英文论文时需要 `pdflatex`、`latexmk` 和 `bibtex`；自动生成中文伴随稿还需要 `xelatex`，以及 TeX Live 中的 `ctex`、`xeCJK` 和 Fandol 字体集
 
 > [!NOTE]
@@ -103,7 +103,7 @@ OPENAI_API_KEY=
 # Qwen DashScope Provider
 DASHSCOPE_API_KEY=
 
-# Claude Code 使用 API 认证时填写；OAuth 登录用户可使用 claude auth login
+# 若统一模型运行时选择 Anthropic Provider，则填写对应的 Anthropic API 密钥
 ANTHROPIC_API_KEY=
 ```
 
@@ -126,7 +126,7 @@ Runtime 统一负责 Provider 并发与有界重试，且不会使用 provider-s
 python launch_discovery.py \
   --config config/default_config.yaml \
   --task AutoDebug \
-  --exp_backend claudecode
+  --exp_backend codex
 ```
 
 实验模式完成 `discovery_summary.json` 后，会同步触发固定运行目录 `paper_orchestra_runs/paper/`，并等待 PaperOrchestra 成功或失败后再退出。
@@ -134,7 +134,7 @@ python launch_discovery.py \
 也可以使用统一入口：
 
 ```bash
-python launch.py --mode discovery --task AutoDebug --exp_backend claudecode
+python launch.py --mode discovery --task AutoDebug --exp_backend codex
 ```
 
 ### 为历史 Discovery Launch 生成论文

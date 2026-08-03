@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useTranslation } from "@skills-manager/i18n";
 import { ScopeSearchField } from "@skills-manager/components/ScopeSearchField";
 import { useActionsTarget } from "@skills-manager/components/PageHeaderContext";
 
@@ -8,7 +7,6 @@ interface TopBarProps {
 }
 
 export function TopBar({ onOpenPalette }: TopBarProps) {
-  const { t } = useTranslation();
   const actionsSlotRef = useRef<HTMLDivElement | null>(null);
   const { registerActionsTarget } = useActionsTarget();
 
@@ -38,21 +36,6 @@ export function TopBar({ onOpenPalette }: TopBarProps) {
     >
       {/* Traffic-light space (macOS) — the whole header is draggable */}
       <div style={{ width: 72, height: "100%", flexShrink: 0 }} />
-
-      {/* Brand: ember ✦ + wordmark */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-        <span style={{ color: "var(--ember)", fontSize: 14 }}>✦</span>
-        <span
-          style={{
-            color: "var(--foreground)",
-            fontSize: 13,
-            fontWeight: 600,
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {t("topbar.brand")}
-        </span>
-      </div>
 
       {/* Left spacer — pairs with the right spacer to center the search
           field regardless of how wide the page actions slot is. */}

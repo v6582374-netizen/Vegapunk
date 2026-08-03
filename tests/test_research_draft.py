@@ -21,7 +21,7 @@ from vegapunk.research_draft import (
 )
 from vegapunk.mas.models.base_model import BaseModel
 from vegapunk.mas.models.runtime import ModelRunRequest, ModelRunResult, OutputText
-from vegapunk.experiments_utils_claude import ClaudeCodeRunner
+from vegapunk.experiments_utils_codex import CodexRunner
 
 
 class ResearchDraftTest(unittest.TestCase):
@@ -199,55 +199,95 @@ class ResearchDraftAgentHookTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("exact raw response", content)
 
 
-class ClaudeCodeDraftCaptureTest(unittest.TestCase):
-    def test_runner_keeps_json_mode_and_records_exact_process_boundary(self) -> None:
+class CodexDraftCaptureTest(unittest.TestCase):
+    def test_runner_records_jsonl_and_reads_the_last_message_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             draft = ResearchDraft.open(root / "launch")
-            completed = CompletedProcess(
-                ["claude"],
-                0,
-                stdout='{"session_id":"session-4","result":"finished"}',
-                stderr="provider warning",
-            )
+
+            jsonl = '{"type":"turn.completed","status":"completed"}\n'
+
+            def complete_codex(command: list[str], **_: object) -> CompletedProcess:
+                output_path = Path(
+                    command[command.index("--output-last-message") + 1]
+                )
+                output_path.write_text("finished", encoding="utf-8")
+                return CompletedProcess(
+                    command,
+                    0,
+                    stdout=jsonl,
+                    stderr="provider warning",
+                )
 
             with draft.activate(), patch(
-                "vegapunk.experiments_utils_claude.subprocess.run",
-                return_value=completed,
+                "vegapunk.experiments_utils_codex.subprocess.run",
+                side_effect=complete_codex,
             ) as run_command:
-                output = ClaudeCodeRunner(model="claude-test").run(
+                output = CodexRunner(model="gpt-5.6-sol").run(
                     "run the exact experiment", cwd=root
                 )
 
             command = run_command.call_args.args[0]
+            self.assertEqual(command[:2], ["codex", "exec"])
+            self.assertEqual(command[command.index("--cd") + 1], str(root))
+            self.assertEqual(command[command.index("--model") + 1], "gpt-5.6-sol")
+            self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
             self.assertEqual(
-                command[command.index("--output-format") + 1], "json"
+                command[command.index("-c") + 1], "approval_policy=never"
             )
+            second_config = command.index("-c", command.index("-c") + 1)
+            self.assertEqual(
+                command[second_config + 1],
+                "sandbox_workspace_write.network_access=true",
+            )
+            self.assertIn("--skip-git-repo-check", command)
+            self.assertIn("--json", command)
+            output_path = Path(
+                command[command.index("--output-last-message") + 1]
+            )
+            self.assertEqual(output_path.parent, root)
             content = draft.path.read_text(encoding="utf-8")
-            self.assertIn("--output-format", content)
+            self.assertIn("--json", content)
+            self.assertIn("--output-last-message", content)
             self.assertIn("run the exact experiment", content)
-            self.assertIn(completed.stdout, content)
-            self.assertIn(completed.stderr, content)
+            self.assertIn(jsonl, content)
+            self.assertIn("provider warning", content)
             self.assertEqual(output, "finished")
 
     def test_runner_rejects_success_text_from_a_failed_process(self) -> None:
         completed = CompletedProcess(
-            ["claude"],
+            ["codex", "exec"],
             7,
-            stdout='{"result":"ALL_COMPLETED"}',
+            stdout='{"type":"turn.completed"}\n',
             stderr="fatal cli failure",
         )
 
         with patch(
-            "vegapunk.experiments_utils_claude.subprocess.run",
+            "vegapunk.experiments_utils_codex.subprocess.run",
             return_value=completed,
         ):
             with self.assertRaises(CalledProcessError) as raised:
-                ClaudeCodeRunner(model="claude-test").run("run experiment")
+                CodexRunner(model="gpt-5.6-sol").run("run experiment")
 
         self.assertEqual(raised.exception.returncode, 7)
         self.assertEqual(raised.exception.stdout, completed.stdout)
         self.assertEqual(raised.exception.stderr, completed.stderr)
+
+    def test_runner_does_not_return_jsonl_when_final_message_is_missing(self) -> None:
+        completed = CompletedProcess(
+            ["codex", "exec"],
+            0,
+            stdout='{"type":"turn.completed"}\n',
+            stderr="",
+        )
+
+        with patch(
+            "vegapunk.experiments_utils_codex.subprocess.run",
+            return_value=completed,
+        ), self.assertRaises(RuntimeError) as raised:
+            CodexRunner(model="gpt-5.6-sol").run("run experiment")
+
+        self.assertIn("final message", str(raised.exception))
 
 
 if __name__ == "__main__":

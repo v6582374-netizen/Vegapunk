@@ -46,7 +46,7 @@ flowchart TB
 
     subgraph Execution["实验与产物"]
         Stage["stage.py<br/>IdeaGenerator / ExperimentRunner / ReportWriter"]
-        Backends["experiments_utils_*<br/>claudecode / iflow / openhands"]
+        Backends["experiments_utils_*<br/>codex / iflow / openhands"]
         MCTS["mcts_experiments_utils_* + mcts_node.py<br/>可选 MCTS 搜索"]
         Tasks["tasks/Auto* 与 sci_tasks<br/>code / launcher.sh / final_info.json"]
         Outputs["results/<task>/<launch_id>/<session_id><br/>ideas.json / traj.json / run_* / reports / discovery_summary.json"]
@@ -112,7 +112,7 @@ flowchart TD
 
     M -- 是 --> N["ReportWriter.generate_reports()<br/>按 idea 生成 markdown 报告"]
     M -- 否 --> O["ExperimentRunner.run_experiments()<br/>顺序或 ThreadPool 并行执行"]
-    O --> P["run_claude_experiment / run_iflow_experiment / run_openhands_experiment"]
+    O --> P["run_codex_experiment / run_iflow_experiment / run_openhands_experiment"]
     P --> Q["计算 final_info 指标提升<br/>OnlineMemorySaver.save_idea_result()"]
     N --> R["记录 round_result"]
     Q --> R
@@ -329,19 +329,19 @@ flowchart TD
 
     Single --> GPU["GPUAllocator.semaphore<br/>get_gpu_env()"]
     GPU --> Backend{"backend"}
-    Backend -- claudecode --> Claude["run_claude_experiment()"]
+    Backend -- codex --> Codex["run_codex_experiment()"]
     Backend -- iflow --> IFlow["run_iflow_experiment()"]
     Backend -- openhands --> OpenHands["run_openhands_experiment()"]
 
-    Claude --> Setup["setup_sci_experiment_folder()<br/>或 setup_repo_experiment_folder()"]
+    Codex --> Setup["setup_sci_experiment_folder()<br/>或 setup_repo_experiment_folder()"]
     IFlow --> Setup
     OpenHands --> Setup
     Setup --> Log["setup_experiment_log()<br/>_start_progress_monitor()"]
     Log --> MCTSFlag{"experiment.use_mcts ?"}
-    MCTSFlag -- 否 --> Normal["perform_experiments_claudecode / iflow<br/>生成 run_0..run_N"]
+    MCTSFlag -- 否 --> Normal["perform_experiments_codex / iflow<br/>生成 run_0..run_N"]
     MCTSFlag -- 是 --> MctsStart["perform_experiments_mcts()"]
     MctsStart --> Node["AiderMCTSNode<br/>workspace / metric / visits / children / UCT"]
-    Node --> Step["ClaudeCodeMCTSSearch.step()"]
+    Node --> Step["CodexMCTSSearch.step()"]
     Step --> Select["select()"]
     Select --> DraftOrImprove{"root ?"}
     DraftOrImprove -- 是 --> Draft["_draft()"]
@@ -418,7 +418,7 @@ flowchart LR
 | 长记忆 | `MemoryModule`, `IdeaGraph`, `ExperienceGenerator` | 加载历史 ideas/notes，构建相似图、聚类并生成经验。 |
 | 实验执行 | `ExperimentRunner` | 为每个 idea 创建实验目录，分配 GPU，调用后端，计算性能，写 online memory。 |
 | 报告生成 | `ReportWriter` | 基于 idea 生成 markdown 报告，报告模式不跑实验。 |
-| MCTS 实验 | `ClaudeCodeMCTSSearch`, `IFlowMCTSSearch`, `AiderMCTSNode` | 可选搜索代码方案树，用 UCT 选择、draft/improve、指标回传和 best node 更新。 |
+| MCTS 实验 | `CodexMCTSSearch`, `IFlowMCTSSearch`, `AiderMCTSNode` | 可选搜索代码方案树，用 UCT 选择、draft/improve、指标回传和 best node 更新。 |
 | 可视化 | `vis_tree.py`, `visualize_mcts*.py` | 将 MAS 轨迹或 MCTS 日志转成 PDF/HTML/Graphviz/ASCII 可视化。 |
 
 ## 关键运行路径

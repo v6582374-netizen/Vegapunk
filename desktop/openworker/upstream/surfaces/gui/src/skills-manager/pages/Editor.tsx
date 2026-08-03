@@ -13,7 +13,8 @@ import { FileNode, Skill } from "@skills-manager/types";
 import { useTranslation } from "@skills-manager/i18n";
 import { useTheme } from "@skills-manager/hooks/useTheme";
 import {
-  useSkillTranslation,
+  SKILL_TRANSLATION_TARGET_LANGUAGE,
+  useOptionalSkillTranslation,
   makeTranslationKey,
   type SkillFileTranslationProgress,
   type SkillTranslationOutput,
@@ -24,10 +25,18 @@ const LINUX_NOTICE_DISMISSED_KEY = "skills-manager:linux-editor-notice-dismissed
 
 // Helper for timeout removed as per user request
 
-export function EditorPage() {
-  const { t, language } = useTranslation();
+export type EditorMode = "skill" | "agents-md";
+
+interface EditorPageProps {
+  mode?: EditorMode;
+  onBack?: () => void;
+}
+
+export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
+  const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
-  const translation = useSkillTranslation();
+  const translation = useOptionalSkillTranslation();
+  const translationEnabled = mode === "skill" && translation !== null;
   const isLinux = navigator.userAgent.includes("Linux");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -58,15 +67,25 @@ export function EditorPage() {
 
   const isSkillMdFile = selectedPath.toLowerCase().endsWith("skill.md");
   const isTranslatableFile = /\.(md|mdx|markdown|txt|text)$/i.test(selectedPath);
-  const translationKey = relatedSkill ? makeTranslationKey(relatedSkill.instance_id, language) : null;
-  const translatedResult = translationKey ? translation.getTranslation(translationKey) : null;
-  const viewMode = translationKey ? translation.getView(translationKey) : "original";
+  const translationKey = relatedSkill
+    ? makeTranslationKey(relatedSkill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE)
+    : null;
+  const translatedResult = translationEnabled && translationKey
+    ? translation.getTranslation(translationKey)
+    : null;
+  const viewMode = translationEnabled && translationKey
+    ? translation.getView(translationKey)
+    : "original";
   const relatedSelectedPath = useMemo(
     () => getPathWithinSkill(rootPath, selectedPath, relatedSkill?.path ?? null),
     [rootPath, selectedPath, relatedSkill?.path],
   );
-  const cachedFileTranslation = relatedSkill && relatedSelectedPath
-    ? translation.getFileTranslation(relatedSkill.instance_id, language, relatedSelectedPath)
+  const cachedFileTranslation = translationEnabled && relatedSkill && relatedSelectedPath
+    ? translation.getFileTranslation(
+        relatedSkill.instance_id,
+        SKILL_TRANSLATION_TARGET_LANGUAGE,
+        relatedSelectedPath,
+      )
     : null;
   const activeFileTranslation = cachedFileTranslation ?? fileTranslation;
   const showingSkillTranslation =
@@ -76,7 +95,7 @@ export function EditorPage() {
   const showingTranslation = showingSkillTranslation || showingFileTranslation;
   const hasTranslationForCurrentFile =
     (isSkillMdFile && translatedResult != null) || (!isSkillMdFile && activeFileTranslation != null);
-  const canTranslateCurrentFile = isTranslatableFile && content.length > 0;
+  const canTranslateCurrentFile = translationEnabled && isTranslatableFile && content.length > 0;
   const displayContent = useMemo(
     () =>
       showingSkillTranslation
@@ -163,7 +182,10 @@ export function EditorPage() {
   // currently-open SKILL.md absolute path (handles skill packages where
   // rootPath is the package root and selectedPath is a member subpath).
   useEffect(() => {
-    if (!rootPath) return;
+    if (!translationEnabled || !rootPath) {
+      setRelatedSkill(null);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -190,7 +212,7 @@ export function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [rootPath, selectedPath]);
+  }, [rootPath, selectedPath, translationEnabled]);
 
   const formatTranslationError = useCallback((err: unknown): string => {
     if (typeof err === "object" && err !== null && "kind" in err) {
@@ -201,6 +223,8 @@ export function EditorPage() {
   }, [t]);
 
   const handleTranslateFile = useCallback(async (force: boolean = false) => {
+    if (!translationEnabled || !translation) return;
+
     // Skill docs branch: translate every translatable file under the skill root.
     if (relatedSkill) {
       let configured = translation.isConfigured;
@@ -217,7 +241,7 @@ export function EditorPage() {
       try {
         const result = await translation.translateSkillFiles(
           relatedSkill.instance_id,
-          language,
+          SKILL_TRANSLATION_TARGET_LANGUAGE,
           force,
           (progress) => {
             setSkillFileProgress(progress);
@@ -241,10 +265,13 @@ export function EditorPage() {
           }
         }
 
+        const failureDetails = result.failed
+          .map(({ path, reason }) => `${path}: ${reason.slice(0, 240)}`)
+          .join(" | ");
         const doneMessage = result.failed.length > 0
-          ? t("editor.translateFilesPartialFailed")
+          ? `${t("editor.translateFilesPartialFailed")
               .replace("{ok}", String(result.files.length))
-              .replace("{fail}", String(result.failed.length))
+              .replace("{fail}", String(result.failed.length))}: ${failureDetails}`
           : t("editor.translateFilesDone").replace("{count}", String(result.files.length));
         setTranslationNotice(doneMessage);
       } catch (err) {
@@ -272,7 +299,7 @@ export function EditorPage() {
       const result = await invoke<SkillTranslationOutput>("translate_text_content", {
         label: selectedPath,
         content,
-        targetLang: language,
+        targetLang: SKILL_TRANSLATION_TARGET_LANGUAGE,
         force,
       });
       setFileTranslation(result);
@@ -284,11 +311,11 @@ export function EditorPage() {
     }
   }, [
     isSkillMdFile,
+    translationEnabled,
     relatedSkill,
     relatedSelectedPath,
     translationKey,
     translation,
-    language,
     t,
     formatTranslationError,
     canTranslateCurrentFile,
@@ -297,29 +324,30 @@ export function EditorPage() {
   ]);
 
   const toggleView = useCallback(() => {
+    if (!translationEnabled || !translation) return;
     if (isSkillMdFile && translationKey) {
       translation.setView(translationKey, viewMode === "translated" ? "original" : "translated");
       return;
     }
     setFileViewMode((m) => (m === "translated" ? "original" : "translated"));
-  }, [isSkillMdFile, translationKey, translation, viewMode]);
+  }, [isSkillMdFile, translationEnabled, translationKey, translation, viewMode]);
 
   // Reset file-level translation when switching files / language (not on content edits)
   useEffect(() => {
     setFileTranslation(null);
     setFileViewMode("original");
-  }, [selectedPath, language]);
+  }, [selectedPath]);
 
   // Preload cached file translation when content available
   useEffect(() => {
-    if (!selectedPath || !content || !isTranslatableFile || isSkillMdFile) return;
+    if (!translationEnabled || !selectedPath || !content || !isTranslatableFile || isSkillMdFile) return;
     let cancelled = false;
     void (async () => {
       try {
         const hit = await invoke<SkillTranslationOutput | null>("get_cached_text_translation", {
           label: relatedSelectedPath ?? selectedPath,
           content,
-          targetLang: language,
+          targetLang: SKILL_TRANSLATION_TARGET_LANGUAGE,
         });
         if (cancelled) return;
         if (hit) {
@@ -332,7 +360,7 @@ export function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPath, relatedSelectedPath, content, language, isTranslatableFile, isSkillMdFile]);
+  }, [translationEnabled, selectedPath, relatedSelectedPath, content, isTranslatableFile, isSkillMdFile]);
 
   // Load file content
   useEffect(() => {
@@ -412,6 +440,10 @@ export function EditorPage() {
     if (hasUnsavedChanges) {
       const confirmed = window.confirm(t("editor.unsavedChangesDesc"));
       if (!confirmed) return;
+    }
+    if (onBack) {
+      onBack();
+      return;
     }
     navigate(-1);
   };
@@ -500,7 +532,7 @@ export function EditorPage() {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {compactTranslationStatus && (
+          {translationEnabled && compactTranslationStatus && (
             <div
               role="status"
               aria-live="polite"
@@ -549,7 +581,7 @@ export function EditorPage() {
               )}
             </div>
           )}
-          {canTranslateCurrentFile && (
+          {translationEnabled && canTranslateCurrentFile && (
             <TranslateIconButton
               hasTranslation={hasTranslationForCurrentFile}
               showingTranslation={showingTranslation}
@@ -706,7 +738,7 @@ export function EditorPage() {
           )}
 
           {/* E-04: Translation read-only banner */}
-          {showingTranslation && !loading && !error && (
+          {translationEnabled && showingTranslation && !loading && !error && (
             <div
               role="status"
               style={{

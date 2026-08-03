@@ -19,7 +19,7 @@ def main():
         epilog=(
             "QA mode:        python launch.py --mode qa --question '...' [--output out.md]\n"
             "Discovery mode: python launch.py --mode discovery --task AutoSeg "
-            "--exp_backend claudecode [--mode experiment|report]"
+            "--exp_backend codex [--mode experiment|report]"
         )
     )
     parser.add_argument(

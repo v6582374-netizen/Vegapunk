@@ -1,6 +1,5 @@
-// Auto-update banner: periodic check + per-version "Later" + background pre-download,
-// driven through a mocked __TAURI__ global (the browser build renders nothing, so the
-// e2e harness never sees this — these unit tests are the coverage).
+// Application update banner: periodic check + per-version "Later" + explicit download,
+// driven through a mocked __TAURI__ global.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { UpdateBanner } from "./UpdateBanner";
@@ -10,25 +9,23 @@ const RECHECK_MS = 30 * 60_000;
 
 let invoke: ReturnType<typeof vi.fn>;
 let available: { version: string; notes: string } | null;
-let download: () => Promise<void>;
-
 beforeEach(() => {
   vi.useFakeTimers();
   available = { version: "1.2.0", notes: "" };
-  download = async () => {};
   invoke = vi.fn(async (cmd: string) => {
     if (cmd === "check_for_update") return available;
-    if (cmd === "download_update") return download();
     if (cmd === "install_update") return null;
     return null;
   });
   (globalThis as any).__TAURI__ = { core: { invoke } };
+  (globalThis as any).__OCW_UPDATER_ENABLED__ = true;
 });
 
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   delete (globalThis as any).__TAURI__;
+  delete (globalThis as any).__OCW_UPDATER_ENABLED__;
 });
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
@@ -40,10 +37,11 @@ describe("UpdateBanner", () => {
 
     await advance(FIRST_CHECK_MS);
     expect(screen.getByTestId("update-banner").textContent).toContain("v1.2.0");
-    // Pre-download resolved immediately → the button is ready and enabled.
+    expect(screen.getByTestId("update-banner").textContent).toContain("Vegapunk");
     const btn = screen.getByTestId("update-install") as HTMLButtonElement;
-    expect(btn.textContent).toBe("Restart to update");
+    expect(btn.textContent).toBe("Download and restart");
     expect(btn.disabled).toBe(false);
+    expect(invoke).not.toHaveBeenCalledWith("download_update", undefined);
   });
 
   it("Later hides the banner and a same-version re-check keeps it hidden", async () => {
@@ -52,6 +50,7 @@ describe("UpdateBanner", () => {
 
     fireEvent.click(screen.getByTestId("update-later"));
     expect(screen.queryByTestId("update-banner")).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("clear_pending_update", undefined);
 
     await advance(RECHECK_MS);
     expect(screen.queryByTestId("update-banner")).toBeNull();
@@ -67,31 +66,21 @@ describe("UpdateBanner", () => {
     expect(screen.getByTestId("update-banner").textContent).toContain("v1.3.0");
   });
 
-  it("button reads Downloading… (disabled) until the pre-download resolves", async () => {
-    let finish!: () => void;
-    download = () => new Promise((resolve) => (finish = resolve));
+  it("starts the download and installation only after explicit acceptance", async () => {
     render(<UpdateBanner />);
     await advance(FIRST_CHECK_MS);
 
     const btn = screen.getByTestId("update-install") as HTMLButtonElement;
-    expect(btn.textContent).toBe("Downloading…");
-    expect(btn.disabled).toBe(true);
-
-    await act(async () => finish());
-    expect(btn.textContent).toBe("Restart to update");
-    expect(btn.disabled).toBe(false);
-  });
-
-  it("a failed pre-download falls back to the enabled download-on-click path", async () => {
-    download = () => Promise.reject(new Error("offline"));
-    render(<UpdateBanner />);
-    await advance(FIRST_CHECK_MS);
-
-    const btn = screen.getByTestId("update-install") as HTMLButtonElement;
-    expect(btn.textContent).toBe("Restart to update");
-    expect(btn.disabled).toBe(false);
-
+    expect(invoke).not.toHaveBeenCalledWith("install_update", undefined);
     fireEvent.click(btn);
     expect(invoke).toHaveBeenCalledWith("install_update", undefined);
+  });
+
+  it("stays hidden when the build does not enable the updater", async () => {
+    (globalThis as any).__OCW_UPDATER_ENABLED__ = false;
+    render(<UpdateBanner />);
+    await advance(FIRST_CHECK_MS);
+    expect(screen.queryByTestId("update-banner")).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("check_for_update", undefined);
   });
 });

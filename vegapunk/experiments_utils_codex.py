@@ -7,6 +7,7 @@ import json
 import math
 import re
 import os
+import tempfile
 from datetime import datetime
 import logging
 
@@ -82,30 +83,30 @@ def info_traceback(stderr):
     return matches, message
 
 
-class ClaudeCodeRunner:
-    """Claude Code Runner class to handle interactions with Claude CLI"""
+class CodexRunner:
+    """Codex CLI Runner class to handle interactions with Codex CLI"""
 
-    def __init__(self, proxy_settings=None, model='claude-sonnet-4-5-20250929'):
+    def __init__(self, proxy_settings=None, model='gpt-5.6-sol'):
         """
-        Initialize the Claude Code Runner
+        Initialize the Codex CLI Runner
 
         Args:
             proxy_settings: Optional dictionary with HTTP_PROXY and HTTPS_PROXY settings
-            model: Model name to use (default: claude-sonnet-4-5-20250929)
+            model: Model name to use (default: gpt-5.6-sol)
         """
         self.proxy_settings = proxy_settings or {}
         self.model = model
         
     def run(self, prompt, cwd=None):
         """
-        Run Claude Code with the given prompt
+        Run Codex CLI with the given prompt
         
         Args:
-            prompt: The prompt to send to Claude
-            cwd: The working directory for Claude to operate in
+            prompt: The prompt to send to Codex
+            cwd: The working directory for Codex to operate in
             
         Returns:
-            The stdout output from Claude
+            The final message written by Codex to the output-last-message file
         """
         # Set proxy environment variables
         env = os.environ.copy()
@@ -114,70 +115,105 @@ class ClaudeCodeRunner:
         
         # Enhanced logging - Log start time and command
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_message = f"[{timestamp}] Running Claude CLI with prompt: {prompt}..."
+        log_message = f"[{timestamp}] Running Codex CLI with prompt: {prompt}..."
         logger.info(log_message)
             
-        # Run Claude with acceptEdits permission mode. Keep the existing
-        # single-result JSON contract while recording the exact process seam.
+        workspace_root = osp.abspath(cwd or os.getcwd())
+        output_fd, output_path = tempfile.mkstemp(
+            prefix=".codex-last-message-",
+            suffix=".txt",
+            dir=workspace_root,
+        )
+        os.close(output_fd)
+
+        # Codex keeps the workspace boundary and network setting separate from
+        # the approval policy.  These flags grant full autonomy inside the
+        # selected workspace without granting access to other host files.
         command = [
-            'claude',
-            '-p',
-            '--permission-mode',
-            'acceptEdits',
-            '--model',
+            "codex",
+            "exec",
+            "--cd",
+            workspace_root,
+            "--model",
             self.model,
-            '--output-format',
-            'json',
+            "--sandbox",
+            "workspace-write",
+            "-c",
+            "approval_policy=never",
+            "-c",
+            "sandbox_workspace_write.network_access=true",
+            "--skip-git-repo-check",
+            "--json",
+            "--output-last-message",
+            output_path,
             prompt,
         ]
         from vegapunk.research_draft import record_research_event
 
-        record_research_event(command)
-        result = subprocess.run(
-            command,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            env=env
-        )
-        if result.stdout:
-            record_research_event(result.stdout)
-        if result.stderr:
-            record_research_event(result.stderr)
-        record_research_event(str(result.returncode))
-
-        # Enhanced logging - Log completion and output
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_message = f"[{timestamp}] Claude command completed with return code: {result.returncode}"
-        logger.info(log_message)
-
-        # Log output summary
-        if result.stdout:
-            output_summary = f"Claude output: {result.stdout}..."
-            logger.info(output_summary)
-
-        # If there was an error, log that too
-        if result.returncode != 0 or result.stderr:
-            error_message = f"Claude CLI error (return code {result.returncode}): {result.stderr}"
-            logger.error(error_message)
-
-        if result.returncode != 0:
-            raise subprocess.CalledProcessError(
-                result.returncode,
-                command,
-                output=result.stdout,
-                stderr=result.stderr,
-            )
-        
         try:
-            payload = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            payload = {}
-        output = payload.get('result')
-        if not isinstance(output, str):
-            output = result.stdout
+            record_research_event(command)
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            if result.stdout:
+                record_research_event(result.stdout)
+            if result.stderr:
+                record_research_event(result.stderr)
+            record_research_event(str(result.returncode))
 
-        return output
+            # Enhanced logging - Log completion and output
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_message = f"[{timestamp}] Codex command completed with return code: {result.returncode}"
+            logger.info(log_message)
+
+            # Log output summary
+            if result.stdout:
+                output_summary = f"Codex output: {result.stdout}..."
+                logger.info(output_summary)
+
+            # If there was an error, log that too
+            if result.returncode != 0 or result.stderr:
+                error_message = f"Codex CLI error (return code {result.returncode}): {result.stderr}"
+                logger.error(error_message)
+
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    result.returncode,
+                    command,
+                    output=result.stdout,
+                    stderr=result.stderr,
+                )
+
+            try:
+                with open(output_path, "r", encoding="utf-8") as output_file:
+                    output = output_file.read()
+            except (OSError, UnicodeError) as exc:
+                record_research_event(
+                    f"Codex final message could not be read from {output_path}: {exc}"
+                )
+                raise RuntimeError(
+                    "Codex CLI succeeded but did not produce a readable final message"
+                ) from exc
+            if not output:
+                record_research_event(
+                    f"Codex final message file was empty: {output_path}"
+                )
+                raise RuntimeError(
+                    "Codex CLI succeeded but produced an empty final message"
+                )
+
+            if output:
+                record_research_event(output)
+            return output
+        finally:
+            try:
+                os.unlink(output_path)
+            except FileNotFoundError:
+                pass
 
 def run_experiment(folder_name, run_num, timeout=None, gpu_ids=None, log_file=None, task_type='auto'):
     """
@@ -414,7 +450,7 @@ def perform_experiments(
     idea,
     folder_name,
     proxy_settings=None,
-    model='claude-sonnet-4-5-20250929',
+    model='gpt-5.6-sol',
     gpu_ids=None,
     max_runs=None,
     log_file=None,
@@ -425,12 +461,12 @@ def perform_experiments(
     runtime=None,
 ) -> bool:
     """
-    Perform multi-round experiments using Claude Code.
+    Perform multi-round experiments using Codex CLI.
 
     Args:
         idea: The idea to implement
         folder_name: The folder to work in
-        proxy_settings: Optional proxy settings for Claude
+        proxy_settings: Optional proxy settings for Codex
         model: Model name to use
         gpu_ids: GPU IDs to use (string like "0,1" or None for CPU)
         max_runs: Maximum number of runs (default: uses MAX_RUNS constant)
@@ -465,8 +501,8 @@ def perform_experiments(
     current_iter = 0
     run = 1
 
-    # Initialize Claude Code runner
-    claude_runner = ClaudeCodeRunner(proxy_settings, model=model)
+    # Initialize Codex CLI runner
+    codex_runner = CodexRunner(proxy_settings, model=model)
 
     # Extract idea information
     idea_info = extract_idea_info(idea)
@@ -496,17 +532,17 @@ def perform_experiments(
             current_iter = 0
             continue
 
-        log_message(f"Running Claude Code iteration {current_iter+1} for run {run}")
-        claude_output = claude_runner.run(next_prompt, cwd=folder_name)
-        log_message(f"Claude output received (length: {len(claude_output)})")
-        log_message(claude_output)
+        log_message(f"Running Codex CLI iteration {current_iter+1} for run {run}")
+        codex_output = codex_runner.run(next_prompt, cwd=folder_name)
+        log_message(f"Codex output received (length: {len(codex_output)})")
+        log_message(codex_output)
 
-        if "litellm.BadRequestError" in claude_output:
-            log_message("Error: litellm.BadRequestError detected in Claude output")
+        if "litellm.BadRequestError" in codex_output:
+            log_message("Error: litellm.BadRequestError detected in Codex output")
             return False
-        if "ALL_COMPLETED" in claude_output:
+        if "ALL_COMPLETED" in codex_output:
             log_message(
-                "Claude reported all experiments completed; validating artifacts"
+                "Codex reported all experiments completed; validating artifacts"
             )
             break
 
@@ -533,7 +569,7 @@ def perform_experiments(
 
     if (run <= max_runs) and (current_iter >= MAX_ITERS):
         logger.info("Not all experiments completed.")
-        _generate_report_with_claude(claude_runner, folder_name, run, current_iter, completed=False)
+        _generate_report_with_codex(codex_runner, folder_name, run, current_iter, completed=False)
         return False
 
     if not _has_valid_improvement_artifact(folder_name):
@@ -541,13 +577,13 @@ def perform_experiments(
             "Experiments did not produce a valid run_N/final_info.json artifact"
         )
         logger.error("Experiment completion rejected: no valid improvement artifact")
-        _generate_report_with_claude(
-            claude_runner, folder_name, run, current_iter, completed=False
+        _generate_report_with_codex(
+            codex_runner, folder_name, run, current_iter, completed=False
         )
         return False
 
     logger.info("Experiments completed successfully")
-    _generate_report_with_claude(claude_runner, folder_name, run, current_iter, completed=True)
+    _generate_report_with_codex(codex_runner, folder_name, run, current_iter, completed=True)
     return True
 
 
@@ -652,21 +688,21 @@ def _handle_sci_run_scoring(folder_name, run_num, return_code, next_prompt,
         return return_code, next_prompt
 
 
-def _generate_report_with_claude(claude_runner, folder_name, final_run, final_iter, completed=True):
+def _generate_report_with_codex(codex_runner, folder_name, final_run, final_iter, completed=True):
     """
-    Use Claude Code to generate a comprehensive experiment report
+    Use Codex CLI to generate a comprehensive experiment report
 
     Args:
-        claude_runner: The ClaudeCodeRunner instance
+        codex_runner: The CodexRunner instance
         folder_name: The folder where experiments were run
         final_run: The final run number reached
         final_iter: The final iteration number
         completed: Whether all experiments completed successfully
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logger.info(f"[{timestamp}] Requesting Claude Code to generate experiment report for {folder_name}")
+    logger.info(f"[{timestamp}] Requesting Codex CLI to generate experiment report for {folder_name}")
 
-    # Prepare prompt for Claude to generate the report
+    # Prepare prompt for Codex to generate the report
     status = "successfully completed" if completed else "partially completed or encountered issues"
 
     report_prompt = f"""Based on all the experiments we just conducted, please generate a concise experiment report and save it as 'experiment_report.txt' in the current directory.
@@ -682,9 +718,9 @@ Please check the experimental runs (run_1, run_2, ..., run_{final_run} directori
 Keep descriptions factual and concise. No comparisons needed, just objectively document what each run did and what results it produced. Save as 'experiment_report.txt' in the root directory.
 """
 
-    logger.info("Sending report generation request to Claude Code")
-    claude_output = claude_runner.run(report_prompt, cwd=folder_name)
-    logger.info(f"Claude Code report generation completed (output length: {len(claude_output)})")
+    logger.info("Sending report generation request to Codex CLI")
+    codex_output = codex_runner.run(report_prompt, cwd=folder_name)
+    logger.info(f"Codex CLI report generation completed (output length: {len(codex_output)})")
 
     # Check if report was created
     report_path = osp.join(folder_name, "experiment_report.txt")

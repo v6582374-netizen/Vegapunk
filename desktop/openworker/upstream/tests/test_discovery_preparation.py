@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from coworker.providers.base import AssistantTurn
 from coworker.server import SessionManager, create_app
 from coworker.server import discovery as discovery_module
+from coworker.server import discovery_launch as discovery_launch_module
 from coworker.server.discovery_launch import DiscoveryLaunchStore
 
 TOKEN = "a" * 64
@@ -65,8 +66,19 @@ def test_conversion_prompt_path_uses_the_repository_config_in_source_checkouts()
 
 
 class FakeConversionProvider:
-    def __init__(self, text: str = "# Converted input"):
-        self.text = text
+    def __init__(self, text: str | None = None):
+        self.text = (
+            json.dumps(
+                {
+                    "task_description": "Converted Discovery task",
+                    "domain": "Scientific ML",
+                    "background": "Converted background",
+                    "constraints": ["Use the committed sources."],
+                }
+            )
+            if text is None
+            else text
+        )
         self.calls: list[dict] = []
 
     def complete(self, *, model, messages, tools=None, **settings):
@@ -76,6 +88,21 @@ class FakeConversionProvider:
     def capabilities(self, model):
         del model
         return None
+
+
+def _execution_input(
+    task_description: str = "Converted Discovery task",
+    *,
+    domain: str = "Scientific ML",
+    background: str = "Converted background",
+    constraints: list[str] | None = None,
+) -> dict[str, object]:
+    return {
+        "task_description": task_description,
+        "domain": domain,
+        "background": background,
+        "constraints": constraints or ["Use the committed sources."],
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -275,6 +302,86 @@ def test_failed_save_preserves_previous_committed_state(tmp_path, monkeypatch):
     assert restored["preparation"]["saved"]["text"] == "Known-good state."
 
 
+def test_reset_atomically_clears_preparation_and_revision_history(tmp_path, monkeypatch):
+    state_root = tmp_path / "state"
+    provider = FakeConversionProvider(json.dumps(_execution_input("Converted reset input")))
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    client = TestClient(
+        create_app(SessionManager(data_dir=state_root, provider=provider))
+    )
+
+    intake = client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={
+            "text": "Reset this Preparation.",
+            "files": [
+                {
+                    "filename": "brief.md",
+                    "content_base64": _encoded(b"source bytes"),
+                    "size": 12,
+                }
+            ],
+        },
+    )
+    assert intake.status_code == 200
+    assert client.post(
+        "/v1/discovery/preparation/save", headers=_headers(), json={}
+    ).status_code == 200
+    assert client.post(
+        "/v1/discovery/preparation/convert", headers=_headers(), json={}
+    ).status_code == 200
+    revision = client.post(
+        "/v1/discovery/preparation/revisions",
+        headers=_headers(),
+        json={"execution_input": _execution_input("Reviewed reset input")},
+    )
+    assert revision.status_code == 200
+    assert revision.json()["preparation"]["revisions"]
+
+    reset = client.post("/v1/discovery/preparation/reset", headers=_headers())
+
+    assert reset.status_code == 200
+    preparation = reset.json()["preparation"]
+    assert preparation["status"] == "empty"
+    assert preparation["dirty"] is False
+    assert preparation["draft"] == {"text": "", "sources": []}
+    assert preparation["saved"] == {"text": "", "sources": []}
+    assert preparation["revisions"] == []
+    assert preparation["conversion"]["status"] == "pending"
+
+    restarted = _client(state_root).get("/v1/discovery", headers=_headers()).json()
+    assert restarted["preparation"]["revisions"] == []
+    assert restarted["preparation"]["saved"] == {"text": "", "sources": []}
+
+    client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Keep this state if reset fails."},
+    )
+    original_replace = discovery_module.os.replace
+
+    def fail_replace(source: str | bytes | Path, destination: str | bytes | Path):
+        if Path(destination) == state_root / "discovery" / "preparation.json":
+            raise OSError("simulated reset storage failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(discovery_module.os, "replace", fail_replace)
+    failed = client.post("/v1/discovery/preparation/reset", headers=_headers())
+    assert failed.status_code == 500
+    assert failed.json()["detail"] == "Discovery Preparation could not be reset. Try again."
+    unchanged = client.get("/v1/discovery", headers=_headers()).json()["preparation"]
+    assert unchanged["draft"]["text"] == "Keep this state if reset fails."
+    assert unchanged["saved"] == {"text": "", "sources": []}
+
+
 @pytest.mark.parametrize(
     ("filename", "payload", "expected_error"),
     [
@@ -303,7 +410,7 @@ def test_source_identity_whitelist_and_content_validation(filename, payload, exp
 
 
 def test_conversion_is_explicit_and_saved_revisions_are_immutable(tmp_path, monkeypatch):
-    provider = FakeConversionProvider("# Converted once")
+    provider = FakeConversionProvider(json.dumps(_execution_input("Converted once")))
     state_root = tmp_path / "state"
     manager = SessionManager(
         data_dir=state_root,
@@ -343,7 +450,7 @@ def test_conversion_is_explicit_and_saved_revisions_are_immutable(tmp_path, monk
     assert converted.status_code == 200
     conversion = converted.json()["preparation"]["conversion"]
     assert conversion["status"] == "editing"
-    assert conversion["draft"] == "# Converted once"
+    assert conversion["execution_input"]["task_description"] == "Converted once"
     assert converted.json()["preparation"]["revisions"] == []
     assert provider.calls[0]["model"] == "relay/test-model"
     assert provider.calls[0]["settings"] == {
@@ -360,11 +467,11 @@ def test_conversion_is_explicit_and_saved_revisions_are_immutable(tmp_path, monk
     first = client.post(
         "/v1/discovery/preparation/revisions",
         headers=_headers(),
-        json={"formatted_input": "# Reviewed once"},
+        json={"execution_input": _execution_input("Reviewed once")},
     )
     assert first.status_code == 200
     first_revision = first.json()["preparation"]["revisions"][0]
-    assert first_revision["formatted_input"] == "# Reviewed once"
+    assert first_revision["execution_input"]["task_description"] == "Reviewed once"
     assert first.json()["preparation"]["conversion"]["status"] == "saved"
 
     client.post(
@@ -385,19 +492,19 @@ def test_conversion_is_explicit_and_saved_revisions_are_immutable(tmp_path, monk
     second = client.post(
         "/v1/discovery/preparation/revisions",
         headers=_headers(),
-        json={"formatted_input": "# Reviewed twice"},
+        json={"execution_input": _execution_input("Reviewed twice")},
     )
     revisions = second.json()["preparation"]["revisions"]
-    assert [revision["formatted_input"] for revision in revisions] == [
-        "# Reviewed once",
-        "# Reviewed twice",
+    assert [revision["execution_input"]["task_description"] for revision in revisions] == [
+        "Reviewed once",
+        "Reviewed twice",
     ]
     assert revisions[0]["revision_id"] != revisions[1]["revision_id"]
 
     restored = _client(state_root).get("/v1/discovery", headers=_headers()).json()
-    assert [revision["formatted_input"] for revision in restored["preparation"]["revisions"]] == [
-        "# Reviewed once",
-        "# Reviewed twice",
+    assert [revision["execution_input"]["task_description"] for revision in restored["preparation"]["revisions"]] == [
+        "Reviewed once",
+        "Reviewed twice",
     ]
 
 
@@ -433,6 +540,207 @@ def test_conversion_rejects_empty_or_unsaved_preparation_without_revision(tmp_pa
     assert unsaved.status_code == 422
     assert "save" in unsaved.json()["detail"].lower()
     assert provider.calls == []
+
+
+def test_structured_conversion_returns_one_backend_execution_input_and_runs_it(
+    tmp_path, monkeypatch
+):
+    provider = FakeConversionProvider(
+        json.dumps(
+            {
+                "task_description": "Explain the observed transition.",
+                "domain": "Space plasma physics",
+                "background": "satellite pass",
+                "constraints": ["Do not infer causality from one pass."],
+            }
+        )
+    )
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert directly to structured inputs.\n", encoding="utf-8"
+    )
+    client = _client(tmp_path / "state", provider=provider)
+    client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Compare two transitions."},
+    )
+    client.post("/v1/discovery/preparation/save", headers=_headers(), json={})
+
+    converted = client.post(
+        "/v1/discovery/preparation/convert", headers=_headers(), json={}
+    )
+    assert converted.status_code == 200
+    conversion = converted.json()["preparation"]["conversion"]
+    assert conversion["execution_input"] == {
+        "task_description": "Explain the observed transition.",
+        "domain": "Space plasma physics",
+        "background": "satellite pass",
+        "constraints": ["Do not infer causality from one pass."],
+    }
+    assert "draft" not in conversion
+
+    saved = client.post(
+        "/v1/discovery/preparation/revisions",
+        headers=_headers(),
+        json={"execution_input": conversion["execution_input"]},
+    )
+    assert saved.status_code == 200
+    revision = saved.json()["preparation"]["revisions"][0]
+    assert revision["execution_input"] == conversion["execution_input"]
+    assert "formatted_input" not in revision
+
+    started = client.post(
+        "/v1/discovery/launches",
+        headers={**_headers(), "Idempotency-Key": "structured-input-start"},
+        json={"revision_id": revision["revision_id"]},
+    )
+    assert started.status_code == 201
+    snapshot = started.json()["snapshot"]["current_launch"]["input_snapshot"]
+    assert snapshot["execution_input"] == conversion["execution_input"]
+    assert "execution_inputs" not in snapshot
+    assert "input_id" not in snapshot
+    assert "formatted_input" not in snapshot
+
+
+@pytest.mark.parametrize(
+    "model_output",
+    [
+        json.dumps({"execution_inputs": [_execution_input()]}),
+        "# This must not become a Markdown intermediate",
+    ],
+)
+def test_conversion_rejects_non_backend_execution_input_shapes(
+    model_output, tmp_path, monkeypatch
+):
+    provider = FakeConversionProvider(model_output)
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    client = _client(tmp_path / "state", provider=provider)
+    client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Research question."},
+    )
+    client.post("/v1/discovery/preparation/save", headers=_headers(), json={})
+
+    converted = client.post(
+        "/v1/discovery/preparation/convert", headers=_headers(), json={}
+    )
+
+    assert converted.status_code == 502
+    conversion = client.get("/v1/discovery", headers=_headers()).json()["preparation"]["conversion"]
+    assert conversion["status"] == "failed"
+    assert "execution_input" not in conversion
+
+
+def test_restart_discards_incompatible_legacy_revisions_without_losing_preparation(
+    tmp_path,
+):
+    state_root = tmp_path / "state"
+    preparation = {"text": "Committed legacy research.", "sources": []}
+    fingerprint = discovery_module._preparation_fingerprint(preparation)
+    state_path = state_root / "discovery" / "preparation.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "text": preparation["text"],
+                "sources": [],
+                "revisions": [
+                    {
+                        "revision_id": "legacy-many",
+                        "created_at": "2026-08-01T00:00:00+00:00",
+                        "model_id": "legacy-model",
+                        "preparation_fingerprint": fingerprint,
+                        "execution_inputs": [
+                            {"title": "first legacy input"},
+                            {"title": "second legacy input"},
+                        ],
+                    },
+                    {
+                        "revision_id": "legacy-invalid-single",
+                        "created_at": "2026-08-01T00:00:00+00:00",
+                        "model_id": "legacy-model",
+                        "preparation_fingerprint": fingerprint,
+                        "execution_inputs": [{"title": "not a backend input"}],
+                    },
+                    {
+                        "revision_id": "legacy-single-valid",
+                        "created_at": "2026-08-01T00:00:00+00:00",
+                        "model_id": "legacy-model",
+                        "preparation_fingerprint": fingerprint,
+                        "execution_inputs": [_execution_input("Migrate this revision")],
+                    },
+                    {
+                        "revision_id": "current-valid",
+                        "created_at": "2026-08-01T00:00:00+00:00",
+                        "model_id": "current-model",
+                        "preparation_fingerprint": fingerprint,
+                        "execution_input": _execution_input("Keep this revision"),
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    snapshot = _client(state_root).get("/v1/discovery", headers=_headers())
+
+    assert snapshot.status_code == 200
+    preparation_snapshot = snapshot.json()["preparation"]
+    assert preparation_snapshot["status"] == "saved"
+    assert preparation_snapshot["saved"]["text"] == preparation["text"]
+    assert [
+        revision["execution_input"]["task_description"]
+        for revision in preparation_snapshot["revisions"]
+    ] == ["Migrate this revision", "Keep this revision"]
+
+
+def test_conversion_public_shape_contains_only_backend_task_fields(tmp_path, monkeypatch):
+    model_output = _execution_input("Exact task") | {
+        "title": "Discard this review metadata",
+        "objective": "Discard this duplicate field",
+    }
+    provider = FakeConversionProvider(json.dumps(model_output))
+    monkeypatch.setattr(
+        discovery_module,
+        "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
+        tmp_path / "conversion-prompt.yaml",
+    )
+    (tmp_path / "conversion-prompt.yaml").write_text(
+        "instruction: Convert the evidence.\n", encoding="utf-8"
+    )
+    client = _client(tmp_path / "state", provider=provider)
+    client.post(
+        "/v1/discovery/preparation/intake",
+        headers=_headers(),
+        json={"text": "Research question."},
+    )
+    client.post("/v1/discovery/preparation/save", headers=_headers(), json={})
+
+    converted = client.post(
+        "/v1/discovery/preparation/convert", headers=_headers(), json={}
+    )
+
+    assert converted.status_code == 200
+    assert set(converted.json()["preparation"]["conversion"]["execution_input"]) == {
+        "task_description",
+        "domain",
+        "background",
+        "constraints",
+    }
 
 
 def test_conversion_reads_docx_without_an_optional_python_docx_dependency(tmp_path, monkeypatch):
@@ -634,7 +942,7 @@ def test_empty_conversion_output_creates_no_revision(tmp_path, monkeypatch):
 
 
 def test_failed_reconversion_preserves_earlier_revisions(tmp_path, monkeypatch):
-    provider = FakeConversionProvider("# First conversion")
+    provider = FakeConversionProvider(json.dumps(_execution_input("First conversion")))
     monkeypatch.setattr(
         discovery_module,
         "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
@@ -658,7 +966,7 @@ def test_failed_reconversion_preserves_earlier_revisions(tmp_path, monkeypatch):
     saved = client.post(
         "/v1/discovery/preparation/revisions",
         headers=_headers(),
-        json={"formatted_input": "# Reviewed input"},
+        json={"execution_input": _execution_input("Reviewed input")},
     )
     assert saved.status_code == 200
     previous_revisions = saved.json()["preparation"]["revisions"]
@@ -688,7 +996,7 @@ def _prepare_saved_revision(client, *, text: str = "Research question.") -> str:
     saved = client.post(
         "/v1/discovery/preparation/revisions",
         headers=_headers(),
-        json={"formatted_input": "# Reviewed research input"},
+        json={"execution_input": _execution_input("Reviewed research input")},
     )
     assert saved.status_code == 200
     return saved.json()["preparation"]["revisions"][0]["revision_id"]
@@ -705,7 +1013,7 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
     (tmp_path / "conversion-prompt.yaml").write_text(
         "instruction: Convert the evidence.\n", encoding="utf-8"
     )
-    provider = FakeConversionProvider("# Converted input")
+    provider = FakeConversionProvider(json.dumps(_execution_input("Converted input")))
     state_root = tmp_path / "state"
     manager = SessionManager(
         data_dir=state_root,
@@ -736,7 +1044,8 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
         (launch_dir / "launch_configuration.json").read_text(encoding="utf-8")
     )
     assert input_snapshot["revision_id"] == revision_id
-    assert input_snapshot["formatted_input"] == "# Reviewed research input"
+    assert input_snapshot["execution_input"] == _execution_input("Reviewed research input")
+    assert "formatted_input" not in input_snapshot
     assert configuration_snapshot == {
         "model_id": "relay/test-model",
         "settings": {"temperature": 0.0, "max_tokens": 512},
@@ -749,6 +1058,15 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
         json={"text": "Edited after launch."},
     ).status_code == 200
     assert client.get("/v1/discovery", headers=_headers()).json()["preparation"]["dirty"] is True
+    assert json.loads(
+        (launch_dir / "input_snapshot.json").read_text(encoding="utf-8")
+    ) == input_snapshot
+
+    reset = client.post("/v1/discovery/preparation/reset", headers=_headers())
+    assert reset.status_code == 200
+    reset_snapshot = reset.json()
+    assert reset_snapshot["preparation"]["status"] == "empty"
+    assert reset_snapshot["current_launch"]["launch_id"] == launch_id
     assert json.loads(
         (launch_dir / "input_snapshot.json").read_text(encoding="utf-8")
     ) == input_snapshot
@@ -776,7 +1094,7 @@ def test_run_rejects_ineligible_revision_and_enforces_idempotent_single_active_s
     (tmp_path / "conversion-prompt.yaml").write_text(
         "instruction: Convert the evidence.\n", encoding="utf-8"
     )
-    provider = FakeConversionProvider("# Converted input")
+    provider = FakeConversionProvider(json.dumps(_execution_input("Converted input")))
     client = TestClient(
         create_app(SessionManager(data_dir=tmp_path / "state", provider=provider))
     )
@@ -800,7 +1118,7 @@ def test_run_rejects_ineligible_revision_and_enforces_idempotent_single_active_s
     current = client.post(
         "/v1/discovery/preparation/revisions",
         headers=_headers(),
-        json={"formatted_input": "# Current input"},
+        json={"execution_input": _execution_input("Current input")},
     )
     current_revision_id = current.json()["preparation"]["revisions"][-1]["revision_id"]
 
@@ -926,6 +1244,9 @@ def test_stop_is_graceful_and_resume_appends_one_idempotent_attempt(tmp_path, mo
 
 
 def test_restart_adopts_matching_live_runner_without_auto_resume(tmp_path, monkeypatch):
+    # Keep this lifecycle probe active while the second sidecar instance starts.
+    # The normal deterministic runner is intentionally short for the rest of the suite.
+    monkeypatch.setattr(discovery_launch_module, "FAKE_RUNNER_DELAY_SECONDS", 2.0)
     monkeypatch.setattr(
         discovery_module,
         "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
@@ -950,7 +1271,7 @@ def test_restart_adopts_matching_live_runner_without_auto_resume(tmp_path, monke
     assert adopted["current_launch"]["state"] in {"starting", "running"}
     assert len(adopted["current_launch"]["attempts"]) == 1
 
-    for _ in range(80):
+    for _ in range(800):
         adopted = restarted.get("/v1/discovery", headers=_headers()).json()
         if adopted["history"] and adopted["history"][0]["state"] == "completed":
             break

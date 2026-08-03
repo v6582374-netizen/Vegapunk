@@ -3,7 +3,7 @@ use crate::services::llm::{self, LlmError};
 use crate::services::scanner::ScannerService;
 use crate::services::translation::{self, SkillTranslationInput, SkillTranslationOutput};
 use crate::services::translation_cache::{CacheKey, TranslationCache};
-use crate::services::ConfigManager;
+use crate::services::{shared_llm_provider, ConfigManager};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,6 +17,11 @@ pub fn get_llm_provider() -> Result<Option<LlmProvider>, String> {
     let manager = ConfigManager::new();
     let config = manager.load()?;
     Ok(config.llm_provider)
+}
+
+#[tauri::command]
+pub fn is_llm_provider_configured() -> Result<bool, String> {
+    shared_llm_provider::load_provider().map(|provider| provider.is_some())
 }
 
 #[tauri::command]
@@ -50,9 +55,9 @@ pub async fn test_llm_provider(provider: LlmProvider) -> Result<String, LlmError
 }
 
 fn load_provider_or_error() -> Result<LlmProvider, LlmError> {
-    let manager = ConfigManager::new();
-    let config = manager.load().map_err(|e| LlmError::NetworkError(e))?;
-    config.llm_provider.ok_or(LlmError::NotConfigured)
+    shared_llm_provider::load_provider()
+        .map_err(LlmError::NetworkError)?
+        .ok_or(LlmError::NotConfigured)
 }
 
 fn find_skill_by_instance(skills: &[Skill], instance_id: &str) -> Option<Skill> {
@@ -574,7 +579,7 @@ pub fn get_cached_skill_translations(
 ) -> Result<Vec<CachedTranslationEntry>, String> {
     let manager = ConfigManager::new();
     let config = manager.load()?;
-    let provider = match config.llm_provider.clone() {
+    let provider = match shared_llm_provider::load_provider()? {
         Some(p) => p,
         None => {
             return Ok(instance_ids
@@ -626,9 +631,7 @@ pub fn get_cached_text_translation(
     content: String,
     target_lang: String,
 ) -> Result<Option<SkillTranslationOutput>, String> {
-    let manager = ConfigManager::new();
-    let config = manager.load()?;
-    let provider = match config.llm_provider {
+    let provider = match shared_llm_provider::load_provider()? {
         Some(p) => p,
         None => return Ok(None),
     };
@@ -717,6 +720,33 @@ mod tests {
             timeout_secs: None,
         };
         assert_eq!(determine_concurrency(&provider), 6);
+    }
+
+    #[test]
+    fn desktop_provider_is_used_when_skill_manager_provider_is_empty() {
+        crate::test_support::with_temp_home(|home| {
+            let coworker_dir = home.join(".config").join("coworker");
+            fs::create_dir_all(&coworker_dir).expect("create coworker state");
+            fs::write(
+                coworker_dir.join("prefs.json"),
+                r#"{"default_model":"deepseek:deepseek-v4-flash"}"#,
+            )
+            .expect("write desktop prefs");
+            fs::write(
+                coworker_dir.join("secrets.json"),
+                r#"{"provider:deepseek":{"api_key":"desktop-key","base_url":"https://api.deepseek.com"}}"#,
+            )
+            .expect("write desktop secrets");
+
+            let manager = ConfigManager::new();
+            let config = manager.load().expect("create skill manager config");
+            assert!(config.llm_provider.is_none());
+
+            let provider = load_provider_or_error().expect("desktop provider should be resolved");
+            assert_eq!(provider.base_url, "https://api.deepseek.com");
+            assert_eq!(provider.api_key, "desktop-key");
+            assert_eq!(provider.model, "deepseek-v4-flash");
+        });
     }
 
     #[test]

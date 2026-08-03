@@ -4,6 +4,13 @@ use crate::services::{
 };
 
 #[tauri::command]
+pub fn get_home_directory() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .ok_or_else(|| "Could not resolve the current user's home directory".to_string())
+}
+
+#[tauri::command]
 pub fn read_directory_tree(path: String) -> Result<FileNode, String> {
     println!("[Rust] read_directory_tree called for: {}", path);
     do_read_tree(&path)

@@ -29,6 +29,11 @@ import {
   getToolBulkToggleTargets,
 } from "./tools/bulkToggleToolSkills";
 import { getSkillTagsForSkill } from "./skills/skillTags";
+import {
+  getSkillLinkStatus,
+  getSkillLinkStatusLabelKey,
+  getSkillLinkStatusTone,
+} from "./skills/skillLinkStatus";
 
 function getSkillDisplayName(skillIdentity: string, skills: Skill[]): string {
   const skill = skills.find((item) => item.instance_id === skillIdentity) ?? skills.find((item) => item.id === skillIdentity);
@@ -741,7 +746,6 @@ export function Tools() {
     const shouldDisable = !toolEditorTool.detected || !toolEditorTool.config.enabled;
 
     return toolEditorFilteredSkillIds.map((skillId) => {
-      const isEnabled = toolSkillEnabledMap[skillId] ?? false;
       const toggleKey = `${toolEditorTool.id}:${skillId}`;
       const isToggling = togglingSkill === toggleKey;
       const isDisabled = toolEditorIsBulkToggling || isToggling || shouldDisable;
@@ -753,6 +757,9 @@ export function Tools() {
 
       const skill = skills.find((s) => s.instance_id === skillId);
       const tags = skill ? getSkillTagsForSkill(skill, skillMetadata) : [];
+      const status = skill ? getSkillLinkStatus(skill, toolEditorTool.id) : "missing";
+      const isEnabled = status === "linked";
+      const statusLabel = t(getSkillLinkStatusLabelKey(status));
 
       return {
         id: skillId,
@@ -760,7 +767,9 @@ export function Tools() {
         tags,
         enabled: isEnabled,
         disabled: isDisabled,
-        tooltip,
+        tooltip: status === "linked" || status === "missing" ? tooltip : [tooltip, statusLabel].filter(Boolean).join(" - "),
+        statusLabel: status === "linked" || status === "missing" ? undefined : statusLabel,
+        statusTone: getSkillLinkStatusTone(status),
         dimmed: !toolEditorTool.detected,
       };
     });

@@ -416,42 +416,42 @@ def get_repo_structure(model, project_path, output_dir, output_name, ignore_list
         return repo_structure
 
 
-CLAUDECODE_REPO_ANALYSIS_PROMPT = _prompt_library.get("discovery.codeview.claudecode_repo_analysis")
+CODEX_REPO_ANALYSIS_PROMPT = _prompt_library.get("discovery.codeview.codex_repo_analysis")
 
 
-def get_repo_structure_claudecode(project_path, output_dir, output_name, proxy_settings=None, model='claude-sonnet-4-5-20250929'):
+def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settings=None, model='gpt-5.6-sol'):
     """
-    Use Claude Code to analyze repository structure and generate code summary
+    Use Codex CLI to analyze repository structure and generate code summary
 
     Args:
         project_path: Path to the project directory to analyze
         output_dir: Directory to save the output JSON file
         output_name: Name of the output JSON file
         proxy_settings: Optional dictionary with HTTP_PROXY and HTTPS_PROXY settings
-        model: Model name to use (default: claude-sonnet-4-5-20250929)
+        model: Model name to use (default: gpt-5.6-sol)
 
     Returns:
         Dictionary with 'summary' and 'key_files' keys containing the analysis
     """
     try:
-        # Import ClaudeCodeRunner (assuming it's in experiments_utils_claude)
-        from vegapunk.experiments_utils_claude import ClaudeCodeRunner
+        # Import CodexRunner (assuming it's in experiments_utils_codex)
+        from vegapunk.experiments_utils_codex import CodexRunner
 
-        # Initialize Claude Code runner
-        claude_runner = ClaudeCodeRunner(proxy_settings, model=model)
+        # Initialize Codex CLI runner
+        codex_runner = CodexRunner(proxy_settings, model=model)
 
-        # Run Claude Code with the analysis prompt
-        print(f"Analyzing repository at {project_path} using Claude Code...")
-        claude_output = claude_runner.run(CLAUDECODE_REPO_ANALYSIS_PROMPT, cwd=project_path)
+        # Run Codex CLI with the analysis prompt
+        print(f"Analyzing repository at {project_path} using Codex CLI...")
+        codex_output = codex_runner.run(CODEX_REPO_ANALYSIS_PROMPT, cwd=project_path)
 
         # Extract summary and key files from the output
-        summary, key_files = extract_from_repo_summary(claude_output)
+        summary, key_files = extract_from_repo_summary(codex_output)
 
         # Create result structure
         repo_structure = {
             "summary": summary,
             "key_files": key_files,
-            "analyzed_with": "claudecode",
+            "analyzed_with": "codex",
             "model": model
         }
 
@@ -469,7 +469,7 @@ def get_repo_structure_claudecode(project_path, output_dir, output_name, proxy_s
         return repo_structure
 
     except Exception as e:
-        print(f"Error during repository analysis with Claude Code: {e}")
+        print(f"Error during repository analysis with Codex CLI: {e}")
         # Return a basic structure on error
         return {
             "summary": f"Error analyzing repository: {str(e)}",

@@ -2,6 +2,8 @@ Status: accepted
 
 # Keep Skill Management Local-Only
 
+The in-scope feature list in this historical ADR is narrowed by ADR 0172; current Skill Management excludes Skill creation, editing, import/export, deletion, usage monitoring, risk scanning, translation, and other AI analysis.
+
 The imported Skill Management module exists to manage the Sole Researcher's local Skills and their projections into local Skill Tool Targets.
 Remote Marketplace browsing, remote source configuration, remote Skill installation and update flows, Marketplace metadata snapshots, and Marketplace community interactions are out of scope and will be removed.
 The imported Feedback page, remote webhook submission, group QR-code entry points, and GitHub issue shortcut are also out of scope for the local module.

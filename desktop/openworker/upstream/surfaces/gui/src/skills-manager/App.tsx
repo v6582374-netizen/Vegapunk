@@ -4,7 +4,7 @@ import { Layout } from "@skills-manager/components/layout/Layout";
 import { Skills } from "@skills-manager/pages/Skills";
 import { Tools } from "@skills-manager/pages/Tools";
 import { Settings } from "@skills-manager/pages/Settings";
-import { EditorPage } from "@skills-manager/pages/Editor";
+import { EditorPage, type EditorMode } from "@skills-manager/pages/Editor";
 import { Welcome } from "@skills-manager/pages/Welcome";
 import { useInitialization } from "@skills-manager/hooks/useInitialization";
 import { ThemeProvider } from "@skills-manager/hooks/useTheme";
@@ -39,7 +39,7 @@ function GlobalShortcuts({ onOpenPalette }: { onOpenPalette: () => void }) {
   return null;
 }
 
-function App() {
+function StandardApp() {
   const { isInitialized, isLoading: initLoading, markInitialized } = useInitialization();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { toasts, removeToast } = useToast();
@@ -79,6 +79,32 @@ function App() {
       </PageHeaderProvider>
     </MemoryRouter>
   </I18nProvider></ThemeProvider>;
+}
+
+interface SkillsManagerAppProps {
+  mode?: EditorMode;
+  editorRoot?: string;
+  editorFile?: string;
+  onEditorBack?: () => void;
+}
+
+function EditorOnlyApp({ editorRoot = "", editorFile = "", onEditorBack }: SkillsManagerAppProps) {
+  const editorPath = `/editor?root=${encodeURIComponent(editorRoot)}&file=${encodeURIComponent(editorFile)}`;
+
+  return <ThemeProvider><I18nProvider language="en">
+    <MemoryRouter initialEntries={[editorPath]}>
+      <Routes>
+        <Route path="/editor" element={<EditorPage mode="agents-md" onBack={onEditorBack} />} />
+      </Routes>
+    </MemoryRouter>
+  </I18nProvider></ThemeProvider>;
+}
+
+function App(props: SkillsManagerAppProps) {
+  if (props.mode === "agents-md") {
+    return <EditorOnlyApp {...props} />;
+  }
+  return <StandardApp />;
 }
 
 export default App;

@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  getDiscoveryConversionPrompt,
   getPrompt,
   getPromptLibrary,
   getSettings,
   getTrustedWorkspaces,
-  saveDiscoveryConversionPrompt,
   savePrompt,
   setOnboarded,
   setPdfSettings,
@@ -172,10 +170,6 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [discoveryPrompt, setDiscoveryPrompt] = useState("");
-  const [discoveryPromptDraft, setDiscoveryPromptDraft] = useState("");
-  const [discoveryPromptSaving, setDiscoveryPromptSaving] = useState(false);
-  const [discoveryPromptError, setDiscoveryPromptError] = useState<string | null>(null);
 
   const selected = prompts.find((prompt) => prompt.id === selectedId) || null;
   const dirty = !!selected && draft !== selected.text;
@@ -207,33 +201,10 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
         setDraft(detail.prompt.text);
         setSystemOriginal(detail.prompt.system_original_text);
       }
-      try {
-        const prompt = await getDiscoveryConversionPrompt();
-        setDiscoveryPrompt(String(prompt.instruction ?? ""));
-        setDiscoveryPromptDraft(String(prompt.instruction ?? ""));
-      } catch (promptError) {
-        setDiscoveryPromptError(promptError instanceof Error ? promptError.message : "Discovery Conversion Prompt is unavailable.");
-      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Prompt Library is unavailable.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const saveDiscoveryPrompt = async () => {
-    if (!discoveryPromptDraft.trim() || discoveryPromptSaving) return;
-    setDiscoveryPromptSaving(true);
-    setDiscoveryPromptError(null);
-    try {
-      const body = await saveDiscoveryConversionPrompt(discoveryPromptDraft);
-      setDiscoveryPrompt(String(body.instruction ?? discoveryPromptDraft));
-      setDiscoveryPromptDraft(String(body.instruction ?? discoveryPromptDraft));
-      setNotice("Discovery Conversion Prompt saved.");
-    } catch (promptError) {
-      setDiscoveryPromptError(promptError instanceof Error ? promptError.message : "Discovery Conversion Prompt could not be saved.");
-    } finally {
-      setDiscoveryPromptSaving(false);
     }
   };
 
@@ -292,30 +263,6 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <PanelHead title="Prompt Library" sub="Inspect and revise Registered Prompts used by future Vegapunk work." />
-      <div className={CARD + " mb-4 overflow-hidden"} data-testid="discovery-conversion-prompt-editor">
-        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
-          <div>
-            <div className="text-[13px] font-medium text-ink">Discovery Input Conversion Prompt</div>
-            <div className="mt-1 text-[11.5px] text-muted">Compiles raw Preparation material directly into structured Execution Inputs.</div>
-          </div>
-          {discoveryPromptDraft !== discoveryPrompt && <span className="text-[11px] text-accent">Unsaved</span>}
-        </div>
-        <div className="p-4">
-          {discoveryPromptError && <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{discoveryPromptError}</div>}
-          <textarea
-            className="min-h-[180px] w-full resize-y rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent"
-            aria-label="Discovery Input Conversion Prompt"
-            value={discoveryPromptDraft}
-            onChange={(event) => setDiscoveryPromptDraft(event.target.value)}
-            spellCheck={false}
-            placeholder="Loading the independent Conversion Prompt…"
-          />
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <button className={BTN_BORDERED} onClick={() => setDiscoveryPromptDraft(discoveryPrompt)} disabled={discoveryPromptDraft === discoveryPrompt}>Reset</button>
-            <button className={BTN_ACCENT} onClick={() => void saveDiscoveryPrompt()} disabled={discoveryPromptDraft === discoveryPrompt || discoveryPromptSaving}>{discoveryPromptSaving ? "Saving…" : "Save Conversion Prompt"}</button>
-          </div>
-        </div>
-      </div>
       {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
       {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
       <div className="mb-4 flex flex-wrap items-center gap-2">

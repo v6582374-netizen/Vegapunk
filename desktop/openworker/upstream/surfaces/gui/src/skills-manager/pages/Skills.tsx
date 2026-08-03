@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties, type MouseEvent } from "react";
-import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Check,
@@ -46,6 +45,7 @@ import {
 } from "@skills-manager/types";
 import { useTranslation, TranslationPath } from "@skills-manager/i18n";
 import {
+  SKILL_TRANSLATION_TARGET_LANGUAGE,
   useSkillTranslation,
   makeTranslationKey,
   type SkillFileTranslationProgress,
@@ -127,6 +127,14 @@ import {
 } from "./projectBindings";
 import { ProjectBindingsDialog } from "./ProjectBindingsDialog";
 import { getToolIconUrl } from "@skills-manager/assets/tools";
+import {
+  getSkillLinkStatus,
+  getSkillLinkStatusAttentionToolIds,
+  getSkillLinkStatusLabelKey,
+  getSkillLinkStatusSummary,
+  getSkillLinkStatusTone,
+  type SkillLinkStatus as SkillLinkStatusValue,
+} from "./skills/skillLinkStatus";
 
 type SkillsListViewMode = "grouped" | "flat";
 
@@ -191,19 +199,26 @@ function ToolIconChip({
   size,
   enabled,
   detected,
+  status,
+  statusLabel,
 }: {
   toolId: string;
   tools: Tool[];
   size: number;
   enabled: boolean;
   detected: boolean;
+  status?: SkillLinkStatusValue;
+  statusLabel?: string;
 }) {
   const tool = tools.find((t) => t.id === toolId);
   const displayName = getToolDisplayName(toolId, tools);
   const iconSrc = resolveToolIconSrc(tool);
+  const isLinked = status ? status === "linked" : enabled;
+  const tone = status ? getSkillLinkStatusTone(status) : isLinked ? "success" : "muted";
+  const title = statusLabel ? `${displayName}: ${statusLabel}` : displayName;
   return (
     <span
-      title={displayName}
+      title={title}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -212,10 +227,18 @@ function ToolIconChip({
         height: size + 10,
         borderRadius: 6,
         flexShrink: 0,
-        border: enabled
+        border: tone === "success"
           ? "1px solid var(--primary-tint-border)"
-          : "1px solid var(--border)",
-        backgroundColor: enabled ? "var(--primary-tint)" : "var(--background)",
+          : tone === "warning"
+            ? "1px solid var(--color-warning-border)"
+            : tone === "error"
+              ? "1px solid var(--color-error-border)"
+              : "1px solid var(--border)",
+        backgroundColor: tone === "success"
+          ? "var(--primary-tint)"
+          : tone === "warning"
+            ? "var(--color-warning-bg)"
+            : "var(--background)",
         opacity: detected ? 1 : 0.6,
       }}
     >
@@ -228,7 +251,7 @@ function ToolIconChip({
             height: size,
             borderRadius: 3,
             objectFit: "cover",
-            filter: enabled ? "none" : "grayscale(1)",
+            filter: isLinked || status === "unmanaged" ? "none" : "grayscale(1)",
           }}
         />
       ) : (
@@ -236,7 +259,13 @@ function ToolIconChip({
           style={{
             fontSize: size * 0.5,
             fontWeight: 600,
-            color: enabled ? "var(--primary)" : "var(--muted-foreground)",
+            color: tone === "success"
+              ? "var(--primary)"
+              : tone === "warning"
+                ? "var(--color-warning)"
+                : tone === "error"
+                  ? "var(--destructive)"
+                  : "var(--muted-foreground)",
           }}
         >
           {displayName.charAt(0).toUpperCase()}
@@ -310,11 +339,10 @@ function TagFilterCheck({ active }: { active: boolean }) {
 
 type SkillEditorTab = "tools" | "tags" | "risk";
 
-type SkillCardActionMenuProps = {
+type SkillCardActionButtonsProps = {
   deleting: boolean;
   editLabel: string;
   deleteLabel: string;
-  moreActionsLabel: string;
   onEdit: () => void;
   onDelete: () => void;
 };
@@ -539,186 +567,79 @@ function getUnifiedItemMetaLabel(item: UnifiedSkillListItem, t: (key: Translatio
   return `${t("skills.enableFor")} ${summary.enabledCount}/${summary.totalCount}`;
 }
 
-function SkillCardActionMenu({
+function SkillCardActionButtons({
   deleting,
   editLabel,
   deleteLabel,
-  moreActionsLabel,
   onEdit,
   onDelete,
-}: SkillCardActionMenuProps) {
-  const [open, setOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{
-    top?: number;
-    bottom?: number;
-    right: number;
-  } | null>(null);
-
-  const closeMenu = useCallback(() => {
-    setOpen(false);
-    setMenuPosition(null);
-  }, []);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeMenu();
-      }
-    };
-
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [closeMenu, open]);
-
+}: SkillCardActionButtonsProps) {
   return (
-    <div style={{ position: "relative", flexShrink: 0 }}>
+    <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "6px", flexShrink: 0 }}>
       <button
         type="button"
-        aria-label={moreActionsLabel}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (open) {
-            closeMenu();
-            return;
-          }
-
-          const triggerRect = e.currentTarget.getBoundingClientRect();
-          const gap = 6;
-          const menuHeight = 96;
-          const right = Math.max(8, window.innerWidth - triggerRect.right);
-          const hasRoomBelow = triggerRect.bottom + gap + menuHeight <= window.innerHeight - 8;
-          setMenuPosition(hasRoomBelow
-            ? { top: triggerRect.bottom + gap, right }
-            : { bottom: window.innerHeight - triggerRect.top + gap, right });
-          setOpen(true);
-        }}
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
         disabled={deleting}
         style={{
-          display: "flex",
+          display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          width: "30px",
-          height: "30px",
-          padding: 0,
-          borderRadius: "8px",
-          border: "none",
-          backgroundColor: "transparent",
-          color: "var(--muted-foreground)",
+          minHeight: "30px",
+          padding: "0 10px",
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--primary)",
+          backgroundColor: "var(--primary)",
+          color: "var(--primary-foreground)",
+          font: "inherit",
+          fontSize: "11px",
+          fontWeight: 650,
+          whiteSpace: "nowrap",
           cursor: deleting ? "wait" : "pointer",
           opacity: deleting ? 0.6 : 1,
           transition: "color 0.15s ease, background-color 0.15s ease",
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.color = "var(--foreground)";
-          e.currentTarget.style.backgroundColor = "var(--surface-hover)";
+          if (!deleting) {
+            e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--primary) 88%, var(--background))";
+          }
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.color = "var(--muted-foreground)";
+          e.currentTarget.style.backgroundColor = "var(--primary)";
+        }}
+      >
+        {editLabel}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        disabled={deleting}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "30px",
+          padding: "0 10px",
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid var(--color-error-border)",
+          backgroundColor: "transparent",
+          color: "var(--destructive)",
+          font: "inherit",
+          fontSize: "11px",
+          fontWeight: 650,
+          whiteSpace: "nowrap",
+          cursor: deleting ? "wait" : "pointer",
+          opacity: deleting ? 0.6 : 1,
+          transition: "color 0.15s ease, background-color 0.15s ease",
+        }}
+        onMouseEnter={(e) => {
+          if (!deleting) e.currentTarget.style.backgroundColor = "var(--color-error-bg)";
+        }}
+        onMouseLeave={(e) => {
           e.currentTarget.style.backgroundColor = "transparent";
         }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="5" cy="12" r="1.8" />
-          <circle cx="12" cy="12" r="1.8" />
-          <circle cx="19" cy="12" r="1.8" />
-        </svg>
+        {deleteLabel}
       </button>
-
-      {open && menuPosition && createPortal(
-        <>
-          <button
-            type="button"
-            aria-label={moreActionsLabel}
-            onClick={(e) => {
-              e.stopPropagation();
-              closeMenu();
-            }}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: MODAL_LAYER_Z_INDEX - 1,
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              margin: 0,
-              cursor: "default",
-            }}
-          />
-          <div
-            className="glass-elevated animate-popover"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              top: menuPosition.top,
-              bottom: menuPosition.bottom,
-              right: menuPosition.right,
-              display: "flex",
-              flexDirection: "column",
-              gap: "2px",
-              minWidth: "120px",
-              maxHeight: "320px",
-              overflow: "auto",
-              padding: "8px",
-              borderRadius: "var(--radius-lg)",
-              zIndex: MODAL_LAYER_Z_INDEX,
-            }}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                closeMenu();
-                onEdit();
-              }}
-              style={menuItemBaseStyle}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "var(--surface-hover)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
-              }}
-            >
-              {editLabel}
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                closeMenu();
-                onDelete();
-              }}
-              disabled={deleting}
-              style={{
-                ...menuItemBaseStyle,
-                color: "var(--destructive)",
-                cursor: deleting ? "wait" : "pointer",
-                opacity: deleting ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "var(--color-error-bg)";
-                e.currentTarget.style.color = "var(--destructive)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
-                e.currentTarget.style.color = "var(--destructive)";
-              }}
-            >
-              {deleteLabel}
-            </button>
-          </div>
-        </>,
-        document.body,
-      )}
     </div>
   );
 }
@@ -1300,17 +1221,25 @@ export function Skills() {
         return next;
       });
       try {
-        const result = await translation.translateSkillFiles(skill.instance_id, language, force, (progress) => {
-          setSkillTranslationProgress((prev) => ({
-            ...prev,
-            [skill.instance_id]: progress,
-          }));
-        });
+        const result = await translation.translateSkillFiles(
+          skill.instance_id,
+          SKILL_TRANSLATION_TARGET_LANGUAGE,
+          force,
+          (progress) => {
+            setSkillTranslationProgress((prev) => ({
+              ...prev,
+              [skill.instance_id]: progress,
+            }));
+          },
+        );
         if (result.failed.length > 0) {
+          const failureDetails = result.failed
+            .map(({ path, reason }) => `${path}: ${reason.slice(0, 240)}`)
+            .join(" | ");
           addToast(
-            t("editor.translateFilesPartialFailed")
+            `${t("editor.translateFilesPartialFailed")
               .replace("{ok}", String(result.files.length))
-              .replace("{fail}", String(result.failed.length)),
+              .replace("{fail}", String(result.failed.length))}: ${failureDetails}`,
             "error",
           );
         }
@@ -1329,7 +1258,7 @@ export function Skills() {
         });
       }
     },
-    [translation, language, addToast, t, formatTranslationError],
+    [translation, addToast, t, formatTranslationError],
   );
 
   const handleBatchTranslate = useCallback(
@@ -1346,7 +1275,7 @@ export function Skills() {
       const pending: Skill[] = [];
       let skipped = 0;
       for (const skill of skillsToTranslate) {
-        const key = makeTranslationKey(skill.instance_id, language);
+        const key = makeTranslationKey(skill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE);
         if (translation.getTranslation(key)) {
           skipped += 1;
         } else {
@@ -1372,7 +1301,7 @@ export function Skills() {
       let progressToastId: string | undefined;
       try {
         const ids = pending.map((s) => s.instance_id);
-        const result = await translation.translateBatch(ids, language, (p) => {
+        const result = await translation.translateBatch(ids, SKILL_TRANSLATION_TARGET_LANGUAGE, (p) => {
           const progressMsg = t("skills.batchTranslateProgress")
             .replace("{current}", String(p.current))
             .replace("{total}", String(p.total))
@@ -1394,11 +1323,14 @@ export function Skills() {
 
         const fail = result.failed.length;
         const ok = result.succeeded.length;
+        const failureDetails = result.failed
+          .map(({ instance_id, reason }) => `${instance_id}: ${reason.slice(0, 240)}`)
+          .join(" | ");
         addToast(
-          t("skills.batchTranslateDone")
+          `${t("skills.batchTranslateDone")
             .replace("{ok}", String(ok))
             .replace("{total}", String(pending.length))
-            .replace("{fail}", String(fail)),
+            .replace("{fail}", String(fail))}${failureDetails ? `: ${failureDetails}` : ""}`,
           fail > 0 ? "error" : "success",
         );
       } catch (err) {
@@ -1410,11 +1342,19 @@ export function Skills() {
         setBatchTranslating(false);
       }
     },
-    [translation, language, addToast, updateToast, removeToast, t, formatTranslationError],
+    [translation, addToast, updateToast, removeToast, t, formatTranslationError],
   );
 
   const handleDelete = async (skill: Skill) => {
-    const confirmed = await confirm(t("skills.deleteConfirm").replace("{name}", skill.name), {
+    const attentionToolIds = getSkillLinkStatusAttentionToolIds(skill, tools.map((tool) => tool.id));
+    const attentionToolNames = attentionToolIds
+      .map((toolId) => getToolDisplayName(toolId, tools))
+      .join(", ");
+    const deleteMessage = attentionToolNames
+      ? `${t("skills.deleteConfirm").replace("{name}", skill.name)}\n\n${t("skills.deleteConfirmWithUnmanagedCopies")
+          .replace("{tools}", attentionToolNames)}`
+      : t("skills.deleteConfirm").replace("{name}", skill.name);
+    const confirmed = await confirm(deleteMessage, {
       title: t("skills.delete"),
       kind: "warning",
     });
@@ -1438,7 +1378,12 @@ export function Skills() {
           addToast(cleanupError instanceof Error ? cleanupError.message : String(cleanupError), "error");
         }
       }
-      addToast(t("skills.deleteSuccess").replace("{name}", skill.name), "success");
+      addToast(
+        attentionToolNames
+          ? t("skills.deleteSuccessWithUnmanagedCopies").replace("{name}", skill.name).replace("{tools}", attentionToolNames)
+          : t("skills.deleteSuccess").replace("{name}", skill.name),
+        "success",
+      );
       await reloadData();
     } catch (err) {
       addToast(err instanceof Error ? err.message : String(err), "error");
@@ -2430,20 +2375,24 @@ export function Skills() {
 
     const skillStats = usageStats[toolEditorSkill.id];
     return toolEditorFilteredToolIds.map((toolId) => {
-      const isEnabled = toolEditorSkill.enabled[toolId] ?? false;
+      const status = getSkillLinkStatus(toolEditorSkill, toolId);
+      const isEnabled = status === "linked";
       const toggleKey = `${toolEditorSkill.instance_id}:${toolId}`;
       const isToggling = togglingSkill === toggleKey;
       const tool = tools.find((item) => item.id === toolId);
       const isDetected = tool?.detected ?? false;
       const isToolEnabled = tool?.config.enabled ?? false;
       const isDisabled = toolEditorIsBulkToggling || isToggling || !isDetected || !isToolEnabled;
+      const statusLabel = t(getSkillLinkStatusLabelKey(status));
 
       return {
         id: toolId,
         label: getToolDisplayName(toolId, tools),
         enabled: isEnabled,
         disabled: isDisabled,
-        tooltip: !isDetected ? t("skills.toolNotDetected") : undefined,
+        tooltip: !isDetected ? t("skills.toolNotDetected") : status === "missing" || status === "linked" ? undefined : statusLabel,
+        statusLabel: status === "linked" || status === "missing" ? undefined : statusLabel,
+        statusTone: getSkillLinkStatusTone(status),
         dimmed: !isDetected,
         callCount: skillStats?.by_tool[toolId] ?? 0,
       };
@@ -2818,7 +2767,7 @@ export function Skills() {
     }
 
     const skill = item.skill;
-    const translationKey = makeTranslationKey(skill.instance_id, language);
+    const translationKey = makeTranslationKey(skill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE);
     const translated = translation.getTranslation(translationKey);
     const isTranslatedView = translation.getView(translationKey) === "translated" && translated != null;
     const title = isTranslatedView && translated ? translated.name : item.title;
@@ -2829,20 +2778,27 @@ export function Skills() {
     const isExpanded = selectedInventoryItem?.key === item.key;
     const owningGroup = parentGroup ?? groupedSkillCollection.groupBySkillKey.get(item.key) ?? null;
     const riskReport = riskReports[skill.instance_id];
+    const linkStatusSummary = getSkillLinkStatusSummary(skill, toolIds);
     const inventoryStateTone = riskReport && riskReport.level !== "safe"
       ? "warning"
-      : item.toolSummary?.state === "all"
-        ? "success"
-        : item.toolSummary?.state === "partial"
-          ? "warning"
-          : "muted";
+      : linkStatusSummary.attentionCount > 0
+        ? "warning"
+        : item.toolSummary?.state === "all"
+          ? "success"
+          : item.toolSummary?.state === "partial"
+            ? "warning"
+            : "muted";
     const inventoryStateLabel = riskReport && riskReport.level !== "safe"
       ? t(`settings.riskLevel${riskReport.level.charAt(0).toUpperCase() + riskReport.level.slice(1)}` as TranslationPath)
-      : item.toolSummary?.state === "all"
-        ? t("skills.inventoryLinked")
-        : item.toolSummary?.state === "partial"
-          ? t("skills.inventoryPartial")
-          : t("skills.inventoryUnlinked");
+      : linkStatusSummary.unmanagedCount > 0
+        ? t("skills.inventoryUnmanagedSummary").replace("{count}", String(linkStatusSummary.unmanagedCount))
+        : linkStatusSummary.attentionCount > 0
+          ? t("skills.inventoryAttentionSummary").replace("{count}", String(linkStatusSummary.attentionCount))
+          : item.toolSummary?.state === "all"
+            ? t("skills.inventoryLinked")
+            : item.toolSummary?.state === "partial"
+              ? t("skills.inventoryPartial")
+              : t("skills.inventoryUnlinked");
     const fileProgress = skillTranslationProgress[skill.instance_id];
     const fileProgressText = fileProgress
       ? t("editor.translateFilesCompact")
@@ -2972,11 +2928,10 @@ export function Skills() {
                   }}
                   onRetranslate={() => void handleTranslateSkill(skill, true)}
                 />
-                <SkillCardActionMenu
+                <SkillCardActionButtons
                   deleting={deletingSkill === skill.instance_id}
                   editLabel={t("skills.configureTools")}
                   deleteLabel={t("skills.delete")}
-                  moreActionsLabel={t("skills.moreActions")}
                   onEdit={() => openSkillEditor(skill.instance_id, "tools")}
                   onDelete={() => void handleDelete(skill)}
                 />
@@ -3000,16 +2955,21 @@ export function Skills() {
                 <div>
                   <span className="skills-detail-label">{t("skills.configureToolsTitle")}</span>
                   <div className="skills-detail-tools">
-                    {toolIds.map((toolId) => (
-                      <ToolIconChip
-                        key={toolId}
-                        toolId={toolId}
-                        tools={tools}
-                        size={18}
-                        enabled={skill.enabled[toolId] ?? false}
-                        detected={toolsById.get(toolId)?.detected ?? false}
-                      />
-                    ))}
+                    {toolIds.map((toolId) => {
+                      const status = getSkillLinkStatus(skill, toolId);
+                      return (
+                        <ToolIconChip
+                          key={toolId}
+                          toolId={toolId}
+                          tools={tools}
+                          size={18}
+                          enabled={status === "linked"}
+                          status={status}
+                          statusLabel={t(getSkillLinkStatusLabelKey(status))}
+                          detected={toolsById.get(toolId)?.detected ?? false}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -3137,11 +3097,10 @@ export function Skills() {
           </div>
 
           {!isBatchManageMode && (
-            <SkillCardActionMenu
+            <SkillCardActionButtons
               deleting={deletingGroupId === groupItem.id}
               editLabel={t("skills.configureTools")}
               deleteLabel={t("skills.delete")}
-              moreActionsLabel={t("skills.moreActions")}
               onEdit={() => openGroupEditor(groupItem.id)}
               onDelete={() => void handleDeleteGroup(groupItem)}
             />
@@ -3176,7 +3135,9 @@ export function Skills() {
 
     const skill = item.skill ?? null;
     const skillPackage = item.skillPackage ?? null;
-    const translationKey = skill ? makeTranslationKey(skill.instance_id, language) : null;
+    const translationKey = skill
+      ? makeTranslationKey(skill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE)
+      : null;
     const translated = translationKey ? translation.getTranslation(translationKey) : null;
     const showingTranslation = Boolean(
       translationKey && translated && translation.getView(translationKey) === "translated",
@@ -3270,40 +3231,12 @@ export function Skills() {
                   unfavoriteLabel={t("skills.unfavoriteAction")}
                   size={30}
                 />
-                <TranslateIconButton
-                  hasTranslation={translated != null}
-                  showingTranslation={showingTranslation}
-                  translating={translatingIds.has(skill.instance_id)}
-                  translateLabel={t("skills.translateAction")}
-                  showOriginalLabel={t("skills.showOriginal")}
-                  showTranslationLabel={t("skills.showTranslated")}
-                  translatingLabel={t("skills.translating")}
-                  retranslateLabel={t("skills.retranslate")}
-                  onClick={() => {
-                    if (translated && translationKey) {
-                      translation.setView(translationKey, showingTranslation ? "original" : "translated");
-                    } else {
-                      void handleTranslateSkill(skill);
-                    }
-                  }}
-                  onRetranslate={() => void handleTranslateSkill(skill, true)}
-                />
               </>
             )}
           </div>
         </div>
 
         <div className="skills-detail-command-row">
-          <button
-            type="button"
-            className="skills-detail-command is-primary"
-            onClick={() => skill
-              ? openSkillEditor(skill.instance_id, "tools")
-              : openGroupEditor(item.id)}
-          >
-            <Wrench size={14} strokeWidth={2} aria-hidden />
-            <span>{t("skills.configureTools")}</span>
-          </button>
           {item.openPath && (
             <button
               type="button"
@@ -3314,13 +3247,12 @@ export function Skills() {
               <span>{t("skills.openEditor")}</span>
             </button>
           )}
-          <SkillCardActionMenu
+          <SkillCardActionButtons
             deleting={skill
               ? deletingSkill === skill.instance_id
               : deletingGroupId === item.id}
             editLabel={t("skills.configureTools")}
             deleteLabel={t("skills.delete")}
-            moreActionsLabel={t("skills.moreActions")}
             onEdit={() => skill
               ? openSkillEditor(skill.instance_id, "tools")
               : openGroupEditor(item.id)}
@@ -3381,8 +3313,9 @@ export function Skills() {
                 {toolIds.map((toolId) => {
                   const tool = toolsById.get(toolId);
                   const groupState = item.groupToolStateById?.[toolId];
+                  const skillStatus = skill ? getSkillLinkStatus(skill, toolId) : undefined;
                   const enabled = skill
-                    ? Boolean(skill.enabled[toolId])
+                    ? skillStatus === "linked"
                     : Boolean(groupState?.fullyEnabled);
                   const partial = Boolean(!skill && groupState?.anyEnabled && !groupState.fullyEnabled);
                   const unavailable = !tool?.detected || !tool.config.enabled;
@@ -3391,11 +3324,22 @@ export function Skills() {
                     : togglingGroupToolKey === `${item.id}:${toolId}`;
                   const stateLabel = unavailable
                     ? t("skills.inventoryUnavailable")
-                    : partial
-                      ? t("skills.inventoryPartial")
-                      : enabled
-                        ? t("skills.inventoryLinked")
-                        : t("skills.inventoryUnlinked");
+                    : skillStatus
+                      ? t(getSkillLinkStatusLabelKey(skillStatus))
+                      : partial
+                        ? t("skills.inventoryPartial")
+                        : enabled
+                          ? t("skills.inventoryLinked")
+                          : t("skills.inventoryUnlinked");
+                  const stateTone = unavailable
+                    ? "muted"
+                    : skillStatus
+                      ? getSkillLinkStatusTone(skillStatus)
+                      : partial
+                        ? "warning"
+                        : enabled
+                          ? "success"
+                          : "muted";
 
                   return (
                     <div key={toolId} className="skills-detail-target-row">
@@ -3404,11 +3348,13 @@ export function Skills() {
                         tools={tools}
                         size={16}
                         enabled={enabled || partial}
+                        status={skillStatus}
+                        statusLabel={skillStatus ? stateLabel : undefined}
                         detected={tool?.detected ?? false}
                       />
                       <div>
                         <strong>{getToolDisplayName(toolId, tools)}</strong>
-                        <span data-tone={unavailable ? "muted" : partial ? "warning" : enabled ? "success" : "muted"}>
+                        <span data-tone={stateTone}>
                           {stateLabel}
                           {groupState && ` ${groupState.enabledMemberCount}/${groupState.memberCount}`}
                         </span>
@@ -4072,7 +4018,7 @@ export function Skills() {
                 const color = getSkillColor(item.title);
                 const canOpen = Boolean(item.openPath);
                 const translationKey = item.kind === "skill" && item.skill
-                  ? makeTranslationKey(item.skill.instance_id, language)
+                  ? makeTranslationKey(item.skill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE)
                   : null;
                 const translated = translationKey ? translation.getTranslation(translationKey) : null;
                 const isTranslatedView = translationKey
@@ -4414,22 +4360,20 @@ export function Skills() {
                             }}
                             onRetranslate={() => void handleTranslateSkill(item.skill!, true)}
                           />
-                          <SkillCardActionMenu
+                          <SkillCardActionButtons
                             deleting={deletingSkill === item.skill.instance_id}
                             editLabel={t("skills.configureTools")}
                             deleteLabel={t("skills.delete")}
-                            moreActionsLabel={t("skills.moreActions")}
                             onEdit={() => openSkillEditor(item.skill!.instance_id, "tools")}
                             onDelete={() => void handleDelete(item.skill!)}
                           />
                         </div>
                       )}
                       {!isBatchManageMode && item.kind === "group" && item.skillPackage && (
-                        <SkillCardActionMenu
+                        <SkillCardActionButtons
                           deleting={deletingGroupId === item.id}
                           editLabel={t("skills.configureTools")}
                           deleteLabel={t("skills.delete")}
-                          moreActionsLabel={t("skills.moreActions")}
                           onEdit={() => openGroupEditor(item.id)}
                           onDelete={() => void handleDeleteGroup(item)}
                         />
@@ -4505,6 +4449,28 @@ export function Skills() {
                           )}
                         </div>
                       )}
+                      {item.kind === "skill" && item.skill && (() => {
+                        const attentionToolIds = getSkillLinkStatusAttentionToolIds(item.skill, toolIds);
+                        return attentionToolIds.length > 0 ? (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+                            {attentionToolIds.map((toolId) => {
+                              const status = getSkillLinkStatus(item.skill!, toolId);
+                              return (
+                                <ToolIconChip
+                                  key={toolId}
+                                  toolId={toolId}
+                                  tools={tools}
+                                  size={18}
+                                  enabled={false}
+                                  status={status}
+                                  statusLabel={t(getSkillLinkStatusLabelKey(status))}
+                                  detected={toolsById.get(toolId)?.detected ?? false}
+                                />
+                              );
+                            })}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
 
                     {isCardExpanded && !isBatchManageMode && (
@@ -4579,7 +4545,7 @@ export function Skills() {
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                                   {toolIds.map((toolId) => {
-                                    const isEnabled = item.skill!.enabled[toolId] ?? false;
+                                    const status = getSkillLinkStatus(item.skill!, toolId);
                                     const tool = tools.find((it) => it.id === toolId);
                                     const isDetected = tool?.detected ?? false;
                                     return (
@@ -4588,7 +4554,9 @@ export function Skills() {
                                         toolId={toolId}
                                         tools={tools}
                                         size={20}
-                                        enabled={isEnabled}
+                                        enabled={status === "linked"}
+                                        status={status}
+                                        statusLabel={t(getSkillLinkStatusLabelKey(status))}
                                         detected={isDetected}
                                       />
                                     );
@@ -4904,6 +4872,8 @@ function SkillManageDialog({
     enabled: boolean;
     disabled: boolean;
     tooltip?: string;
+    statusLabel?: string;
+    statusTone?: "success" | "warning" | "error" | "muted";
     dimmed?: boolean;
     callCount?: number;
   }>;
@@ -5294,7 +5264,13 @@ function SkillManageDialog({
                             height: "6px",
                             borderRadius: "50%",
                             flexShrink: 0,
-                            backgroundColor: item.enabled ? "var(--ember)" : "var(--border)",
+                            backgroundColor: item.statusTone === "warning"
+                              ? "var(--color-warning)"
+                              : item.statusTone === "error"
+                                ? "var(--destructive)"
+                                : item.enabled
+                                  ? "var(--ember)"
+                                  : "var(--border)",
                             transition: "background-color 0.15s",
                           }}
                         />
@@ -5312,6 +5288,19 @@ function SkillManageDialog({
                         >
                           {item.label}
                         </div>
+                        {item.statusLabel && item.statusTone !== "success" && (
+                          <span style={{
+                            fontSize: "11px",
+                            color: item.statusTone === "warning"
+                              ? "var(--color-warning)"
+                              : item.statusTone === "error"
+                                ? "var(--destructive)"
+                                : "var(--muted-foreground)",
+                            whiteSpace: "nowrap",
+                          }}>
+                            {item.statusLabel}
+                          </span>
+                        )}
                         {item.callCount != null && item.callCount > 0 && (
                           <span style={{
                             fontSize: "11px",
@@ -5852,7 +5841,7 @@ function CreateSkillDialog({
               fontSize: "13px",
               fontWeight: 500,
               color: "var(--primary-foreground)",
-              backgroundColor: "var(--foreground)",
+              backgroundColor: "var(--primary)",
               border: "none",
               borderRadius: "8px",
               cursor: creating ? "wait" : "pointer",

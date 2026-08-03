@@ -2,6 +2,7 @@
 // Note: Field names use snake_case to match Rust serde serialization
 
 export type SkillScope = "global" | "project";
+export type SkillLinkStatus = "linked" | "broken" | "wrong_target" | "unmanaged" | "missing";
 
 export interface Skill {
   id: string;
@@ -14,6 +15,7 @@ export interface Skill {
   version: string;
   source: "local" | "imported";
   enabled: Record<string, boolean>;
+  link_status?: Record<string, SkillLinkStatus>;
   package_meta?: SkillPackageMeta | null;
   path: string;
 }

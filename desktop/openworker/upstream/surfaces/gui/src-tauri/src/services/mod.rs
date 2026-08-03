@@ -7,6 +7,7 @@ pub mod linker;
 pub mod llm;
 pub mod risk;
 pub mod scanner;
+pub mod shared_llm_provider;
 pub mod skill_packages;
 pub mod skill_transfer;
 pub mod translation;

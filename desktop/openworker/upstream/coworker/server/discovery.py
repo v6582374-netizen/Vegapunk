@@ -190,8 +190,6 @@ def _public_revision(
     }
     if "execution_input" in revision:
         public["execution_input"] = _public_execution_input(revision["execution_input"])
-    if "formatted_input" in revision:
-        public["formatted_input"] = revision["formatted_input"]
     return public
 
 
@@ -217,7 +215,6 @@ class DiscoveryFacade:
         self._committed = self._load_committed()
         self._draft = _copy_preparation(self._committed)
         self._conversion_draft: dict[str, Any] | None = None
-        self._conversion_legacy_draft = ""
         self._conversion_model_id: str | None = None
         self._conversion_error: str | None = None
         self._conversion_base_fingerprint: str | None = None
@@ -225,7 +222,6 @@ class DiscoveryFacade:
 
     def _invalidate_conversion(self) -> None:
         self._conversion_draft = None
-        self._conversion_legacy_draft = ""
         self._conversion_model_id = None
         self._conversion_error = None
         self._conversion_base_fingerprint = None
@@ -235,7 +231,6 @@ class DiscoveryFacade:
         with self._lock:
             self._conversion_error = message
             self._conversion_draft = None
-            self._conversion_legacy_draft = ""
             self._conversion_model_id = None
             self._conversion_base_fingerprint = base_fingerprint
             self._conversion_saved_revision_id = None
@@ -243,7 +238,7 @@ class DiscoveryFacade:
     def _conversion_snapshot(self, current_fingerprint: str, preparation_dirty: bool) -> dict[str, Any]:
         if self._conversion_error:
             status = "failed"
-        elif self._conversion_draft is not None or self._conversion_legacy_draft:
+        elif self._conversion_draft is not None:
             if self._conversion_saved_revision_id:
                 saved = next(
                     (
@@ -260,11 +255,7 @@ class DiscoveryFacade:
                         else "dirty"
                     )
                 else:
-                    status = (
-                        "saved"
-                        if saved and saved.get("formatted_input") == self._conversion_legacy_draft
-                        else "dirty"
-                    )
+                    status = "dirty"
             else:
                 status = "editing"
         else:
@@ -279,13 +270,6 @@ class DiscoveryFacade:
         }
         if self._conversion_draft is not None:
             snapshot["execution_input"] = _public_execution_input(self._conversion_draft)
-        elif self._conversion_legacy_draft:
-            # Read-only compatibility for Preparations created before the structured
-            # Execution Input contract. New conversions never populate this field.
-            snapshot["draft"] = self._conversion_legacy_draft
-        elif not self._conversion_error:
-            # Keep the original empty-state response stable for older native clients.
-            snapshot["draft"] = ""
         return snapshot
 
     def snapshot(self, active_context: str = "preparation") -> dict[str, Any]:
@@ -390,11 +374,9 @@ class DiscoveryFacade:
                         "the saved Discovery Execution Input is invalid"
                     ) from error
             else:
-                formatted_input = str(revision.get("formatted_input", "")).strip()
-                if not formatted_input:
-                    raise LaunchValidationError(
-                        "the selected Discovery revision is empty"
-                    )
+                raise LaunchValidationError(
+                    "the selected Discovery revision has no structured Execution Input"
+                )
             if (
                 self._conversion_error
                 or self._conversion_saved_revision_id != revision_id
@@ -402,10 +384,6 @@ class DiscoveryFacade:
                 or (
                     execution_input is not None
                     and self._conversion_draft != execution_input
-                )
-                or (
-                    execution_input is None
-                    and self._conversion_legacy_draft.strip() != formatted_input
                 )
             ):
                 raise LaunchValidationError(
@@ -426,10 +404,7 @@ class DiscoveryFacade:
                     for source in self._committed["sources"]
                 ],
             }
-            if execution_input is not None:
-                input_snapshot["execution_input"] = _public_execution_input(execution_input)
-            else:
-                input_snapshot["formatted_input"] = formatted_input
+            input_snapshot["execution_input"] = _public_execution_input(execution_input)
             configuration_snapshot = {
                 "model_id": model_id,
                 "settings": copy.deepcopy(settings),
@@ -670,7 +645,6 @@ class DiscoveryFacade:
                     "the Preparation changed during Conversion; save and convert again"
                 )
             self._conversion_draft = execution_input
-            self._conversion_legacy_draft = ""
             self._conversion_model_id = model
             self._conversion_error = None
             self._conversion_base_fingerprint = base_fingerprint
@@ -682,10 +656,7 @@ class DiscoveryFacade:
         if not isinstance(body, dict):
             raise PreparationValidationError("revision payload must be an object")
         raw_execution_input = body.get("execution_input")
-        formatted_input = body.get("formatted_input")
-        if raw_execution_input is None and (
-            not isinstance(formatted_input, str) or not formatted_input.strip()
-        ):
+        if raw_execution_input is None:
             raise PreparationValidationError("Discovery Execution Input must not be empty")
         try:
             execution_input = (
@@ -705,10 +676,7 @@ class DiscoveryFacade:
                 raise PreparationValidationError(
                     "save the Preparation before saving a revision"
                 )
-            if (
-                self._conversion_draft is None
-                and not self._conversion_legacy_draft
-            ) or not self._conversion_base_fingerprint:
+            if self._conversion_draft is None or not self._conversion_base_fingerprint:
                 raise PreparationValidationError(
                     "convert the committed Preparation before saving a revision"
                 )
@@ -724,20 +692,13 @@ class DiscoveryFacade:
                 "preparation_fingerprint": fingerprint,
             }
             if execution_input is not None:
-                if self._conversion_draft != execution_input:
-                    raise PreparationValidationError(
-                        "the saved Discovery Execution Input must come from the current Conversion"
-                    )
                 revision["execution_input"] = execution_input
-            else:
-                revision["formatted_input"] = formatted_input.strip()
             committed = _copy_preparation(self._committed)
             committed["revisions"].append(revision)
             self._write_committed(committed)
             self._committed = committed
             self._draft = _copy_preparation(committed)
-            self._conversion_draft = execution_input or None
-            self._conversion_legacy_draft = "" if execution_input else formatted_input.strip()
+            self._conversion_draft = execution_input
             self._conversion_error = None
             self._conversion_saved_revision_id = revision["revision_id"]
             return self.snapshot()
@@ -906,47 +867,60 @@ class DiscoveryFacade:
                 )
             revisions = []
             for revision in persisted_revisions:
-                if not isinstance(revision, dict):
-                    raise ValueError("invalid Preparation revision")
-                revision_id = revision["revision_id"]
-                created_at = revision["created_at"]
-                fingerprint = revision["preparation_fingerprint"]
-                if not all(
-                    isinstance(value, str) and value.strip()
-                    for value in (revision_id, created_at, fingerprint)
-                ):
-                    raise ValueError("invalid Preparation revision")
-                model_id = revision.get("model_id")
-                if model_id is not None and not isinstance(model_id, str):
-                    raise ValueError("invalid Preparation revision model")
-                normalized_revision = {
-                    "revision_id": revision_id,
-                    "created_at": created_at,
-                    "model_id": model_id,
-                    "preparation_fingerprint": fingerprint,
-                }
-                if "execution_input" in revision:
-                    normalized_revision["execution_input"] = _normalize_execution_input(
-                        revision["execution_input"]
-                    )
-                elif "execution_inputs" in revision:
-                    # Migrate the only legacy structured shape when it contains one
-                    # object. Multi-input revisions are deliberately not surfaced.
-                    legacy_inputs = revision["execution_inputs"]
-                    if not isinstance(legacy_inputs, list) or len(legacy_inputs) != 1:
-                        continue
-                    normalized_revision["execution_input"] = _normalize_execution_input(
-                        legacy_inputs[0]
-                    )
-                else:
-                    formatted_input = revision["formatted_input"]
-                    if not isinstance(formatted_input, str) or not formatted_input.strip():
-                        raise ValueError("invalid Preparation revision input")
-                    normalized_revision["formatted_input"] = formatted_input
-                revisions.append(normalized_revision)
+                normalized_revision = self._normalize_persisted_revision(revision)
+                if normalized_revision is not None:
+                    revisions.append(normalized_revision)
             return {"text": text, "sources": sources, "revisions": revisions}
         except (KeyError, TypeError, ValueError, binascii.Error):
             return _empty_preparation()
+
+    @staticmethod
+    def _normalize_persisted_revision(revision: Any) -> dict[str, Any] | None:
+        """Load only revisions that can be represented by the current backend contract.
+
+        Older builds persisted either a Markdown ``formatted_input`` or an
+        ``execution_inputs`` array. A malformed legacy revision must not invalidate the
+        text and sources that were committed alongside it, so each revision is isolated
+        at this boundary. A legacy array is migrated only when it contains exactly one
+        valid backend Execution Input; multi-input and otherwise incompatible revisions
+        are intentionally dropped rather than exposed through the current API.
+        """
+        if not isinstance(revision, dict):
+            return None
+        try:
+            revision_id = revision["revision_id"]
+            created_at = revision["created_at"]
+            fingerprint = revision["preparation_fingerprint"]
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (revision_id, created_at, fingerprint)
+            ):
+                return None
+            model_id = revision.get("model_id")
+            if model_id is not None and not isinstance(model_id, str):
+                return None
+            normalized_revision = {
+                "revision_id": revision_id,
+                "created_at": created_at,
+                "model_id": model_id,
+                "preparation_fingerprint": fingerprint,
+            }
+            if "execution_input" in revision:
+                normalized_revision["execution_input"] = _normalize_execution_input(
+                    revision["execution_input"]
+                )
+            elif "execution_inputs" in revision:
+                legacy_inputs = revision["execution_inputs"]
+                if not isinstance(legacy_inputs, list) or len(legacy_inputs) != 1:
+                    return None
+                normalized_revision["execution_input"] = _normalize_execution_input(
+                    legacy_inputs[0]
+                )
+            else:
+                return None
+            return normalized_revision
+        except (KeyError, TypeError, ValueError):
+            return None
 
     def _write_committed(self, preparation: dict[str, Any]) -> None:
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -973,8 +947,6 @@ class DiscoveryFacade:
                 persisted_revision["execution_input"] = _public_execution_input(
                     revision["execution_input"]
                 )
-            else:
-                persisted_revision["formatted_input"] = revision["formatted_input"]
             payload["revisions"].append(persisted_revision)
         temporary_path: str | None = None
         try:

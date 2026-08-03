@@ -167,6 +167,7 @@ mod tests {
             source: SkillSource::Local,
             package_meta: None,
             enabled: Default::default(),
+            link_status: Default::default(),
             path: skill_dir,
         }
     }

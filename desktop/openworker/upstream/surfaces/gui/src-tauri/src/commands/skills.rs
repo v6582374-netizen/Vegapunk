@@ -495,6 +495,7 @@ mod tests {
                 .iter()
                 .map(|(tool_id, value)| (tool_id.to_string(), *value))
                 .collect(),
+            link_status: Default::default(),
             path: PathBuf::from(format!("/tmp/{id}")),
         }
     }
@@ -515,6 +516,7 @@ mod tests {
                 .iter()
                 .map(|(tool_id, value)| (tool_id.to_string(), *value))
                 .collect(),
+            link_status: Default::default(),
             path: PathBuf::from(path),
         }
     }

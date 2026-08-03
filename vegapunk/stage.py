@@ -12,9 +12,9 @@ from threading import Semaphore, Lock, Thread, Event
 import math
 
 from vegapunk.mas.interface import VegapunkInterface
-from vegapunk.experiments_utils_claude import perform_experiments as perform_experiments_claudecode
+from vegapunk.experiments_utils_codex import perform_experiments as perform_experiments_codex
 from vegapunk.experiments_utils_iflow import perform_experiments as perform_experiments_iflow
-from vegapunk.mcts_experiments_utils_claude import perform_experiments_mcts as perform_experiments_mcts_claude
+from vegapunk.mcts_experiments_utils_codex import perform_experiments_mcts as perform_experiments_mcts_codex
 from vegapunk.mcts_experiments_utils_iflow import perform_experiments_mcts as perform_experiments_mcts_iflow
 from vegapunk.vis_tree import vis_tree
 
@@ -896,9 +896,9 @@ class ExperimentRunner:
         monitor_thread.join(timeout=1)
     
 
-    def run_claude_experiment(self, base_dir, results_dir, idea, gpu_ids=""):
+    def run_codex_experiment(self, base_dir, results_dir, idea, gpu_ids=""):
         """
-        Run experiment using Claude Code backend.
+        Run experiment using Codex CLI backend.
         Branches on task_type ('sci' vs 'auto') stored in self.args.task_type.
 
         Args:
@@ -929,20 +929,20 @@ class ExperimentRunner:
             # 这里是和外部代码修改器的边界：前面只准备工作区，
             # 后面由选定后端实际编辑、运行并写出指标。
             if use_mcts:
-                self.logger.info(f"Starting Claude Code MCTS experiment: {idea_name}")
+                self.logger.info(f"Starting Codex CLI MCTS experiment: {idea_name}")
             else:
-                self.logger.info(f"Starting Claude Code experiment: {idea_name}")
+                self.logger.info(f"Starting Codex CLI experiment: {idea_name}")
 
             if gpu_ids:
-                self.logger.info(f"Claude experiment using GPUs: {gpu_ids}")
+                self.logger.info(f"Codex experiment using GPUs: {gpu_ids}")
 
             experiment_model = (
                 self.config.get("experiment", {}).get("model") or
-                "claude-sonnet-4-5-20250929"
+                "gpt-5.6-sol"
             )
 
             if use_mcts:
-                success = perform_experiments_mcts_claude(
+                success = perform_experiments_mcts_codex(
                     idea,
                     cwd,
                     model=experiment_model,
@@ -968,7 +968,7 @@ class ExperimentRunner:
 
                 run_timeout = self.config.get('experiment', {}).get('run_timeout', None)
 
-                success = perform_experiments_claudecode(
+                success = perform_experiments_codex(
                     idea,
                     cwd,
                     model=experiment_model,
@@ -982,11 +982,11 @@ class ExperimentRunner:
                     runtime=self.model_runtime,
                 )
 
-            self.logger.info(f"Claude Code experiment {'succeeded' if success else 'failed'}: {idea_name}")
+            self.logger.info(f"Codex CLI experiment {'succeeded' if success else 'failed'}: {idea_name}")
             return success, folder_name
 
         except Exception as e:
-            self.logger.error(f"Claude Code experiment error: {str(e)}")
+            self.logger.error(f"Codex CLI experiment error: {str(e)}")
             return False, folder_name
         finally:
             self._stop_progress_monitor(stop_event, monitor_thread)
@@ -1025,7 +1025,7 @@ class ExperimentRunner:
 
             experiment_model = (
                 self.config.get("experiment", {}).get("model") or
-                "claude-sonnet-4-5-20250929"
+                "gpt-5.6-sol"
             )
 
             if use_mcts:
@@ -1085,8 +1085,8 @@ class ExperimentRunner:
             try:
                 if self.backend == "openhands":
                     success, folder_name = self.run_openhands_experiment(base_dir, results_dir, idea, gpu_ids)
-                elif self.backend == "claudecode":
-                    success, folder_name = self.run_claude_experiment(base_dir, results_dir, idea, gpu_ids)
+                elif self.backend == "codex":
+                    success, folder_name = self.run_codex_experiment(base_dir, results_dir, idea, gpu_ids)
                 elif self.backend == "iflow":
                     success, folder_name = self.run_iflow_experiment(base_dir, results_dir, idea, gpu_ids)
                 else:
