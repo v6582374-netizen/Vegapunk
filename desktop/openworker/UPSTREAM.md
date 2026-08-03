@@ -6,6 +6,7 @@
 - Subtree prefix: `desktop/openworker/upstream/`
 - Import purpose: source baseline for the OpenWorker-native Prompt Library settings module (GitHub issue #35).
 - Local adaptation policy: local changes are recorded in explicit `adapt(openworker): ...` commits. Future upstream releases are reviewed as diffs and selectively adapted; they are not automatically merged into the customized source tree.
+- Linux Web Counterpart: the server-hosted build reuses `surfaces/gui` verbatim for pixel parity; Web hosting/authentication changes live at the server boundary and are not a second frontend.
 
 ## Local adaptation registry
 

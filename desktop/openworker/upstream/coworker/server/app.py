@@ -17,10 +17,12 @@ from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlsplit
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 # Origins allowed to talk to the local sidecar. It binds to 127.0.0.1, but a page in the
 # user's own browser can still reach loopback — so without an origin gate, any website they
@@ -37,9 +39,19 @@ _ALLOWED_ORIGIN_RE = re.compile(
 )
 
 
-def _origin_allowed(origin: str | None) -> bool:
-    """True if a browser Origin may use the API. Missing Origin (non-browser) passes."""
-    return origin is None or bool(_ALLOWED_ORIGIN_RE.match(origin))
+def _origin_allowed(origin: str | None, *, host: str | None = None, web_enabled: bool = False) -> bool:
+    """True if a browser Origin may use the API.
+
+    The desktop sidecar is intentionally limited to Tauri/loopback origins. A server-hosted
+    Web Counterpart also needs to accept its own same-origin browser origin, while still
+    rejecting a page on an unrelated host from opening the driving WebSocket.
+    """
+    if origin is None or bool(_ALLOWED_ORIGIN_RE.match(origin)):
+        return True
+    if not web_enabled or not host:
+        return False
+    parsed = urlsplit(origin)
+    return parsed.scheme in {"http", "https"} and parsed.netloc == host
 
 
 # Caps on inbound WebSocket traffic. The loopback socket is unauthenticated (any local
@@ -50,6 +62,8 @@ _WS_RATE_LIMIT_COUNT = 30
 _WS_RATE_LIMIT_WINDOW_SECONDS = 10.0
 _MAX_MESSAGE_TEXT_CHARS = 200_000
 _MAX_ATTACHMENTS_BYTES = 15_000_000  # leaves JSON overhead below the 16 MiB frame cap
+_WEB_SESSION_COOKIE = "openworker_web_session"
+_WEB_SESSION_MAX_AGE = 60 * 60 * 24 * 30
 
 
 def _json_value_size(value: Any) -> int:
@@ -61,6 +75,27 @@ def _json_value_size(value: Any) -> int:
     if isinstance(value, list):
         return sum(_json_value_size(v) for v in value)
     return 8  # numbers, booleans, null, separators
+
+
+def _web_login_page() -> str:
+    """Small same-origin gate shown before the full desktop GUI is loaded.
+
+    This is deliberately a capability boundary, not a second product surface. Once the
+    shared Web token is accepted the exact desktop bundle is served unchanged.
+    """
+    return """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenWorker Web</title><style>
+:root{color-scheme:light;--paper:#f6f5f2;--panel:#fff;--line:#e4e2dc;--ink:#2c2c2a;--muted:#6f6e68;--accent:#3670b2;--bad:#b3423a}
+@media(prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#191918;--panel:#232322;--line:#373633;--ink:#e8e6e1;--muted:#9d9b94;--accent:#6ba3dd;--bad:#d97b74}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--paper);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}
+.card{width:min(360px,100%);padding:34px 32px 30px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
+.mark{display:flex;align-items:center;gap:8px;font-weight:650;margin-bottom:28px}.mark i{width:20px;height:20px;border-radius:6px;background:var(--accent);display:inline-block;position:relative}.mark i:after{content:"";position:absolute;inset:5px;border-radius:2px;background:conic-gradient(from 0deg,#fff 0 25%,transparent 0 50%,#fff 0 75%,transparent 0)}
+h1{font-size:19px;letter-spacing:-.02em;margin:0 0 7px}p{color:var(--muted);font-size:12.5px;margin:0 0 22px}label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}input{display:block;width:100%;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);padding:10px 11px;font:inherit;outline:none}input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}button{display:block;width:100%;margin-top:14px;border:0;border-radius:9px;background:var(--accent);color:#fff;padding:10px 12px;font:600 13px inherit;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.error{min-height:18px;margin-top:12px;color:var(--bad);font-size:12px}
+</style></head><body><main class="card"><div class="mark"><i></i>OpenWorker</div><h1>Sign in to OpenWorker</h1><p>This Linux Web Counterpart shares the desktop workspace and keeps the server behind a local access token.</p><form id="login"><label for="token">Access token</label><input id="token" name="token" type="password" autocomplete="current-password" autofocus><button id="submit" type="submit">Continue</button><div class="error" id="error" role="alert"></div></form></main><script>
+const form=document.getElementById("login"),input=document.getElementById("token"),button=document.getElementById("submit"),error=document.getElementById("error");
+form.addEventListener("submit",async(e)=>{e.preventDefault();error.textContent="";button.disabled=true;try{const r=await fetch("/web/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:input.value})});if(!r.ok)throw new Error("Invalid access token");location.replace("/")}catch(err){error.textContent=err instanceof Error?err.message:"Could not sign in";button.disabled=false;input.select()}});
+</script></body></html>"""
 
 
 # Brand colors for the connector badge riding the ✓ (UX-DECISIONS §30). The GUI owns the
@@ -193,6 +228,8 @@ def create_app(
     prompt_library_root: str | Path | None = None,
     prompt_baseline_root: str | Path | None = None,
     discovery_conversion_prompt_path: str | Path | None = None,
+    web_dist: str | Path | None = None,
+    web_enabled: bool | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -211,39 +248,80 @@ def create_app(
 
     app = FastAPI(title="coworker", version="0.0.0", lifespan=lifespan)
     api_token = os.environ.get("COWORKER_API_TOKEN", "")
+    web_token = os.environ.get("COWORKER_WEB_TOKEN", "")
+    web_root = Path(web_dist).expanduser().resolve() if web_dist else None
+    web_index = web_root / "index.html" if web_root else None
+    web_enabled = bool(web_enabled if web_enabled is not None else web_root) and bool(
+        web_index and web_index.is_file()
+    )
+    # A dedicated Web token is preferred. Falling back to the existing API token keeps
+    # explicitly configured deployments compatible with the desktop launch contract.
+    web_auth_token = web_token or api_token
     tokenless_paths = {
         "/v1/health",
         "/auth/callback",
         "/mcp/oauth/callback",
         "/oauth/callback",
+        "/web/auth",
+        "/web/login",
+        "/web/logout",
     }
+
+    def _token_matches(candidate: str) -> bool:
+        return bool(
+            candidate
+            and (
+                (api_token and secrets.compare_digest(candidate, api_token))
+                or (web_auth_token and secrets.compare_digest(candidate, web_auth_token))
+            )
+        )
 
     def _request_authenticated(request: Request) -> bool:
         provided = request.headers.get("x-openworker-token", "")
-        return bool(
-            api_token
-            and provided
-            and secrets.compare_digest(provided, api_token)
-        )
+        cookie = request.cookies.get(_WEB_SESSION_COOKIE, "")
+        return _token_matches(provided) or (web_enabled and _token_matches(cookie))
 
     def _websocket_authenticated(ws: WebSocket) -> bool:
-        if not api_token:
+        if not api_token and not web_auth_token:
             return True
         protocols = {
             part.strip()
             for part in ws.headers.get("sec-websocket-protocol", "").split(",")
             if part.strip()
         }
-        return any(secrets.compare_digest(part, api_token) for part in protocols)
+        return any(_token_matches(part) for part in protocols) or (
+            web_enabled and _token_matches(ws.cookies.get(_WEB_SESSION_COOKIE, ""))
+        )
+
+    def _websocket_subprotocol(ws: WebSocket) -> str | None:
+        # Browsers reject a server-selected subprotocol that was not offered by the client.
+        # Desktop clients offer `openworker`; same-origin Web sessions authenticate by cookie
+        # and intentionally offer no subprotocol.
+        offered = {
+            part.strip()
+            for part in ws.headers.get("sec-websocket-protocol", "").split(",")
+            if part.strip()
+        }
+        return "openworker" if api_token and "openworker" in offered else None
+
+    def _is_public_web_path(path: str) -> bool:
+        if not web_enabled:
+            return False
+        if path.startswith(("/v1", "/ws", "/auth", "/oauth", "/mcp")):
+            return False
+        # Every other path is a browser route or a static asset. It is safe to let the SPA
+        # render its login gate before the API/WS session is authenticated.
+        return True
 
     @app.middleware("http")
     async def require_sidecar_token(request: Request, call_next):
         # Preflights carry the requested header name, not its value. CORS checks the
         # Origin; the actual state-changing request still must authenticate.
         if (
-            not api_token
+            (not api_token and not web_auth_token)
             or request.method == "OPTIONS"
             or request.url.path in tokenless_paths
+            or _is_public_web_path(request.url.path)
             or _request_authenticated(request)
         ):
             return await call_next(request)
@@ -273,9 +351,67 @@ def create_app(
         conversion_prompt_path=discovery_conversion_prompt_path,
     )
 
+    if web_enabled and web_root is not None:
+        assets_root = web_root / "assets"
+        if assets_root.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets_root), name="web-assets")
+
+    def _web_index_response(request: Request) -> Response:
+        """Serve the built desktop bundle with a tiny runtime marker for same-origin API use."""
+        assert web_index is not None
+        html = web_index.read_text(encoding="utf-8")
+        marker = '<script>globalThis.__OPENWORKER_WEB__=true;</script>'
+        if marker not in html:
+            html = html.replace("<head>", f"<head>{marker}", 1)
+        response = HTMLResponse(html)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    @app.get("/web/auth")
+    def web_auth(request: Request) -> dict[str, Any]:
+        return {
+            "enabled": bool(web_enabled and web_auth_token),
+            "authenticated": _request_authenticated(request),
+        }
+
+    @app.post("/web/login")
+    async def web_login(request: Request) -> Response:
+        if not web_enabled or not web_auth_token:
+            return JSONResponse({"ok": True, "authenticated": True})
+        body: Any = {}
+        content_type = request.headers.get("content-type", "")
+        try:
+            if "application/json" in content_type:
+                body = await request.json()
+            else:
+                raw = (await request.body()).decode("utf-8", errors="replace")
+                body = {key: values[-1] for key, values in parse_qs(raw).items() if values}
+        except Exception:
+            body = {}
+        candidate = body.get("token", "") if isinstance(body, dict) else ""
+        if not isinstance(candidate, str) or not _token_matches(candidate):
+            return JSONResponse({"ok": False, "error": "invalid access token"}, status_code=401)
+        response = JSONResponse({"ok": True, "authenticated": True})
+        response.set_cookie(
+            _WEB_SESSION_COOKIE,
+            web_auth_token,
+            max_age=_WEB_SESSION_MAX_AGE,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+            path="/",
+        )
+        return response
+
+    @app.post("/web/logout")
+    def web_logout() -> Response:
+        response = JSONResponse({"ok": True})
+        response.delete_cookie(_WEB_SESSION_COOKIE, path="/")
+        return response
+
     @app.get("/v1/health")
     def health(request: Request) -> dict[str, Any]:
-        if api_token and not _request_authenticated(request):
+        if (api_token or web_auth_token) and not _request_authenticated(request):
             return {"status": "ok"}
         return {
             "status": "ok",
@@ -1762,10 +1898,12 @@ def create_app(
         # CORS never gates WebSockets, so a cross-site page could otherwise open this socket
         # and drive the session into tool calls. Reject a disallowed browser Origin before
         # accepting the handshake (1008 = policy violation).
-        if not _origin_allowed(ws.headers.get("origin")):
+        if not _origin_allowed(
+            ws.headers.get("origin"), host=ws.headers.get("host"), web_enabled=web_enabled
+        ):
             await ws.close(code=1008)
             return
-        await ws.accept(subprotocol="openworker" if api_token else None)
+        await ws.accept(subprotocol=_websocket_subprotocol(ws))
         agent = ws.query_params.get("agent") or "code"
 
         # All four interactive prompts (approval / question / directory / plan) are parked as Inbox
@@ -2216,10 +2354,12 @@ def create_app(
         if not _websocket_authenticated(ws):
             await ws.close(code=1008)
             return
-        if not _origin_allowed(ws.headers.get("origin")):
+        if not _origin_allowed(
+            ws.headers.get("origin"), host=ws.headers.get("host"), web_enabled=web_enabled
+        ):
             await ws.close(code=1008)
             return
-        await ws.accept(subprotocol="openworker" if api_token else None)
+        await ws.accept(subprotocol=_websocket_subprotocol(ws))
         manager.register_event_client(ws.send_json)
         try:
             while True:
@@ -2228,6 +2368,25 @@ def create_app(
             pass
         finally:
             manager.unregister_event_client(ws.send_json)
+
+    if web_enabled and web_root is not None:
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def web_spa(path: str, request: Request) -> Response:
+            """Serve the exact desktop SPA and provide history-mode route fallback."""
+            if web_auth_token and not _request_authenticated(request):
+                response = HTMLResponse(_web_login_page(), status_code=200)
+                response.headers["Cache-Control"] = "no-store"
+                return response
+            relative = Path(path)
+            candidate = (web_root / relative).resolve()
+            try:
+                candidate.relative_to(web_root)
+            except ValueError:
+                return JSONResponse({"detail": "not found"}, status_code=404)
+            if candidate.is_file() and candidate != web_index:
+                return FileResponse(candidate)
+            return _web_index_response(request)
 
     return app
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenWorker Linux Web Counterpart
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/openworker
+EnvironmentFile=/etc/openworker/openworker-web.env
+ExecStart=/srv/openworker/.venv/bin/openworker-server --web --web-dist /srv/openworker/surfaces/gui/dist --host 127.0.0.1 --port 8765 --cwd /srv/openworker/workspace
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

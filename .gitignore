@@ -16,6 +16,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+# The vendored Skills Manager has a TypeScript `lib/` source directory, not a Python build
+# output directory. Keep its shared class-name helper in the web parity bundle.
+!desktop/openworker/upstream/surfaces/gui/src/skills-manager/lib/
+!desktop/openworker/upstream/surfaces/gui/src/skills-manager/lib/**
 lib64/
 parts/
 sdist/

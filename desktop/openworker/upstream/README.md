@@ -91,6 +91,24 @@ desktop app uses an in-memory launch token instead and never writes it to disk.
 
 To run the full desktop app instead of the browser UI, replace step 3 with `npm run tauri dev` (from `surfaces/gui/`) - the Tauri shell launches the window and supervises the server itself.
 
+### Linux Web Counterpart
+
+The Linux server-hosted version uses the same `surfaces/gui` bundle (including the full
+workspace, Discovery, settings, integrations, Inbox, automations, and Skills Manager surfaces):
+
+```shell
+cd surfaces/gui
+npm ci && npm run build
+cd ../..
+export COWORKER_WEB_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+.venv/bin/openworker-server --web --web-dist surfaces/gui/dist --host 0.0.0.0 --port 8765 --cwd /srv/openworker/workspace
+```
+
+The server serves the SPA and `/v1`/`/ws` APIs from one origin. Place TLS and any organization
+identity proxy in front of it for shared deployments; the token is the built-in access gate.
+Native window lifecycle, local dictation, autostart/keep-awake, and the Tauri updater remain
+desktop-only platform capability exceptions.
+
 Tests: `.venv/bin/pytest` (server), `npm test` and `npm run e2e` in `surfaces/gui` (GUI unit + hermetic end-to-end). Desktop bundles are built with `packaging/build_dmg.sh` / `packaging/build_windows.ps1`.
 
 ## Repository layout

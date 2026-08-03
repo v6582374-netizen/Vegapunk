@@ -3,16 +3,22 @@ import type { SessionInfo, WsEvent } from "./types";
 declare const __COWORKER_DEV_TOKEN__: string;
 
 // Endpoint resolution order: runtime-injected globals (Tauri sets `window.__COWORKER_HTTP__`
-// for its dynamically-chosen sidecar port) → Vite env → the 127.0.0.1:8765 dev default. This
-// keeps a single codebase: browser `npm run dev` hits 8765; the desktop shell hits its sidecar.
+// for its dynamically-chosen sidecar port) → Vite env → same-origin Web Counterpart → the
+// 127.0.0.1:8765 dev default. This keeps a single codebase: the Linux server-hosted build uses
+// relative REST/WS URLs and the desktop shell still talks to its sidecar.
+const hostedWeb = (): boolean =>
+  (globalThis as any).__OPENWORKER_WEB__ === true;
+
 const httpBase = (): string =>
   (globalThis as any).__COWORKER_HTTP__ ||
   (import.meta as any).env?.VITE_COWORKER_HTTP ||
-  "http://127.0.0.1:8765";
+  (hostedWeb() ? "" : "http://127.0.0.1:8765");
 const wsBase = (): string =>
   (globalThis as any).__COWORKER_WS__ ||
   (import.meta as any).env?.VITE_COWORKER_WS ||
-  "ws://127.0.0.1:8765";
+  (hostedWeb()
+    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`
+    : "ws://127.0.0.1:8765");
 const apiToken = (): string =>
   (globalThis as any).__COWORKER_API_TOKEN__ ||
   (import.meta as any).env?.VITE_COWORKER_API_TOKEN ||
@@ -27,7 +33,13 @@ const fetch = (
   const headers = new Headers(init.headers);
   const token = apiToken();
   if (token) headers.set("X-OpenWorker-Token", token);
-  return globalThis.fetch(input, { ...init, headers });
+  return globalThis.fetch(input, {
+    ...init,
+    headers,
+    // The Web Counterpart authenticates with an HttpOnly same-origin cookie. Explicit
+    // credentials keep that session available without changing the desktop/loopback contract.
+    ...(hostedWeb() && init.credentials === undefined ? { credentials: "include" as RequestCredentials } : {}),
+  });
 };
 
 const openWebSocket = (url: string): WebSocket => {

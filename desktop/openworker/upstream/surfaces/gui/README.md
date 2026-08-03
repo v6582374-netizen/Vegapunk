@@ -1,7 +1,8 @@
-# OpenWorker Desktop App (React + Tauri)
+# OpenWorker Desktop App and Linux Web Counterpart (React + Tauri)
 
 A thin client of the coworker server (OpenAI-compatible API + WS event/approval stream).
-The supported product surface is the native OpenWorker Desktop App; the browser Vite mode below is retained only as a development/test harness for the same GUI source.
+The macOS Desktop App and Linux Web Counterpart intentionally use the same React bundle; the
+browser deployment is not a redesigned or reduced admin console.
 
 ## First time: bootstrap the Python backend
 
@@ -24,7 +25,37 @@ npm run tauri dev      # builds the shell, launches the window, starts the serve
 
 The development shell finds the server at `desktop/openworker/upstream/.venv/bin/openworker-server` automatically. A packaged sidecar binary is produced only by the release scripts in `desktop/openworker/upstream/packaging/`.
 
-## Browser harness (development only)
+## Linux Web Counterpart
+
+Build the exact desktop GUI bundle once, then let the Python server serve it as a same-origin SPA.
+The same-origin session cookie keeps the API token out of browser JavaScript while REST and WS
+routes remain under the existing `/v1` and `/ws` contract.
+
+```bash
+cd desktop/openworker/upstream/surfaces/gui
+npm ci
+npm run build
+
+cd ../..
+export COWORKER_WEB_TOKEN="replace-with-a-long-random-token"
+.venv/bin/openworker-server \
+  --web \
+  --web-dist surfaces/gui/dist \
+  --host 0.0.0.0 \
+  --port 8765 \
+  --cwd /srv/openworker/workspace
+```
+
+Open `http://<linux-host>:8765/`, enter `COWORKER_WEB_TOKEN`, and the desktop surface loads
+unchanged. Put TLS and any organization SSO in front of the process for shared deployments.
+`COWORKER_WEB_TOKEN` is intentionally required for a network-facing server; omitting it leaves
+Web authentication disabled for trusted/private-network development only.
+
+The web build has explicit platform capability exceptions: native macOS window controls,
+autostart/keep-awake, the local Tauri updater, and local dictation remain desktop-only. Folder
+selection uses the server-side Linux picker endpoint, and external links use the browser.
+
+## Browser harness (development)
 
 The GUI source can still run in a browser for hermetic UI development and tests. This is not a second product frontend:
 
@@ -36,7 +67,10 @@ cd surfaces/gui
 npm run dev            # → http://localhost:5173
 ```
 
-Open `http://localhost:5173` only when working on the GUI harness. The UI talks to `http://127.0.0.1:8765` (override with `VITE_COWORKER_HTTP` / `VITE_COWORKER_WS`).
+Open `http://localhost:5173` when working on the GUI harness. The UI talks to
+`http://127.0.0.1:8765` (override with `VITE_COWORKER_HTTP` / `VITE_COWORKER_WS`). The harness
+does not enable the server-hosted same-origin marker; production Web deployments use
+`openworker-server --web` above.
 
 ## Prompt Library backend
 

@@ -99,14 +99,20 @@ def _watch_parent_windows(parent: int) -> None:
     threading.Thread(target=watch, daemon=True).start()
 
 
-def build_app(workspace: str | None, model: str, mode: str):
+def build_app(
+    workspace: str | None,
+    model: str,
+    mode: str,
+    web: bool = False,
+    web_dist: str | None = None,
+):
     manager = SessionManager(
         workspace=Path(workspace).expanduser().resolve() if workspace else None,
         data_dir=state_dir(),
         model=model,
         mode=Mode(mode),
     )
-    return create_app(manager)
+    return create_app(manager, web_dist=web_dist, web_enabled=web)
 
 
 def _ensure_ca_bundle() -> None:
@@ -125,10 +131,19 @@ def _ensure_ca_bundle() -> None:
         pass
 
 
-def _ensure_api_token(port: int) -> Path | None:
+def _ensure_api_token(port: int, *, web: bool = False) -> Path | None:
     """Set launch auth; standalone/dev tokens use a user-only, port-specific file."""
     if os.environ.get("COWORKER_API_TOKEN"):
         return None  # Tauri supplied an in-memory token; never persist it.
+    if web:
+        # Web deployments authenticate with the HttpOnly browser session cookie. If an
+        # operator supplied COWORKER_WEB_TOKEN, use it as the API token too so native/API
+        # clients can still opt into the same shared secret. With no token configured the
+        # server remains usable on a trusted private network, but the CLI prints a warning.
+        web_token = os.environ.get("COWORKER_WEB_TOKEN", "").strip()
+        if web_token:
+            os.environ["COWORKER_API_TOKEN"] = web_token
+        return None
     token = secrets.token_hex(32)
     os.environ["COWORKER_API_TOKEN"] = token
     return write_private_text(
@@ -149,19 +164,44 @@ def main(argv=None) -> None:
     )
     parser.add_argument("--host", default=cfg.host)
     parser.add_argument("--port", type=int, default=cfg.port)
+    parser.add_argument(
+        "--web",
+        action="store_true",
+        help="serve the built desktop GUI as a same-origin Linux Web Counterpart",
+    )
+    parser.add_argument(
+        "--web-dist",
+        default=os.environ.get("COWORKER_WEB_DIST"),
+        help="directory containing the GUI Vite build (defaults to surfaces/gui/dist)",
+    )
+    parser.add_argument(
+        "--web-token",
+        default=None,
+        help="shared Web login token (prefer COWORKER_WEB_TOKEN for service managers)",
+    )
     args = parser.parse_args(argv)
+
+    if args.web_token:
+        os.environ["COWORKER_WEB_TOKEN"] = args.web_token
+    if args.web and not args.web_dist:
+        args.web_dist = str(Path(__file__).resolve().parents[2] / "surfaces" / "gui" / "dist")
+    if args.web and not os.environ.get("COWORKER_WEB_TOKEN"):
+        print(
+            "[coworker] warning: COWORKER_WEB_TOKEN is unset; Web authentication is disabled",
+            file=sys.stderr,
+        )
 
     # Publish the ACTUAL bound port so loopback URLs (the managed-OAuth callback)
     # target this process, not config.port. The desktop shell runs the sidecar on
     # a random free port (to coexist with a hand-run server on 8765), so the
     # managed-connect redirect must follow the real port, not the 8765 default.
     os.environ["COWORKER_PORT"] = str(args.port)
-    generated_token_path = _ensure_api_token(args.port)
+    generated_token_path = _ensure_api_token(args.port, web=args.web)
     try:
         import uvicorn
 
         _exit_when_orphaned()
-        app = build_app(args.cwd, args.model, args.mode)
+        app = build_app(args.cwd, args.model, args.mode, args.web, args.web_dist)
         uvicorn.run(
             app, host=args.host, port=args.port, ws_max_size=_WS_MAX_FRAME_BYTES
         )

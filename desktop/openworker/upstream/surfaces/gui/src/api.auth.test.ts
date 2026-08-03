@@ -60,3 +60,16 @@ it("rejects an unauthenticated Discovery response", async () => {
 
   await expect(getDiscovery()).rejects.toThrow("Discovery request failed (401)");
 });
+
+it("uses same-origin REST credentials for the Linux Web Counterpart", async () => {
+  vi.stubGlobal("__OPENWORKER_WEB__", true);
+  const request = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(url).toBe("/v1/health");
+    expect(init?.credentials).toBe("include");
+    return { json: async () => ({ status: "ok" }) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  await getHealth();
+  expect(request).toHaveBeenCalledOnce();
+});
