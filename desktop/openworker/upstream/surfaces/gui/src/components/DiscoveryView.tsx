@@ -334,6 +334,42 @@ function prototypeLaunchIsActive(launch: DiscoveryLaunch): boolean {
   return launch.state === "starting" || launch.state === "running" || launch.state === "stopping";
 }
 
+function prototypeMilestoneState(
+  milestone: DiscoveryProgressTimeline["milestones"][number],
+  currentMilestoneId: string | null | undefined,
+): "done" | "active" | "pending" {
+  const done = milestone.state === "completed";
+  const active =
+    !done &&
+    (milestone.id === currentMilestoneId || milestone.state === "active" || milestone.state === "running");
+  return done ? "done" : active ? "active" : "pending";
+}
+
+function prototypeLaunchElapsed(launch: DiscoveryLaunch): string {
+  const startedAt = Date.parse(launch.started_at ?? launch.created_at ?? "");
+  if (!Number.isFinite(startedAt)) return "—";
+  const endedAt = launch.completed_at ? Date.parse(launch.completed_at) : Date.now();
+  const elapsedSeconds = Math.max(0, Math.floor((endedAt - startedAt) / 1000));
+  const hours = Math.floor(elapsedSeconds / 3600);
+  const minutes = Math.floor((elapsedSeconds % 3600) / 60);
+  const seconds = elapsedSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function prototypeLaunchStageLabel(status: DiscoveryLaunchStatus | null, fallback: string): string {
+  const currentMilestone = status?.timeline.milestones.find(
+    (milestone) => milestone.id === status.timeline.current_milestone_id || milestone.state === "active" || milestone.state === "running",
+  );
+  return currentMilestone?.summary ?? currentMilestone?.label ?? fallback;
+}
+
+function prototypeLaunchStateLabel(state: string): string {
+  if (state === "awaiting_review") return "Awaiting review";
+  return state.charAt(0).toUpperCase() + state.slice(1);
+}
+
 function PrototypeStatusPill({ state }: { state: DiscoveryLaunch["state"] }) {
   const live = state === "starting" || state === "running" || state === "stopping";
   const stateClass =
@@ -491,51 +527,47 @@ function PrototypeRuntimeDesk({
   }
   const canStop = status.allowed_actions.includes("stop") && Boolean(onStop);
   const canResume = status.allowed_actions.includes("resume") && Boolean(onResume);
+  const lastActivity = status.activity.items[status.activity.items.length - 1];
+  const lastDurableUpdate = lastActivity
+    ? prototypeActivityTime(lastActivity.occurred_at, lastActivity.sequence)
+    : "—";
   return (
-    <div className="discovery-runtime-desk" aria-label="Runtime Desk" data-testid="runtime-desk">
-      <section className="discovery-prototype-panel" aria-label={historyMode ? "Lifecycle" : "Launch timeline"}>
-        <div className="discovery-prototype-panel-head">
-          <h3>{historyMode ? "Lifecycle" : "Launch timeline"}</h3>
-          <span>
-            {historyMode
-              ? status.state === "completed" || status.state === "failed" || status.state === "stopped"
-                ? "Archived observation"
-                : "Live observation"
-              : "Start-time snapshot · immutable for this Launch"}
-          </span>
-        </div>
-        <div className="discovery-timeline" aria-label="Research Progress Timeline">
-          {status.timeline.milestones.map((milestone) => {
-            const done = milestone.state === "completed";
-            const active = !done && (milestone.id === status.timeline.current_milestone_id || milestone.state === "active" || milestone.state === "running");
-            return (
-              <div key={milestone.id} className={`discovery-timeline-row ${done ? "done" : active ? "active" : "pending"}`}>
-                <span className="discovery-timeline-node" />
-                <span className="discovery-timeline-step">{String(milestone.position).padStart(2, "0")}</span>
-                <div className="discovery-timeline-detail">
-                  <strong>{milestone.label}</strong>
-                  <span>{milestone.summary ?? (done ? "Completed" : active ? "In progress" : "Awaiting start")}</span>
+    <div className={`discovery-runtime-desk ${historyMode ? "is-history" : "is-live"}`} aria-label="Runtime Desk" data-testid="runtime-desk">
+      {historyMode && (
+        <section className="discovery-prototype-panel" aria-label="Lifecycle">
+          <div className="discovery-prototype-panel-head">
+            <h3>Lifecycle</h3>
+            <span>{status.state === "completed" || status.state === "failed" || status.state === "stopped" ? "Archived observation" : "Live observation"}</span>
+          </div>
+          <div className="discovery-timeline" aria-label="Research Progress Timeline">
+            {status.timeline.milestones.map((milestone) => {
+              const state = prototypeMilestoneState(milestone, status.timeline.current_milestone_id);
+              return (
+                <div key={milestone.id} className={`discovery-timeline-row ${state}`}>
+                  <span className="discovery-timeline-node" />
+                  <span className="discovery-timeline-step">{String(milestone.position).padStart(2, "0")}</span>
+                  <div className="discovery-timeline-detail">
+                    <strong>{milestone.label}</strong>
+                    <span>{milestone.summary ?? (state === "done" ? "Completed" : state === "active" ? "In progress" : "Awaiting start")}</span>
+                  </div>
+                  <span className="discovery-timeline-state">{state === "done" ? "Done" : state === "active" ? "Live" : "Next"}</span>
                 </div>
-                <span className="discovery-timeline-state">{done ? "Done" : active ? "Live" : "Next"}</span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
-      <section className="discovery-prototype-panel" aria-label="Runtime output">
+      <section className={`discovery-prototype-panel ${historyMode ? "" : "discovery-runtime-pulse-panel"}`} aria-label="Runtime output">
         <div className="discovery-prototype-panel-head">
           <div>
-            <h3>Runtime output</h3>
+            <h3>{historyMode ? "Runtime output" : "Runtime pulse"}</h3>
             <span>
               {historyMode
                 ? status.state === "completed" || status.state === "failed" || status.state === "stopped"
                   ? "Read-only"
                   : "Structured events"
-                : "Structured events"}
-              {!historyMode && (
-                <span className="discovery-runtime-compat-label">Structured Launch observation</span>
-              )}
+                : "Curated state changes, newest first"}
             </span>
           </div>
           <button type="button" className="discovery-button discovery-button-quiet" aria-expanded={rawOpen} onClick={onToggleRaw}>
@@ -555,7 +587,7 @@ function PrototypeRuntimeDesk({
                   ? "Done"
                   : "Live";
             return (
-              <div key={item.sequence} className={`discovery-runtime-event ${tone}`}>
+              <div key={item.sequence} className={`discovery-runtime-event discovery-runtime-event-in ${tone}`}>
                 <span className="discovery-runtime-event-time">{prototypeActivityTime(item.occurred_at, item.sequence)}</span>
                 <div className="discovery-runtime-event-copy">
                   <strong>{item.text}</strong>
@@ -569,7 +601,7 @@ function PrototypeRuntimeDesk({
           )}
         </div>
         {rawOpen && (
-          <div className="discovery-raw-console" aria-label="Raw Discovery Console">
+          <div className="discovery-raw-console discovery-raw-console-in" aria-label="Raw Discovery Console">
             <div className="discovery-raw-console-head"><span>Raw Discovery Console</span><span>stdout + stderr</span></div>
             <pre>{rawLines.length ? rawLines.join("") : "Waiting for durable runner.log output..."}</pre>
             {rawError && <p role="alert">{rawError}</p>}
@@ -579,8 +611,17 @@ function PrototypeRuntimeDesk({
 
       <div className="discovery-runtime-footer">
         <div>
-          {status.checkpoint ? `Checkpoint: ${status.checkpoint.stage}, round ${status.checkpoint.round}` : "No checkpoint recorded yet."}
-          {status.produced_outputs.length > 0 && <span className="ml-2 text-faint">{status.produced_outputs.length} output reference(s)</span>}
+          {historyMode ? (
+            <>
+              {status.checkpoint ? `Checkpoint: ${status.checkpoint.stage}, round ${status.checkpoint.round}` : "No checkpoint recorded yet."}
+              {status.produced_outputs.length > 0 && <span className="ml-2 text-faint">{status.produced_outputs.length} output reference(s)</span>}
+            </>
+          ) : (
+            <div className="discovery-beacon-runtime-meta">
+              <span>Last durable update {lastDurableUpdate}</span>
+              <span>launch_id {prototypeLaunchShortId(status.launch)}</span>
+            </div>
+          )}
         </div>
         {!historyMode && (
           <div className="flex flex-wrap items-center gap-2">
@@ -589,22 +630,35 @@ function PrototypeRuntimeDesk({
           </div>
         )}
       </div>
+      {!historyMode && (
+        <div className="discovery-beacon-legend" aria-label="Launch state legend">
+          <span><i className="is-live" />Live state</span>
+          <span><i className="is-durable" />Durable checkpoint</span>
+          <span><i className="is-pending" />Awaiting start</span>
+        </div>
+      )}
     </div>
   );
 }
 
 function PrototypeProgressPanel({ status }: { status: DiscoveryLaunchStatus | null }) {
   if (!status) return null;
-  const completed = status.timeline.milestones.filter((milestone) => milestone.state === "completed").length;
+  const percent = status?.timeline.percent ?? 0;
+  const completed = status?.timeline.milestones.filter((milestone) => milestone.state === "completed").length ?? 0;
+  const total = status?.timeline.milestones.length ?? 0;
+  const stageLabel = prototypeLaunchStageLabel(status, status.stage);
+  const awaitingReview = String(status.state) === "awaiting_review";
   return (
-    <section className="discovery-prototype-panel discovery-progress-panel" aria-label="Discovery Progress">
-      <div className="discovery-rail-toggle"><strong>Progress</strong><span>{status.timeline.percent}% · {status.stage}</span></div>
-      <div className="discovery-rail-body">
-        <div className="discovery-progress-bar"><span style={{ width: `${status.timeline.percent}%` }} /></div>
-        <div className="discovery-progress-caption"><span>{status.stage}</span><strong>{status.timeline.percent}%</strong></div>
-        <div className="discovery-rail-stat"><span>Completed stages</span><strong>{completed} / {status.timeline.milestones.length}</strong></div>
-        <div className="discovery-rail-stat"><span>Runtime updates</span><strong>{status.activity.items.length}</strong></div>
-      </div>
+    <section className="discovery-prototype-panel discovery-progress-panel discovery-beacon-progress-panel" aria-label="Discovery Progress">
+      <div className="discovery-beacon-progress-head"><div><strong>Research progress</strong><span>{stageLabel}</span></div><strong>{percent}%</strong></div>
+      <div className="discovery-progress-bar"><span style={{ width: `${percent}%` }} /></div>
+      <div className="discovery-progress-caption"><span>{stageLabel}</span><strong>{status ? `${completed} / ${total} stages` : "Waiting"}</strong></div>
+      <div className="discovery-beacon-progress-seam"><span>Next human seam</span><strong>{awaitingReview ? "Review now" : "Review"}</strong></div>
+      <p className="discovery-beacon-progress-copy">
+        {awaitingReview
+          ? "The checkpoint is ready for a deliberate read-only review."
+          : "The checkpoint stays quiet until its boundary is reached."}
+      </p>
     </section>
   );
 }
@@ -612,34 +666,70 @@ function PrototypeProgressPanel({ status }: { status: DiscoveryLaunchStatus | nu
 function PrototypeLaunchHero({
   launch,
   status,
-  busy,
-  onStop,
 }: {
   launch: DiscoveryLaunch;
   status: DiscoveryLaunchStatus | null;
-  busy: Busy;
-  onStop: () => void;
 }) {
+  const milestones = status?.timeline.milestones ?? [];
+  const currentMilestoneId = status?.timeline.current_milestone_id;
+  const currentMilestone = milestones.find(
+    (milestone) => milestone.id === currentMilestoneId || prototypeMilestoneState(milestone, currentMilestoneId) === "active",
+  );
+  const observedState = String(status?.state ?? launch.state);
+  const observedStage = prototypeLaunchStageLabel(status, currentMilestone?.summary ?? currentMilestone?.label ?? launch.stage);
+  const stateLabel = prototypeLaunchStateLabel(observedState);
+  const signalCopy =
+    observedState === "awaiting_review"
+      ? "The run is paused at a deliberate human seam. Review the read-only bundle before resuming."
+      : observedState === "completed"
+        ? "The run is complete. Its timeline and artifacts remain available as immutable history."
+        : "Evidence is moving through the current seam. The Launch remains interruptible and durable artifacts stay preserved.";
   return (
-    <section className="discovery-prototype-panel discovery-hero-panel" aria-label="Current Discovery Launch">
-      <div className="discovery-hero-row">
-        <div>
-          <h2 className="discovery-launch-title">{prototypeLaunchTitle(launch)}</h2>
-          <div className="discovery-launch-meta">
-            {prototypeLaunchShortId(launch)} · <span>{launch.state}</span> · {launch.stage} · round {launch.round}
+    <section className="discovery-prototype-panel discovery-hero-panel discovery-beacon-hero" aria-label="Current Discovery Launch">
+      <div className="discovery-beacon-signal">
+        <div className="discovery-beacon-signal-head">
+          <div className="discovery-beacon-orb" aria-hidden="true"><span /></div>
+          <div className="min-w-0">
+            <div className="discovery-beacon-eyebrow">Live observation · round {String(launch.round).padStart(2, "0")}</div>
+            <h2 className="discovery-launch-title discovery-beacon-title">{observedStage}</h2>
+            <p className="discovery-beacon-copy">{signalCopy}</p>
           </div>
         </div>
-        <div className="discovery-hero-actions"><PrototypeStatusPill state={launch.state} /><PrototypeLaunchAction launch={launch} busy={busy} onStop={onStop} /></div>
+        <div className="discovery-beacon-track" aria-label="Launch timeline">
+          <div className="discovery-beacon-track-head"><strong>Launch timeline</strong><span>semantic state rail</span></div>
+          <div className="discovery-beacon-stage-list">
+            {milestones.length ? milestones.map((milestone) => {
+              const state = prototypeMilestoneState(milestone, currentMilestoneId);
+              return (
+                <div key={milestone.id} className={`discovery-beacon-stage is-${state}`}>
+                  <strong>{milestone.label}</strong>
+                  <span>{milestone.summary ?? (state === "done" ? "Completed" : state === "active" ? "In progress" : "Awaiting start")}</span>
+                  <em>{state === "done" ? "DONE" : state === "active" ? "LIVE" : "NEXT"}</em>
+                </div>
+              );
+            }) : (
+              <div className="discovery-beacon-stage is-active">
+                <strong>{observedStage}</strong>
+                <span>Waiting for the first durable timeline snapshot</span>
+                <em>LIVE</em>
+              </div>
+            )}
+          </div>
+        </div>
+        <span className="sr-only">Launch {prototypeLaunchShortId(launch)}</span>
+        {observedState === "awaiting_review" && <span className="sr-only">Execution inactive</span>}
+        <span className="sr-only">{observedState}</span>
       </div>
-      <div className="discovery-hero-facts">
-        <div><span>Stage</span><strong>{launch.stage}</strong></div>
-        <div><span>Round</span><strong>{launch.round}</strong></div>
-        <div><span>Progress</span><strong>{status?.timeline.percent ?? 0}%</strong></div>
-        <div><span>Revision</span><strong>{launch.revision_id.slice(0, 12)}</strong></div>
+      <div className="discovery-beacon-metrics">
+        <div className="discovery-beacon-metric"><span>State</span><strong>{stateLabel}</strong><small>server-authoritative</small></div>
+        <div className="discovery-beacon-metric"><span>Elapsed</span><strong>{prototypeLaunchElapsed(launch)}</strong><small>since Launch start</small></div>
+        <div className="discovery-beacon-metric"><span>Current seam</span><strong>{currentMilestone ? `${String(currentMilestone.position).padStart(2, "0")} / ${String(milestones.length).padStart(2, "0")}` : "—"}</strong><small>{currentMilestone?.label ?? observedStage}</small></div>
+        <div className="discovery-beacon-metric"><span>Artifacts</span><strong>{status?.produced_outputs.length ?? 0}</strong><small>read-only references</small></div>
       </div>
     </section>
   );
 }
+
 
 function LaunchContext({
   launch,
@@ -667,7 +757,7 @@ function LaunchContext({
       {launch ? (
         <div className="discovery-runtime-layout">
           <div className="discovery-runtime-main">
-            <PrototypeLaunchHero launch={launch} status={runtimeStatus} busy={busy} onStop={onStop} />
+            <PrototypeLaunchHero launch={launch} status={runtimeStatus} />
             <PrototypeRuntimeDesk
               status={runtimeStatus}
               busy={busy}
