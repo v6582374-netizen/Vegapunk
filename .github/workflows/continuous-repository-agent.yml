@@ -5,7 +5,8 @@ on:
   # equivalent of keeping an auditor alive continuously, without leaving a
   # runner (and its bill) running forever.
   schedule:
-    - cron: "17 */6 * * *"
+    # GitHub cron uses UTC; 16:00 UTC is 00:00 the next day in Asia/Shanghai.
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       ignore_pause:
