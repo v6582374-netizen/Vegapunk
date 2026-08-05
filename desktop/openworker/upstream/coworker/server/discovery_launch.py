@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import os
 import subprocess
 import sys
@@ -30,6 +31,43 @@ TERMINAL_LAUNCH_STATES = frozenset({"stopped", "interrupted", "completed", "fail
 FAKE_RUNNER_DELAY_SECONDS = 0.1
 OBSERVATION_STAGES = ("preparing", "research", "finalizing")
 ACTIVITY_LIMIT = 64
+EVENT_LIMIT = 128
+HISTORY_LIMIT = 64
+ATTEMPT_LIMIT = 64
+MILESTONE_LIMIT = 16
+ARTIFACT_LIMIT = 64
+SOURCE_LIMIT = 256
+MAX_PUBLIC_SOURCE_BYTES = 1 << 50
+PUBLIC_TEXT_LIMIT = 512
+RAW_LOG_MAX_BYTES = 512 * 1024
+EVENT_LOG_TAIL_BYTES = 2 * 1024 * 1024
+EVENT_LINE_MAX_BYTES = 256 * 1024
+# Public observations are consumed by JavaScript clients.  Keep all numeric values
+# inside the JSON/IEEE-754 safe integer range and reject non-finite floats so a
+# corrupted legacy record cannot expand into an enormous response or emit NaN/Inf.
+PUBLIC_NUMERIC_LIMIT = (1 << 53) - 1
+
+_PUBLIC_RECORD_FIELDS = (
+    "launch_id",
+    "preparation_id",
+    "revision_id",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "state",
+    "stage",
+    "round",
+    "runner_pid",
+    "current_attempt_id",
+    "resumable",
+    "stop_requested_at",
+    "stopped_at",
+    "stop_reason",
+    "outcome",
+    "error",
+    "event_sequence",
+    "activity_truncated_before_sequence",
+)
 
 
 def _new_timeline() -> dict[str, Any]:
@@ -98,6 +136,193 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
 def _sse_data(payload: str) -> str:
     """Frame one raw-log payload without losing embedded line breaks."""
     return "".join(f"data: {line}\n" for line in payload.split("\n")) + "\n"
+
+
+def _bounded_text(value: Any, limit: int = 160) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    return normalized if len(normalized) <= limit else f"{normalized[: limit - 3]}..."
+
+
+def _public_scalar(value: Any, *, limit: int = PUBLIC_TEXT_LIMIT) -> str | int | float | bool | None:
+    """Return a scalar bounded enough for a public observation payload."""
+    if isinstance(value, str):
+        return value if len(value) <= limit else f"{value[: limit - 3]}..."
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value if abs(value) <= PUBLIC_NUMERIC_LIMIT else None
+    if isinstance(value, float):
+        return value if math.isfinite(value) and abs(value) <= PUBLIC_NUMERIC_LIMIT else None
+    return None
+
+
+def _compact_idempotency_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep only durable identity metadata for an idempotent request.
+
+    The HTTP response may contain the complete Preparation/history snapshot, but
+    retaining that snapshot once per idempotency key makes the sidecar's in-memory
+    index grow quadratically as history grows.  Replays rebuild the public snapshot
+    from the current store and pin the selected Launch in ``_replayed_result``.
+    """
+    compact: dict[str, Any] = {}
+    launch_id = result.get("launch_id")
+    if isinstance(launch_id, str) and 0 < len(launch_id) <= 256:
+        compact["launch_id"] = launch_id
+    state = result.get("state")
+    if isinstance(state, str) and state in (
+        ACTIVE_LAUNCH_STATES
+        | TERMINAL_LAUNCH_STATES
+        | frozenset({"awaiting_review"})
+    ):
+        compact["state"] = state
+    # Keep a tiny bounded Launch fallback so a stale idempotency index cannot
+    # accidentally replay the currently active (unrelated) Launch.  This is
+    # deliberately not the full response snapshot and therefore remains O(n) in
+    # the number of idempotency keys rather than O(n²) in history size.
+    raw_launch = result.get("launch")
+    if (
+        isinstance(raw_launch, dict)
+        and isinstance(compact.get("launch_id"), str)
+        and raw_launch.get("launch_id") == compact["launch_id"]
+    ):
+        launch: dict[str, Any] = {}
+        for key in (
+            "launch_id",
+            "preparation_id",
+            "revision_id",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "state",
+            "stage",
+            "round",
+            "resumable",
+            "stop_requested_at",
+            "stopped_at",
+            "stop_reason",
+            "outcome",
+            "error",
+        ):
+            if key not in raw_launch:
+                continue
+            value = _public_scalar(raw_launch[key])
+            if value is not None:
+                launch[key] = value
+        summary = _public_input_summary(
+            raw_launch.get("input_summary"),
+            fallback_preparation_id=raw_launch.get("preparation_id"),
+            fallback_revision_id=raw_launch.get("revision_id"),
+        )
+        if summary is not None:
+            launch["input_summary"] = summary
+            title = summary.get("title")
+            if isinstance(title, str) and title:
+                launch["title"] = title
+        if launch:
+            compact["launch"] = launch
+    return compact
+
+
+def _public_input_summary(
+    input_snapshot: dict[str, Any] | None,
+    *,
+    fallback_preparation_id: str | None = None,
+    fallback_revision_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Project the immutable run input into bounded metadata for UI observations.
+
+    ``input_snapshot.json`` remains a private worker input. This function deliberately
+    reads only the identity, source manifest, and a bounded task label; it never copies
+    research text or source bytes into a public response.
+    """
+    if not isinstance(input_snapshot, dict):
+        return None
+    safe_fallback_preparation_id = (
+        _public_scalar(fallback_preparation_id, limit=128)
+        if isinstance(fallback_preparation_id, str)
+        else None
+    )
+    safe_fallback_revision_id = (
+        _public_scalar(fallback_revision_id, limit=128)
+        if isinstance(fallback_revision_id, str)
+        else None
+    )
+    raw_sources = input_snapshot.get("sources")
+    sources: list[dict[str, Any]] = []
+    source_count = 0
+    source_bytes = 0
+    if isinstance(raw_sources, list):
+        source_count = len(raw_sources)
+        for source in raw_sources[:SOURCE_LIMIT]:
+            if not isinstance(source, dict):
+                continue
+            manifest: dict[str, Any] = {}
+            for key in ("source_id", "filename", "extension", "size", "sha256"):
+                if key not in source:
+                    continue
+                candidate = source[key]
+                if key == "sha256":
+                    if (
+                        isinstance(candidate, str)
+                        and len(candidate) == 64
+                        and all(character in "0123456789abcdef" for character in candidate)
+                    ):
+                        manifest[key] = candidate
+                elif key == "size":
+                    if (
+                        isinstance(candidate, int)
+                        and not isinstance(candidate, bool)
+                        and 0 <= candidate <= MAX_PUBLIC_SOURCE_BYTES
+                    ):
+                        manifest[key] = candidate
+                else:
+                    limit = 32 if key == "extension" else 256
+                    bounded = _public_scalar(candidate, limit=limit)
+                    if bounded is not None:
+                        manifest[key] = bounded
+            if manifest:
+                sources.append(manifest)
+                size = manifest.get("size")
+                if isinstance(size, int) and not isinstance(size, bool):
+                    source_bytes = min(MAX_PUBLIC_SOURCE_BYTES, source_bytes + size)
+    execution_input = input_snapshot.get("execution_input")
+    task_description = (
+        execution_input.get("task_description")
+        if isinstance(execution_input, dict)
+        else input_snapshot.get("title")
+        if isinstance(input_snapshot.get("title"), str)
+        else None
+    )
+    summary: dict[str, Any] = {
+        "preparation_id": (
+            _public_scalar(input_snapshot.get("preparation_id"), limit=128)
+            if isinstance(input_snapshot.get("preparation_id"), str)
+            else safe_fallback_preparation_id
+        ),
+        "revision_id": (
+            _public_scalar(input_snapshot.get("revision_id"), limit=128)
+            if isinstance(input_snapshot.get("revision_id"), str)
+            else safe_fallback_revision_id
+        ),
+        "preparation_fingerprint": (
+            _public_scalar(input_snapshot.get("preparation_fingerprint"), limit=128)
+            if isinstance(input_snapshot.get("preparation_fingerprint"), str)
+            else None
+        ),
+        "source_count": source_count,
+        "source_bytes": source_bytes,
+        "sources": sources,
+    }
+    if source_count > SOURCE_LIMIT:
+        summary["sources_truncated"] = True
+    title = _bounded_text(task_description)
+    if title:
+        summary["title"] = title
+    return summary
 
 
 class DiscoveryLaunchStore:
@@ -212,7 +437,22 @@ class DiscoveryLaunchStore:
             active = record["state"] in ACTIVE_LAUNCH_STATES
             if log_path.is_file():
                 with log_path.open("r", encoding="utf-8", errors="replace") as stream:
-                    stream.seek(position)
+                    if position == 0:
+                        try:
+                            size = log_path.stat().st_size
+                        except OSError:
+                            size = 0
+                        if size > RAW_LOG_MAX_BYTES:
+                            position = size - RAW_LOG_MAX_BYTES
+                            stream.seek(position)
+                            stream.readline()
+                            yield _sse_data(
+                                "[raw log truncated to the most recent 512 KiB]\n"
+                            )
+                        else:
+                            stream.seek(position)
+                    else:
+                        stream.seek(position)
                     chunk = stream.read()
                     position = stream.tell()
                 pending += chunk
@@ -251,7 +491,10 @@ class DiscoveryLaunchStore:
         return self._launches_root / launch_id / "artifacts"
 
     def replay_idempotent(
-        self, idempotency_key: str, request_fingerprint: str
+        self,
+        idempotency_key: str,
+        request_fingerprint: str,
+        response_builder: Callable[[], dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         with self._transaction():
             self._load_from_disk()
@@ -264,7 +507,65 @@ class DiscoveryLaunchStore:
                 raise IdempotencyConflict(
                     "Idempotency-Key was already used for a different Launch request"
                 )
-            return copy.deepcopy(previous["result"])
+            return self._replayed_result(previous["result"], response_builder)
+
+    def _replayed_result(
+        self,
+        result: dict[str, Any],
+        response_builder: Callable[[], dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Replay idempotency metadata without replaying a historical raw snapshot."""
+        replay: dict[str, Any] = {}
+        for key in ("launch_id", "state"):
+            if key not in result:
+                continue
+            value = _public_scalar(result[key], limit=256)
+            if value is not None:
+                replay[key] = value
+        launch_id = replay.get("launch_id")
+        record = self._records.get(launch_id) if isinstance(launch_id, str) else None
+        launch: dict[str, Any] | None = None
+        if record is not None:
+            launch = self._public_record(record)
+        else:
+            stored_launch = result.get("launch")
+            if (
+                isinstance(stored_launch, dict)
+                and isinstance(launch_id, str)
+                and stored_launch.get("launch_id") == launch_id
+            ):
+                # The fallback was sanitized before persistence, but project it
+                # once more so hand-edited/legacy indexes cannot inject fields.
+                launch = self._public_record(stored_launch)
+        replay["launch"] = copy.deepcopy(launch) if launch is not None else None
+        if launch is not None:
+            replay["state"] = launch.get("state", replay.get("state"))
+        # Durable/in-memory idempotency entries intentionally contain no snapshot.
+        # Callers that need the full facade response provide a builder; a low-level
+        # replay without one returns only the bounded Launch metadata.
+        snapshot = response_builder() if response_builder is not None else None
+        # A replay is scoped to the Launch identified by the idempotency key.  The
+        # normal facade snapshot is intentionally global and may have no active
+        # Launch after the original run completed (or may already describe a newer
+        # Launch), so returning it verbatim would make a retry point at the wrong
+        # task.  Keep the global preparation/history context, but pin the selected
+        # Launch into ``current_launch`` and remove its duplicate history entry.
+        if isinstance(snapshot, dict):
+            # Always replace the builder's global current_launch.  If the durable
+            # record is gone and no bounded fallback exists, returning the current
+            # unrelated Launch would be a correctness and security bug.
+            snapshot["current_launch"] = copy.deepcopy(launch) if launch is not None else None
+            history = snapshot.get("history")
+            if isinstance(history, list):
+                snapshot["history"] = [
+                    item
+                    for item in history
+                    if not isinstance(item, dict)
+                    or item.get("launch_id") != launch_id
+                ]
+        if isinstance(snapshot, dict):
+            replay["snapshot"] = snapshot
+        return replay
 
     def admit(
         self,
@@ -274,6 +575,8 @@ class DiscoveryLaunchStore:
         input_snapshot: dict[str, Any],
         configuration_snapshot: dict[str, Any],
         response_builder: Callable[[], dict[str, Any]],
+        input_snapshot_factory: Callable[[], dict[str, Any]] | None = None,
+        input_snapshot_cleanup: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         """Reserve the active slot, persist snapshots, and start one execution attempt."""
         with self._transaction():
@@ -286,9 +589,39 @@ class DiscoveryLaunchStore:
                     raise IdempotencyConflict(
                         "Idempotency-Key was already used for a different Launch request"
                     )
-                return copy.deepcopy(previous["result"])
+                return self._replayed_result(previous["result"], response_builder)
 
             self._raise_if_active_locked()
+            return self._admit_locked(
+                request_fingerprint=request_fingerprint,
+                idempotency_key=idempotency_key,
+                input_snapshot=input_snapshot,
+                configuration_snapshot=configuration_snapshot,
+                response_builder=response_builder,
+                input_snapshot_factory=input_snapshot_factory,
+                input_snapshot_cleanup=input_snapshot_cleanup,
+            )
+
+    def _admit_locked(
+        self,
+        *,
+        request_fingerprint: str,
+        idempotency_key: str,
+        input_snapshot: dict[str, Any],
+        configuration_snapshot: dict[str, Any],
+        response_builder: Callable[[], dict[str, Any]],
+        input_snapshot_factory: Callable[[], dict[str, Any]] | None,
+        input_snapshot_cleanup: Callable[[], None] | None,
+    ) -> dict[str, Any]:
+        """Create a new Launch while the caller holds the shared transaction lock."""
+        record_persisted = False
+        try:
+            if input_snapshot_factory is not None:
+                # Materialize private source blobs only after the shared admission
+                # lock confirms that this request owns the active Launch slot. This
+                # avoids cross-sidecar races where a rejected request cleans up a
+                # blob another request is about to reference.
+                input_snapshot = input_snapshot_factory()
             launch_id = f"launch-{uuid.uuid4().hex}"
             launch_dir = self._launches_root / launch_id
             launch_dir.mkdir(parents=True, exist_ok=False)
@@ -326,7 +659,14 @@ class DiscoveryLaunchStore:
                 "timeline": _new_timeline(),
                 "activity": [],
                 "activity_truncated_before_sequence": 0,
-                "input_snapshot": copy.deepcopy(input_snapshot),
+                # The worker reads the private input_snapshot.json. Keep only a
+                # bounded manifest in the lifecycle record so status/history cannot
+                # accidentally duplicate source bytes.
+                "input_summary": _public_input_summary(
+                    input_snapshot,
+                    fallback_preparation_id=input_snapshot.get("preparation_id"),
+                    fallback_revision_id=input_snapshot.get("revision_id"),
+                ),
                 "launch_configuration_snapshot": copy.deepcopy(
                     configuration_snapshot
                 ),
@@ -341,24 +681,33 @@ class DiscoveryLaunchStore:
             )
             self._write_runner_marker(record, "starting")
             self._persist_record(record)
+            record_persisted = True
 
             result = {
                 "launch_id": launch_id,
                 "state": "starting",
+                "launch": self._public_record(record),
                 "snapshot": response_builder(),
             }
             self._idempotency[idempotency_key] = {
                 "request_fingerprint": request_fingerprint,
-                "result": copy.deepcopy(result),
+                "result": _compact_idempotency_result(result),
             }
             self._persist_index()
             self._start_runner_locked(record, attempt_id)
             if record["state"] != "starting":
                 result["state"] = record["state"]
+                result["launch"] = self._public_record(record)
                 result["snapshot"] = response_builder()
-                self._idempotency[idempotency_key]["result"] = copy.deepcopy(result)
+                self._idempotency[idempotency_key]["result"] = _compact_idempotency_result(
+                    result
+                )
                 self._persist_index()
             return result
+        except Exception:
+            if not record_persisted and input_snapshot_cleanup is not None:
+                input_snapshot_cleanup()
+            raise
 
     def stop(self, launch_id: str) -> dict[str, Any]:
         with self._transaction():
@@ -403,7 +752,7 @@ class DiscoveryLaunchStore:
                     raise IdempotencyConflict(
                         "Idempotency-Key was already used for a different Launch request"
                     )
-                return copy.deepcopy(previous["result"])
+                return self._replayed_result(previous["result"], response_builder)
 
             record = self._record_or_raise_locked(launch_id)
             if record["state"] not in {"stopped", "interrupted"}:
@@ -449,18 +798,22 @@ class DiscoveryLaunchStore:
             result = {
                 "launch_id": launch_id,
                 "state": "starting",
+                "launch": self._public_record(record),
                 "snapshot": response_builder(),
             }
             self._idempotency[idempotency_key] = {
                 "request_fingerprint": request_fingerprint,
-                "result": copy.deepcopy(result),
+                "result": _compact_idempotency_result(result),
             }
             self._persist_index()
             self._start_runner_locked(record, attempt_id, resume=True)
             if record["state"] != "starting":
                 result["state"] = record["state"]
+                result["launch"] = self._public_record(record)
                 result["snapshot"] = response_builder()
-                self._idempotency[idempotency_key]["result"] = copy.deepcopy(result)
+                self._idempotency[idempotency_key]["result"] = _compact_idempotency_result(
+                    result
+                )
                 self._persist_index()
             return result
 
@@ -1002,14 +1355,14 @@ class DiscoveryLaunchStore:
             log.write(f"{line}\n")
 
     def _ensure_observation_state(self, record: dict[str, Any]) -> None:
-        if not isinstance(record.get("event_sequence"), int):
-            record["event_sequence"] = 0
-        persisted_event_sequence = self._latest_persisted_event_sequence(
-            record["launch_id"]
-        )
-        record["event_sequence"] = max(
-            record["event_sequence"], persisted_event_sequence
-        )
+        event_sequence = record.get("event_sequence")
+        if not isinstance(event_sequence, int) or isinstance(event_sequence, bool):
+            # Only legacy records without the persisted cursor need an event-log
+            # recovery scan.  Normal status/snapshot reads must not reread the
+            # complete append-only log on every request.
+            record["event_sequence"] = self._latest_persisted_event_sequence(
+                record["launch_id"]
+            )
         timeline = record.get("timeline")
         if not isinstance(timeline, dict) or not isinstance(timeline.get("milestones"), list):
             record["timeline"] = _new_timeline()
@@ -1020,14 +1373,8 @@ class DiscoveryLaunchStore:
 
     def _latest_persisted_event_sequence(self, launch_id: str) -> int:
         event_path = self._launches_root / launch_id / "events.jsonl"
-        if not event_path.is_file():
-            return 0
         latest = 0
-        try:
-            lines = event_path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError):
-            return 0
-        for line in lines:
+        for line in self._event_tail_lines(event_path):
             try:
                 event = json.loads(line)
             except ValueError:
@@ -1036,6 +1383,43 @@ class DiscoveryLaunchStore:
             if isinstance(sequence, int):
                 latest = max(latest, sequence)
         return latest
+
+    @staticmethod
+    def _event_tail_lines(event_path: Path) -> list[str]:
+        """Read only a bounded tail of the append-only event log.
+
+        Event polling is on the UI hot path. Never materialize an unbounded historical
+        ``events.jsonl`` file, and never let one malformed giant line allocate without
+        a limit. If the cursor is older than the retained tail, callers report the
+        returned oldest sequence as the truncation boundary.
+        """
+        try:
+            size = event_path.stat().st_size
+        except OSError:
+            return []
+        start = max(0, size - EVENT_LOG_TAIL_BYTES)
+        try:
+            with event_path.open("rb") as stream:
+                if start:
+                    stream.seek(start)
+                    # Start at a complete line. ``readline(limit)`` is deliberately
+                    # bounded; a malformed line is skipped in bounded chunks.
+                    while True:
+                        fragment = stream.readline(EVENT_LINE_MAX_BYTES + 1)
+                        if not fragment or fragment.endswith(b"\n"):
+                            break
+                payload = stream.read(EVENT_LOG_TAIL_BYTES)
+        except OSError:
+            return []
+        lines: list[str] = []
+        for raw_line in payload.splitlines():
+            if len(raw_line) > EVENT_LINE_MAX_BYTES:
+                continue
+            try:
+                lines.append(raw_line.decode("utf-8"))
+            except UnicodeDecodeError:
+                continue
+        return lines
 
     def _activate_stage_locked(
         self,
@@ -1197,25 +1581,37 @@ class DiscoveryLaunchStore:
     def _status_unlocked(self, launch_id: str) -> dict[str, Any]:
         record = self._record_or_raise_locked(launch_id)
         self._ensure_observation_state(record)
-        activity = copy.deepcopy(record["activity"])
+        public_launch = self._public_record(record)
+        activity = self._public_activity(record["activity"])
+        public_round = public_launch.get("round", 0)
+        if not isinstance(public_round, int) or isinstance(public_round, bool):
+            public_round = 0
+        public_event_sequence = public_launch.get("event_sequence", 0)
+        if not isinstance(public_event_sequence, int) or isinstance(public_event_sequence, bool):
+            public_event_sequence = 0
+        public_truncated_before = public_launch.get(
+            "activity_truncated_before_sequence", 0
+        )
+        if not isinstance(public_truncated_before, int) or isinstance(
+            public_truncated_before, bool
+        ):
+            public_truncated_before = 0
         return {
-            "launch": self._public_record(record),
-            "state": record["state"],
-            "stage": record["stage"],
-            "round": record["round"],
-            "checkpoint": copy.deepcopy(record.get("checkpoint")),
-            "timeline": copy.deepcopy(record["timeline"]),
+            "launch": public_launch,
+            "state": public_launch.get("state"),
+            "stage": public_launch.get("stage"),
+            "round": public_round,
+            "checkpoint": self._public_checkpoint(record.get("checkpoint")),
+            "timeline": self._public_timeline(record.get("timeline")),
             "activity": {
-                "oldest_sequence": activity[0]["sequence"] if activity else None,
-                "newest_sequence": activity[-1]["sequence"] if activity else None,
-                "truncated_before_sequence": record[
-                    "activity_truncated_before_sequence"
-                ],
+                "oldest_sequence": activity[0].get("sequence") if activity else None,
+                "newest_sequence": activity[-1].get("sequence") if activity else None,
+                "truncated_before_sequence": public_truncated_before,
                 "items": activity,
             },
             "allowed_actions": self._allowed_actions(record),
             "produced_outputs": self._produced_outputs(launch_id),
-            "latest_event_sequence": record["event_sequence"],
+            "latest_event_sequence": public_event_sequence,
         }
 
     def _events_unlocked(self, launch_id: str, after: int) -> dict[str, Any]:
@@ -1223,32 +1619,46 @@ class DiscoveryLaunchStore:
         self._ensure_observation_state(record)
         event_path = self._launches_root / launch_id / "events.jsonl"
         events: list[dict[str, Any]] = []
-        if event_path.is_file():
-            for line in event_path.read_text(encoding="utf-8").splitlines():
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(event, dict) and int(event.get("sequence", 0)) > after:
-                    events.append(event)
-        all_sequences = [int(event["sequence"]) for event in events if "sequence" in event]
-        latest_sequence = int(record.get("event_sequence", 0))
+        for line in self._event_tail_lines(event_path):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            sequence = _public_scalar(event.get("sequence", 0))
+            if not isinstance(sequence, int) or isinstance(sequence, bool):
+                continue
+            if sequence > after:
+                projected = self._public_event(event)
+                if projected is not None:
+                    events.append(projected)
+        if len(events) > EVENT_LIMIT:
+            events = events[-EVENT_LIMIT:]
+        all_sequences = [event["sequence"] for event in events if "sequence" in event]
+        latest_sequence = _public_scalar(record.get("event_sequence", 0))
+        if not isinstance(latest_sequence, int) or isinstance(latest_sequence, bool):
+            latest_sequence = 0
         return {
             "launch_id": launch_id,
             "events": events,
             "oldest_sequence": min(all_sequences) if all_sequences else None,
             "latest_sequence": latest_sequence,
-            "truncated_before_sequence": 0,
+            "truncated_before_sequence": (
+                (min(all_sequences) - 1) if all_sequences else 0
+            ),
         }
 
     def _produced_outputs(self, launch_id: str) -> list[dict[str, str]]:
         root = self._launches_root / launch_id / "artifacts"
         if not root.is_dir():
             return []
-        outputs = []
-        for path in sorted(root.rglob("*")):
+        outputs: list[dict[str, str]] = []
+        for path in root.rglob("*"):
             if path.is_file() and not path.is_symlink():
                 outputs.append({"path": path.relative_to(root).as_posix(), "label": path.name})
+                if len(outputs) >= ARTIFACT_LIMIT:
+                    break
         return outputs
 
     @staticmethod
@@ -1310,12 +1720,13 @@ class DiscoveryLaunchStore:
     def _add_history_locked(self, launch_id: str) -> None:
         self._history_ids = [item for item in self._history_ids if item != launch_id]
         self._history_ids.insert(0, launch_id)
+        del self._history_ids[HISTORY_LIMIT:]
 
     def _snapshot_unlocked(self) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
         active = self._records.get(self._active_launch_id or "")
         history = [
             self._public_record(self._records[launch_id])
-            for launch_id in self._history_ids
+            for launch_id in self._history_ids[:HISTORY_LIMIT]
             if launch_id in self._records
         ]
         return (
@@ -1323,11 +1734,214 @@ class DiscoveryLaunchStore:
             history,
         )
 
+    @staticmethod
+    def _public_checkpoint(value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        checkpoint = {
+            key: _public_scalar(value[key])
+            for key in (
+                "checkpoint_id",
+                "seam",
+                "attempt_id",
+                "stage",
+                "round",
+                "reason",
+                "created_at",
+            )
+            if key in value
+            and _public_scalar(value[key]) is not None
+        }
+        raw_artifacts = value.get("artifacts")
+        if isinstance(raw_artifacts, list):
+            checkpoint["artifacts"] = [
+                {
+                    key: _public_scalar(item[key])
+                    for key in ("path", "label", "detail")
+                    if key in item and _public_scalar(item[key]) is not None
+                }
+                for item in raw_artifacts[-ARTIFACT_LIMIT:]
+                if isinstance(item, dict)
+            ]
+        return checkpoint
+
+    @staticmethod
+    def _public_timeline(value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            return _new_timeline()
+        timeline: dict[str, Any] = {}
+        for key in ("revision", "percent"):
+            candidate = _public_scalar(value.get(key))
+            if isinstance(candidate, (int, float)) and not isinstance(candidate, bool):
+                timeline[key] = candidate
+        current = value.get("current_milestone_id")
+        timeline["current_milestone_id"] = _public_scalar(current, limit=128) if isinstance(current, str) else None
+        milestones: list[dict[str, Any]] = []
+        raw_milestones = value.get("milestones")
+        if isinstance(raw_milestones, list):
+            for milestone in raw_milestones[:MILESTONE_LIMIT]:
+                if not isinstance(milestone, dict):
+                    continue
+                projected = {
+                    key: _public_scalar(milestone[key])
+                    for key in (
+                        "id",
+                        "key",
+                        "label",
+                        "position",
+                        "state",
+                        "summary",
+                        "started_at",
+                        "ended_at",
+                    )
+                    if key in milestone
+                    and _public_scalar(milestone[key]) is not None
+                }
+                attempts = milestone.get("attempts")
+                if isinstance(attempts, list):
+                    projected["attempts"] = [
+                        {
+                            key: _public_scalar(attempt[key])
+                            for key in ("number", "state", "started_at", "ended_at", "summary")
+                            if key in attempt
+                            and _public_scalar(attempt[key]) is not None
+                        }
+                        for attempt in attempts[-ATTEMPT_LIMIT:]
+                        if isinstance(attempt, dict)
+                    ]
+                milestones.append(projected)
+        timeline["milestones"] = milestones
+        return timeline
+
+    @staticmethod
+    def _public_activity(value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        return [
+            {
+                key: _public_scalar(item[key])
+                for key in ("sequence", "occurred_at", "level", "milestone_id", "text")
+                if key in item and _public_scalar(item[key]) is not None
+            }
+            for item in value[-ACTIVITY_LIMIT:]
+            if isinstance(item, dict)
+        ]
+
+    @staticmethod
+    def _public_paper_status(value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: _public_scalar(value[key])
+            for key in ("state", "run_dir", "error")
+            if key in value and _public_scalar(value[key]) is not None
+        }
+
+    def _public_event(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        sequence = _public_scalar(value.get("sequence"))
+        occurred_at = value.get("occurred_at")
+        event_type = value.get("type")
+        if not isinstance(sequence, int) or isinstance(sequence, bool):
+            return None
+        safe_occurred_at = _public_scalar(occurred_at)
+        safe_event_type = _public_scalar(event_type)
+        if not isinstance(safe_occurred_at, str) or not isinstance(safe_event_type, str):
+            return None
+        raw_data = value.get("data")
+        data: dict[str, Any] = {}
+        if isinstance(raw_data, dict):
+            for key in ("state", "stage", "round"):
+                candidate = raw_data.get(key)
+                projected = _public_scalar(candidate)
+                if projected is not None:
+                    data[key] = projected
+            if isinstance(raw_data.get("timeline"), dict):
+                data["timeline"] = self._public_timeline(raw_data["timeline"])
+            if isinstance(raw_data.get("milestone"), dict):
+                projected = self._public_timeline(
+                    {"milestones": [raw_data["milestone"]]}
+                )["milestones"]
+                if projected:
+                    data["milestone"] = projected[0]
+            if isinstance(raw_data.get("checkpoint"), dict):
+                checkpoint = self._public_checkpoint(raw_data["checkpoint"])
+                if checkpoint is not None:
+                    data["checkpoint"] = checkpoint
+        return {
+            "sequence": sequence,
+            "occurred_at": safe_occurred_at,
+            "type": safe_event_type,
+            "data": data,
+        }
+
     def _public_record(self, record: dict[str, Any]) -> dict[str, Any]:
-        public = copy.deepcopy(record)
-        public["configuration_snapshot"] = copy.deepcopy(
-            public["launch_configuration_snapshot"]
+        """Return a bounded public projection, never a copy of the raw record.
+
+        Older records contain a complete ``input_snapshot`` for worker compatibility.
+        The explicit whitelist below is important: copying the old record first would
+        still allocate and serialize every historical Base64 source even if the field
+        were deleted afterwards.
+        """
+        public: dict[str, Any] = {}
+        for key in _PUBLIC_RECORD_FIELDS:
+            if key not in record:
+                continue
+            value = record[key]
+            if value is None:
+                public[key] = None
+            else:
+                projected = _public_scalar(value)
+                if projected is not None:
+                    public[key] = projected
+        if isinstance(record.get("attempts"), list):
+            public["attempts"] = [
+                {
+                    key: _public_scalar(attempt[key])
+                    for key in (
+                        "attempt_id",
+                        "started_at",
+                        "finished_at",
+                        "state",
+                        "resume_from_round",
+                    )
+                    if key in attempt
+                    and _public_scalar(attempt[key]) is not None
+                }
+                for attempt in record["attempts"][-ATTEMPT_LIMIT:]
+                if isinstance(attempt, dict)
+            ]
+        public["checkpoint"] = self._public_checkpoint(record.get("checkpoint"))
+        public["timeline"] = self._public_timeline(record.get("timeline"))
+        public["activity"] = self._public_activity(record.get("activity"))
+        paper_status = self._public_paper_status(record.get("paper_orchestra"))
+        if paper_status is not None:
+            public["paper_orchestra"] = paper_status
+        # Re-project even an already stored summary.  Older/corrupt records may
+        # contain untrusted keys such as ``content_base64`` inside the summary;
+        # treating it as public data would bypass the whitelist above.
+        input_summary = _public_input_summary(
+            record.get("input_snapshot")
+            if isinstance(record.get("input_snapshot"), dict)
+            else record.get("input_summary"),
+            fallback_preparation_id=record.get("preparation_id"),
+            fallback_revision_id=record.get("revision_id"),
         )
+        if input_summary is not None:
+            public["input_summary"] = copy.deepcopy(input_summary)
+            title = input_summary.get("title")
+            if isinstance(title, str) and title:
+                public["title"] = title
+
+        configuration = record.get("launch_configuration_snapshot")
+        if isinstance(configuration, dict):
+            model_id = configuration.get("model_id")
+            public["configuration_snapshot"] = {
+                "model_id": _public_scalar(model_id, limit=256)
+                if isinstance(model_id, str)
+                else None,
+            }
         return public
 
     def _persist_record(self, record: dict[str, Any]) -> None:
@@ -1335,6 +1949,19 @@ class DiscoveryLaunchStore:
         _atomic_write_json(launch_dir / "record.json", record)
 
     def _persist_index(self) -> None:
+        compact_idempotency: dict[str, dict[str, Any]] = {}
+        for key, value in self._idempotency.items():
+            if not isinstance(value, dict):
+                continue
+            result = value.get("result")
+            if not isinstance(result, dict):
+                continue
+            compact_idempotency[key] = {
+                "request_fingerprint": value.get("request_fingerprint"),
+                # The full response snapshot is intentionally not durable here:
+                # it repeats Preparation/history for every idempotency key.
+                "result": _compact_idempotency_result(result),
+            }
         _atomic_write_json(
             self._index_path,
             {
@@ -1342,7 +1969,7 @@ class DiscoveryLaunchStore:
                 "active_launch_id": self._active_launch_id,
                 "history_ids": self._history_ids,
                 "launch_ids": list(self._records),
-                "idempotency": self._idempotency,
+                "idempotency": compact_idempotency,
             },
         )
 
@@ -1359,6 +1986,7 @@ class DiscoveryLaunchStore:
             return
 
         records: dict[str, dict[str, Any]] = {}
+        migrated_record_ids: list[str] = []
         for launch_id in index.get("launch_ids", []):
             if not isinstance(launch_id, str):
                 continue
@@ -1371,6 +1999,21 @@ class DiscoveryLaunchStore:
             except (FileNotFoundError, OSError, ValueError):
                 continue
             if isinstance(record, dict) and record.get("launch_id") == launch_id:
+                # Pre-fix records duplicated the complete source-bearing input
+                # snapshot in record.json. Keep a bounded manifest in memory while
+                # leaving input_snapshot.json intact for an in-flight legacy worker.
+                legacy_input = record.get("input_snapshot")
+                if isinstance(legacy_input, dict):
+                    record.setdefault(
+                        "input_summary",
+                        _public_input_summary(
+                            legacy_input,
+                            fallback_preparation_id=record.get("preparation_id"),
+                            fallback_revision_id=record.get("revision_id"),
+                        ),
+                    )
+                    record.pop("input_snapshot", None)
+                    migrated_record_ids.append(launch_id)
                 self._ensure_observation_state(record)
                 records[launch_id] = record
         self._records = records
@@ -1378,22 +2021,45 @@ class DiscoveryLaunchStore:
             launch_id
             for launch_id in index.get("history_ids", [])
             if launch_id in self._records
-        ]
+        ][:HISTORY_LIMIT]
         active_id = index.get("active_launch_id")
         self._active_launch_id = active_id if active_id in self._records else None
         raw_idempotency = index.get("idempotency", {})
-        self._idempotency = (
-            {
-                key: value
-                for key, value in raw_idempotency.items()
-                if isinstance(key, str)
-                and isinstance(value, dict)
-                and isinstance(value.get("request_fingerprint"), str)
-                and isinstance(value.get("result"), dict)
-            }
-            if isinstance(raw_idempotency, dict)
-            else {}
-        )
+        idempotency_changed = False
+        normalized_idempotency: dict[str, dict[str, Any]] = {}
+        if isinstance(raw_idempotency, dict):
+            for key, value in raw_idempotency.items():
+                if (
+                    not isinstance(key, str)
+                    or not isinstance(value, dict)
+                    or not isinstance(value.get("request_fingerprint"), str)
+                    or not isinstance(value.get("result"), dict)
+                ):
+                    continue
+                result = value["result"]
+                normalized_result = _compact_idempotency_result(result)
+                if normalized_result != result:
+                    idempotency_changed = True
+                normalized_idempotency[key] = {
+                    "request_fingerprint": value["request_fingerprint"],
+                    "result": normalized_result,
+                }
+        self._idempotency = normalized_idempotency
+        for launch_id in migrated_record_ids:
+            record = self._records.get(launch_id)
+            if record is not None:
+                try:
+                    self._persist_record(record)
+                except OSError:
+                    # Public reads must remain available on a read-only legacy
+                    # state directory; migration is best-effort and can retry on
+                    # the next lifecycle write.
+                    pass
+        if migrated_record_ids or idempotency_changed:
+            try:
+                self._persist_index()
+            except OSError:
+                pass
 
     def _lock_owned(self) -> bool:
         owned = getattr(self._lock, "_is_owned", None)

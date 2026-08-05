@@ -1689,6 +1689,7 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
 .discovery-status-dot.is-ready { background: var(--ok); }
 .discovery-status-dot.is-live { background: var(--accent); }
 .discovery-status-dot.is-danger { background: var(--danger); }
+.discovery-status-pill.is-review { border-color: var(--warn-ink); color: var(--warn-ink); background: var(--warn-soft); }
 .discovery-button {
   display: inline-flex;
   min-height: 34px;
@@ -1964,7 +1965,8 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
 .discovery-history-status-completed { background: var(--ok-soft); color: var(--ok); }
 .discovery-history-status-failed { background: var(--danger-soft); color: var(--danger); }
 .discovery-history-status-stopped,
-.discovery-history-status-interrupted { background: var(--warn-soft); color: var(--warn-ink); }
+.discovery-history-status-interrupted,
+.discovery-history-status-awaiting_review { background: var(--warn-soft); color: var(--warn-ink); }
 .discovery-history-detail { min-width: 0; display: grid; gap: 12px; }
 .discovery-history-note { margin: -2px 0 2px; color: var(--muted); font-size: 11px; }
 .discovery-detail-header {
@@ -2005,7 +2007,6 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
 }
 .discovery-prototype-panel-head h3 { margin: 0; font-size: 12px; letter-spacing: .02em; }
 .discovery-prototype-panel-head span { color: var(--muted); font-size: 11px; }
-.discovery-runtime-compat-label { margin-left: 8px; color: var(--faint) !important; font-size: 9px !important; }
 .discovery-timeline { display: grid; gap: 0; padding: 4px 17px 12px; }
 .discovery-timeline-row {
   display: grid;
@@ -2189,6 +2190,7 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
 .discovery-artifact-rail .artifact-open { font-size: 10px; }
 
 .discovery-hero-panel { padding: 19px; }
+.discovery-hero-panel.is-empty { background: var(--paper); }
 .discovery-hero-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .discovery-hero-actions { display: flex; gap: 7px; flex: none; }
 .discovery-hero-facts {
@@ -2209,20 +2211,252 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
 }
 .discovery-hero-facts strong { display: block; margin-top: 5px; font-size: 13px; font-weight: 500; }
 
+/* ---------- Current Launch Stage Strip ----------------------------------- */
+/* The strip is deliberately embedded in the existing Launch surface: the
+   runtime desk stays the dominant workspace while the three fixed seam
+   bundles remain scannable above it. */
+.discovery-stage-strip-layout {
+  display: grid;
+  gap: 10px;
+}
+.discovery-launch-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 38px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--panel);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.discovery-launch-notice.is-review {
+  border-color: color-mix(in srgb, var(--warn-ink) 38%, var(--line));
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+}
+.discovery-launch-notice.is-empty { color: var(--faint); background: var(--paper); }
+.discovery-launch-notice-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.discovery-launch-notice.is-review .discovery-launch-notice-dot { background: var(--warn-ink); }
+.discovery-checkpoint-strip {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.discovery-checkpoint-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 45px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.discovery-checkpoint-strip-head h3 { margin: 0; font-size: 12px; font-weight: 650; }
+.discovery-checkpoint-strip-head span { color: var(--muted); font-size: 10px; }
+.discovery-checkpoint-strip-count { flex: none; color: var(--faint) !important; font: 9px var(--mono) !important; }
+.discovery-checkpoint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+}
+.discovery-checkpoint-slot {
+  min-width: 0;
+  min-height: 169px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  transition: background-color .15s ease-out, border-color .15s ease-out;
+}
+.discovery-checkpoint-slot.is-active {
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+  background: var(--accent-soft);
+}
+.discovery-checkpoint-slot.is-selected { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+.discovery-checkpoint-slot.is-done:hover { background: var(--paper); }
+.discovery-checkpoint-slot.is-locked { opacity: .46; }
+.discovery-checkpoint-slot-top {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+.discovery-checkpoint-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--faint);
+  background: var(--solid);
+  font-size: 11px;
+  font-weight: 800;
+}
+.discovery-checkpoint-slot.is-active .discovery-checkpoint-icon { color: var(--accent); background: var(--panel); }
+.discovery-checkpoint-slot.is-done .discovery-checkpoint-icon { color: var(--ok); background: var(--ok-soft); }
+.discovery-checkpoint-slot-title { min-width: 0; }
+.discovery-checkpoint-slot-title strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-checkpoint-slot-title span {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-checkpoint-status { justify-self: end; color: var(--muted); font-size: 9px; white-space: nowrap; }
+.discovery-checkpoint-slot.is-active .discovery-checkpoint-status { color: var(--accent); }
+.discovery-checkpoint-slot.is-done .discovery-checkpoint-status { color: var(--ok); }
+.discovery-checkpoint-slot p {
+  min-height: 29px;
+  margin: 9px 0 7px 30px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.discovery-checkpoint-artifacts { display: grid; gap: 2px; margin-left: 30px; }
+.discovery-checkpoint-artifact {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 9px;
+}
+.discovery-checkpoint-artifact:first-child { border-top: 0; }
+.discovery-checkpoint-artifact span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-checkpoint-artifact span:last-child { flex: none; color: var(--faint); }
+.discovery-checkpoint-artifact.is-disabled span:first-child { color: var(--faint); }
+.discovery-checkpoint-slot-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 0 30px;
+}
+.discovery-checkpoint-readonly { color: var(--faint); font: 9px var(--mono); }
+.discovery-checkpoint-open,
+.discovery-checkpoint-lock {
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  font-size: 9px;
+}
+.discovery-checkpoint-open { padding: 2px 0; }
+.discovery-checkpoint-open:hover { text-decoration: underline; }
+.discovery-checkpoint-lock { color: var(--faint); cursor: default; }
+.discovery-stage-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 318px;
+  gap: 16px;
+  align-items: start;
+}
+.discovery-stage-console { min-width: 0; }
+.discovery-stage-console .discovery-runtime-desk { min-width: 0; }
+.discovery-stage-console .discovery-runtime-desk > .discovery-prototype-panel:nth-child(2) { min-height: 420px; }
+.discovery-stage-console .discovery-runtime-desk > .discovery-prototype-panel:nth-child(2) .discovery-runtime-events { min-height: 320px; }
+.discovery-runtime-empty-panel {
+  display: grid;
+  min-height: 156px;
+  place-items: center;
+  padding: 22px;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: center;
+}
+.discovery-runtime-desk.is-empty > .discovery-prototype-panel .discovery-runtime-empty-panel { min-height: 260px; }
+.discovery-stage-inspector { display: grid; gap: 10px; min-width: 0; }
+.discovery-checkpoint-preview { overflow: hidden; }
+.discovery-checkpoint-preview.is-empty { display: flex; align-items: flex-start; gap: 10px; padding: 16px; }
+.discovery-checkpoint-empty-mark {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  flex: none;
+  border-radius: 7px;
+  color: var(--faint);
+  background: var(--solid);
+}
+.discovery-checkpoint-preview h3 { margin: 0; font-size: 12px; font-weight: 650; }
+.discovery-checkpoint-preview p { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.discovery-checkpoint-preview p strong { color: var(--ink); font-weight: 600; }
+.discovery-checkpoint-preview-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px 0;
+}
+.discovery-checkpoint-preview-head > span { color: var(--accent); font: 9px var(--mono); }
+.discovery-checkpoint-eyebrow { color: var(--accent); font: 9px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.discovery-checkpoint-preview-reason { padding: 0 16px; }
+.discovery-checkpoint-preview-facts { display: grid; gap: 0; margin-top: 13px; padding: 0 16px; }
+.discovery-checkpoint-preview-facts > div { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 10px; }
+.discovery-checkpoint-preview-facts span { color: var(--muted); }
+.discovery-checkpoint-preview-facts strong { max-width: 58%; color: var(--ink); font-size: 10px; font-weight: 550; text-align: right; }
+.discovery-checkpoint-preview-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; padding: 11px 16px; border-top: 1px solid var(--line); color: var(--faint); font: 9px var(--mono); }
+
 @media (max-width: 1180px) {
   .discovery-history-layout { grid-template-columns: 210px minmax(0, 1fr) 250px; }
   .discovery-runtime-layout { grid-template-columns: minmax(0, 1fr) 270px; }
+  .discovery-stage-body { grid-template-columns: minmax(0, 1fr) 270px; }
 }
 @media (max-width: 900px) {
   .discovery-history-layout,
-  .discovery-runtime-layout { grid-template-columns: 1fr; }
+  .discovery-runtime-layout,
+  .discovery-stage-body { grid-template-columns: 1fr; }
   .discovery-history-index { order: 0; }
   .discovery-history-detail { order: 1; }
   .discovery-runtime-rail { order: 2; }
+  .discovery-stage-inspector { order: 2; }
   .discovery-page-header { align-items: flex-start; flex-direction: column; }
   .discovery-page-actions { width: 100%; justify-content: space-between; }
   .discovery-timeline-row { grid-template-columns: 24px 42px minmax(0, 1fr) 48px; }
+  .discovery-checkpoint-grid { grid-template-columns: 1fr; }
+  .discovery-checkpoint-slot { min-height: 0; }
+  .discovery-checkpoint-slot p { min-height: 0; }
 }
+@media (max-width: 620px) {
+  .discovery-checkpoint-slot p,
+  .discovery-checkpoint-artifacts,
+  .discovery-checkpoint-slot-footer { margin-left: 0; }
+  .discovery-checkpoint-preview-foot { display: block; line-height: 1.6; }
+  .discovery-checkpoint-preview-foot span { display: block; }
+  .discovery-stage-console .discovery-runtime-desk > .discovery-prototype-panel:nth-child(2) { min-height: 360px; }
+  .discovery-stage-console .discovery-runtime-desk > .discovery-prototype-panel:nth-child(2) .discovery-runtime-events { min-height: 260px; }
+}
+
 /* ---------- Current Launch Beacon ---------------------------------------- */
 /* The live Launch gets one calm signal rail: a breathing beacon, a semantic
    milestone track, and a compact metrics grid. Raw output remains a stable
@@ -2246,6 +2480,21 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
   gap: 0;
   overflow: hidden;
   padding: 0;
+}
+.discovery-beacon-hero.is-standby .discovery-beacon-orb {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--muted) 38%, var(--line));
+}
+.discovery-beacon-hero.is-standby .discovery-beacon-orb span,
+.discovery-beacon-hero.is-standby .discovery-beacon-orb::before,
+.discovery-beacon-hero.is-standby .discovery-beacon-orb::after {
+  animation-duration: 2.4s;
+}
+.discovery-beacon-hero.is-standby .discovery-beacon-stage.is-standby { color: var(--muted); }
+.discovery-beacon-hero.is-standby .discovery-beacon-stage.is-standby::before {
+  border-color: var(--muted);
+  background: var(--panel);
+  box-shadow: 0 0 0 4px var(--solid);
 }
 .discovery-beacon-signal {
   position: relative;

@@ -84,7 +84,7 @@ function getSearchRank(item: UnifiedSkillListItem, query: string): number {
 
 export function getGroupMemberSkills(skillPackage: InstalledSkillPackage, skills: Skill[]): Skill[] {
   const memberIds = new Set(skillPackage.installed_members);
-  return skills.filter((skill) => memberIds.has(skill.id) && skill.scope === "global");
+  return skills.filter((skill) => memberIds.has(skill.id) && skill.scope === "global" && !skill.read_only);
 }
 
 export function buildGroupToolStateById(

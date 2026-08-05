@@ -28,6 +28,7 @@ import {
   getToolBulkToggleMode,
   getToolBulkToggleTargets,
 } from "./tools/bulkToggleToolSkills";
+import { canToggleSkill } from "./skills/skillCapabilities";
 import { getSkillTagsForSkill } from "./skills/skillTags";
 import {
   getSkillLinkStatus,
@@ -199,6 +200,10 @@ export function Tools() {
   }, []);
 
   const handleToggleSkillForTool = useCallback(async (tool: Tool, instanceId: string, enabled: boolean) => {
+    const targetSkill = skills.find((skill) => skill.instance_id === instanceId);
+    if (targetSkill && !canToggleSkill(targetSkill, tool.id)) {
+      return;
+    }
     const toggleKey = `${tool.id}:${instanceId}`;
     setTogglingSkill(toggleKey);
 
@@ -235,7 +240,11 @@ export function Tools() {
     });
 
     const bulkMode = getToolBulkToggleMode(visibleSkillIds, enabledMap);
-    const targetSkillIds = getToolBulkToggleTargets(visibleSkillIds, enabledMap, bulkMode);
+    const targetSkillIds = getToolBulkToggleTargets(visibleSkillIds, enabledMap, bulkMode)
+      .filter((instanceId) => {
+        const skill = skills.find((item) => item.instance_id === instanceId);
+        return Boolean(skill && canToggleSkill(skill, tool.id));
+      });
 
     if (targetSkillIds.length === 0) {
       return;
@@ -723,8 +732,12 @@ export function Tools() {
     if (!toolEditorTool) {
       return [];
     }
-    return getToolBulkToggleTargets(toolEditorFilteredSkillIds, toolSkillEnabledMap, toolEditorBulkToggleMode);
-  }, [toolEditorFilteredSkillIds, toolEditorTool, toolEditorBulkToggleMode, toolSkillEnabledMap]);
+    return getToolBulkToggleTargets(toolEditorFilteredSkillIds, toolSkillEnabledMap, toolEditorBulkToggleMode)
+      .filter((skillId) => {
+        const skill = skills.find((item) => item.instance_id === skillId);
+        return Boolean(skill && canToggleSkill(skill, toolEditorTool.id));
+      });
+  }, [skills, toolEditorFilteredSkillIds, toolEditorTool, toolEditorBulkToggleMode, toolSkillEnabledMap]);
 
   const toolEditorIsBulkToggling = toolEditorTool ? bulkTogglingToolId === toolEditorTool.id : false;
   const toolEditorHasPendingSingleToggle = toolEditorTool
@@ -748,14 +761,17 @@ export function Tools() {
     return toolEditorFilteredSkillIds.map((skillId) => {
       const toggleKey = `${toolEditorTool.id}:${skillId}`;
       const isToggling = togglingSkill === toggleKey;
-      const isDisabled = toolEditorIsBulkToggling || isToggling || shouldDisable;
+      const skill = skills.find((s) => s.instance_id === skillId);
+      const canToggle = skill ? canToggleSkill(skill, toolEditorTool.id) : false;
+      const isDisabled = toolEditorIsBulkToggling || isToggling || shouldDisable || !canToggle;
       const tooltip = !toolEditorTool.detected
         ? t("skills.toolNotDetected")
         : !toolEditorTool.config.enabled
           ? t("tools.skillsManageDisabled")
+          : !canToggle
+            ? t("skills.inventoryPresentUnmanaged")
           : undefined;
 
-      const skill = skills.find((s) => s.instance_id === skillId);
       const tags = skill ? getSkillTagsForSkill(skill, skillMetadata) : [];
       const status = skill ? getSkillLinkStatus(skill, toolEditorTool.id) : "missing";
       const isEnabled = status === "linked";

@@ -33,6 +33,9 @@ it("renders one empty Discovery shell with internal lifecycle navigation", async
   expect(screen.queryByText("Free-form text", { exact: true })).toBeNull();
   expect(screen.getByRole("textbox", { name: "Research text" }).className).toContain("min-h-[172px]");
   expect(screen.getByText(/Empty Preparation/)).toBeTruthy();
+  expect(screen.getByText("CURRENT OBSERVATION · PREPARATION")).toBeTruthy();
+  expect(screen.getByText("Ready to launch")).toBeTruthy();
+  expect(screen.getByText("Waiting for a confirmed Launch")).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Discovery" })).toBeTruthy();
   expect(screen.getByText("Preparation in progress").closest(".discovery-context-nav-row")).toBeTruthy();
   expect(screen.queryByText("Preparation / stage canvas", { exact: false })).toBeNull();
@@ -45,7 +48,19 @@ it("renders one empty Discovery shell with internal lifecycle navigation", async
 
   fireEvent.click(screen.getByRole("tab", { name: "Current Launch" }));
   expect(screen.queryByRole("button", { name: "Refresh Preparation" })).toBeNull();
-  expect(screen.getByRole("heading", { name: "No current Launch" })).toBeTruthy();
+  expect(await screen.findByTestId("discovery-checkpoint-strip")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Preparation" })).toBeTruthy();
+  expect(screen.getByText("CURRENT OBSERVATION · PREPARATION")).toBeTruthy();
+  expect(screen.getByText("Ready to launch")).toBeTruthy();
+  expect(screen.getByText("Waiting for a confirmed Launch")).toBeTruthy();
+  expect(screen.queryByText("No current Launch")).toBeNull();
+  expect(screen.queryByText("Execution inactive. Start a Discovery run from Preparation to activate this surface.")).toBeNull();
+  expect(screen.getByText("Runtime pulse")).toBeTruthy();
+  expect(screen.getByTestId("discovery-checkpoint-slot-mas").className).toContain("is-locked");
+  expect(screen.getByTestId("discovery-checkpoint-slot-method").className).toContain("is-locked");
+  expect(screen.getByTestId("discovery-checkpoint-slot-handoff").className).toContain("is-locked");
+  expect(screen.getByTestId("runtime-desk")).toBeTruthy();
+  expect(screen.getByText("Artifacts will appear after a Launch starts.")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
   expect(screen.getByRole("tab", { name: "History" }).getAttribute("aria-selected")).toBe("true");
@@ -582,4 +597,148 @@ it("shows Launch-owned artifacts for active and selected history contexts only",
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
   expect(await screen.findByTestId("discovery-artifacts")).toBeTruthy();
   expect(screen.getByText("report.md")).toBeTruthy();
+});
+
+it("renders the Stage Strip with fixed seam slots and one inactive checkpoint Resume path", async () => {
+  const launch = {
+    launch_id: "launch-stage-strip",
+    preparation_id: "preparation",
+    revision_id: "revision-1",
+    created_at: "2026-08-01T00:00:00.000Z",
+    started_at: "2026-08-01T00:00:01.000Z",
+    completed_at: null,
+    state: "awaiting_review" as const,
+    stage: "mas",
+    round: 2,
+    attempts: [],
+    runner_pid: null,
+    resumable: true,
+    checkpoint: {
+      checkpoint_id: "checkpoint-mas-2",
+      seam: "mas",
+      attempt_id: "attempt-1",
+      stage: "mas",
+      round: 2,
+      reason: "human review",
+      created_at: "2026-08-01T00:00:02.000Z",
+    },
+    outcome: null,
+    error: null,
+  };
+  const base = {
+    module: "discovery" as const,
+    schema_version: 1,
+    contexts: [
+      { id: "preparation" as const, label: "Preparation", description: "Prepare inputs." },
+      { id: "launch" as const, label: "Current Launch", description: "Observe a launch." },
+      { id: "history" as const, label: "History", description: "Review history." },
+    ],
+    active_context: "launch" as const,
+    preparation: {
+      status: "empty" as const,
+      dirty: false,
+      draft: { text: "", sources: [] },
+      saved: { text: "", sources: [] },
+      revisions: [],
+      conversion: {
+        status: "pending" as const,
+        model_id: null,
+        error: null,
+        saved_revision_id: null,
+        base_fingerprint: null,
+        current_fingerprint: "",
+      },
+    },
+    current_launch: launch,
+    history: [],
+  };
+  const status = {
+    launch,
+    state: "awaiting_review" as const,
+    stage: "mas",
+    round: 2,
+    checkpoint: launch.checkpoint,
+    timeline: {
+      revision: 2,
+      percent: 44,
+      current_milestone_id: "mas",
+      milestones: [
+        {
+          id: "preparing",
+          key: "preparing",
+          label: "Prepare sources",
+          position: 1,
+          state: "completed",
+          summary: "Launch snapshot created",
+          started_at: null,
+          ended_at: null,
+          attempts: [],
+        },
+        {
+          id: "mas",
+          key: "mas",
+          label: "Run MAS",
+          position: 2,
+          state: "completed",
+          summary: "Ranking bundle written",
+          started_at: null,
+          ended_at: null,
+          attempts: [],
+        },
+      ],
+    },
+    activity: {
+      oldest_sequence: null,
+      newest_sequence: null,
+      truncated_before_sequence: 0,
+      items: [],
+    },
+    allowed_actions: ["resume"],
+    produced_outputs: [],
+    latest_event_sequence: 0,
+  };
+  let resumed = false;
+  const request = vi.fn(async (url: string) => {
+    if (url.endsWith("/v1/discovery")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ...base, current_launch: resumed ? { ...launch, state: "running" } : launch }),
+      } as Response;
+    }
+    if (url.includes("/artifacts") && !url.includes("/read") && !url.includes("/reveal")) {
+      return { ok: true, status: 200, json: async () => ({ artifacts: [] }) } as Response;
+    }
+    if (url.includes("/status")) {
+      return { ok: true, status: 200, json: async () => status } as Response;
+    }
+    if (url.includes("/events")) {
+      return { ok: true, status: 200, json: async () => ({ events: [], latest_sequence: 0 }) } as Response;
+    }
+    if (url.includes("/resume")) {
+      resumed = true;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ launch_id: launch.launch_id, state: "running", snapshot: { ...base, current_launch: { ...launch, state: "running" } } }),
+      } as Response;
+    }
+    return { ok: true, status: 200, json: async () => ({}) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  render(<DiscoveryView />);
+
+  expect(await screen.findByTestId("discovery-checkpoint-strip")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Review checkpoints" })).toBeTruthy();
+  expect(screen.getByTestId("discovery-checkpoint-slot-mas").querySelector("strong")?.textContent).toBe("After MAS ranking");
+  expect(screen.getByTestId("discovery-checkpoint-slot-method").querySelector("strong")?.textContent).toBe("Before experiment");
+  expect(screen.getByTestId("discovery-checkpoint-slot-handoff").querySelector("strong")?.textContent).toBe("Before PaperOrchestra");
+  expect(screen.getByTestId("discovery-checkpoint-slot-mas").className).toContain("is-active");
+  expect(screen.getByTestId("discovery-checkpoint-slot-method").getAttribute("aria-disabled")).toBe("true");
+  expect(screen.getByText("Execution inactive")).toBeTruthy();
+  expect(screen.getByTestId("runtime-desk")).toBeTruthy();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Resume" })[0]);
+  await waitFor(() => expect(request.mock.calls.some(([url]) => String(url).includes("/resume"))).toBe(true));
 });

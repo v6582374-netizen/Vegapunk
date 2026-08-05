@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import hashlib
 import io
 import json
 import os
@@ -58,9 +59,62 @@ def _deep_merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
             target[key] = copy.deepcopy(value)
 
 
+def _canonical_catalog_model_id(model_id: str, catalog: dict[str, Any]) -> str:
+    """Convert the Desktop picker spelling to one declared catalog identity.
+
+    The Desktop picker uses ``provider:model`` while the in-process Runtime uses
+    the explicit ``provider/model`` identity.  This is a representation bridge,
+    not an alias: the resulting identity must already exist in the catalog.
+    """
+
+    selected = model_id.strip()
+    if "/" in selected:
+        canonical_id = selected
+    elif ":" in selected:
+        provider, model = selected.split(":", 1)
+        canonical_id = f"{provider}/{model}"
+    else:
+        models = catalog.get("models")
+        candidates = [
+            str(canonical_id)
+            for canonical_id, definition in (models.items() if isinstance(models, dict) else [])
+            if isinstance(definition, dict) and definition.get("model") == selected
+        ]
+        if len(candidates) != 1:
+            raise ValueError(
+                f"Discovery model {model_id!r} must use provider/model or provider:model"
+            )
+        canonical_id = candidates[0]
+
+    models = catalog.get("models")
+    if not isinstance(models, dict) or canonical_id not in models:
+        raise ValueError(
+            f"Discovery model {model_id!r} is not declared in the model catalog"
+        )
+    return canonical_id
+
+
+def _catalog_binding_for_provider(
+    catalog: dict[str, Any], provider: str, capability: str
+) -> str | None:
+    models = catalog.get("models")
+    if not isinstance(models, dict):
+        return None
+    for canonical_id, definition in models.items():
+        if not isinstance(definition, dict):
+            continue
+        if str(definition.get("provider")) != provider:
+            continue
+        capabilities = definition.get("capabilities") or []
+        if capability in capabilities:
+            return str(canonical_id)
+    return None
+
+
 def _materialize_task(
     launch_dir: Path,
     input_snapshot: dict[str, Any],
+    discovery_root: Path | None = None,
 ) -> Path:
     execution_root = launch_dir / ".execution"
     task_dir = execution_root / "task"
@@ -78,10 +132,29 @@ def _materialize_task(
         if not isinstance(source, dict):
             continue
         filename = str(source.get("filename") or f"source-{index}")
-        encoded = source.get("content_base64")
-        if not isinstance(encoded, str):
-            continue
-        content = base64.b64decode(encoded, validate=True)
+        content_ref = source.get("content_ref")
+        if isinstance(content_ref, str):
+            if discovery_root is None:
+                raise ValueError("source content store is unavailable")
+            digest = content_ref.removeprefix("sha256:")
+            if (
+                len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+                or digest != str(source.get("sha256") or "")
+            ):
+                raise ValueError("source content reference is invalid")
+            source_path = (discovery_root / "sources" / digest).resolve()
+            source_root = (discovery_root / "sources").resolve()
+            if source_path.parent != source_root:
+                raise ValueError("source content reference escapes source store")
+            content = source_path.read_bytes()
+            if hashlib.sha256(content).hexdigest() != digest:
+                raise ValueError("source content digest does not match its manifest")
+        else:
+            encoded = source.get("content_base64")
+            if not isinstance(encoded, str):
+                raise ValueError(f"source content is missing: {filename}")
+            content = base64.b64decode(encoded, validate=True)
         extension = str(source.get("extension") or Path(filename).suffix).lower()
         if extension == ".zip":
             # A Preparation ZIP is an optional baseline/code package, not a new
@@ -170,6 +243,57 @@ def _materialize_config(
     model_id = configuration_snapshot.get("model_id")
     if isinstance(model_id, str) and model_id.strip():
         config.setdefault("experiment", {})["model"] = model_id
+
+    # Freeze the catalog used by this Launch. On Resume, reuse the launch-owned
+    # copy even if the editable global catalog has changed or disappeared.
+    launch_catalog_path = launch_dir / ".execution" / "model_catalog.yaml"
+    catalog_is_frozen = launch_catalog_path.is_file()
+    catalog_path = launch_catalog_path
+    if launch_catalog_path.is_file():
+        try:
+            catalog = yaml.safe_load(launch_catalog_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as error:
+            raise ValueError(
+                f"Unable to read frozen model catalog {launch_catalog_path}: {error}"
+            ) from error
+    else:
+        raw_catalog_path = config.get("model_catalog_path") or "config/model_catalog.yaml"
+        catalog_path = Path(str(raw_catalog_path)).expanduser()
+        if not catalog_path.is_absolute():
+            catalog_path = repository_root / catalog_path
+        try:
+            catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as error:
+            raise ValueError(f"Unable to read model catalog {catalog_path}: {error}") from error
+    if not isinstance(catalog, dict):
+        raise ValueError(f"Model catalog {catalog_path} must be a mapping")
+    if isinstance(model_id, str) and model_id.strip():
+        try:
+            active_text_model = _canonical_catalog_model_id(model_id, catalog)
+        except ValueError:
+            if catalog_is_frozen:
+                raise
+            # A pre-catalog Launch may carry an older provider/model spelling.
+            # Preserve that immutable launch configuration instead of making a
+            # historical Resume depend on today's catalog entries.
+        else:
+            catalog["active_text_model"] = active_text_model
+            active_provider = active_text_model.split("/", 1)[0]
+            capability_models = catalog.get("capability_models")
+            if isinstance(capability_models, dict):
+                image_model = _catalog_binding_for_provider(
+                    catalog, active_provider, "image_generation"
+                )
+                if image_model is None:
+                    raise ValueError(
+                        f"Model catalog has no {active_provider!r} image_generation binding"
+                    )
+                capability_models["image_generation"] = image_model
+    launch_catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    launch_catalog_path.write_text(
+        yaml.safe_dump(catalog, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    config["model_catalog_path"] = str(launch_catalog_path)
     settings = configuration_snapshot.get("settings")
     if isinstance(settings, dict):
         config["discovery_model_settings"] = copy.deepcopy(settings)
@@ -202,6 +326,42 @@ def _seed_ideas(launch_dir: Path, input_snapshot: dict[str, Any]) -> Path:
 def _append_log(log_path: Path, line: str) -> None:
     with log_path.open("a", encoding="utf-8") as log:
         log.write(line.rstrip("\n") + "\n")
+
+
+_TERMINAL_ERROR_PREFIXES = (
+    "Fatal error:",
+    "Idea generation failed:",
+    "Report generation failed:",
+    "Experiment execution failed:",
+    "Error in session:",
+)
+
+
+def _terminal_error_from_log(log_path: Path) -> str | None:
+    """Recover a bounded domain error after the child exits without a summary.
+
+    ``launch_discovery.py`` has a few legacy ``sys.exit(1)`` paths, so the worker
+    cannot rely on a single structured return channel yet.  Only well-known error
+    prefixes are promoted from a bounded log tail; arbitrary traceback lines and
+    unstructured stdout never become lifecycle state.
+    """
+    try:
+        with log_path.open("rb") as stream:
+            size = stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, size - 128 * 1024))
+            payload = stream.read()
+    except OSError:
+        return None
+
+    for raw_line in reversed(payload.decode("utf-8", errors="replace").splitlines()):
+        line = raw_line.strip()
+        for prefix in _TERMINAL_ERROR_PREFIXES:
+            marker = line.find(prefix)
+            if marker < 0:
+                continue
+            detail = line[marker:]
+            return detail if len(detail) <= 512 else f"{detail[:509]}..."
+    return None
 
 
 def _project_artifacts(launch_dir: Path, returncode: int) -> None:
@@ -291,6 +451,7 @@ def run(
     mode: str,
     exp_backend: str,
     resume: bool,
+    secret_store: Any | None = None,
 ) -> int:
     # Import after the parent has supplied PYTHONPATH.  This keeps the worker
     # executable as a plain Python entry while preserving the sidecar package seam.
@@ -313,12 +474,31 @@ def run(
         configuration_snapshot = json.loads(
             (launch_dir / "launch_configuration.json").read_text(encoding="utf-8")
         )
-        task_dir = _materialize_task(launch_dir, input_snapshot)
+        task_dir = _materialize_task(launch_dir, input_snapshot, discovery_root)
+        launch_catalog_path = launch_dir / ".execution" / "model_catalog.yaml"
+        catalog_was_frozen = launch_catalog_path.is_file()
         config_path = _materialize_config(
             repository_root, launch_dir, configuration_snapshot
         )
+        from coworker.server.discovery_runtime import (
+            apply_provider_overrides,
+            prepare_launch_environment,
+        )
 
-        store.worker_started(launch_dir.name, attempt_id, os.getpid())
+        # This is the admission seam for the production launcher.  Resolve every
+        # Provider bound by the frozen catalog, inject credentials only into the
+        # child environment, and freeze non-sensitive endpoint overrides before the
+        # Launch is projected as running.
+        prepared_environment = prepare_launch_environment(
+            launch_dir / ".execution" / "model_catalog.yaml",
+            secret_store=secret_store,
+        )
+        if not catalog_was_frozen:
+            apply_provider_overrides(
+                launch_catalog_path,
+                prepared_environment.provider_overrides,
+            )
+
         command = [
             sys.executable,
             str(launcher_entry),
@@ -345,7 +525,7 @@ def run(
         if resume:
             command.extend(["--resume", str(launch_dir)])
 
-        environment = os.environ.copy()
+        environment = prepared_environment.environment
         python_path = [
             str(repository_root),
             str(repository_root / "desktop" / "openworker" / "upstream"),
@@ -355,6 +535,8 @@ def run(
             python_path.append(existing_python_path)
         environment["PYTHONPATH"] = os.pathsep.join(python_path)
 
+        # Only now is the attempt trusted enough to become visible as running.
+        store.worker_started(launch_dir.name, attempt_id, os.getpid())
         _append_log(log_path, f"web-worker: starting {' '.join(command)}")
         child = subprocess.Popen(
             command,
@@ -423,11 +605,13 @@ def run(
         _project_artifacts(launch_dir, returncode)
         error = None
         if not succeeded:
-            error = (
-                f"production Discovery launcher exited with code {returncode}"
-                if returncode != 0
-                else "production Discovery launcher exited without discovery_summary.json"
-            )
+            error = _terminal_error_from_log(log_path)
+            if error is None:
+                error = (
+                    f"production Discovery launcher exited with code {returncode}"
+                    if returncode != 0
+                    else "production Discovery launcher exited without discovery_summary.json"
+                )
         store.worker_finish(
             launch_dir.name,
             attempt_id,

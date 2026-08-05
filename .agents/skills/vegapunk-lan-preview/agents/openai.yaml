@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vegapunk LAN Preview"
+  short_description: "Start and share Vegapunk safely over LAN"
+  default_prompt: "Use $vegapunk-lan-preview to start and verify the Vegapunk GUI, then report both local and LAN URLs."

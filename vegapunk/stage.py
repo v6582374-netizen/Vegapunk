@@ -310,7 +310,11 @@ class IdeaGenerator:
                     break
                 
                 elif self.status == "error":
-                    raise RuntimeError("Error in MAS session")
+                    detail = full_status.get("error") or "The workflow reported an error without diagnostics"
+                    raise RuntimeError(
+                        f"MAS session {self.session_id} failed in state "
+                        f"{self.status}: {detail}"
+                    )
                 
                 self.logger.info(f"Running session {self.session_id}, iteration {iterations}")
                 self.status = await self.interface.run_session(
@@ -535,7 +539,7 @@ class ExperimentRunner:
                     self.logger.info(f"Auto-detected GPUs: {available_gpus}")
                 else:
                     self.logger.info("No CUDA devices available, will run on CPU")
-            except (ImportError, RuntimeError) as error:
+            except Exception as error:
                 self.logger.warning(
                     f"PyTorch GPU detection unavailable, will run on CPU: {error}"
                 )

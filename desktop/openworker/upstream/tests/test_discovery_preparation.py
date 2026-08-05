@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import threading
@@ -17,6 +18,7 @@ from coworker.providers.base import AssistantTurn
 from coworker.server import SessionManager, create_app
 from coworker.server import discovery as discovery_module
 from coworker.server import discovery_launch as discovery_launch_module
+from coworker.server.discovery import DiscoveryFacade
 from coworker.server.discovery_launch import DiscoveryLaunchStore
 
 TOKEN = "a" * 64
@@ -63,6 +65,60 @@ def test_conversion_prompt_path_uses_the_repository_config_in_source_checkouts()
         / "discovery_input_conversion_prompt.yaml"
     )
     assert prompt_path.is_file()
+
+
+def test_failed_launch_admission_removes_new_unreferenced_source_blob(tmp_path):
+    facade = DiscoveryFacade(tmp_path / "state", runner_mode="fake")
+    content = b"source bytes"
+    digest = hashlib.sha256(content).hexdigest()
+    source = {
+        "source_id": "source-1",
+        "filename": "evidence.txt",
+        "extension": ".txt",
+        "size": len(content),
+        "sha256": digest,
+        "content": content,
+    }
+    invalid_source = {
+        "source_id": "source-2",
+        "filename": "broken.txt",
+        "extension": ".txt",
+        "size": 7,
+        "sha256": "b" * 64,
+        "content": b"invalid",
+    }
+    execution_input = _execution_input()
+    preparation = {
+        "text": "Research",
+        "sources": [source, invalid_source],
+        "revisions": [],
+    }
+    fingerprint = discovery_module._preparation_fingerprint(preparation)
+    revision = {
+        "revision_id": "revision-1",
+        "created_at": "2026-08-04T00:00:00+00:00",
+        "model_id": "relay/test-model",
+        "preparation_fingerprint": fingerprint,
+        "execution_input": execution_input,
+    }
+    preparation["revisions"] = [revision]
+    facade._committed = preparation
+    facade._draft = discovery_module._copy_preparation(preparation)
+    facade._conversion_draft = execution_input
+    facade._conversion_model_id = "relay/test-model"
+    facade._conversion_error = None
+    facade._conversion_base_fingerprint = fingerprint
+    facade._conversion_saved_revision_id = revision["revision_id"]
+
+    with pytest.raises(OSError, match="digest does not match"):
+        facade.start_launch(
+            {"revision_id": revision["revision_id"]},
+            idempotency_key="orphan-cleanup",
+            model_id="relay/test-model",
+            settings={},
+        )
+
+    assert not (tmp_path / "state" / "discovery" / "sources" / digest).exists()
 
 
 class FakeConversionProvider:
@@ -600,11 +656,10 @@ def test_structured_conversion_returns_one_backend_execution_input_and_runs_it(
         json={"revision_id": revision["revision_id"]},
     )
     assert started.status_code == 201
-    snapshot = started.json()["snapshot"]["current_launch"]["input_snapshot"]
-    assert snapshot["execution_input"] == conversion["execution_input"]
-    assert "execution_inputs" not in snapshot
-    assert "input_id" not in snapshot
-    assert "formatted_input" not in snapshot
+    snapshot = started.json()["snapshot"]["current_launch"]
+    assert snapshot["input_summary"]["title"] == conversion["execution_input"]["task_description"]
+    assert "input_snapshot" not in snapshot
+    assert "content_base64" not in started.text
 
 
 @pytest.mark.parametrize(
@@ -1046,6 +1101,8 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
     assert input_snapshot["revision_id"] == revision_id
     assert input_snapshot["execution_input"] == _execution_input("Reviewed research input")
     assert "formatted_input" not in input_snapshot
+    assert all("content_base64" not in source for source in input_snapshot["sources"])
+    assert all(source["content_ref"] == source["sha256"] for source in input_snapshot["sources"])
     assert configuration_snapshot["model_id"] == "relay/test-model"
     assert configuration_snapshot["settings"] == {
         "temperature": 0.0,

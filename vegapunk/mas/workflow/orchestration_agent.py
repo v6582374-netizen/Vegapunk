@@ -214,7 +214,11 @@ class OrchestrationAgent:
 
         except Exception as e:
             logger.error(f"Error running session {session_id}: {str(e)}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Session execution failed: {e}",
+            )
             await self.memory_manager.store_session(session)
             raise
 
@@ -278,6 +282,7 @@ class OrchestrationAgent:
             "idea_count": len(session.ideas),
             "started_at": session.started_at.isoformat(),
             "age_hours": (datetime.now() - session.started_at).total_seconds() / 3600,
+            "error": session.error,
             "top_ideas": []
         }
 
@@ -399,7 +404,12 @@ class OrchestrationAgent:
         }
         return agent_mapping.get(state, "Unknown Agent")
 
-    async def _update_session_state(self, session: WorkflowSession, new_state: WorkflowState) -> None:
+    async def _update_session_state(
+        self,
+        session: WorkflowSession,
+        new_state: WorkflowState,
+        error: Optional[str] = None,
+    ) -> None:
         """
         Transition session to new workflow state.
 
@@ -409,9 +419,15 @@ class OrchestrationAgent:
         Args:
             session (WorkflowSession): Session to update
             new_state (WorkflowState): Target workflow state
+            error (Optional[str]): Diagnostic message when entering the error state
         """
         old_state = session.state
         session.state = new_state
+
+        if error is not None:
+            session.error = error
+        elif new_state != WorkflowState.ERROR:
+            session.error = None
 
         if new_state == WorkflowState.METHOD_DEVELOPMENT:
             session.method_phase = True
@@ -456,7 +472,11 @@ class OrchestrationAgent:
             await handler(session)
         else:
             logger.error(f"Unknown state: {session.state}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Unknown workflow state: {session.state.value}",
+            )
 
     async def _run_generation_phase(self, session: WorkflowSession) -> None:
         """
@@ -511,7 +531,11 @@ class OrchestrationAgent:
 
         except Exception as e:
             logger.error(f"Error in generation phase: {str(e)}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Generation phase failed: {e}",
+            )
 
     async def _run_reflection_phase(self, session: WorkflowSession) -> None:
         """
@@ -638,7 +662,11 @@ class OrchestrationAgent:
 
         except Exception as e:
             logger.error(f"Error in literature survey phase: {str(e)}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Literature survey phase failed: {e}",
+            )
 
     async def _run_evolution_phase(self, session: WorkflowSession) -> None:
         """
@@ -735,8 +763,16 @@ class OrchestrationAgent:
         ideas = [i for i in session.ideas if i.iteration == (current_iter + 1)]
 
         if not ideas:
-            logger.warning(f"No ideas found for iteration {current_iter}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            message = (
+                "Ranking phase cannot continue: no ideas were produced for "
+                f"iteration {current_iter + 1}"
+            )
+            logger.warning(message)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=message,
+            )
             return
 
         context = {
@@ -774,7 +810,11 @@ class OrchestrationAgent:
 
         except Exception as e:
             logger.error(f"Error in ranking phase: {str(e)}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Ranking phase failed: {e}",
+            )
 
     async def _run_method_development_phase(self, session: WorkflowSession) -> None:
         """
@@ -792,9 +832,7 @@ class OrchestrationAgent:
 
         method_dev_agent = self._get_agent("method_development")
         if not method_dev_agent:
-            logger.warning("Method development agent not found, skipping to ranking phase")
-            await self._update_session_state(session, WorkflowState.RANKING)
-            return
+            raise ValueError("Method development agent initialization failed")
 
         current_iter = session.iterations_completed
         ideas = self._get_current_ideas(session, current_iter)
@@ -872,7 +910,11 @@ class OrchestrationAgent:
 
         except Exception as e:
             logger.error(f"Error in method development phase: {str(e)}")
-            await self._update_session_state(session, WorkflowState.ERROR)
+            await self._update_session_state(
+                session,
+                WorkflowState.ERROR,
+                error=f"Method development phase failed: {e}",
+            )
 
     async def _run_refinement_phase(self, session: WorkflowSession):
         """

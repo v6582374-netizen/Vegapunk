@@ -19,6 +19,8 @@ import {
   type DiscoveryContext,
   type DiscoveryContextId,
   type DiscoveryActivityStream,
+  type DiscoveryCheckpoint,
+  type DiscoveryCheckpointKey,
   type DiscoveryConversionPrompt,
   type DiscoveryConversionState,
   type DiscoveryExecutionInput,
@@ -55,12 +57,79 @@ const FALLBACK_CONTEXTS: DiscoveryContext[] = [
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const EMPTY_CONTENT: DiscoveryPreparationContent = { text: "", sources: [] };
+const RAW_LOG_LINE_LIMIT = 2000;
 const STAGES = [
   ["Gather", "Files and text"],
   ["Convert", "Explicit model action"],
   ["Review", "Edit and save"],
   ["Run", "Immutable Launch snapshot"],
 ] as const;
+
+const HUMAN_REVIEW_CHECKPOINTS: Array<{
+  key: DiscoveryCheckpointKey;
+  order: number;
+  label: string;
+  short: string;
+  reason: string;
+  artifacts: Array<[string, string]>;
+  preview: Array<[string, string]>;
+}> = [
+  {
+    key: "mas",
+    order: 1,
+    label: "After MAS ranking",
+    short: "Every ranking → AWAITING_FEEDBACK",
+    reason: "Inspect ranked ideas before the next MAS cycle.",
+    artifacts: [
+      ["ranked-ideas.json", "scores + rank"],
+      ["critique-and-evidence.md", "evidence links"],
+      ["traj.json", "session trajectory"],
+    ],
+    preview: [
+      ["Top candidates", "Ranking bundle"],
+      ["Ranking context", "MAS iteration context"],
+      ["Next operation", "Reflection / evolution"],
+    ],
+  },
+  {
+    key: "method",
+    order: 2,
+    label: "Before experiment",
+    short: "One batch per Discovery Round",
+    reason: "Inspect refined methods before ExperimentRunner or ReportWriter starts.",
+    artifacts: [
+      ["method-batch.json", "refined methods"],
+      ["baseline-metrics.json", "run comparison"],
+      ["execution-plan.md", "resources + limits"],
+    ],
+    preview: [
+      ["Round", "Refined method batch"],
+      ["Execution context", "Runtime configuration"],
+      ["Next operation", "Experiment / report path"],
+    ],
+  },
+  {
+    key: "handoff",
+    order: 3,
+    label: "Before PaperOrchestra",
+    short: "One checkpoint per Launch",
+    reason: "Inspect the aggregate Discovery outcome before paper generation.",
+    artifacts: [
+      ["discovery_summary.json", "rounds + results"],
+      ["candidate-reports/", "successful candidates"],
+      ["paper-input-manifest.json", "source-faithful inputs"],
+    ],
+    preview: [
+      ["Outcome", "Discovery summary"],
+      ["Provenance", "Launch-owned artifacts"],
+      ["Next operation", "One PaperOrchestra Run"],
+    ],
+  },
+];
+
+const CHECKPOINT_ORDER = new Map(
+  HUMAN_REVIEW_CHECKPOINTS.map((checkpoint) => [checkpoint.key, checkpoint.order]),
+);
 
 type Busy =
   | "intake"
@@ -175,6 +244,106 @@ function normalizeActivity(raw: Partial<DiscoveryActivityStream> | undefined): D
   };
 }
 
+function canonicalCheckpointKey(value: unknown): DiscoveryCheckpointKey | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (normalized === "mas" || normalized.includes("mas_ranking")) return "mas";
+  if (normalized === "method" || normalized.includes("before_experiment")) return "method";
+  if (
+    normalized === "handoff" ||
+    normalized.includes("paperorchestra") ||
+    normalized.includes("paper_orchestra")
+  ) {
+    return "handoff";
+  }
+  return null;
+}
+
+function checkpointKeyFromRecord(checkpoint: DiscoveryCheckpoint | null | undefined): DiscoveryCheckpointKey | null {
+  if (!checkpoint) return null;
+  return (
+    canonicalCheckpointKey(checkpoint.seam) ??
+    canonicalCheckpointKey(checkpoint.stage) ??
+    canonicalCheckpointKey(checkpoint.reason)
+  );
+}
+
+function activeCheckpointKey(
+  launch: DiscoveryLaunch | null,
+  status: DiscoveryLaunchStatus | null,
+): DiscoveryCheckpointKey | null {
+  if (!launch) return null;
+  return (
+    checkpointKeyFromRecord(status?.checkpoint ?? launch.checkpoint) ??
+    ((status?.state ?? launch.state) === "awaiting_review"
+      ? canonicalCheckpointKey(status?.stage ?? launch.stage)
+      : null)
+  );
+}
+
+type CheckpointSlotState = "locked" | "active" | "done";
+
+function checkpointSlotState(
+  key: DiscoveryCheckpointKey,
+  launch: DiscoveryLaunch | null,
+  status: DiscoveryLaunchStatus | null,
+): CheckpointSlotState {
+  if (!launch) return "locked";
+  const observedState = status?.state ?? launch.state;
+  const active = activeCheckpointKey(launch, status);
+  if (observedState === "completed") return "done";
+  if (observedState === "awaiting_review" && active) {
+    const activeOrder = CHECKPOINT_ORDER.get(active) ?? 0;
+    const slotOrder = CHECKPOINT_ORDER.get(key) ?? 0;
+    if (slotOrder < activeOrder) return "done";
+    if (slotOrder === activeOrder) return "active";
+  }
+
+  const completed = (status?.checkpoints ?? [])
+    .map((checkpoint) => checkpointKeyFromRecord(checkpoint))
+    .filter((candidate): candidate is DiscoveryCheckpointKey => candidate !== null);
+  if (completed.includes(key)) return "done";
+  return "locked";
+}
+
+function checkpointStatusLabel(state: CheckpointSlotState): string {
+  if (state === "active") return "Current checkpoint";
+  if (state === "done") return "Available";
+  return "Not reached";
+}
+
+function checkpointArtifactRows(
+  definition: (typeof HUMAN_REVIEW_CHECKPOINTS)[number],
+  launch: DiscoveryLaunch | null,
+  status: DiscoveryLaunchStatus | null,
+): Array<[string, string]> {
+  if (!launch) return definition.artifacts;
+  const checkpoint = status?.checkpoint ?? launch.checkpoint;
+  const key = checkpointKeyFromRecord(checkpoint);
+  if (key === definition.key && checkpoint?.artifacts?.length) {
+    return checkpoint.artifacts.map(
+      (artifact): [string, string] => [artifact.path, artifact.detail ?? artifact.label],
+    );
+  }
+  return definition.artifacts;
+}
+
+function checkpointPreviewRows(
+  definition: (typeof HUMAN_REVIEW_CHECKPOINTS)[number],
+  status: DiscoveryLaunchStatus | null,
+): Array<[string, string]> {
+  const checkpoint = status?.checkpoint;
+  if (!checkpoint) return definition.preview;
+  if (checkpointKeyFromRecord(checkpoint) !== definition.key) return definition.preview;
+  const facts = checkpoint as DiscoveryCheckpoint & {
+    preview?: Array<{ label?: string; value?: string }>;
+  };
+  if (!Array.isArray(facts.preview)) return definition.preview;
+  return facts.preview
+    .map((fact): [string, string] => [String(fact.label ?? ""), String(fact.value ?? "")])
+    .filter(([label, value]) => Boolean(label && value));
+}
+
 function normalizeLaunchStatus(raw: DiscoveryLaunchStatus | DiscoverySnapshot): DiscoveryLaunchStatus | null {
   const candidate = raw as Partial<DiscoveryLaunchStatus> & Partial<DiscoverySnapshot>;
   const launch = candidate.launch ?? candidate.current_launch;
@@ -189,6 +358,7 @@ function normalizeLaunchStatus(raw: DiscoveryLaunchStatus | DiscoverySnapshot): 
     activity: normalizeActivity(candidate.activity),
     allowed_actions: Array.isArray(candidate.allowed_actions) ? candidate.allowed_actions : [],
     produced_outputs: Array.isArray(candidate.produced_outputs) ? candidate.produced_outputs : [],
+    checkpoints: Array.isArray(candidate.checkpoints) ? candidate.checkpoints : undefined,
     latest_event_sequence: candidate.latest_event_sequence ?? 0,
   };
 }
@@ -215,6 +385,25 @@ function applyLaunchEvents(
       return {
         ...current,
         timeline: normalizeTimeline(data.timeline as Partial<DiscoveryProgressTimeline>),
+      };
+    }
+    if (event.type === "checkpoint.created" && data.checkpoint && typeof data.checkpoint === "object") {
+      const checkpoint = data.checkpoint as DiscoveryCheckpoint;
+      return {
+        ...current,
+        state: "awaiting_review",
+        stage: checkpoint.stage,
+        round: checkpoint.round,
+        checkpoint,
+        allowed_actions: ["resume"],
+        launch: {
+          ...current.launch,
+          state: "awaiting_review",
+          stage: checkpoint.stage,
+          round: checkpoint.round,
+          checkpoint,
+          resumable: true,
+        },
       };
     }
     return current;
@@ -278,23 +467,7 @@ function EmptyContext({ context }: { context: DiscoveryContextId }) {
   if (context === "preparation") return null;
 
   if (context === "launch") {
-    return (
-      <section className={CARD + " p-5 sm:p-6"} aria-labelledby="discovery-launch-heading">
-        <div className="flex items-start gap-3">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-paper text-muted">
-            <Icon name="clock" size={17} />
-          </span>
-          <div>
-            <h2 id="discovery-launch-heading" className="text-[15px] font-semibold text-ink">
-              No current Launch
-            </h2>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
-              A confirmed Discovery run will appear here with its live state and controls.
-            </p>
-          </div>
-        </div>
-      </section>
-    );
+    return <PrototypeLaunchHero launch={null} status={null} />;
   }
 
   return (
@@ -322,10 +495,9 @@ function prototypeLaunchShortId(launch: DiscoveryLaunch): string {
 }
 
 function prototypeLaunchTitle(launch: DiscoveryLaunch): string {
-  const researchText = launch.input_snapshot?.research_text;
-  if (typeof researchText === "string" && researchText.trim()) {
-    const firstLine = researchText.trim().split("\n")[0];
-    return firstLine.length <= 54 ? firstLine : `${firstLine.slice(0, 51)}...`;
+  const title = launch.title ?? launch.input_summary?.title;
+  if (typeof title === "string" && title.trim()) {
+    return title.length <= 54 ? title : `${title.slice(0, 51)}...`;
   }
   return `Discovery Launch ${prototypeLaunchShortId(launch)}`;
 }
@@ -379,9 +551,9 @@ function PrototypeStatusPill({ state }: { state: DiscoveryLaunch["state"] }) {
         ? "is-danger"
         : live ? "is-live" : "is-warn";
   return (
-    <span className="discovery-status-pill">
+    <span className={`discovery-status-pill ${state === "awaiting_review" ? "is-review" : ""}`}>
       <span className={`discovery-status-dot ${stateClass}`} />
-      {state.charAt(0).toUpperCase() + state.slice(1)}
+      {state === "awaiting_review" ? "Execution inactive" : state.charAt(0).toUpperCase() + state.slice(1)}
     </span>
   );
 }
@@ -397,7 +569,9 @@ function PrototypeLaunchAction({
   onStop?: () => void;
   onResume?: () => void;
 }) {
-  const resumable = (launch.state === "stopped" || launch.state === "interrupted") && launch.resumable;
+  const resumable =
+    launch.state === "awaiting_review" ||
+    ((launch.state === "stopped" || launch.state === "interrupted") && launch.resumable);
   if (prototypeLaunchIsActive(launch) && onStop) {
     return (
       <button
@@ -423,6 +597,172 @@ function PrototypeLaunchAction({
     );
   }
   return null;
+}
+
+function DiscoveryLaunchNotice({
+  launch,
+  status,
+}: {
+  launch: DiscoveryLaunch | null;
+  status: DiscoveryLaunchStatus | null;
+}) {
+  const active = activeCheckpointKey(launch, status);
+  const activeDefinition = HUMAN_REVIEW_CHECKPOINTS.find((checkpoint) => checkpoint.key === active);
+  const observedState = status?.state ?? launch?.state ?? "idle";
+  const awaitingReview = observedState === "awaiting_review" && Boolean(activeDefinition);
+  const message = !launch
+    ? "Preparation is the current state. Start a Discovery run from Preparation when you are ready."
+    : awaitingReview
+    ? `Execution inactive at ${activeDefinition!.label}. Review the read-only bundle, then Resume.`
+    : observedState === "failed"
+      ? launch.error
+        ? `Launch failed: ${launch.error}`
+        : "Launch failed. Open Runtime output for the failure details."
+    : observedState === "interrupted"
+      ? "Launch interrupted. Review its durable checkpoint before resuming."
+    : observedState === "stopped"
+      ? "Launch stopped at a durable checkpoint. Resume it when you are ready."
+    : observedState === "completed"
+      ? "This Launch is complete. All three checkpoint bundles remain available as read-only history."
+      : "The Launch is active. Checkpoint slots remain unavailable until their boundary is reached.";
+  return (
+    <div className={`discovery-launch-notice ${awaitingReview ? "is-review" : ""} ${!launch ? "is-empty" : ""}`} role="status">
+      <span className="discovery-launch-notice-dot" aria-hidden="true" />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function DiscoveryCheckpointStrip({
+  launch,
+  status,
+  selected,
+  onSelect,
+}: {
+  launch: DiscoveryLaunch | null;
+  status: DiscoveryLaunchStatus | null;
+  selected: DiscoveryCheckpointKey;
+  onSelect: (key: DiscoveryCheckpointKey) => void;
+}) {
+  return (
+    <section
+      className="discovery-checkpoint-strip"
+      aria-label="Human review checkpoints"
+      data-testid="discovery-checkpoint-strip"
+    >
+      <div className="discovery-checkpoint-strip-head">
+        <div>
+          <h3>Review checkpoints</h3>
+          <span>Fixed Launch artifacts · open as each seam is reached</span>
+        </div>
+        <span className="discovery-checkpoint-strip-count">3 seams</span>
+      </div>
+      <div className="discovery-checkpoint-grid">
+        {HUMAN_REVIEW_CHECKPOINTS.map((definition) => {
+          const state = checkpointSlotState(definition.key, launch, status);
+          const disabled = state === "locked";
+          const artifacts = checkpointArtifactRows(definition, launch, status);
+          return (
+            <article
+              key={definition.key}
+              className={`discovery-checkpoint-slot is-${state} ${selected === definition.key ? "is-selected" : ""}`}
+              aria-disabled={disabled ? "true" : undefined}
+              aria-current={selected === definition.key ? "true" : undefined}
+              data-testid={`discovery-checkpoint-slot-${definition.key}`}
+            >
+              <div className="discovery-checkpoint-slot-top">
+                <span className="discovery-checkpoint-icon" aria-hidden="true">
+                  {state === "done" ? "✓" : state === "active" ? "•" : "—"}
+                </span>
+                <div className="discovery-checkpoint-slot-title">
+                  <strong>{definition.label}</strong>
+                  <span>{definition.short}</span>
+                </div>
+                <span className="discovery-checkpoint-status">{checkpointStatusLabel(state)}</span>
+              </div>
+              <p>{definition.reason}</p>
+              <div className="discovery-checkpoint-artifacts">
+                {artifacts.map(([name, detail]) => (
+                  <div key={name} className={`discovery-checkpoint-artifact ${disabled ? "is-disabled" : ""}`}>
+                    <span>{name}</span>
+                    <span>{detail}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="discovery-checkpoint-slot-footer">
+                <span className="discovery-checkpoint-readonly">
+                  {disabled ? "Available after seam" : "Read-only bundle"}
+                </span>
+                {disabled ? (
+                  <span className="discovery-checkpoint-lock">Locked</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="discovery-checkpoint-open"
+                    onClick={() => onSelect(definition.key)}
+                    aria-label={`Open ${definition.label} checkpoint bundle`}
+                  >
+                    Open
+                  </button>
+                )}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function DiscoveryCheckpointPreview({
+  launch,
+  status,
+  selected,
+}: {
+  launch: DiscoveryLaunch | null;
+  status: DiscoveryLaunchStatus | null;
+  selected: DiscoveryCheckpointKey;
+}) {
+  const definition = HUMAN_REVIEW_CHECKPOINTS.find((checkpoint) => checkpoint.key === selected) ?? HUMAN_REVIEW_CHECKPOINTS[0];
+  const state = checkpointSlotState(definition.key, launch, status);
+  if (state === "locked") {
+    return (
+      <section className="discovery-checkpoint-preview discovery-prototype-panel is-empty" aria-label="Review bundle preview">
+        <span className="discovery-checkpoint-empty-mark" aria-hidden="true">—</span>
+        <div>
+          <h3>{launch ? "No review bundle yet" : "Awaiting first Launch"}</h3>
+          <p>
+            {launch
+              ? <>Reach <strong>{definition.label}</strong> to make its fixed artifacts available here.</>
+              : <>Start a Discovery run to populate the <strong>{definition.label}</strong> bundle.</>}
+          </p>
+        </div>
+      </section>
+    );
+  }
+  const facts = checkpointPreviewRows(definition, status);
+  const artifacts = checkpointArtifactRows(definition, launch, status);
+  return (
+    <section className="discovery-checkpoint-preview discovery-prototype-panel" aria-label="Review bundle preview">
+      <div className="discovery-checkpoint-preview-head">
+        <div>
+          <div className="discovery-checkpoint-eyebrow">Read-only artifact bundle</div>
+          <h3>{definition.label}</h3>
+        </div>
+        <span>{state === "active" ? "Current" : "Available"}</span>
+      </div>
+      <p className="discovery-checkpoint-preview-reason">{definition.reason}</p>
+      <div className="discovery-checkpoint-preview-facts">
+        {facts.map(([label, value]) => (
+          <div key={label}><span>{label}</span><strong>{value}</strong></div>
+        ))}
+      </div>
+      <div className="discovery-checkpoint-preview-foot">
+        <span>Launch-owned · immutable snapshot · no edits in v1</span>
+        <span>{artifacts.length} artifacts</span>
+      </div>
+    </section>
+  );
 }
 
 function PrototypeHistoryRunItem({
@@ -500,6 +840,7 @@ function PrototypeRuntimeDesk({
   status,
   busy,
   historyMode = false,
+  emptyState = false,
   rawOpen,
   rawLines,
   rawError,
@@ -510,6 +851,7 @@ function PrototypeRuntimeDesk({
   status: DiscoveryLaunchStatus | null;
   busy: Busy;
   historyMode?: boolean;
+  emptyState?: boolean;
   rawOpen: boolean;
   rawLines: string[];
   rawError: string | null;
@@ -517,6 +859,29 @@ function PrototypeRuntimeDesk({
   onStop?: () => void;
   onResume?: () => void;
 }) {
+  if (!status && emptyState) {
+    return (
+      <div className="discovery-runtime-desk is-empty" aria-label="Runtime Desk" data-testid="runtime-desk">
+        <section className="discovery-prototype-panel discovery-runtime-pulse-panel" aria-label="Runtime output">
+          <div className="discovery-prototype-panel-head">
+            <div>
+              <h3>Runtime pulse</h3>
+              <span>Standby until a Launch is confirmed</span>
+            </div>
+            <button type="button" className="discovery-button discovery-button-quiet" disabled>
+              View Raw Console
+            </button>
+          </div>
+          <div className="discovery-runtime-events discovery-runtime-empty-panel">
+            No runtime events yet. Start a Discovery run from Preparation when you are ready.
+          </div>
+          <div className="discovery-runtime-footer">
+            <span>Standby · no process started</span>
+          </div>
+        </section>
+      </div>
+    );
+  }
   if (!status) {
     return (
       <section className="discovery-prototype-panel p-5" aria-label="Runtime Desk" aria-busy="true">
@@ -641,23 +1006,31 @@ function PrototypeRuntimeDesk({
   );
 }
 
-function PrototypeProgressPanel({ status }: { status: DiscoveryLaunchStatus | null }) {
-  if (!status) return null;
+function PrototypeProgressPanel({
+  status,
+  emptyState = false,
+}: {
+  status: DiscoveryLaunchStatus | null;
+  emptyState?: boolean;
+}) {
+  if (!status && !emptyState) return null;
   const percent = status?.timeline.percent ?? 0;
   const completed = status?.timeline.milestones.filter((milestone) => milestone.state === "completed").length ?? 0;
   const total = status?.timeline.milestones.length ?? 0;
-  const stageLabel = prototypeLaunchStageLabel(status, status.stage);
-  const awaitingReview = String(status.state) === "awaiting_review";
+  const stageLabel = prototypeLaunchStageLabel(status, status?.stage ?? "Preparation");
+  const awaitingReview = String(status?.state) === "awaiting_review";
   return (
     <section className="discovery-prototype-panel discovery-progress-panel discovery-beacon-progress-panel" aria-label="Discovery Progress">
       <div className="discovery-beacon-progress-head"><div><strong>Research progress</strong><span>{stageLabel}</span></div><strong>{percent}%</strong></div>
       <div className="discovery-progress-bar"><span style={{ width: `${percent}%` }} /></div>
-      <div className="discovery-progress-caption"><span>{stageLabel}</span><strong>{status ? `${completed} / ${total} stages` : "Waiting"}</strong></div>
-      <div className="discovery-beacon-progress-seam"><span>Next human seam</span><strong>{awaitingReview ? "Review now" : "Review"}</strong></div>
+      <div className="discovery-progress-caption"><span>{stageLabel}</span><strong>{status ? `${completed} / ${total} stages` : "Standby"}</strong></div>
+      <div className="discovery-beacon-progress-seam"><span>Next human seam</span><strong>{awaitingReview ? "Review now" : "Start Launch"}</strong></div>
       <p className="discovery-beacon-progress-copy">
         {awaitingReview
           ? "The checkpoint is ready for a deliberate read-only review."
-          : "The checkpoint stays quiet until its boundary is reached."}
+          : status
+            ? "The checkpoint stays quiet until its boundary is reached."
+            : "The first durable timeline begins when a Launch is confirmed in Preparation."}
       </p>
     </section>
   );
@@ -667,30 +1040,45 @@ function PrototypeLaunchHero({
   launch,
   status,
 }: {
-  launch: DiscoveryLaunch;
+  launch: DiscoveryLaunch | null;
   status: DiscoveryLaunchStatus | null;
 }) {
+  const standby = !launch;
   const milestones = status?.timeline.milestones ?? [];
   const currentMilestoneId = status?.timeline.current_milestone_id;
   const currentMilestone = milestones.find(
     (milestone) => milestone.id === currentMilestoneId || prototypeMilestoneState(milestone, currentMilestoneId) === "active",
   );
-  const observedState = String(status?.state ?? launch.state);
-  const observedStage = prototypeLaunchStageLabel(status, currentMilestone?.summary ?? currentMilestone?.label ?? launch.stage);
-  const stateLabel = prototypeLaunchStateLabel(observedState);
+  const observedState = String(status?.state ?? launch?.state ?? "preparation");
+  const observedStage = standby
+    ? "Preparation"
+    : prototypeLaunchStageLabel(status, currentMilestone?.summary ?? currentMilestone?.label ?? launch?.stage ?? "Preparation");
+  const stateLabel = standby ? "Ready to launch" : prototypeLaunchStateLabel(observedState);
   const signalCopy =
-    observedState === "awaiting_review"
+    standby
+      ? "Preparation is the current state. Confirm a Launch from Preparation when you are ready to begin."
+      : observedState === "awaiting_review"
       ? "The run is paused at a deliberate human seam. Review the read-only bundle before resuming."
+      : observedState === "failed"
+        ? launch?.error
+          ? `The Launch failed: ${launch.error}`
+          : "The Launch failed before it produced a trusted terminal outcome. Open Runtime output for details."
+      : observedState === "interrupted"
+        ? "The worker stopped unexpectedly. Review the durable checkpoint before resuming."
+      : observedState === "stopped"
+        ? "The Launch was stopped at a durable checkpoint. Resume it when you are ready."
       : observedState === "completed"
         ? "The run is complete. Its timeline and artifacts remain available as immutable history."
         : "Evidence is moving through the current seam. The Launch remains interruptible and durable artifacts stay preserved.";
   return (
-    <section className="discovery-prototype-panel discovery-hero-panel discovery-beacon-hero" aria-label="Current Discovery Launch">
+    <section className={`discovery-prototype-panel discovery-hero-panel discovery-beacon-hero ${standby ? "is-standby" : ""}`} aria-label="Current Discovery Launch">
       <div className="discovery-beacon-signal">
         <div className="discovery-beacon-signal-head">
           <div className="discovery-beacon-orb" aria-hidden="true"><span /></div>
           <div className="min-w-0">
-            <div className="discovery-beacon-eyebrow">Live observation · round {String(launch.round).padStart(2, "0")}</div>
+            <div className="discovery-beacon-eyebrow">
+              {standby ? "CURRENT OBSERVATION · PREPARATION" : `Live observation · round ${String(launch?.round ?? 0).padStart(2, "0")}`}
+            </div>
             <h2 className="discovery-launch-title discovery-beacon-title">{observedStage}</h2>
             <p className="discovery-beacon-copy">{signalCopy}</p>
           </div>
@@ -708,21 +1096,21 @@ function PrototypeLaunchHero({
                 </div>
               );
             }) : (
-              <div className="discovery-beacon-stage is-active">
+              <div className={`discovery-beacon-stage ${standby ? "is-standby" : "is-active"}`}>
                 <strong>{observedStage}</strong>
-                <span>Waiting for the first durable timeline snapshot</span>
-                <em>LIVE</em>
+                <span>{standby ? "Waiting for a confirmed Launch" : "Waiting for the first durable timeline snapshot"}</span>
+                <em>{standby ? "READY" : "LIVE"}</em>
               </div>
             )}
           </div>
         </div>
-        <span className="sr-only">Launch {prototypeLaunchShortId(launch)}</span>
-        {observedState === "awaiting_review" && <span className="sr-only">Execution inactive</span>}
+        {launch && <span className="sr-only">Launch {prototypeLaunchShortId(launch)}</span>}
         <span className="sr-only">{observedState}</span>
+        {observedState === "awaiting_review" && <span className="sr-only">Execution inactive</span>}
       </div>
       <div className="discovery-beacon-metrics">
         <div className="discovery-beacon-metric"><span>State</span><strong>{stateLabel}</strong><small>server-authoritative</small></div>
-        <div className="discovery-beacon-metric"><span>Elapsed</span><strong>{prototypeLaunchElapsed(launch)}</strong><small>since Launch start</small></div>
+        <div className="discovery-beacon-metric"><span>Elapsed</span><strong>{launch ? prototypeLaunchElapsed(launch) : "—"}</strong><small>since Launch start</small></div>
         <div className="discovery-beacon-metric"><span>Current seam</span><strong>{currentMilestone ? `${String(currentMilestone.position).padStart(2, "0")} / ${String(milestones.length).padStart(2, "0")}` : "—"}</strong><small>{currentMilestone?.label ?? observedStage}</small></div>
         <div className="discovery-beacon-metric"><span>Artifacts</span><strong>{status?.produced_outputs.length ?? 0}</strong><small>read-only references</small></div>
       </div>
@@ -730,11 +1118,11 @@ function PrototypeLaunchHero({
   );
 }
 
-
 function LaunchContext({
   launch,
   busy,
   onStop,
+  onResume,
   error,
   runtimeStatus,
   rawOpen,
@@ -745,6 +1133,7 @@ function LaunchContext({
   launch: DiscoveryLaunch | null;
   busy: Busy;
   onStop: () => void;
+  onResume: () => void;
   error: string | null;
   runtimeStatus: DiscoveryLaunchStatus | null;
   rawOpen: boolean;
@@ -752,30 +1141,60 @@ function LaunchContext({
   rawError: string | null;
   onToggleRaw: () => void;
 }) {
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<DiscoveryCheckpointKey | null>(null);
+  const fallbackCheckpoint = launch
+    ? activeCheckpointKey(launch, runtimeStatus) ??
+      HUMAN_REVIEW_CHECKPOINTS.find(
+        (checkpoint) => checkpointSlotState(checkpoint.key, launch, runtimeStatus) !== "locked",
+      )?.key ??
+      "mas"
+    : "mas";
+  const selectedCheckpointKey =
+    launch &&
+    selectedCheckpoint &&
+    checkpointSlotState(selectedCheckpoint, launch, runtimeStatus) !== "locked"
+      ? selectedCheckpoint
+      : fallbackCheckpoint;
+
   return (
     <>
-      {launch ? (
-        <div className="discovery-runtime-layout">
-          <div className="discovery-runtime-main">
-            <PrototypeLaunchHero launch={launch} status={runtimeStatus} />
+      <div className="discovery-stage-strip-layout">
+        <PrototypeLaunchHero
+          launch={launch}
+          status={runtimeStatus}
+        />
+        <DiscoveryLaunchNotice launch={launch} status={runtimeStatus} />
+        <DiscoveryCheckpointStrip
+          launch={launch}
+          status={runtimeStatus}
+          selected={selectedCheckpointKey}
+          onSelect={setSelectedCheckpoint}
+        />
+        <div className="discovery-stage-body">
+          <div className="discovery-stage-console">
             <PrototypeRuntimeDesk
               status={runtimeStatus}
               busy={busy}
+              emptyState={!launch}
               rawOpen={rawOpen}
               rawLines={rawLines}
               rawError={rawError}
               onToggleRaw={onToggleRaw}
               onStop={onStop}
+              onResume={onResume}
             />
           </div>
-          <aside className="discovery-runtime-rail">
-            <PrototypeProgressPanel status={runtimeStatus} />
-            <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={launch.launch_id} /></div>
+          <aside className="discovery-stage-inspector">
+            <PrototypeProgressPanel status={runtimeStatus} emptyState={!launch} />
+            <DiscoveryCheckpointPreview
+              launch={launch}
+              status={runtimeStatus}
+              selected={selectedCheckpointKey}
+            />
+            <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} /></div>
           </aside>
         </div>
-      ) : (
-        <EmptyContext context="launch" />
-      )}
+      </div>
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
           {error}
@@ -1850,47 +2269,6 @@ export function DiscoveryView() {
   }, []);
 
   useEffect(() => {
-    if (!snapshot?.current_launch) return undefined;
-    let alive = true;
-    const observedCurrentLaunchId = snapshot.current_launch.launch_id;
-    const refresh = () => {
-      getDiscovery()
-        .then((next) => {
-          if (!alive) return;
-          if (context === "launch" && !next.current_launch) {
-            const pendingStop = stopGrace.current;
-            if (
-              pendingStop?.launch.launch_id === observedCurrentLaunchId &&
-              Date.now() < pendingStop.until
-            ) {
-              setSnapshot((current) => {
-                if (!current || current.current_launch?.launch_id === observedCurrentLaunchId) {
-                  return current;
-                }
-                return { ...next, current_launch: pendingStop.launch };
-              });
-              return;
-            }
-            stopGrace.current = null;
-            setSnapshot(next);
-            setSelectedHistoryId(observedCurrentLaunchId);
-            setContext("history");
-            return;
-          }
-          setSnapshot(next);
-        })
-        .catch(() => {
-          // Keep the last server-authoritative Launch while a transient poll fails.
-        });
-    };
-    const timer = window.setInterval(refresh, 100);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [context, snapshot?.current_launch?.launch_id]);
-
-  useEffect(() => {
     if (!observedLaunchId) {
       setRuntimeStatus(null);
       setRawLines([]);
@@ -1900,7 +2278,11 @@ export function DiscoveryView() {
 
     let alive = true;
     const controller = new AbortController();
+    let requestInFlight = false;
+    let terminalRefreshNextAt = 0;
     const refreshStatus = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
       try {
         const status = normalizeLaunchStatus(await getDiscoveryLaunchStatus(observedLaunchId));
         if (!alive) return;
@@ -1921,7 +2303,7 @@ export function DiscoveryView() {
           });
         }
         const eventCursor = eventCursors.current.get(observedLaunchId) ?? 0;
-        const events = await getDiscoveryLaunchEvents(observedLaunchId, eventCursor);
+        const events = await getDiscoveryLaunchEvents(observedLaunchId, eventCursor, controller.signal);
         if (alive) {
           eventCursors.current.set(observedLaunchId, events.latest_sequence);
           const restored = status ? applyLaunchEvents(status, events.events) : null;
@@ -1938,12 +2320,47 @@ export function DiscoveryView() {
                 history: current.history.map((launch) =>
                   launch.launch_id === restored.launch.launch_id ? restored.launch : launch,
                 ),
-              };
-            });
+                };
+              });
+            }
+            const terminal = restored
+              ? ["completed", "failed", "stopped", "interrupted"].includes(restored.state)
+              : false;
+            if (terminal && Date.now() >= terminalRefreshNextAt) {
+              terminalRefreshNextAt = Date.now() + 2000;
+              try {
+                const next = await getDiscovery();
+                if (!alive) return;
+                const pendingStop = stopGrace.current;
+                if (
+                  context === "launch" &&
+                  pendingStop?.launch.launch_id === observedLaunchId &&
+                  Date.now() < pendingStop.until &&
+                  !next.current_launch
+                ) {
+                  setSnapshot((current) =>
+                    current
+                      ? { ...next, current_launch: pendingStop.launch }
+                      : next,
+                  );
+                } else {
+                  stopGrace.current = null;
+                  setSnapshot(next);
+                }
+                if (context === "launch") {
+                  setSelectedHistoryId(observedLaunchId);
+                  setContext("history");
+                }
+              } catch {
+                // The status projection remains visible if the one reconciliation
+                // snapshot is unavailable; a later user refresh can retry it.
+              }
+            }
           }
-        }
       } catch {
         // The full Discovery snapshot remains the fallback while a status poll retries.
+      } finally {
+        requestInFlight = false;
       }
     };
     const streamRawLog = async () => {
@@ -1955,7 +2372,9 @@ export function DiscoveryView() {
         await streamDiscoveryLaunchLog(
           observedLaunchId,
           (line) => {
-            if (alive) setRawLines((current) => [...current, line]);
+            if (alive) {
+              setRawLines((current) => [...current, line].slice(-RAW_LOG_LINE_LIMIT));
+            }
           },
           controller.signal,
         );
@@ -1973,7 +2392,7 @@ export function DiscoveryView() {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [observedLaunchId, rawOpen]);
+  }, [context, observedLaunchId, rawOpen]);
 
   const contexts = snapshot?.contexts?.length ? snapshot.contexts : FALLBACK_CONTEXTS;
   const activeContext = contexts.find((item) => item.id === context) ?? contexts[0];
@@ -2163,6 +2582,32 @@ export function DiscoveryView() {
     if (busy === null) setConfirmingRun(false);
   }
 
+  function applyLaunchResult(result: Awaited<ReturnType<typeof startDiscoveryLaunch>>) {
+    const launch = result.launch;
+    const next = result.snapshot;
+    if (!launch) {
+      setSnapshot(next);
+      setContext("launch");
+      return;
+    }
+    const currentMatches = next.current_launch?.launch_id === launch.launch_id;
+    const history = [
+      launch,
+      ...next.history.filter((candidate) => candidate.launch_id !== launch.launch_id),
+    ];
+    setSnapshot(
+      currentMatches
+        ? next
+        : { ...next, history },
+    );
+    if (currentMatches) {
+      setContext("launch");
+    } else {
+      setSelectedHistoryId(launch.launch_id);
+      setContext("history");
+    }
+  }
+
   async function confirmRun() {
     if (!preparation) return;
     const revisionId = preparation.conversion.saved_revision_id;
@@ -2178,8 +2623,7 @@ export function DiscoveryView() {
       const result = await startDiscoveryLaunch(revisionId, requestKey);
       idempotencyKeys.current.delete(key);
       stopGrace.current = null;
-      setSnapshot(result.snapshot);
-      setContext("launch");
+      applyLaunchResult(result);
     } catch (caught) {
       setLaunchError(errorMessage(caught));
     } finally {
@@ -2247,8 +2691,7 @@ export function DiscoveryView() {
       const result = await resumeDiscoveryLaunch(launch.launch_id, requestKey);
       idempotencyKeys.current.delete(key);
       stopGrace.current = null;
-      setSnapshot(result.snapshot);
-      setContext("launch");
+      applyLaunchResult(result);
     } catch (caught) {
       setLaunchError(errorMessage(caught));
     } finally {
@@ -2361,55 +2804,74 @@ export function DiscoveryView() {
             ) : error ? (
               <ErrorContext />
             ) : activeContext.id === "preparation" && preparation ? (
-              editingConversionPrompt ? (
-                <ConversionPromptEditor
-                  prompt={conversionPrompt}
-                  busy={busy}
-                  error={conversionPromptError}
-                  backLabel={conversionPromptReturn === "input" ? "← Reviewable Input" : "← Preparation"}
-                  onBack={() => {
-                    setEditingConversionPrompt(false);
-                    setConversionPromptError(null);
-                  }}
-                  onSave={saveConversionPrompt}
-                />
-              ) : editingInput ? (
-                <ExecutionInputEditor
-                  input={editingInput}
-                  busy={busy}
-                  error={reviewError}
-                  onBack={() => setEditingExecutionInput(false)}
-                  onSave={saveRevision}
-                  onOpenPrompt={openConversionPrompt}
-                />
-              ) : (
-                <PreparationCanvas
-                  preparation={preparation}
-                  text={text}
-                  resetNotice={resetNotice}
-                  busy={busy}
-                  error={mutationError}
-                  reviewError={reviewError}
-                  onTextChange={setDraftText}
-                  onFiles={addFiles}
-                  onSave={savePreparation}
-                  onDelete={removeSource}
-                  onConvert={convertPreparation}
-                  onOpenInput={openExecutionInput}
-                  onOpenPrompt={openConversionPrompt}
-                  currentLaunch={snapshot?.current_launch ?? null}
-                  launchError={launchError}
-                  confirmingRun={confirmingRun}
-                  onRequestRun={requestRun}
-                  onCancelRun={cancelRun}
-                  onConfirmRun={confirmRun}
-                />
-              )
+              <>
+                {/* The Beacon is the current-state surface, not a conditional
+                    active-launch accessory. In standby it explains that the
+                    backend is still in Preparation while keeping the exact same
+                    visual language ready for the first immutable Launch. */}
+                <div className="mb-4 grid gap-2">
+                  <PrototypeLaunchHero
+                    launch={snapshot?.current_launch ?? null}
+                    status={snapshot?.current_launch ? runtimeStatus : null}
+                  />
+                  <DiscoveryLaunchNotice
+                    launch={snapshot?.current_launch ?? null}
+                    status={snapshot?.current_launch ? runtimeStatus : null}
+                  />
+                </div>
+                {editingConversionPrompt ? (
+                  <ConversionPromptEditor
+                    prompt={conversionPrompt}
+                    busy={busy}
+                    error={conversionPromptError}
+                    backLabel={conversionPromptReturn === "input" ? "← Reviewable Input" : "← Preparation"}
+                    onBack={() => {
+                      setEditingConversionPrompt(false);
+                      setConversionPromptError(null);
+                    }}
+                    onSave={saveConversionPrompt}
+                  />
+                ) : editingInput ? (
+                  <ExecutionInputEditor
+                    input={editingInput}
+                    busy={busy}
+                    error={reviewError}
+                    onBack={() => setEditingExecutionInput(false)}
+                    onSave={saveRevision}
+                    onOpenPrompt={openConversionPrompt}
+                  />
+                ) : (
+                  <PreparationCanvas
+                    preparation={preparation}
+                    text={text}
+                    resetNotice={resetNotice}
+                    busy={busy}
+                    error={mutationError}
+                    reviewError={reviewError}
+                    onTextChange={setDraftText}
+                    onFiles={addFiles}
+                    onSave={savePreparation}
+                    onDelete={removeSource}
+                    onConvert={convertPreparation}
+                    onOpenInput={openExecutionInput}
+                    onOpenPrompt={openConversionPrompt}
+                    currentLaunch={snapshot?.current_launch ?? null}
+                    launchError={launchError}
+                    confirmingRun={confirmingRun}
+                    onRequestRun={requestRun}
+                    onCancelRun={cancelRun}
+                    onConfirmRun={confirmRun}
+                  />
+                )}
+              </>
             ) : activeContext.id === "launch" ? (
               <LaunchContext
                 launch={snapshot?.current_launch ?? null}
                 busy={busy}
                 onStop={stopLaunch}
+                onResume={() => {
+                  if (snapshot?.current_launch) void resumeLaunch(snapshot.current_launch);
+                }}
                 error={launchError}
                 runtimeStatus={runtimeStatus}
                 rawOpen={rawOpen}

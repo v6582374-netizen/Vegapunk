@@ -3,10 +3,12 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { initTheme } from "./theme";
 import { platformOS } from "./tauri";
+import { installWebTauriBridge } from "./skills-manager/web-bridge";
 import "./tailwind.css";
 import "./styles.css";
 
 initTheme();
+installWebTauriBridge();
 // Platform hook for CSS (html[data-platform="windows"] scrollbar styling etc.).
 document.documentElement.dataset.platform = platformOS();
 

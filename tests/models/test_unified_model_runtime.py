@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from vegapunk.mas.models.base_model import ServiceUnavailableError
 from vegapunk.mas.models.runtime import (
@@ -198,6 +200,31 @@ class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(request_timeout, 300)
             self.assertLessEqual(request_timeout, catalog.retry.max_elapsed_seconds)
             self.assertNotIn("max_output_tokens", provider.settings)
+
+    def test_default_adapter_ignores_provider_ui_metadata(self) -> None:
+        """Provider settings may contain Desktop-only metadata, not adapter kwargs."""
+
+        catalog = ModelCatalog.from_mapping(
+            {
+                **CATALOG,
+                "providers": {
+                    **CATALOG["providers"],
+                    "qwen": {
+                        **CATALOG["providers"]["qwen"],
+                        "user_configurable_fields": ["base_url"],
+                    },
+                },
+            }
+        )
+        model = catalog.resolve_model("qwen/qwen3.7-max")
+
+        with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "test-key"}):
+            adapter = UnifiedModelRuntime._default_adapter_factory(
+                model, catalog.provider_for(model)
+            )
+
+        self.assertEqual(adapter.provider_name, "qwen")
+        self.assertEqual(adapter.model_name, "qwen3.7-max")
 
 
 if __name__ == "__main__":

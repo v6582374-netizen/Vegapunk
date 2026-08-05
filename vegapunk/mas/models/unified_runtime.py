@@ -750,7 +750,14 @@ class UnifiedModelRuntime:
         model_def: ModelDefinition, provider: ProviderDefinition
     ) -> Any:
         if model_def.protocol == "responses":
-            settings = dict(provider.settings)
+            # Provider settings are also consumed by the Desktop settings surface.
+            # Keep UI-only metadata at that boundary; the strict model adapter only
+            # receives transport/runtime fields.
+            settings = {
+                key: value
+                for key, value in provider.settings.items()
+                if key != "user_configurable_fields"
+            }
             settings.update(model_def.settings)
             settings.pop("native_base_url", None)
             settings.pop("endpoint", None)

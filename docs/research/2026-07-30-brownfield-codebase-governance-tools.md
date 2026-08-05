@@ -42,7 +42,7 @@ star 数会继续变化，因此下表的数字是 2026-07-30 的快照，不应
 
 ## 为什么 InternAgent 是典型 brownfield
 
-当前 [architecture.md](../../architecture.md) 显示，仓库同时包含 Python 的 `vegapunk`、`admin_console`、实验和脚本目录，React/TypeScript 的 `frontend`，大量 `tasks/*` 任务树，以及 `third_party/paper_orchestra` 和 `desktop/openworker/upstream` 等继承或上游代码。
+当前 [architecture.md](../architecture.md) 显示，仓库同时包含 Python 的 `vegapunk`、`admin_console`、实验和脚本目录，React/TypeScript 的 `frontend`，大量 `tasks/*` 任务树，以及 `third_party/paper_orchestra` 和 `desktop/openworker/upstream` 等继承或上游代码。
 
 这意味着“没有引用的文件”不一定是死代码，因为入口可能来自 CLI、配置、动态导入、模型工具注册、任务目录约定、子进程、外部 runner 或浏览器请求。
 
@@ -305,4 +305,4 @@ brownfield 仓库首先需要 diff-only 和 baseline 模式，否则质量门会
 - [OpenHands 官方仓库](https://github.com/All-Hands-AI/OpenHands)；[官方文档](https://docs.openhands.dev/)；[commits.atom](https://github.com/All-Hands-AI/OpenHands/commits/main.atom)。
 - [Superpowers 官方仓库](https://github.com/obra/superpowers)；[commits.atom](https://github.com/obra/superpowers/commits/main.atom)。
 - [GitHub Awesome Copilot 官方仓库](https://github.com/github/awesome-copilot)；[commits.atom](https://github.com/github/awesome-copilot/commits/main.atom)。
-- [InternAgent 当前架构](../../architecture.md)。
+- [InternAgent 当前架构](../architecture.md)。

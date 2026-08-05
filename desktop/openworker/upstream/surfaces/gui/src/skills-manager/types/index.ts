@@ -3,6 +3,7 @@
 
 export type SkillScope = "global" | "project";
 export type SkillLinkStatus = "linked" | "broken" | "wrong_target" | "unmanaged" | "missing";
+export type SkillSource = "local" | "imported" | "marketplace" | "vault" | (string & {});
 
 export interface Skill {
   id: string;
@@ -13,9 +14,15 @@ export interface Skill {
   name: string;
   description: string | null;
   version: string;
-  source: "local" | "imported";
+  source: SkillSource;
   enabled: Record<string, boolean>;
   link_status?: Record<string, SkillLinkStatus>;
+  /** Capabilities reported by the inventory source. External bodies are read-only. */
+  read_only?: boolean;
+  can_edit?: boolean;
+  can_delete?: boolean;
+  toggle_allowed?: Record<string, boolean>;
+  source_tool_id?: string | null;
   package_meta?: SkillPackageMeta | null;
   path: string;
 }

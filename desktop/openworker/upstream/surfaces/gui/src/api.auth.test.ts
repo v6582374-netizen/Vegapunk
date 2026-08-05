@@ -1,8 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { getDiscovery, getHealth, Session } from "./api";
+import { getDiscovery, getHealth, getPromptLibrary, Session } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 it("authenticates REST and session WebSocket calls with the launch token", async () => {
@@ -72,4 +73,40 @@ it("uses same-origin REST credentials for the Linux Web Counterpart", async () =
 
   await getHealth();
   expect(request).toHaveBeenCalledOnce();
+});
+
+it("uses the Vite same-origin proxy for browser development", async () => {
+  vi.stubEnv("DEV", true);
+  vi.stubGlobal("__COWORKER_API_TOKEN__", "dev-token");
+  const request = vi.fn(async (url: string, init?: RequestInit) => {
+    expect(["/v1/health", "/v1/prompt-library/prompts"]).toContain(url);
+    expect(init?.credentials).toBeUndefined();
+    expect(new Headers(init?.headers).get("X-OpenWorker-Token")).toBe("dev-token");
+    return { ok: true, status: 200, json: async () => ({ status: "ok", prompts: [] }) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  class FakeWebSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    readyState = FakeWebSocket.CONNECTING;
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+
+    constructor(public readonly url: string) {}
+
+    send = vi.fn();
+    close = vi.fn();
+  }
+  vi.stubGlobal("WebSocket", FakeWebSocket);
+
+  await getHealth();
+  await getPromptLibrary();
+  expect(request).toHaveBeenCalledTimes(2);
+  const session = new Session("s1", "/workspace", "code", { onEvent: vi.fn() });
+  const socket = (session as unknown as { ws: FakeWebSocket }).ws;
+  expect(socket.url).toBe(
+    `ws://${window.location.host}/ws/session/s1?workspace=%2Fworkspace&agent=code`,
+  );
 });

@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import yaml
 from fastapi.testclient import TestClient
 
 from coworker.providers.base import AssistantTurn
@@ -58,6 +59,76 @@ def _client(state_root: Path, monkeypatch, *, runner_mode: str = "fake") -> Test
 
 def _encoded(value: bytes) -> str:
     return base64.b64encode(value).decode("ascii")
+
+
+def test_materialized_config_snapshots_selected_qwen_catalog(tmp_path):
+    repository_root = Path(__file__).resolve().parents[4]
+    launch_dir = tmp_path / "launch"
+
+    config_path = discovery_worker_module._materialize_config(
+        repository_root,
+        launch_dir,
+        {"model_id": "qwen:qwen3-max", "settings": {}},
+    )
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    # The Codex experiment keeps the UI model spelling, while the MAS runtime gets
+    # an immutable, launch-owned catalog with the selected canonical identity.
+    assert config["experiment"]["model"] == "qwen:qwen3-max"
+    catalog_path = Path(config["model_catalog_path"])
+    if not catalog_path.is_absolute():
+        catalog_path = repository_root / catalog_path
+    assert catalog_path != repository_root / "config/model_catalog.yaml"
+    assert catalog_path.is_file()
+    catalog = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+    assert catalog["active_text_model"] == "qwen/qwen3-max"
+    assert catalog["capability_models"]["image_generation"] == (
+        "qwen/qwen-image-2.0-pro"
+    )
+
+    bare_model_config = discovery_worker_module._materialize_config(
+        repository_root,
+        tmp_path / "bare-model-launch",
+        {"model_id": "gpt-5.6-sol", "settings": {}},
+    )
+    assert yaml.safe_load(bare_model_config.read_text(encoding="utf-8"))["experiment"][
+        "model"
+    ] == "gpt-5.6-sol"
+
+
+def test_materialized_config_reuses_frozen_catalog_on_resume(tmp_path):
+    repository_root = tmp_path / "repo"
+    (repository_root / "config").mkdir(parents=True)
+    (repository_root / "config" / "default_config.yaml").write_text(
+        "model_catalog_path: config/model_catalog.yaml\n", encoding="utf-8"
+    )
+    catalog = {
+        "models": {
+            "test/model": {
+                "provider": "test",
+                "model": "model",
+                "capabilities": ["text", "image_generation"],
+            }
+        },
+        "capability_models": {"image_generation": "test/model"},
+    }
+    global_catalog = repository_root / "config" / "model_catalog.yaml"
+    global_catalog.write_text(yaml.safe_dump(catalog), encoding="utf-8")
+    launch_dir = tmp_path / "launch"
+
+    discovery_worker_module._materialize_config(
+        repository_root, launch_dir, {"model_id": "test:model", "settings": {}}
+    )
+    frozen_path = launch_dir / ".execution" / "model_catalog.yaml"
+    frozen_before = frozen_path.read_text(encoding="utf-8")
+    global_catalog.write_text(
+        yaml.safe_dump({"models": {}, "capability_models": {}}), encoding="utf-8"
+    )
+
+    discovery_worker_module._materialize_config(
+        repository_root, launch_dir, {"model_id": "test:model", "settings": {}}
+    )
+    assert frozen_path.read_text(encoding="utf-8") == frozen_before
 
 
 def _wait_for_history(client: TestClient, launch_id: str) -> dict:
@@ -311,7 +382,7 @@ def test_real_worker_projects_discovery_success_and_paper_failure_separately(
             },
             "sources": [],
         },
-        configuration_snapshot={"model_id": "relay/test-model", "settings": {}},
+        configuration_snapshot={"model_id": "relay/gpt-5.6-sol", "settings": {}},
         response_builder=lambda: {},
     )
     launch_id = admitted["launch_id"]

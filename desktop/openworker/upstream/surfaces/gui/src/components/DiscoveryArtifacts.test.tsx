@@ -37,7 +37,7 @@ it("lists only the selected Launch artifacts and previews human-readable output 
       } as Response;
     }
     expect(url).toContain("/v1/discovery/launches/launch-1/artifacts/read?");
-    expect(new URL(url).searchParams.get("path")).toBe("report.md");
+    expect(new URL(url, window.location.origin).searchParams.get("path")).toBe("report.md");
     expect(init).toBeDefined();
     return {
       ok: true,
@@ -105,7 +105,7 @@ it("uses explicit native actions for binary artifacts without browsing arbitrary
         }),
       } as Response;
     }
-    expect(url).toBe("http://127.0.0.1:8765/v1/discovery/launches/launch-1/artifacts/reveal");
+    expect(url).toBe("/v1/discovery/launches/launch-1/artifacts/reveal");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({ path: "paper.pdf", mode: "open" });
     return { ok: true, status: 200, json: async () => ({ ok: true }) } as Response;
@@ -117,7 +117,7 @@ it("uses explicit native actions for binary artifacts without browsing arbitrary
   expect(await screen.findByText(/explicit native Open or Reveal/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open Discovery artifact in default app" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith(
-    "http://127.0.0.1:8765/v1/discovery/launches/launch-1/artifacts/reveal",
+    "/v1/discovery/launches/launch-1/artifacts/reveal",
     expect.objectContaining({ method: "POST" }),
   ));
   expect(screen.queryByRole("button", { name: "Copy path" })).toBeNull();

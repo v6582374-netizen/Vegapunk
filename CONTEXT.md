@@ -4,6 +4,47 @@ Vegapunk coordinates LLM-backed agents for research, discovery, memory, and expe
 
 ## Language
 
+**Discovery Human Review Launch Options**:
+The optional launch parameters that enable the three in-scope Discovery Human Review Checkpoints.
+Each option is a boolean; an omitted or false option preserves fully automatic execution for that seam.
+The same fields are exposed by CLI arguments and the Native Desktop Discovery Preparation surface, and are copied into the immutable Launch configuration snapshot when a Launch starts.
+They are launch options rather than a separate Settings module or a second per-plane policy.
+Every new Launch starts with all three options disabled; a prior Launch's selections are not carried forward implicitly.
+_Avoid_: implicit human pause, separate CLI and Native policy models, hidden Settings-only controls
+
+**Discovery Human Review Checkpoint**:
+The durable boundary created when an enabled Discovery review seam finishes its current stage and produces reviewable artifacts.
+The current execution is inactive rather than waiting in a live process; continuation requires an explicit human Resume action that creates the next execution attempt from the checkpoint.
+It has no automatic timeout, background polling, or fallback to automatic execution.
+_Avoid_: live waiting state, timed auto-resume, hidden background continuation
+
+**Discovery Human Review Resume**:
+The one explicit user action that continues a Discovery Human Review Checkpoint.
+Version 1 resumes immediately with the immutable checkpointed artifacts; it does not yet provide an edit-and-save path for reviewable content.
+There is no separate Resume-with-Feedback action. Future artifact editing must introduce its own revision decision rather than mutate a checkpoint in place.
+_Avoid_: automatic continuation, separate feedback resume path, editing in the read-only Version 1 surface
+
+**Discovery Reviewable Artifact**:
+A stage-specific output presented at a Discovery Human Review Checkpoint for inspection.
+Version 1 exposes these artifacts as read-only and defers editing, saving, and revision creation to a later decision.
+Each seam owns its own presentation and editable content contract; the four seams do not share one generic editor surface.
+_Avoid_: one universal review editor, implicit artifact mutation, treating raw logs as editable research input
+
+**Discovery MAS Review Checkpoint**:
+A Discovery Human Review Checkpoint created every time the MAS workflow enters `AWAITING_FEEDBACK` after a ranking phase while the corresponding policy flag is enabled.
+It is not limited to the final MAS completion; multiple checkpoints may occur across MAS iterations so human feedback can affect the next evolution or ranking cycle.
+_Avoid_: one final-only MAS review, checkpointing every internal Agent call, treating `COMPLETED` as human approval
+
+**Discovery Method Review Checkpoint**:
+A single per-round Discovery Human Review Checkpoint created after all refined methods for that round are available and before the round enters its execution/reporting path.
+The checkpoint presents the round's method candidates as one batch rather than pausing once per idea.
+_Avoid_: per-idea method pauses, approving a partially generated method batch, starting the ExperimentRunner before the checkpoint is resumed
+
+**Discovery Handoff Review Checkpoint**:
+A single per-Launch Discovery Human Review Checkpoint created after Discovery has completed its configured rounds and written its summary, but before PaperOrchestra starts.
+It presents the aggregate Discovery outcome and controls whether the Launch proceeds into paper generation.
+_Avoid_: per-candidate handoff pauses, pausing inside PaperOrchestra, treating PaperOrchestra failure as a Discovery review decision
+
 ## Product Experience
 
 **Native Desktop Application**:
@@ -880,6 +921,38 @@ _Avoid_: Task Authoring Form, fully automatic launch, current capability
 A bounded research effort that may contain multiple Discovery Rounds and Candidate Experiments. It may automatically produce at most one Paper after its configured Discovery work is complete; research intended to produce another Paper begins as a new Launch.
 _Avoid_: session, round, candidate experiment
 
+**Web Discovery Launch Completion Boundary**:
+The product-level terminal boundary for a Web Discovery Launch, reached only after its configured Discovery work and its one automatic PaperOrchestra Run have each reached a terminal outcome. A Launch remains active between Paper Handoff and the PaperOrchestra outcome, so the Web product does not present Discovery as complete while its Paper is still being generated.
+_Avoid_: Discovery-only completion, background paper generation, premature Launch completion
+
+**Web Discovery Launch Partial Outcome**:
+A terminal Web Discovery Launch result in which the Discovery work succeeded but the automatically triggered PaperOrchestra Run failed. The Launch remains viewable with its valid Discovery artifacts, while the Paper outcome is reported separately rather than converting the whole Launch into a failed Discovery.
+_Avoid_: all-or-nothing Launch failure, hidden Paper failure, automatic Paper retry
+
+**Web Launch Worker**:
+The server-owned execution unit for one Web Discovery Launch, responsible for carrying the Launch through its configured Discovery work and automatic PaperOrchestra Run while the Web backend remains available to serve other requests and observe that Launch.
+_Avoid_: browser task, API request, sidecar, parallel Launch queue
+
+**Web Discovery Execution Profile**:
+The fixed execution profile for a Web Discovery Launch: configured Discovery rounds run in experiment mode through the Codex CLI Backend, followed by the automatic PaperOrchestra Run. Report-only execution and researcher-selected Discovery Backends are outside this Web Launch profile.
+_Avoid_: report mode, Backend picker, hidden Backend fallback, fake execution
+
+**Web Discovery Start Boundary**:
+The Web-owned boundary ends at one clean Start Entry that accepts a saved Discovery Execution Input and starts the existing production Discovery launcher. Discovery orchestration, Experiment Runs, PaperOrchestra, model calls, and artifact production continue under their existing runtime logic without Web-specific stage control or reimplementation.
+_Avoid_: Web-owned Discovery loop, frontend runner, partial Paper flow, duplicated execution logic, extra Run-time input
+
+**Web Discovery Start Entry**:
+The single backend entrypoint invoked after Preparation has produced a saved, launch-ready Discovery Execution Input. It accepts the selected saved revision, starts the existing automatic Discovery workflow, and asks the Sole Researcher for nothing else.
+_Avoid_: task builder at Run time, second preparation form, browser-managed workflow, manual handoff
+
+**Production Discovery Launcher**:
+The existing `launch_discovery.py` command entrypoint that owns the complete automatic Discovery-to-PaperOrchestra workflow. The Web Discovery Start Entry starts it as a black-box execution boundary and does not call or duplicate its internal orchestration stages.
+_Avoid_: Web Discovery orchestrator, stage adapter, fake runner, direct frontend execution
+
+**Web Discovery Observation Boundary**:
+The Web product observes the Production Discovery Launch through the existing Discovery API and views, projecting its real process outcome, logs, and persisted artifacts without steering or redefining the workflow's intermediate stages.
+_Avoid_: frontend-controlled execution, fake progress, Web-owned stage machine, duplicated runtime status
+
 **Discovery Round**:
 One iteration within a Discovery Launch in which research ideas are proposed and evaluated through the configured workflow.
 _Avoid_: launch, session, experiment run
@@ -1130,6 +1203,99 @@ The single automatically triggered Paper-generation execution owned by a Discove
 _Avoid_: paper version, retry attempt, independently resumable job
 
 ## Discovery Operations
+
+**Discovery CLI Parameter Set**:
+The exact named options accepted by `launch_discovery.py`, including each option's existing default, required status, and allowed choices. It is a command contract rather than a superset of YAML, Model Catalog, or hidden runtime settings; a value without a CLI option is outside the Discovery preferences surface until a new CLI option is deliberately introduced.
+_Avoid_: raw configuration tree, inferred setting, hidden runtime option
+
+**Discovery Round Limit**:
+The maximum number of complete Discovery Rounds that one new Discovery Launch may execute before its Discovery work reaches the configured terminal boundary.
+_Avoid_: loop count, iteration count, total experiment count
+
+**Discovery Round Strategy**:
+The baseline policy used between Discovery Rounds: restart each round from the original baseline or carry forward the best result from the preceding rounds.
+_Avoid_: loop mode, resume strategy, experiment backend
+
+**Idea Evolution Iteration Limit**:
+The maximum number of MAS idea-evolution iterations performed within one Discovery Round before its candidate ideas are passed onward.
+_Avoid_: Discovery Round Limit, reflection count, Experiment Run count
+
+**Candidate Experiment Count**:
+The number of ranked research ideas admitted to Candidate Experiment execution from one Discovery Round.
+_Avoid_: idea generation count, Experiment Run count, total Launch candidates
+
+**Top Idea Evolution Participation**:
+The workflow choice that determines whether the selected top ideas are included in subsequent idea-evolution work within a Discovery Round.
+_Avoid_: candidate count, evolution iteration limit, automatic reranking
+
+**Discovery Task Concurrency Limit**:
+The maximum number of Discovery workflow tasks that may execute concurrently; it governs Discovery orchestration work and does not change Provider-level request concurrency.
+_Avoid_: Provider concurrency, Experiment parallelism, Discovery Round Limit
+
+**Idea Generation Count**:
+The number of initial research ideas produced by the Idea Generation Agent in one Discovery Round before filtering and ranking.
+_Avoid_: Candidate Experiment Count, evolution variant count, total Launch ideas
+
+**Idea Generation Creativity**:
+The configured exploration level used when the Idea Generation Agent proposes initial research ideas, from conservative to highly exploratory.
+_Avoid_: model temperature, evolution creativity, ranking weight
+
+**Failed Idea Similarity Threshold**:
+The similarity boundary used to classify a generated idea as too close to a previously failed attempt.
+_Avoid_: Idea Generation Creativity, ranking score, duplicate-name check
+
+**Idea Reflection Count**:
+The number of reflection passes applied to each generated research idea before it proceeds through the configured Discovery workflow.
+_Avoid_: Discovery Round Limit, Idea Evolution Iteration Limit, Experiment Run count
+
+**Reflection Detail Level**:
+The configured amount of explanatory detail produced during each idea-reflection pass.
+_Avoid_: Idea Reflection Count, model temperature, research depth
+
+**Idea Evolution Creativity**:
+The configured exploration level used when the Evolution Agent creates variants of existing research ideas.
+_Avoid_: Idea Generation Creativity, model temperature, ranking weight
+
+**Evolution Sampling Temperature**:
+The sampling-randomness value used by the Evolution Agent when producing idea variants.
+_Avoid_: Idea Evolution Creativity, Reflection Detail Level, Provider temperature policy
+
+**Discovery Launch Preference Module**:
+The Native Desktop Settings module that stores the validated global defaults used by a newly admitted Discovery Launch. It exposes only the agreed Discovery workflow, Agent, and Experiment parameters; a successful save replaces the complete validated values atomically, and Launch admission copies the effective values into its immutable Launch Configuration Snapshot.
+_Avoid_: raw YAML editor, per-Launch override, mid-run edit, memory settings, Provider transport configuration
+
+**Discovery Launch Preference Allowlist**:
+The current parameter contract is:
+
+| Path | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `skip_idea_generation` | boolean | `false` | Skip MAS idea generation and use existing ideas. |
+| `workflow.loop_rounds` | integer | `10` | Maximum complete Discovery rounds. |
+| `workflow.loop_mode` | `fresh` / `incremental` | `incremental` | Restart from baseline or carry forward the best result. |
+| `workflow.max_iterations` | integer | `4` | MAS refinement iterations in a round. |
+| `workflow.top_ideas_count` | integer | `5` | Ranked ideas sent to experiments. |
+| `workflow.top_ideas_evo` | boolean | `true` | Include top ideas in later evolution work. |
+| `workflow.max_concurrent_tasks` | integer | `5` | Concurrent Discovery workflow task limit. |
+| `agents.generation.generation_count` | integer | `15` | Initial ideas produced per round. |
+| `agents.generation.creativity` | number | `0.7` | Initial idea exploration level. |
+| `agents.generation.failed_similarity_threshold` | number | `0.7` | Similarity cutoff against failed ideas. |
+| `agents.reflection.count` | integer | `3` | Reflection passes per idea. |
+| `agents.reflection.detail_level` | `low` / `medium` / `high` | `medium` | Reflection explanation detail. |
+| `agents.evolution.creativity_level` | number | `0.6` | Evolution exploration level. |
+| `agents.evolution.temperature` | number | `0.7` | Evolution sampling temperature. |
+| `agents.evolution.use_memory` | boolean | `true` | Allow configured memory context for evolution. |
+| `agents.ranking.criteria` | object | `0.3/0.4/0.2/0.1` | Novelty, plausibility, testability, and alignment weights; sum must be `1`. |
+| `agents.ranking.strategy` | `default` / `distinct` | `default` | Ranking strategy. |
+| `agents.scholar.search_depth` | `shallow` / `moderate` / `deep` | `moderate` | Scholar search depth. |
+| `agents.survey.max_papers` | integer | `50` | Survey paper limit. |
+| `agents.dr.enabled` | boolean | `true` | Enable the background DR phase. |
+| `agents.dr.mode` | `simple` / `complex` / `qa` | `simple` | DR operating mode. |
+| `agents.exp_analyze.use_llm_for_metric_direction` | boolean | `true` | Use an LLM for metric-direction analysis. |
+| `experiment.max_runs` | integer | `2` | Experiment Runs per Candidate Experiment. |
+| `experiment.use_mcts` | boolean | `false` | Use the configured MCTS experiment adapter. |
+
+All integer counts require at least `1`; creativity and similarity values are finite numbers in `[0, 1]`; evolution temperature is in `[0, 2]`; enums and object keys are closed. The existing Active Provider Set remains `relay` and `qwen`; arbitrary Provider, endpoint, credential, protocol, retry, timeout, concurrency, path, tool, resource, and `memory` fields are outside this module.
+_Avoid_: hidden parameter, guessed Provider, partial ranking weights, memory preference
 
 **Discovery LLM Concurrency Limit**:
 The fixed number of Discovery model tasks allowed to run simultaneously in the current process. It is set to 2 for the current one-account relay test and must be changed manually before a later run; the process does not negotiate or adapt it at runtime.

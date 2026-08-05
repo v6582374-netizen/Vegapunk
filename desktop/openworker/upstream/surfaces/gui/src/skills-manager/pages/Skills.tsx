@@ -114,6 +114,7 @@ import {
   buildGroupedSkillSections,
   type GroupedSkillSection,
 } from "./skills/buildGroupedSkillSections";
+import { canDeleteSkill, canEditSkill, canToggleSkill } from "./skills/skillCapabilities";
 import {
   buildSkillsHeaderActionLayout,
   type SkillsHeaderActionId,
@@ -343,6 +344,8 @@ type SkillCardActionButtonsProps = {
   deleting: boolean;
   editLabel: string;
   deleteLabel: string;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onEdit: () => void;
   onDelete: () => void;
 };
@@ -571,12 +574,14 @@ function SkillCardActionButtons({
   deleting,
   editLabel,
   deleteLabel,
+  canEdit = true,
+  canDelete = true,
   onEdit,
   onDelete,
 }: SkillCardActionButtonsProps) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: "6px", flexShrink: 0 }}>
-      <button
+      {canEdit && <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
         disabled={deleting}
@@ -608,8 +613,8 @@ function SkillCardActionButtons({
         }}
       >
         {editLabel}
-      </button>
-      <button
+      </button>}
+      {canDelete && <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         disabled={deleting}
@@ -639,7 +644,7 @@ function SkillCardActionButtons({
         }}
       >
         {deleteLabel}
-      </button>
+      </button>}
     </div>
   );
 }
@@ -755,7 +760,7 @@ export function Skills() {
   }, [addToast, favorites, t]);
 
   const handleOpenUnifiedItem = useCallback(async (item: UnifiedSkillListItem) => {
-    if (!item.openPath) {
+    if (!item.openPath || (item.skill && !canEditSkill(item.skill))) {
       return;
     }
 
@@ -775,7 +780,7 @@ export function Skills() {
   }, [config, navigate, addToast]);
 
   const handleOpenInventoryEditor = useCallback((item: UnifiedSkillListItem) => {
-    if (!item.openPath) {
+    if (!item.openPath || (item.skill && !canEditSkill(item.skill))) {
       return;
     }
 
@@ -885,15 +890,11 @@ export function Skills() {
     }
   }, [addToast]);
 
-  // Track whether this mount had cached data. If so, skip the automatic
-  // loadData() — the cache was just populated moments ago when the user was
-  // last on this page. The background Tauri calls would return identical data
-  // but with new object references, triggering a wasteful full re-render of
-  // 38+ useMemos and all skill cards. The user can click refresh for fresh data.
-  const hadCacheOnMountRef = useRef(skillsPageCache !== null);
-
   useEffect(() => {
-    if (hadCacheOnMountRef.current) return;
+    // The cache is only a paint-time optimization. Inventory roots are external
+    // filesystem state, so every mount must reconcile it; otherwise a page first
+    // opened before a tool Skill was installed can keep showing an empty cache
+    // forever while the user navigates within the app.
     loadData();
   }, [loadData]);
 
@@ -1064,6 +1065,11 @@ export function Skills() {
   }, [persistSkillTags, skillMetadata]);
 
   const handleToggle = async (instanceId: string, skillName: string, toolId: string, enabled: boolean) => {
+    const skill = skills.find((item) => item.instance_id === instanceId);
+    if (skill && !canToggleSkill(skill, toolId)) {
+      return;
+    }
+
     const toggleKey = `${instanceId}:${toolId}`;
     setTogglingSkill(toggleKey);
     try {
@@ -1119,7 +1125,8 @@ export function Skills() {
 
   const handleBulkToggle = useCallback(async (skill: Skill, visibleToolIds: string[]) => {
     const bulkMode = getSkillBulkToggleMode(visibleToolIds, skill.enabled, tools);
-    const targetToolIds = getSkillBulkToggleTargets(visibleToolIds, skill.enabled, tools, bulkMode);
+    const targetToolIds = getSkillBulkToggleTargets(visibleToolIds, skill.enabled, tools, bulkMode)
+      .filter((toolId) => canToggleSkill(skill, toolId));
     if (targetToolIds.length === 0) {
       return;
     }
@@ -1346,6 +1353,10 @@ export function Skills() {
   );
 
   const handleDelete = async (skill: Skill) => {
+    if (!canDeleteSkill(skill)) {
+      return;
+    }
+
     const attentionToolIds = getSkillLinkStatusAttentionToolIds(skill, tools.map((tool) => tool.id));
     const attentionToolNames = attentionToolIds
       .map((toolId) => getToolDisplayName(toolId, tools))
@@ -1630,7 +1641,9 @@ export function Skills() {
     const ids = new Set<string>();
     selectedBatchItems.forEach((item) => {
       if (item.kind === "skill" && item.skill) {
-        ids.add(item.skill.instance_id);
+        if (item.skill.read_only !== true) {
+          ids.add(item.skill.instance_id);
+        }
       } else if (item.kind === "group" && item.skillPackage) {
         getGroupMemberSkills(item.skillPackage, skills).forEach((s) =>
           ids.add(s.instance_id),
@@ -1691,7 +1704,7 @@ export function Skills() {
   const handleExportSkills = useCallback(async (instanceIds?: string[]) => {
     // Filter to global-scope, local/imported source skills (matches backend rule).
     const eligibleInstanceIds = skills
-      .filter((skill) => skill.scope === "global"
+      .filter((skill) => skill.scope === "global" && skill.read_only !== true
         && (skill.source === "local" || skill.source === "imported"))
       .map((skill) => skill.instance_id);
 
@@ -2142,6 +2155,18 @@ export function Skills() {
       return;
     }
 
+    const actionableItems = selectedBatchItems.filter((item) => {
+      if (item.kind === "group") {
+        return true;
+      }
+      const skill = item.skill;
+      return Boolean(skill && toolIdsForAction.some((toolId) => canToggleSkill(skill, toolId)));
+    });
+    if (actionableItems.length === 0) {
+      addToast(t("skills.batchNoChangesNeeded"), "info");
+      return;
+    }
+
     const confirmed = await confirm(confirmMessage, {
       title: t("skills.bulkConfirmTitle"),
       kind: "warning",
@@ -2154,7 +2179,7 @@ export function Skills() {
 
     try {
       const request: BatchSetSkillToolsRequest = {
-        targets: buildBatchTargets(selectedBatchItems),
+        targets: buildBatchTargets(actionableItems),
         tool_ids: toolIdsForAction,
         action,
       };
@@ -2179,7 +2204,7 @@ export function Skills() {
     } finally {
       setBatchSubmitting(false);
     }
-  }, [addToast, exitBatchManageMode, reloadData, selectedBatchItems, t]);
+  }, [addToast, exitBatchManageMode, reloadData, selectedBatchItems, skills, t]);
 
   const handleBatchToolToggle = useCallback(async (toolId: string, enabled: boolean) => {
     const confirmKey = enabled ? "skills.batchConfirmEnableSelectedTools" : "skills.batchConfirmDisableSelectedTools";
@@ -2205,11 +2230,14 @@ export function Skills() {
   }, [addToast, handleBatchTranslate, selectedBatchItems, t]);
 
   const handleBatchDeleteSelected = useCallback(async () => {
-    if (selectedBatchItems.length === 0) {
+    const deletableItems = selectedBatchItems.filter((item) =>
+      item.kind === "group" || (item.kind === "skill" && item.skill && canDeleteSkill(item.skill)),
+    );
+    if (deletableItems.length === 0) {
       return;
     }
     const confirmed = await confirm(
-      t("skills.batchDeleteConfirm").replace("{count}", String(selectedBatchItems.length)),
+      t("skills.batchDeleteConfirm").replace("{count}", String(deletableItems.length)),
       {
         title: t("skills.batchDeleteConfirmTitle"),
         kind: "warning",
@@ -2223,7 +2251,7 @@ export function Skills() {
     let successCount = 0;
     let failedCount = 0;
     try {
-      for (const item of selectedBatchItems) {
+      for (const item of deletableItems) {
         try {
           if (item.kind === "skill" && item.skill) {
             await invoke("delete_skill", { instanceId: item.skill.instance_id });
@@ -2353,7 +2381,7 @@ export function Skills() {
       toolEditorSkill.enabled,
       tools,
       toolEditorBulkToggleMode,
-    );
+    ).filter((toolId) => canToggleSkill(toolEditorSkill, toolId));
   }, [toolEditorFilteredToolIds, toolEditorSkill, tools, toolEditorBulkToggleMode]);
 
   const toolEditorIsBulkToggling = toolEditorSkill ? bulkTogglingSkillId === toolEditorSkill.instance_id : false;
@@ -2382,7 +2410,8 @@ export function Skills() {
       const tool = tools.find((item) => item.id === toolId);
       const isDetected = tool?.detected ?? false;
       const isToolEnabled = tool?.config.enabled ?? false;
-      const isDisabled = toolEditorIsBulkToggling || isToggling || !isDetected || !isToolEnabled;
+      const canToggle = canToggleSkill(toolEditorSkill, toolId);
+      const isDisabled = toolEditorIsBulkToggling || isToggling || !isDetected || !isToolEnabled || !canToggle;
       const statusLabel = t(getSkillLinkStatusLabelKey(status));
 
       return {
@@ -2390,7 +2419,13 @@ export function Skills() {
         label: getToolDisplayName(toolId, tools),
         enabled: isEnabled,
         disabled: isDisabled,
-        tooltip: !isDetected ? t("skills.toolNotDetected") : status === "missing" || status === "linked" ? undefined : statusLabel,
+        tooltip: !isDetected
+          ? t("skills.toolNotDetected")
+          : !canToggle
+            ? t("skills.inventoryPresentUnmanaged")
+            : status === "missing" || status === "linked"
+              ? undefined
+              : statusLabel,
         statusLabel: status === "linked" || status === "missing" ? undefined : statusLabel,
         statusTone: getSkillLinkStatusTone(status),
         dimmed: !isDetected,
@@ -2899,7 +2934,7 @@ export function Skills() {
                   unfavoriteLabel={t("skills.unfavoriteAction")}
                   size={28}
                 />
-                {item.openPath && (
+                {item.openPath && canEditSkill(skill) && (
                   <button
                     type="button"
                     className="skills-row-icon-button"
@@ -2932,6 +2967,8 @@ export function Skills() {
                   deleting={deletingSkill === skill.instance_id}
                   editLabel={t("skills.configureTools")}
                   deleteLabel={t("skills.delete")}
+                  canEdit={canEditSkill(skill)}
+                  canDelete={canDeleteSkill(skill)}
                   onEdit={() => openSkillEditor(skill.instance_id, "tools")}
                   onDelete={() => void handleDelete(skill)}
                 />
@@ -3191,14 +3228,16 @@ export function Skills() {
       ? ({
           local: "skills.inventorySourceLocal",
           imported: "skills.inventorySourceImported",
-        } as const)[skill.source]
+          marketplace: "skills.inventorySourceLocal",
+          vault: "skills.inventorySourceLocal",
+        } as Record<string, TranslationPath>)[skill.source] ?? "skills.inventorySourceLocal"
       : "skills.inventorySourcePackage";
     const revision = skillPackage?.manifest_hash
       ?? (skill?.version ? `v${skill.version}` : null);
     const updatedAt = formatInventoryTimestamp(skillPackage?.updated_at, language);
     const scanTime = formatInventoryTimestamp(highestRiskReport?.scanned_at, language);
     const lastUsedAt = formatInventoryTimestamp(detailUsage?.last_called_at, language);
-    const editorPath = item.openPath
+    const editorPath = item.openPath && (!skill || canEditSkill(skill))
       ? `${item.openPath.replace(/\/$/, "")}${skill ? "/SKILL.md" : ""}`
       : null;
 
@@ -3237,7 +3276,7 @@ export function Skills() {
         </div>
 
         <div className="skills-detail-command-row">
-          {item.openPath && (
+          {item.openPath && (!skill || canEditSkill(skill)) && (
             <button
               type="button"
               className="skills-detail-command"
@@ -3253,6 +3292,8 @@ export function Skills() {
               : deletingGroupId === item.id}
             editLabel={t("skills.configureTools")}
             deleteLabel={t("skills.delete")}
+            canEdit={skill ? canEditSkill(skill) : true}
+            canDelete={skill ? canDeleteSkill(skill) : true}
             onEdit={() => skill
               ? openSkillEditor(skill.instance_id, "tools")
               : openGroupEditor(item.id)}
@@ -3319,6 +3360,7 @@ export function Skills() {
                     : Boolean(groupState?.fullyEnabled);
                   const partial = Boolean(!skill && groupState?.anyEnabled && !groupState.fullyEnabled);
                   const unavailable = !tool?.detected || !tool.config.enabled;
+                  const toggleAllowed = skill ? canToggleSkill(skill, toolId) : true;
                   const pending = skill
                     ? togglingSkill === `${skill.instance_id}:${toolId}`
                     : togglingGroupToolKey === `${item.id}:${toolId}`;
@@ -3361,7 +3403,7 @@ export function Skills() {
                       </div>
                       <Toggle
                         checked={enabled}
-                        disabled={unavailable || pending}
+                        disabled={unavailable || pending || !toggleAllowed}
                         title={stateLabel}
                         onChange={(nextEnabled) => skill
                           ? void handleToggle(skill.instance_id, skill.name, toolId, nextEnabled)
@@ -3384,7 +3426,7 @@ export function Skills() {
             <p>{t("skills.inventoryEditorDescription")}</p>
             {editorPath && <code>{editorPath}</code>}
           </div>
-          {item.openPath && (
+          {item.openPath && (!skill || canEditSkill(skill)) && (
             <button type="button" onClick={() => handleOpenInventoryEditor(item)}>
               <span>{t("skills.openEditor")}</span>
               <ChevronRight size={13} strokeWidth={2} aria-hidden />
@@ -4016,7 +4058,7 @@ export function Skills() {
             <div className="card-grid">
               {flatSkillItems.map((item) => {
                 const color = getSkillColor(item.title);
-                const canOpen = Boolean(item.openPath);
+                const canOpen = Boolean(item.openPath && (!item.skill || canEditSkill(item.skill)));
                 const translationKey = item.kind === "skill" && item.skill
                   ? makeTranslationKey(item.skill.instance_id, SKILL_TRANSLATION_TARGET_LANGUAGE)
                   : null;
@@ -4364,6 +4406,8 @@ export function Skills() {
                             deleting={deletingSkill === item.skill.instance_id}
                             editLabel={t("skills.configureTools")}
                             deleteLabel={t("skills.delete")}
+                            canEdit={canEditSkill(item.skill)}
+                            canDelete={canDeleteSkill(item.skill)}
                             onEdit={() => openSkillEditor(item.skill!.instance_id, "tools")}
                             onDelete={() => void handleDelete(item.skill!)}
                           />

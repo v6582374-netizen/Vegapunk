@@ -30,7 +30,7 @@ export function buildGroupedSkillSections(
   const globalSkillsById = new Map<string, UnifiedSkillListItem>();
 
   allItems.forEach((item) => {
-    if (isGlobalSkillItem(item) && item.skill && !globalSkillsById.has(item.skill.id)) {
+    if (isGlobalSkillItem(item) && item.skill && !item.skill.read_only && !globalSkillsById.has(item.skill.id)) {
       globalSkillsById.set(item.skill.id, item);
     }
   });

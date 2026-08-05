@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import tempfile
 import unittest
+import asyncio
 from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
@@ -82,6 +83,28 @@ class IdeaGeneratorRuntimeTest(unittest.TestCase):
             )
 
         self.assertIs(interface.call_args.kwargs["model_runtime"], runtime)
+
+    def test_idea_generation_surfaces_workflow_error_details(self) -> None:
+        class FailedSessionInterface:
+            async def get_session_status(self, _session_id: str) -> dict[str, object]:
+                return {
+                    "state": "error",
+                    "iterations_completed": 0,
+                    "error": "Ranking phase cannot continue: no ideas were produced for iteration 1",
+                }
+
+        generator = object.__new__(IdeaGenerator)
+        generator.session_id = "session-failed"
+        generator.status = None
+        generator.interface = FailedSessionInterface()
+        generator.logger = logging.getLogger("idea-error-test")
+        generator.args = type("Args", (), {})()
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "Ranking phase cannot continue: no ideas were produced for iteration 1",
+        ):
+            asyncio.run(generator.generate_ideas())
 
 
 if __name__ == "__main__":

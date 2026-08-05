@@ -5,6 +5,7 @@ This module provides functionality for registering and creating specialized
 agent instances based on configuration.
 """
 import logging
+from collections.abc import Mapping
 from typing import Dict, Any, Type
 
 from ..models.unified_runtime import UnifiedModelRuntime
@@ -28,6 +29,24 @@ from .dr_agent import DRAgent
 from .prompt_generator_agent import PromptGeneratorAgent
 from .experience_agent import ExperienceAgent
 logger = logging.getLogger(__name__)
+
+
+class AgentInitializationError(RuntimeError):
+    """Raised when one or more configured agents cannot be initialized.
+
+    Agent construction happens at process startup. Returning a partial registry from
+    that boundary makes the workflow appear healthy until a later phase dereferences
+    the missing role, which turns the original configuration error into a misleading
+    session failure. Keep the individual failures available for callers and logs.
+    """
+
+    def __init__(self, failures: Mapping[str, BaseException]) -> None:
+        self.failures = dict(failures)
+        details = "; ".join(
+            f"{agent_type}: {type(error).__name__}: {error}"
+            for agent_type, error in self.failures.items()
+        )
+        super().__init__(f"Failed to initialize configured agents: {details}")
 
 
 # 这里集中维护“角色名 -> 代理类”的映射。上层状态机只说要哪个角色，
@@ -138,15 +157,36 @@ class AgentFactory:
             Dictionary mapping agent types to agent instances
         """
         agents = {}
-        agent_configs = config.get("agents", {})
+        agent_configs = config.get("agents") or {}
+        if not isinstance(agent_configs, Mapping):
+            raise TypeError(
+                "The 'agents' configuration must be a mapping of agent type to settings"
+            )
+
+        failures: Dict[str, BaseException] = {}
         for agent_type, agent_config in agent_configs.items():
             if agent_type in cls._agent_registry:
                 try:
-                    # Create a merged config with agent-specific settings
-                    merged_config = agent_config.copy()
+                    if agent_config is None:
+                        # YAML uses a null value for roles that rely entirely on
+                        # defaults (for example method_development/refinement).
+                        merged_config = {}
+                    elif isinstance(agent_config, Mapping):
+                        # Create a merged config with agent-specific settings without
+                        # mutating the caller's parsed configuration tree.
+                        merged_config = dict(agent_config)
+                    else:
+                        raise TypeError(
+                            f"configuration must be a mapping or null, got "
+                            f"{type(agent_config).__name__}"
+                        )
 
                     # 单个角色配置会带上全局上下文，这样代理可以读取记忆、工具和模型等公共设置。
                     merged_config["_global_config"] = config
+                    # Keep the process-owned runtime on the role config as well.
+                    # Some agents (notably DeepResearch) consume it directly, and
+                    # the cache key must describe the runtime that owns the model.
+                    merged_config["_runtime"] = model_runtime
 
                     # Add global memory configuration for agents that use task memory
                     if "memory" in config:
@@ -158,8 +198,12 @@ class AgentFactory:
                         model_runtime=model_runtime
                     )
                 except Exception as e:
-                    logger.error(f"Error creating agent {agent_type}: {str(e)}")
-        
+                    failures[agent_type] = e
+                    logger.exception("Error creating agent %s", agent_type)
+
+        if failures:
+            raise AgentInitializationError(failures) from next(iter(failures.values()))
+
         return agents
     
     @classmethod

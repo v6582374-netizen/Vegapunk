@@ -20,6 +20,7 @@ import {
   type SkillTranslationOutput,
 } from "@skills-manager/hooks/useSkillTranslation";
 import { TranslateIconButton } from "@skills-manager/components/translation/TranslateIconButton";
+import { canEditSkill } from "@skills-manager/pages/skills/skillCapabilities";
 
 const LINUX_NOTICE_DISMISSED_KEY = "skills-manager:linux-editor-notice-dismissed";
 
@@ -51,6 +52,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [relatedSkill, setRelatedSkill] = useState<Skill | null>(null);
+  const [skillCapabilitiesResolved, setSkillCapabilitiesResolved] = useState(mode !== "skill");
   const [translatingFile, setTranslatingFile] = useState(false);
   const [fileTranslation, setFileTranslation] = useState<SkillTranslationOutput | null>(null);
   const [fileViewMode, setFileViewMode] = useState<"original" | "translated">("original");
@@ -112,6 +114,9 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
   // subsequent prop-driven onChange callbacks can compare reliably.
   lastEmittedRef.current = displayContent;
   const hasUnsavedChanges = content !== originalContent;
+  // Fail closed until the server confirms that a Skill body is manager-owned.
+  const canEditCurrentSkill = mode !== "skill"
+    || (skillCapabilitiesResolved && relatedSkill !== null && canEditSkill(relatedSkill));
 
   // Load file tree
   useEffect(() => {
@@ -182,10 +187,12 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
   // currently-open SKILL.md absolute path (handles skill packages where
   // rootPath is the package root and selectedPath is a member subpath).
   useEffect(() => {
-    if (!translationEnabled || !rootPath) {
+    if (mode !== "skill" || !rootPath) {
       setRelatedSkill(null);
+      setSkillCapabilitiesResolved(mode !== "skill");
       return;
     }
+    setSkillCapabilitiesResolved(false);
     let cancelled = false;
     void (async () => {
       try {
@@ -206,13 +213,15 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
 
         setRelatedSkill(found);
       } catch {
-        // ignore
+        if (!cancelled) setRelatedSkill(null);
+      } finally {
+        if (!cancelled) setSkillCapabilitiesResolved(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [rootPath, selectedPath, translationEnabled]);
+  }, [mode, rootPath, selectedPath]);
 
   const formatTranslationError = useCallback((err: unknown): string => {
     if (typeof err === "object" && err !== null && "kind" in err) {
@@ -399,7 +408,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
   }, [rootPath, selectedPath]);
 
   const handleSave = useCallback(async () => {
-    if (!rootPath || !selectedPath || saving) return;
+    if (!rootPath || !selectedPath || saving || !canEditCurrentSkill) return;
 
     setSaving(true);
     try {
@@ -411,7 +420,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
     } finally {
       setSaving(false);
     }
-  }, [rootPath, selectedPath, saving, content]);
+  }, [rootPath, selectedPath, saving, content, canEditCurrentSkill]);
 
   // Keyboard shortcut for save
   useEffect(() => {
@@ -603,7 +612,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
           )}
           <button
             onClick={handleSave}
-            disabled={saving || !hasUnsavedChanges}
+            disabled={saving || !hasUnsavedChanges || !canEditCurrentSkill}
             style={{
               display: "flex",
               alignItems: "center",
@@ -611,11 +620,11 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
               padding: "6px 12px",
               fontSize: 13,
               fontWeight: 500,
-              color: hasUnsavedChanges ? "var(--primary-foreground)" : "var(--muted-foreground)",
-              backgroundColor: hasUnsavedChanges ? "var(--foreground)" : "transparent",
-              border: hasUnsavedChanges ? "none" : "1px solid var(--border)",
+              color: hasUnsavedChanges && canEditCurrentSkill ? "var(--primary-foreground)" : "var(--muted-foreground)",
+              backgroundColor: hasUnsavedChanges && canEditCurrentSkill ? "var(--foreground)" : "transparent",
+              border: hasUnsavedChanges && canEditCurrentSkill ? "none" : "1px solid var(--border)",
               borderRadius: 6,
-              cursor: saving || !hasUnsavedChanges ? "default" : "pointer",
+              cursor: saving || !hasUnsavedChanges || !canEditCurrentSkill ? "default" : "pointer",
               opacity: saving ? 0.7 : 1,
             }}
           >
@@ -639,7 +648,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
               rootPath={rootPath}
               selectedPath={selectedPath}
               onSelectFile={handleSelectFile}
-              onRefresh={refreshFileTree}
+              onRefresh={canEditCurrentSkill ? refreshFileTree : undefined}
             />
           </div>
         )}
@@ -826,10 +835,10 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
                 }}
                 value={displayContent}
                 onChange={(e) => {
-                  if (showingTranslation) return;
+                  if (showingTranslation || !canEditCurrentSkill) return;
                   setContent(e.target.value);
                 }}
-                readOnly={showingTranslation}
+                readOnly={showingTranslation || !canEditCurrentSkill}
                 spellCheck={false}
               />
             ) : (
@@ -838,7 +847,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
                 language={getLanguage(selectedPath)}
                 value={displayContent}
                 onChange={(value) => {
-                  if (showingTranslation) return;
+                  if (showingTranslation || !canEditCurrentSkill) return;
                   const next = value || "";
                   const normNext = next.replace(/\r\n/g, "\n");
                   const normLast = lastEmittedRef.current.replace(/\r\n/g, "\n");
@@ -857,7 +866,7 @@ export function EditorPage({ mode = "skill", onBack }: EditorPageProps) {
                   wrappingStrategy: "advanced",
                   scrollBeyondLastLine: false,
                   automaticLayout: true,
-                  readOnly: showingTranslation,
+                  readOnly: showingTranslation || !canEditCurrentSkill,
                   tabSize: 2,
                   quickSuggestions: false,
                   suggestOnTriggerCharacters: false,

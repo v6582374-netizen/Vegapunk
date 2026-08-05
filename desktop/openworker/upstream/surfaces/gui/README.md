@@ -64,12 +64,14 @@ cd desktop/openworker/upstream
 .venv/bin/openworker-server --cwd /path/to/your/project --port 8765
 
 cd surfaces/gui
-npm run dev            # → http://localhost:5173
+npm run dev            # → http://localhost:1420
 ```
 
-Open `http://localhost:5173` when working on the GUI harness. The UI talks to
-`http://127.0.0.1:8765` (override with `VITE_COWORKER_HTTP` / `VITE_COWORKER_WS`). The harness
-does not enable the server-hosted same-origin marker; production Web deployments use
+Open `http://localhost:1420` when working on the GUI harness. Browser development uses Vite's
+same-origin `/v1` and `/ws` proxy to reach `http://127.0.0.1:8765`, so the UI also works when
+opened from another device via `npm run dev -- --host 0.0.0.0`. Override the sidecar target with
+`VITE_COWORKER_HTTP` (and `VITE_COWORKER_WS` for a direct WebSocket). The harness does not
+enable the server-hosted same-origin marker; production Web deployments use
 `openworker-server --web` above.
 
 ## Prompt Library backend

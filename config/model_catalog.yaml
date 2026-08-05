@@ -67,6 +67,15 @@ models:
     - tools
     - reasoning
     - continuation
+  qwen/qwen3-max:
+    provider: qwen
+    model: qwen3-max
+    capabilities:
+    - text
+    - json
+    - tools
+    - reasoning
+    - continuation
   qwen/qwen3.6-plus:
     provider: qwen
     model: qwen3.6-plus

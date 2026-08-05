@@ -23,7 +23,10 @@ test("Discovery is an independent shell on the native sidecar route", async ({ p
   await expect(page.locator(".sidebar").getByRole("button", { name: "Preparation", exact: true })).toHaveCount(0);
   await view.getByRole("tab", { name: "Current Launch" }).click();
   await expect(view.getByRole("button", { name: "Refresh Preparation" })).toHaveCount(0);
-  await expect(view.getByRole("heading", { name: "No current Launch" })).toBeVisible();
+  await expect(view.getByRole("heading", { name: "Preparation" })).toBeVisible();
+  await expect(view.getByText("CURRENT OBSERVATION · PREPARATION")).toBeVisible();
+  await expect(view.getByText("Ready to launch")).toBeVisible();
+  await expect(view.getByText("No current Launch")).toHaveCount(0);
   await view.getByRole("tab", { name: "History" }).click();
   await expect(view.getByRole("button", { name: "Refresh Preparation" })).toHaveCount(0);
   await expect(view.getByRole("heading", { name: "No Launch history yet" })).toBeVisible();
@@ -323,7 +326,9 @@ test("Run confirms before admitting one immutable Launch and exposes its history
   await expect(view.getByRole("tab", { name: "Current Launch" })).toHaveAttribute("aria-selected", "true");
   await expect(view.getByText(/Discovery Launch fixture-laun/)).toBeVisible();
   await expect(view.getByTestId("runtime-desk")).toBeVisible();
-  await expect(view.getByText("Launch timeline")).toBeVisible();
+  await expect(
+    view.getByText("Launch timeline").or(view.getByRole("heading", { name: "Lifecycle" })).first(),
+  ).toBeVisible();
   await page.waitForTimeout(5200);
   await view.getByRole("tab", { name: "History" }).click();
   await expect(view.getByText(/Discovery Launch fixture-laun/)).toBeVisible();

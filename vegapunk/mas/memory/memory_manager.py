@@ -366,7 +366,8 @@ class FileSystemMemoryManager(MemoryManager):
             state=state,
             feedback_history=session_data.get("feedback_history", []),
             top_ideas=session_data.get("top_ideas", session_data.get("top_hypotheses", [])),
-            tool_usage=session_data.get("tool_usage", {})
+            tool_usage=session_data.get("tool_usage", {}),
+            error=session_data.get("error"),
         )
         
         # Set timestamps if available

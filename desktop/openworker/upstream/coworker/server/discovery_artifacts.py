@@ -18,6 +18,7 @@ from typing import Any
 
 MAX_PREVIEW_BYTES = 5 * 1024 * 1024
 MAX_PREVIEW_CHARACTERS = 500_000
+ARTIFACT_LIST_LIMIT = 256
 
 _MARKDOWN_SUFFIXES = {".md", ".markdown"}
 _STRUCTURED_SUFFIXES = {".csv", ".json", ".ndjson", ".toml", ".tsv", ".xml", ".yaml", ".yml"}
@@ -163,6 +164,8 @@ def artifact_list(artifacts_root: Path) -> list[dict[str, Any]]:
             artifacts.append(_artifact_info(path, root))
         except OSError:
             continue
+        if len(artifacts) >= ARTIFACT_LIST_LIMIT:
+            break
     return artifacts
 
 

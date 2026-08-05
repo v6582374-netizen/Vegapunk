@@ -57,7 +57,7 @@ function ArtifactPreview({
   return <pre className="artifact-code">{content.content ?? ""}</pre>;
 }
 
-export function DiscoveryArtifactPanel({ launchId }: { launchId: string }) {
+export function DiscoveryArtifactPanel({ launchId }: { launchId: string | null }) {
   const [artifacts, setArtifacts] = useState<DiscoveryArtifactInfo[]>([]);
   const [selected, setSelected] = useState<DiscoveryArtifactInfo | null>(null);
   const [content, setContent] = useState<DiscoveryArtifactContent | null>(null);
@@ -68,6 +68,12 @@ export function DiscoveryArtifactPanel({ launchId }: { launchId: string }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (!launchId) {
+      setArtifacts([]);
+      setSelected(null);
+      setLoading(false);
+      return;
+    }
     try {
       const next = await getDiscoveryArtifacts(launchId);
       setArtifacts(next);
@@ -90,7 +96,7 @@ export function DiscoveryArtifactPanel({ launchId }: { launchId: string }) {
   useEffect(() => {
     let alive = true;
     setActionError(null);
-    if (!selected) {
+    if (!launchId || !selected) {
       setContent(null);
       return () => {
         alive = false;
@@ -113,7 +119,7 @@ export function DiscoveryArtifactPanel({ launchId }: { launchId: string }) {
   }, [launchId, selected?.path]);
 
   async function nativeAction(mode: "reveal" | "open") {
-    if (!selected) return;
+    if (!selected || !launchId) return;
     setActionError(null);
     try {
       const result = await revealDiscoveryArtifact(launchId, selected.path, mode);
@@ -189,10 +195,12 @@ export function DiscoveryArtifactPanel({ launchId }: { launchId: string }) {
               {actionError && <p className="rail-error" role="alert">{actionError}</p>}
             </div>
           </div>
-        ) : loading ? (
+        ) : loading && launchId ? (
           <div className="rail-muted">Loading Launch artifacts...</div>
         ) : error ? (
           <div className="rail-error" role="alert">{error}</div>
+        ) : !launchId ? (
+          <div className="rail-muted">Artifacts will appear after a Launch starts.</div>
         ) : artifacts.length === 0 ? (
           <div className="rail-muted">No Launch artifacts yet.</div>
         ) : (

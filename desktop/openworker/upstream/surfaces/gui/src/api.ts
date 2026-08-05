@@ -3,22 +3,34 @@ import type { SessionInfo, WsEvent } from "./types";
 declare const __COWORKER_DEV_TOKEN__: string;
 
 // Endpoint resolution order: runtime-injected globals (Tauri sets `window.__COWORKER_HTTP__`
-// for its dynamically-chosen sidecar port) → Vite env → same-origin Web Counterpart → the
-// 127.0.0.1:8765 dev default. This keeps a single codebase: the Linux server-hosted build uses
-// relative REST/WS URLs and the desktop shell still talks to its sidecar.
+// for its dynamically-chosen sidecar port) → Vite env → same-origin Web Counterpart/Vite dev
+// proxy → the 127.0.0.1:8765 fallback. This keeps a single codebase: the Linux server-hosted
+// build uses relative REST/WS URLs and the desktop shell still talks to its sidecar.
 const hostedWeb = (): boolean =>
   (globalThis as any).__OPENWORKER_WEB__ === true;
+
+// Browser development runs through Vite. Keeping the API same-origin lets the Vite proxy
+// carry requests to the loopback sidecar even when the browser opens the UI through a LAN
+// address (for example, http://10.0.0.12:1420); direct cross-origin calls would be rejected
+// by the sidecar's intentional localhost-only CORS policy. Tauri's injected sidecar address
+// and an explicit VITE_COWORKER_HTTP override always take precedence below.
+const viteDevProxy = (): boolean => {
+  const env = (import.meta as any).env || {};
+  const dev = env.DEV === true || env.DEV === "true";
+  return dev && !hostedWeb() && !(globalThis as any).__COWORKER_HTTP__ && !env.VITE_COWORKER_HTTP;
+};
+
+const sameOriginWs = (): string =>
+  `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 
 const httpBase = (): string =>
   (globalThis as any).__COWORKER_HTTP__ ||
   (import.meta as any).env?.VITE_COWORKER_HTTP ||
-  (hostedWeb() ? "" : "http://127.0.0.1:8765");
+  (hostedWeb() || viteDevProxy() ? "" : "http://127.0.0.1:8765");
 const wsBase = (): string =>
   (globalThis as any).__COWORKER_WS__ ||
   (import.meta as any).env?.VITE_COWORKER_WS ||
-  (hostedWeb()
-    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`
-    : "ws://127.0.0.1:8765");
+  (hostedWeb() || viteDevProxy() ? sameOriginWs() : "ws://127.0.0.1:8765");
 const apiToken = (): string =>
   (globalThis as any).__COWORKER_API_TOKEN__ ||
   (import.meta as any).env?.VITE_COWORKER_API_TOKEN ||
@@ -41,6 +53,35 @@ const fetch = (
     ...(hostedWeb() && init.credentials === undefined ? { credentials: "include" as RequestCredentials } : {}),
   });
 };
+
+async function fetchJsonWithTimeout<T>(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs: number,
+): Promise<{ response: Response; body: T | null }> {
+  const controller = new AbortController();
+  const parentSignal = init.signal;
+  const abortFromParent = () => controller.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) controller.abort();
+    else parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  }
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    let body: T | null = null;
+    try {
+      body = (await response.json()) as T;
+    } catch {
+      // Keep the status response available to callers when a sidecar/proxy
+      // closes without a JSON body.
+    }
+    return { response, body };
+  } finally {
+    globalThis.clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+  }
+}
 
 const openWebSocket = (url: string): WebSocket => {
   const token = apiToken();
@@ -135,6 +176,7 @@ export type DiscoveryLaunchState =
   | "starting"
   | "running"
   | "stopping"
+  | "awaiting_review"
   | "stopped"
   | "interrupted"
   | "completed"
@@ -144,9 +186,28 @@ export interface DiscoveryLaunchAttempt {
   attempt_id: string;
   started_at: string | null;
   finished_at: string | null;
-  state: "starting" | "running" | "stopping" | "stopped" | "interrupted" | "completed" | "failed";
+  state: "starting" | "running" | "stopping" | "awaiting_review" | "stopped" | "interrupted" | "completed" | "failed";
   adoption_nonce?: string;
   resume_from_round?: number;
+}
+
+export type DiscoveryCheckpointKey = "mas" | "method" | "handoff";
+
+export interface DiscoveryCheckpointArtifactReference {
+  path: string;
+  label: string;
+  detail?: string | null;
+}
+
+export interface DiscoveryCheckpoint {
+  checkpoint_id?: string;
+  seam?: DiscoveryCheckpointKey | string;
+  attempt_id: string;
+  stage: string;
+  round: number;
+  reason: string;
+  created_at: string;
+  artifacts?: DiscoveryCheckpointArtifactReference[];
 }
 
 export interface DiscoveryLaunch {
@@ -162,21 +223,23 @@ export interface DiscoveryLaunch {
   attempts: DiscoveryLaunchAttempt[];
   runner_pid: number | null;
   current_attempt_id?: string;
-  checkpoint?: {
-    attempt_id: string;
-    stage: string;
-    round: number;
-    reason: string;
-    created_at: string;
-  } | null;
+  checkpoint?: DiscoveryCheckpoint | null;
   resumable?: boolean;
   stop_requested_at?: string | null;
   stopped_at?: string | null;
   stop_reason?: string | null;
   outcome: string | null;
   error: string | null;
-  input_snapshot?: Record<string, unknown>;
-  launch_configuration_snapshot?: Record<string, unknown>;
+  title?: string;
+  input_summary?: {
+    preparation_id?: string | null;
+    revision_id?: string | null;
+    preparation_fingerprint?: string | null;
+    source_count: number;
+    source_bytes: number;
+    sources: DiscoverySourceEntry[];
+    title?: string;
+  };
   configuration_snapshot?: Record<string, unknown>;
 }
 
@@ -242,6 +305,7 @@ export interface DiscoveryLaunchStatus {
   activity: DiscoveryActivityStream;
   allowed_actions: string[];
   produced_outputs: Array<{ path: string; label: string }>;
+  checkpoints?: DiscoveryCheckpoint[];
   latest_event_sequence: number;
 }
 
@@ -253,9 +317,14 @@ export interface DiscoveryLaunchEvent {
 }
 
 export async function getDiscovery(): Promise<DiscoverySnapshot> {
-  const res = await fetch(`${httpBase()}/v1/discovery`);
+  const { response: res, body } = await fetchJsonWithTimeout<DiscoverySnapshot>(
+    `${httpBase()}/v1/discovery`,
+    {},
+    10_000,
+  );
   if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
-  return res.json();
+  if (!body) throw new Error("Discovery response was empty");
+  return body;
 }
 
 export interface PromptRecord {
@@ -437,6 +506,7 @@ export async function saveDiscoveryRevision(
 export interface DiscoveryLaunchStartResult {
   launch_id: string;
   state: DiscoveryLaunchState;
+  launch?: DiscoveryLaunch;
   snapshot: DiscoverySnapshot;
 }
 
@@ -509,16 +579,20 @@ export async function resumeDiscoveryLaunch(
 export async function getDiscoveryLaunchStatus(
   launchId: string,
 ): Promise<DiscoveryLaunchStatus> {
-  const res = await fetch(
+  const { response: res, body } = await fetchJsonWithTimeout<DiscoveryLaunchStatus>(
     `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/status`,
+    {},
+    5_000,
   );
   if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
-  return res.json();
+  if (!body) throw new Error("Discovery response was empty");
+  return body;
 }
 
 export async function getDiscoveryLaunchEvents(
   launchId: string,
   after = 0,
+  signal?: AbortSignal,
 ): Promise<{
   launch_id: string;
   events: DiscoveryLaunchEvent[];
@@ -526,11 +600,20 @@ export async function getDiscoveryLaunchEvents(
   latest_sequence: number;
   truncated_before_sequence: number;
 }> {
-  const res = await fetch(
+  const { response: res, body } = await fetchJsonWithTimeout<{
+    launch_id: string;
+    events: DiscoveryLaunchEvent[];
+    oldest_sequence: number | null;
+    latest_sequence: number;
+    truncated_before_sequence: number;
+  }>(
     `${httpBase()}/v1/discovery/launches/${encodeURIComponent(launchId)}/events?after=${after}`,
+    { signal },
+    5_000,
   );
   if (!res.ok) throw new Error(`Discovery request failed (${res.status})`);
-  return res.json();
+  if (!body) throw new Error("Discovery response was empty");
+  return body;
 }
 
 export async function streamDiscoveryLaunchLog(
@@ -1287,7 +1370,79 @@ export interface ModelSettings {
   pdf_fallback?: "text" | "images";
   pdf_max_pages?: number; // default 20, 1–100
   pdf_max_mb?: number; // default 10, 1–10
+  discovery_launch_preferences?: DiscoveryLaunchPreferencesDocument;
 }
+
+export interface DiscoveryLaunchPreferences {
+  skip_idea_generation: boolean;
+  workflow: {
+    loop_rounds: number;
+    loop_mode: "fresh" | "incremental";
+    max_iterations: number;
+    top_ideas_count: number;
+    top_ideas_evo: boolean;
+    max_concurrent_tasks: number;
+  };
+  agents: {
+    generation: {
+      generation_count: number;
+      creativity: number;
+      failed_similarity_threshold: number;
+    };
+    reflection: {
+      count: number;
+      detail_level: "low" | "medium" | "high";
+    };
+    evolution: {
+      creativity_level: number;
+      temperature: number;
+      use_memory: boolean;
+    };
+    ranking: {
+      criteria: {
+        novelty: number;
+        plausibility: number;
+        testability: number;
+        alignment: number;
+      };
+      strategy: "default" | "distinct";
+    };
+    scholar: { search_depth: "shallow" | "moderate" | "deep" };
+    survey: { max_papers: number };
+    dr: { enabled: boolean; mode: "simple" | "complex" | "qa" };
+    exp_analyze: { use_llm_for_metric_direction: boolean };
+  };
+  experiment: { max_runs: number; use_mcts: boolean };
+}
+
+export interface DiscoveryLaunchPreferenceDefinition {
+  type: "boolean" | "integer" | "number" | "enum" | "object";
+  description: string;
+  minimum?: number;
+  maximum?: number;
+  sum?: number;
+  values?: string[];
+  properties?: string[];
+}
+
+export interface DiscoveryLaunchPreferencesDocument {
+  schema_version: number;
+  values: DiscoveryLaunchPreferences;
+  defaults: DiscoveryLaunchPreferences;
+  parameters: Record<string, DiscoveryLaunchPreferenceDefinition>;
+}
+
+export type DiscoveryLaunchPreferencesPatch = {
+  [Key in keyof DiscoveryLaunchPreferences]?: DiscoveryLaunchPreferences[Key] extends object
+    ? DiscoveryLaunchPreferencesPatchValue<DiscoveryLaunchPreferences[Key]>
+    : DiscoveryLaunchPreferences[Key];
+};
+
+type DiscoveryLaunchPreferencesPatchValue<Value> = {
+  [Key in keyof Value]?: Value[Key] extends object
+    ? DiscoveryLaunchPreferencesPatchValue<Value[Key]>
+    : Value[Key];
+};
 
 export interface PdfSettings {
   pdf_fallback: "text" | "images";
@@ -1304,6 +1459,29 @@ export async function setPdfSettings(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
+  return res.json();
+}
+
+/** Read the server-owned Discovery Launch defaults and their validation metadata. */
+export async function getDiscoveryLaunchPreferences(): Promise<DiscoveryLaunchPreferencesDocument> {
+  const res = await fetch(`${httpBase()}/v1/settings/discovery-launch`);
+  return res.json();
+}
+
+/** Save a complete or nested patch of Discovery Launch defaults. */
+export async function setDiscoveryLaunchPreferences(
+  values: DiscoveryLaunchPreferencesPatch | { values: DiscoveryLaunchPreferencesPatch },
+): Promise<DiscoveryLaunchPreferencesDocument & { ok?: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/settings/discovery-launch`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const message = detail?.detail?.message || detail?.detail || "Discovery Launch preferences could not be saved.";
+    throw new Error(typeof message === "string" ? message : "Discovery Launch preferences could not be saved.");
+  }
   return res.json();
 }
 

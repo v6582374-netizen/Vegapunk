@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  getDiscoveryLaunchPreferences,
   getPrompt,
   getPromptLibrary,
   getSettings,
@@ -10,6 +11,10 @@ import {
   setScratchBase,
   setSessionsPeek,
   setWorkspaceTrusted,
+  setDiscoveryLaunchPreferences,
+  type DiscoveryLaunchPreferenceDefinition,
+  type DiscoveryLaunchPreferences,
+  type DiscoveryLaunchPreferencesDocument,
   type ModelSettings,
   type PdfSettings,
   type PromptRecord,
@@ -46,13 +51,13 @@ import { PersonasTab } from "./PersonasTab";
 import { showPersonas } from "../flags";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
-// a left sub-nav (Appearance · Files · Models · Personas) + centered panel, replacing the old
+// a left sub-nav (Appearance · Files · Models · Discovery Launch · Personas) + centered panel, replacing the old
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
 // "appearance" is the General tab's stable key - callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
-type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts";
+type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -66,6 +71,7 @@ const BTN_BORDERED =
 const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" | "library" }[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
+  { key: "discovery", label: "Discovery Launch", icon: "sliders" },
   { key: "voice", label: "Voice input", icon: "mic" },
   { key: "prompts", label: "Prompt Library", icon: "library" },
   { key: "personas", label: "Personas", icon: "sparkle" },
@@ -146,6 +152,8 @@ export function SettingsView({
                 <TokenSavingsCard />
               </div>
             </section>
+          ) : tab === "discovery" ? (
+            <DiscoveryLaunchPreferencesSection />
           ) : tab === "voice" ? (
             <VoiceInputSection />
           ) : tab === "prompts" ? (
@@ -156,6 +164,260 @@ export function SettingsView({
         </div>
       </div>
     </main>
+  );
+}
+
+type PreferenceGroup = { title: string; paths: string[] };
+
+const DISCOVERY_PREFERENCE_GROUPS: PreferenceGroup[] = [
+  {
+    title: "Workflow",
+    paths: [
+      "skip_idea_generation",
+      "workflow.loop_rounds",
+      "workflow.loop_mode",
+      "workflow.max_iterations",
+      "workflow.top_ideas_count",
+      "workflow.top_ideas_evo",
+      "workflow.max_concurrent_tasks",
+    ],
+  },
+  {
+    title: "Agents",
+    paths: [
+      "agents.generation.generation_count",
+      "agents.generation.creativity",
+      "agents.generation.failed_similarity_threshold",
+      "agents.reflection.count",
+      "agents.reflection.detail_level",
+      "agents.evolution.creativity_level",
+      "agents.evolution.temperature",
+      "agents.evolution.use_memory",
+      "agents.ranking.strategy",
+      "agents.scholar.search_depth",
+      "agents.survey.max_papers",
+      "agents.dr.enabled",
+      "agents.dr.mode",
+      "agents.exp_analyze.use_llm_for_metric_direction",
+    ],
+  },
+  {
+    title: "Experiments",
+    paths: ["experiment.max_runs", "experiment.use_mcts"],
+  },
+];
+
+const DISCOVERY_RANKING_WEIGHTS = ["novelty", "plausibility", "testability", "alignment"] as const;
+
+function readPreferencePath(values: DiscoveryLaunchPreferences, path: string): unknown {
+  let current: unknown = values;
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function writePreferencePath(
+  values: DiscoveryLaunchPreferences,
+  path: string,
+  value: unknown,
+): DiscoveryLaunchPreferences {
+  const next = JSON.parse(JSON.stringify(values)) as DiscoveryLaunchPreferences;
+  const parts = path.split(".");
+  let current: Record<string, unknown> = next as unknown as Record<string, unknown>;
+  for (const part of parts.slice(0, -1)) {
+    current = current[part] as Record<string, unknown>;
+  }
+  current[parts[parts.length - 1]] = value;
+  return next;
+}
+
+function displayPreferenceLabel(path: string): string {
+  const parts = path.split(".");
+  const leaf = parts[parts.length - 1] || path;
+  return leaf
+    .split("_")
+    .map((word) => word.charAt(0).toLocaleUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function DiscoveryPreferenceField({
+  path,
+  definition,
+  values,
+  disabled,
+  onChange,
+}: {
+  path: string;
+  definition: DiscoveryLaunchPreferenceDefinition;
+  values: DiscoveryLaunchPreferences;
+  disabled: boolean;
+  onChange: (path: string, value: unknown) => void;
+}) {
+  const value = readPreferencePath(values, path);
+  const label = displayPreferenceLabel(path);
+  return (
+    <div className="flex items-start gap-3 border-b border-line py-3 last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <div className={FIELD_LABEL}>{label}</div>
+        <div className={FIELD_HELP}>{definition.description}</div>
+      </div>
+      {definition.type === "boolean" ? (
+        <input
+          aria-label={label}
+          type="checkbox"
+          className="mt-1 h-4 w-4 accent-accent"
+          checked={Boolean(value)}
+          disabled={disabled}
+          onChange={(event) => onChange(path, event.target.checked)}
+        />
+      ) : definition.type === "enum" ? (
+        <select
+          aria-label={label}
+          className={INPUT + " max-w-[180px]"}
+          value={typeof value === "string" ? value : ""}
+          disabled={disabled}
+          onChange={(event) => onChange(path, event.target.value)}
+        >
+          {(definition.values || []).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          aria-label={label}
+          className={INPUT + " max-w-[180px]"}
+          type="number"
+          min={definition.minimum}
+          max={definition.maximum}
+          step={definition.type === "integer" ? 1 : 0.1}
+          value={typeof value === "number" ? value : ""}
+          disabled={disabled}
+          onChange={(event) => onChange(path, Number(event.target.value))}
+        />
+      )}
+    </div>
+  );
+}
+
+function DiscoveryLaunchPreferencesSection() {
+  const [document, setDocument] = useState<DiscoveryLaunchPreferencesDocument | null>(null);
+  const [draft, setDraft] = useState<DiscoveryLaunchPreferences | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await getDiscoveryLaunchPreferences();
+      setDocument(next);
+      setDraft(next.values);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Discovery Launch preferences are unavailable.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const update = (path: string, value: unknown) => {
+    setDraft((current) => (current ? writePreferencePath(current, path, value) : current));
+    setNotice(null);
+  };
+
+  const save = async () => {
+    if (!draft || saving) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await setDiscoveryLaunchPreferences({ values: draft });
+      setDocument(next);
+      setDraft(next.values);
+      setNotice("Saved. These defaults apply to newly started Discovery Launches; running or resumed Launches keep their snapshot.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Discovery Launch preferences could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <section><PanelHead title="Discovery Launch" sub="Validated defaults used by future Discovery Launches." /><div className={CARD + " p-4 text-[12px] text-muted"}>Loading preferences…</div></section>;
+  }
+  if (!document || !draft) {
+    return <section><PanelHead title="Discovery Launch" sub="Validated defaults used by future Discovery Launches." /><div className={CARD + " p-4"}><div className="text-[13px] text-red-600">{error || "Discovery Launch preferences are unavailable."}</div><button className={BTN_BORDERED + " mt-3"} onClick={() => void load()}>Retry</button></div></section>;
+  }
+
+  return (
+    <section>
+      <PanelHead
+        title="Discovery Launch"
+        sub="Server-validated defaults for the Discovery workflow. Changes apply only when a new Launch starts."
+      />
+      {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
+      {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
+      <div className="space-y-4">
+        {DISCOVERY_PREFERENCE_GROUPS.map((group) => (
+          <div className={CARD + " p-4"} key={group.title}>
+            <div className="mb-1 text-[13.5px] font-medium text-ink">{group.title}</div>
+            <div className="text-[12px] text-muted">Values and validation rules come from the sidecar.</div>
+            <div className="mt-2">
+              {group.paths.map((path) => (
+                <DiscoveryPreferenceField
+                  key={path}
+                  path={path}
+                  definition={document.parameters[path]}
+                  values={draft}
+                  disabled={saving}
+                  onChange={update}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        <div className={CARD + " p-4"}>
+          <div className="text-[13.5px] font-medium text-ink">Ranking criteria</div>
+          <div className={FIELD_HELP}>Keep the four related weights together; the server requires their sum to equal 1.</div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            {DISCOVERY_RANKING_WEIGHTS.map((key) => {
+              const path = `agents.ranking.criteria.${key}`;
+              const value = readPreferencePath(draft, path);
+              return (
+                <label key={key} className="text-[12px] text-muted">
+                  <span className="mb-1 block text-ink">{key}</span>
+                  <input
+                    className={INPUT + " w-full"}
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={typeof value === "number" ? value : ""}
+                    disabled={saving}
+                    onChange={(event) => update(path, Number(event.target.value))}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      <div className="mt-5 flex items-center gap-2">
+        <span className="text-[11.5px] text-muted">Schema v{document.schema_version}</span>
+        <button className={BTN_ACCENT + " ml-auto"} onClick={() => void save()} disabled={saving}>
+          {saving ? "Saving…" : "Save Discovery Defaults"}
+        </button>
+      </div>
+    </section>
   );
 }
 

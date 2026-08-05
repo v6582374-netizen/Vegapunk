@@ -202,7 +202,7 @@ results/<task>/<timestamp>_launch/
 - `final_paper.pdf` 与 `content_refinement_workdir/final_refined_paper.tex` 是 PaperOrchestra 默认返回的英文权威版本。
 - `final_paper.zh-CN.pdf` 与 `content_refinement_workdir/final_paper.zh-CN.tex` 是在英文版本完成后，通过同一 Relay Provider 自动翻译和 XeLaTeX 编译的中文伴随版本；公式、引用、参考文献、标识符、代码、数值、URL 与 raster 图片内容保持原样。
 
-有关每类实验文件的可信层级和用途，请参阅 [实验产物说明](./EXPERIMENT_ARTIFACTS.md)。
+有关每类实验文件的可信层级和用途，请参阅 [实验产物说明](./docs/EXPERIMENT_ARTIFACTS.md)。
 
 ## 配置入口
 
@@ -251,8 +251,8 @@ flake8 launch_discovery.py launch_paper.py vegapunk/paper_orchestra tests/paper_
 
 ## 延伸阅读
 
-- [项目流程架构](./architecture.md)
-- [实验自然产物与可信层级](./EXPERIMENT_ARTIFACTS.md)
+- [项目流程架构](./docs/architecture.md)
+- [实验自然产物与可信层级](./docs/EXPERIMENT_ARTIFACTS.md)
 - [PaperOrchestra 移植对等性审计](./docs/paper_orchestra_port_parity_audit.md)
 - [架构决策记录 ADR](./docs/adr/)
 - [记忆模块](./docs/memory_module.zh-CN.md)

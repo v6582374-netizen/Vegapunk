@@ -11,6 +11,7 @@ import path from "node:path";
 // stale/other server). `tauri.conf.json` devUrl must match this.
 export default defineConfig(({ command }) => {
   let devToken = "";
+  const sidecarTarget = process.env.VITE_COWORKER_HTTP || "http://127.0.0.1:8765";
   if (command === "serve") {
     const state =
       process.env.COWORKER_STATE_DIR ||
@@ -32,7 +33,22 @@ export default defineConfig(({ command }) => {
         "@skills-manager": path.resolve(process.cwd(), "./src/skills-manager"),
       },
     },
-    server: { port: 1420, strictPort: true },
+    server: {
+      port: 1420,
+      strictPort: true,
+      // Keep browser development same-origin. This is especially important when the UI is
+      // opened through a LAN address: the sidecar deliberately rejects arbitrary browser
+      // origins, while Vite can proxy the request server-to-server to loopback.
+      proxy: {
+        "/v1": { target: sidecarTarget, changeOrigin: true },
+        "/ws": {
+          target: sidecarTarget,
+          changeOrigin: true,
+          ws: true,
+          rewriteWsOrigin: true,
+        },
+      },
+    },
     define: { __COWORKER_DEV_TOKEN__: JSON.stringify(devToken) },
     // Tauri CLI looks for these; harmless for the browser build.
     clearScreen: false,

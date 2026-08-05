@@ -77,9 +77,19 @@ class Scheduler:
         for task in self.store.due():
             # Spawn, don't await: a run can suspend on a parked approval (standing
             # scoped approvals, §25) and one blocked automation must never stall the
-            # scheduler loop, other due tasks, or self-wake resumption. Overlap is
-            # still guarded inside run_task via _running_ids.
-            spawned = asyncio.create_task(self.run_task(task, trigger=trigger))
+            # scheduler loop, other due tasks, or self-wake resumption. Reserve the
+            # task id before yielding to the new coroutine; otherwise two ticks can
+            # both enqueue the same due task before either run_task gets scheduled.
+            if task.id in self._running_ids:
+                continue
+            self._running_ids.add(task.id)
+            try:
+                spawned = asyncio.create_task(
+                    self.run_task(task, trigger=trigger, _reserved=True)
+                )
+            except Exception:
+                self._running_ids.discard(task.id)
+                raise
             self._spawned.add(spawned)
             spawned.add_done_callback(self._spawned.discard)
         if self.extra_tick is not None:
@@ -88,11 +98,18 @@ class Scheduler:
             except Exception:
                 logger.exception("scheduler extra_tick (wake resume) failed")
 
-    async def run_task(self, task: ScheduledTask, *, trigger: str) -> Optional[TaskRun]:
-        if task.id in self._running_ids:  # skip-on-overlap
-            logger.info("skipping %s — previous run still going", task.id)
-            return None
-        self._running_ids.add(task.id)
+    async def run_task(
+        self,
+        task: ScheduledTask,
+        *,
+        trigger: str,
+        _reserved: bool = False,
+    ) -> Optional[TaskRun]:
+        if not _reserved:
+            if task.id in self._running_ids:  # skip-on-overlap
+                logger.info("skipping %s — previous run still going", task.id)
+                return None
+            self._running_ids.add(task.id)
         try:
             run = await self.runner(task, trigger)
         except Exception as exc:

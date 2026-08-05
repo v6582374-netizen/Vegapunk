@@ -221,6 +221,7 @@ from .prompt_library import (
     default_prompt_roots,
     violation_for,
 )
+from .skills_manager import SkillsManagerError, SkillsManagerService
 
 
 def create_app(
@@ -252,6 +253,11 @@ def create_app(
         await manager.aclose()  # stop gateway + close MCP connections on shutdown
 
     app = FastAPI(title="coworker", version="0.0.0", lifespan=lifespan)
+    # Skills Manager is a production Tauri surface.  The Web Counterpart keeps the same
+    # command names and persists against the user's shared ~/.skills-manager directory.
+    app.state.skills_manager = SkillsManagerService(
+        workspace_root=getattr(manager, "default_workspace", None)
+    )
     api_token = os.environ.get("COWORKER_API_TOKEN", "")
     web_token = os.environ.get("COWORKER_WEB_TOKEN", "")
     web_root = Path(web_dist).expanduser().resolve() if web_dist else None
@@ -587,6 +593,11 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (ActiveLaunchConflict, IdempotencyConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Discovery source content could not be prepared. Try again.",
+            ) from exc
 
     @app.get("/v1/discovery/launches")
     def discovery_launch_list() -> dict[str, Any]:
@@ -999,6 +1010,65 @@ def create_app(
     @app.get("/v1/skills")
     def skills() -> dict[str, Any]:
         return {"skills": manager.list_skills()}
+
+    @app.post("/v1/skills-manager/invoke")
+    def skills_manager_invoke(body: dict | None = None) -> Any:
+        """Dispatch one production Skills Manager command for the browser counterpart.
+
+        The request mirrors Tauri's IPC shape (``command`` + ``args``), allowing the
+        existing Skills Manager components to remain unchanged in the desktop build.
+        """
+        payload = body if isinstance(body, dict) else {}
+        command = payload.get("command")
+        args = payload.get("args", {})
+        if not isinstance(command, str) or not command.strip():
+            raise HTTPException(status_code=422, detail="command must be a string")
+        try:
+            return app.state.skills_manager.invoke(
+                command, args if isinstance(args, dict) else {}
+            )
+        except SkillsManagerError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except (OSError, ValueError, KeyError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/v1/skills-manager/file")
+    def skills_manager_file(path: str) -> FileResponse:
+        """Serve a local custom tool icon through the authenticated sidecar."""
+        try:
+            file_path = app.state.skills_manager.file_path(path)
+        except SkillsManagerError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        headers = {"X-Content-Type-Options": "nosniff"}
+        if app.state.skills_manager.is_web_staging_path(file_path):
+            # Browser-selected uploads and generated exports are data artifacts, not
+            # pages. Force download even for names such as `payload.html` so a LAN
+            # browser cannot turn the staging endpoint into an inline XSS surface.
+            return FileResponse(
+                file_path,
+                media_type="application/octet-stream",
+                filename=file_path.name,
+                headers=headers,
+            )
+        return FileResponse(file_path, headers=headers)
+
+    @app.post("/v1/skills-manager/upload")
+    def skills_manager_upload(body: dict | None = None) -> dict[str, str]:
+        payload = body if isinstance(body, dict) else {}
+        try:
+            return {
+                "path": app.state.skills_manager.upload_file(
+                    str(payload.get("name", "upload.bin")),
+                    str(payload.get("data", "")),
+                )
+            }
+        except SkillsManagerError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/v1/skills-manager/reserve-export")
+    def skills_manager_reserve_export(body: dict | None = None) -> dict[str, str]:
+        payload = body if isinstance(body, dict) else {}
+        return {"path": app.state.skills_manager.reserve_export(str(payload.get("name", "skills-export.zip")))}
 
     @app.get("/v1/workspaces/recent")
     def recent_workspaces() -> dict[str, Any]:

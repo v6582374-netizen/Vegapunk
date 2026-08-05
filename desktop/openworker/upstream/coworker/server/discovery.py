@@ -209,6 +209,7 @@ class DiscoveryFacade:
         repository_root: str | Path | None = None,
     ):
         self._state_path = Path(state_root) / "discovery" / "preparation.json"
+        self._source_store_root = self._state_path.parent / "sources"
         self._conversion_prompt_path = Path(
             conversion_prompt_path or DISCOVERY_INPUT_CONVERSION_PROMPT_PATH
         )
@@ -329,6 +330,8 @@ class DiscoveryFacade:
             raise LaunchValidationError("Launch payload must be an object")
         if not idempotency_key:
             raise LaunchValidationError("Idempotency-Key is required to start a Launch")
+        if len(idempotency_key) > 256:
+            raise LaunchValidationError("Idempotency-Key is too long")
 
         unexpected_fields = set(body) - {"preparation_id", "revision_id"}
         if unexpected_fields:
@@ -356,7 +359,9 @@ class DiscoveryFacade:
 
         with self._lock:
             replay = self._launches.replay_idempotent(
-                idempotency_key, request_fingerprint
+                idempotency_key,
+                request_fingerprint,
+                response_builder=lambda: self.snapshot(active_context="launch"),
             )
             if replay is not None:
                 return replay
@@ -402,22 +407,50 @@ class DiscoveryFacade:
                 raise LaunchValidationError(
                     "run requires a successful current Conversion for the selected revision"
                 )
+            input_sources: list[dict[str, Any]] = []
+            for source in self._committed["sources"]:
+                input_sources.append(
+                    {
+                        **_public_source(source),
+                        # The worker resolves this content-addressed reference
+                        # inside the private sidecar state root. No source bytes
+                        # travel in the per-Launch JSON snapshot anymore.
+                        "content_ref": source["sha256"],
+                    }
+                )
             input_snapshot = {
                 "preparation_id": preparation_id,
                 "revision_id": revision_id,
                 "preparation_fingerprint": current_fingerprint,
                 "research_text": self._committed["text"],
-                "sources": [
-                    {
-                        **_public_source(source),
-                        "content_base64": base64.b64encode(source["content"]).decode(
-                            "ascii"
-                        ),
-                    }
-                    for source in self._committed["sources"]
-                ],
+                "sources": input_sources,
             }
             input_snapshot["execution_input"] = _public_execution_input(execution_input)
+            created_digests: list[str] = []
+
+            def materialize_input_snapshot() -> dict[str, Any]:
+                try:
+                    for source in self._committed["sources"]:
+                        _, created = self._ensure_source_blob(source)
+                        if created:
+                            created_digests.append(source["sha256"])
+                    return input_snapshot
+                except Exception:
+                    # This callback runs under DiscoveryLaunchStore's shared
+                    # admission lock, so partial materialization can be cleaned
+                    # without racing another sidecar's pending Launch.
+                    cleanup_materialized_sources()
+                    raise
+
+            def cleanup_materialized_sources() -> None:
+                for digest in set(created_digests):
+                    if self._source_blob_is_referenced(digest):
+                        continue
+                    try:
+                        (self._source_store_root / digest).unlink(missing_ok=True)
+                    except OSError:
+                        continue
+
             configuration_snapshot = {
                 "model_id": model_id,
                 "settings": copy.deepcopy(settings),
@@ -435,6 +468,8 @@ class DiscoveryFacade:
                 input_snapshot=input_snapshot,
                 configuration_snapshot=configuration_snapshot,
                 response_builder=lambda: self.snapshot(active_context="launch"),
+                input_snapshot_factory=materialize_input_snapshot,
+                input_snapshot_cleanup=cleanup_materialized_sources,
             )
 
     def launch(self, launch_id: str) -> dict[str, Any]:
@@ -517,6 +552,8 @@ class DiscoveryFacade:
     ) -> dict[str, Any]:
         if not idempotency_key:
             raise LaunchValidationError("Idempotency-Key is required to resume a Launch")
+        if len(idempotency_key) > 256:
+            raise LaunchValidationError("Idempotency-Key is too long")
         request_fingerprint = hashlib.sha256(
             json.dumps({"launch_id": launch_id}, sort_keys=True).encode("utf-8")
         ).hexdigest()
@@ -752,6 +789,74 @@ class DiscoveryFacade:
                 "Discovery Input Conversion Prompt is not configured"
             )
         return instruction.strip()
+
+    def _ensure_source_blob(self, source: dict[str, Any]) -> tuple[Path, bool]:
+        """Persist one source by digest for private Launch worker consumption."""
+        digest = source.get("sha256")
+        content = source.get("content")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or not isinstance(content, bytes)
+        ):
+            raise OSError("Discovery source manifest is invalid")
+        if hashlib.sha256(content).hexdigest() != digest:
+            raise OSError("Discovery source digest does not match its content")
+        destination = self._source_store_root / digest
+        destination_existed = destination.exists()
+        try:
+            if destination.is_file() and destination.stat().st_size == len(content):
+                if hashlib.sha256(destination.read_bytes()).hexdigest() == digest:
+                    return destination, False
+        except OSError:
+            pass
+        self._source_store_root.mkdir(parents=True, exist_ok=True)
+        temporary_path: str | None = None
+        try:
+            descriptor, temporary_path = tempfile.mkstemp(
+                prefix=f".{digest}.", suffix=".tmp", dir=self._source_store_root
+            )
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, destination)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                Path(temporary_path).unlink(missing_ok=True)
+        return destination, not destination_existed
+
+    def _source_blob_is_referenced(self, digest: str) -> bool:
+        """Check durable Launch manifests while the admission lock is held."""
+        launches_root = self._source_store_root.parent / "launches"
+        try:
+            launch_dirs = list(launches_root.iterdir())
+        except OSError:
+            return False
+        for launch_dir in launch_dirs:
+            record_path = launch_dir / "record.json"
+            input_path = launch_dir / "input_snapshot.json"
+            if not record_path.is_file() or not input_path.is_file():
+                continue
+            try:
+                record = json.loads(record_path.read_text(encoding="utf-8"))
+                payload = json.loads(input_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if not isinstance(record, dict) or record.get("launch_id") != launch_dir.name:
+                continue
+            sources = payload.get("sources") if isinstance(payload, dict) else None
+            if not isinstance(sources, list):
+                continue
+            if any(
+                isinstance(source, dict)
+                and (source.get("content_ref") == digest or source.get("sha256") == digest)
+                for source in sources
+            ):
+                return True
+        return False
 
     @staticmethod
     def _source_material(source: dict[str, Any]) -> dict[str, str]:

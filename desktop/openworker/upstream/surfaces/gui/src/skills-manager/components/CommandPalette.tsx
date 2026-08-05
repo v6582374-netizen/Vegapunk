@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "@skills-manager/i18n";
 import { Skill } from "@skills-manager/types";
+import { canEditSkill } from "@skills-manager/pages/skills/skillCapabilities";
 import { MODAL_LAYER_Z_INDEX, MODAL_OVERLAY_COLOR } from "@skills-manager/constants/modal";
 import { CustomCaretInput } from "@skills-manager/components/ui/custom-caret-input";
 
@@ -52,7 +53,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       try {
         const skills = await invoke<Skill[]>("list_skills");
         if (!cancelled) {
-          setLocalSkills(skills);
+          // The palette's skill action opens the editor, so only expose bodies that
+          // the inventory explicitly allows the manager to edit. Read-only tool
+          // bodies remain visible on the Skills page and can still be inspected there.
+          setLocalSkills(skills.filter(canEditSkill));
           setLocalLoaded(true);
         }
       } catch {
@@ -123,14 +127,15 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     result.push(...filteredSettings);
 
     // Local skills
+    const editableSkills = localSkills.filter((skill) => canEditSkill(skill));
     const filteredLocal = trimmed
-      ? localSkills.filter(
+      ? editableSkills.filter(
           (skill) =>
             skill.name.toLowerCase().includes(trimmed) ||
             skill.id.toLowerCase().includes(trimmed) ||
             (skill.description ?? "").toLowerCase().includes(trimmed),
         )
-      : localSkills;
+      : editableSkills;
     result.push(
       ...filteredLocal.slice(0, MAX_LOCAL_RESULTS).map((skill) => ({
         id: `local-${skill.instance_id}`,

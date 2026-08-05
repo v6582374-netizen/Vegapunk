@@ -835,7 +835,11 @@ def _main():
     # Keep completed-launch PaperOrchestra resume independent from optional
     # Discovery-only dependencies such as the experiment toolchain.
     from vegapunk.stage import IdeaGenerator, ExperimentRunner
-    model_runtime = create_model_runtime(config)
+    # Runtime construction performs an eager credential/dependency preflight.  A
+    # report-only launch that already has an idea file does not execute any model
+    # call, so defer that cost (and its required credentials) until a model-backed
+    # stage is actually selected below.
+    model_runtime = None
 
     logger.info("=" * 80)
     logger.info("Vegapunk Pipeline Started" + (" (RESUMED)" if args.resume else ""))
@@ -958,6 +962,8 @@ def _main():
 
         else:
             logger.info(f"Starting idea generation with MAS (Round {round_num})...")
+            if model_runtime is None:
+                model_runtime = create_model_runtime(config)
             idea_generator = IdeaGenerator(
                 args,
                 logger,
@@ -1027,6 +1033,9 @@ def _main():
             logger.info(f"Starting experiment execution with {args.exp_backend} backend")
             logger.info(f"Number of ideas to test: {len(top_ideas)}")
             logger.info("=" * 80)
+
+            if model_runtime is None:
+                model_runtime = create_model_runtime(config)
 
             # Validate backend-specific requirements
             if args.exp_backend == "openhands":

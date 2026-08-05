@@ -294,7 +294,7 @@ manifest 至少应记录 artifact id、kind、路径或对象存储 key、媒体
 
 [`architecture.md`](../../architecture.md#模型工具记忆基础设施)将 `UnifiedModelRuntime`放在模型层，将工具注册、MCP 和检索放在独立工具层，并把实验执行与 `results/<task>/<launch_id>`产物放在执行层。
 
-[`docs/adr/0141-use-typed-capability-operations-in-one-runtime.md`](../adr/0141-use-typed-capability-operations-in-one-runtime.md)把 Unified Model Runtime 的 typed capability 限定为文本、图像和 embedding 等模型推理操作。
+[`docs/adr/0141-use-typed-capability-operations-in-one-runtime.md`](../../adr/0141-use-typed-capability-operations-in-one-runtime.md)把 Unified Model Runtime 的 typed capability 限定为文本、图像和 embedding 等模型推理操作。
 
 因此 CFD 不应作为 `UnifiedModelRuntime` 的新模型 capability，而应作为工具层的 `CfdTool` 加上实验/作业后端的 `CfdJobRunner`。
 
@@ -316,13 +316,13 @@ CFD adapter 应在工具注册时带有稳定的 engine、operation、risk、req
 
 [`LOOP_ARCHITECTURE.md`](../../LOOP_ARCHITECTURE.md#42-配置快照)说明一个 Discovery Launch 会在 `results/<task_name>/<timestamp>_launch/`内保存本次运行的输入和配置边界。
 
-[`docs/adr/0089-describe-progress-with-artifacts-and-checkpoints.md`](../adr/0089-describe-progress-with-artifacts-and-checkpoints.md)把持久化的 Native Discovery Artifacts、检查点和生成结果视为权威进度材料。
+[`docs/adr/0089-describe-progress-with-artifacts-and-checkpoints.md`](../../adr/0089-describe-progress-with-artifacts-and-checkpoints.md)把持久化的 Native Discovery Artifacts、检查点和生成结果视为权威进度材料。
 
 因此 CFD job 应在对应 launch-local 的实验或作业目录中写入 plan snapshot、capability snapshot、job events、solver log 摘要、metrics、plots、case/data 和 replay recipe。
 
 对浏览器产品，只应暴露经过筛选的 CFD artifact manifest，而不是让用户通过任意路径读取整个 launch 目录。
 
-这与 [`docs/research/end-user-frontend-v1-api-contract.md`](end-user-frontend-v1-api-contract.md#results-and-artifacts)中“复用 launch 内部投影，但只向产品暴露 Curated Research Artifact”的边界一致。
+这与 [`docs/research/end-user-frontend-v1-api-contract.md`](../end-user-frontend-v1-api-contract.md#results-and-artifacts)中“复用 launch 内部投影，但只向产品暴露 Curated Research Artifact”的边界一致。
 
 ### 推荐的 V1 实现顺序
 

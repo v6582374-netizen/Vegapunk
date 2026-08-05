@@ -133,6 +133,7 @@ class WorkflowSession:
     tool_usage: Dict[str, int] = field(default_factory=dict)
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
+    error: Optional[str] = None
     method_phase: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -148,5 +149,6 @@ class WorkflowSession:
             "top_ideas": self.top_ideas,
             "tool_usage": self.tool_usage,
             "started_at": self.started_at.isoformat(),
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "error": self.error,
         }
