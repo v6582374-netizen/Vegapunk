@@ -191,6 +191,8 @@ IA15_traj/
 mem_store/
 .codebase-memory/
 .vegapunk/
+audit-report.md
+audit-report.issue.md
 
 # Large data files
 tasks/AutoEAP/code/data/Sequences_activity_all.txt
