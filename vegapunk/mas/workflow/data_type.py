@@ -12,6 +12,55 @@ from enum import Enum
 from typing import Dict, List, Optional, Any
 
 
+EXTERNAL_DATA_FALLBACK_REASON = (
+    "External data requirement was missing or invalid; acquisition is disabled by default."
+)
+
+
+def normalize_external_data_requirement(
+    requires_external_data: Any,
+    external_data_request: Any,
+    external_data_reason: Any,
+) -> tuple[bool, str, str, Optional[str]]:
+    """Normalize an Idea's explicit external-data declaration.
+
+    The declaration is deliberately closed by default.  A missing/non-boolean
+    switch or a true switch without a concrete request cannot authorize a
+    future data acquisition step.  Returning a warning separately lets the
+    workflow log the normalization without adding an ``uncertain`` state to
+    the persisted model.
+    """
+    request = external_data_request.strip() if isinstance(external_data_request, str) else ""
+    reason = external_data_reason.strip() if isinstance(external_data_reason, str) else ""
+
+    if not isinstance(requires_external_data, bool):
+        return (
+            False,
+            "",
+            EXTERNAL_DATA_FALLBACK_REASON,
+            "requires_external_data must be a boolean; acquisition was disabled",
+        )
+
+    if requires_external_data and not request:
+        return (
+            False,
+            "",
+            EXTERNAL_DATA_FALLBACK_REASON,
+            "requires_external_data was true without a concrete external_data_request; acquisition was disabled",
+        )
+
+    if not requires_external_data:
+        warning = None
+        if request:
+            warning = "external_data_request was ignored because requires_external_data is false"
+        if not reason:
+            reason = EXTERNAL_DATA_FALLBACK_REASON
+            warning = warning or "external_data_reason was empty; acquisition remains disabled"
+        return False, "", reason, warning
+
+    return True, request, reason, None
+
+
 # 这些状态就是发现流程的路线图：先产生想法，再批评、查证、改进、排序，
 # 最后把最好的想法发展成可执行方法。
 class WorkflowState(Enum):
@@ -38,6 +87,9 @@ class Idea:
     text: str
     score: float = 0.0
     rationale: str = ""
+    requires_external_data: bool = False
+    external_data_request: str = ""
+    external_data_reason: str = ""
     baseline_summary: str = ""
     critiques: List[str] = field(default_factory=list)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
@@ -60,6 +112,9 @@ class Idea:
             "text": self.text,
             "score": self.score,
             "rationale": self.rationale,
+            "requires_external_data": self.requires_external_data,
+            "external_data_request": self.external_data_request,
+            "external_data_reason": self.external_data_reason,
             "baseline_summary": self.baseline_summary,
             "critiques": self.critiques,
             "evidence": self.evidence,

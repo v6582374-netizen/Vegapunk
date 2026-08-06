@@ -17,6 +17,7 @@ from ..tools.utils import get_related_tools
 from ..models.base_model import BaseModel
 from .base_agent import BaseAgent, AgentExecutionError
 from .codeview_agent import get_repo_structure
+from ..workflow.data_type import normalize_external_data_requirement
 
 
 logger = logging.getLogger(__name__)
@@ -497,9 +498,27 @@ class GenerationAgent(BaseAgent):
                             "rationale": {
                                 "type": "string",
                                 "description": "Reasoning for why this idea is plausible"
+                            },
+                            "requires_external_data": {
+                                "type": "boolean",
+                                "description": "Whether this idea needs externally acquired data. This must always be explicit; there is no uncertain state."
+                            },
+                            "external_data_request": {
+                                "type": "string",
+                                "description": "When requires_external_data is true, describe the concrete variables, conditions, units, range, resolution and format needed."
+                            },
+                            "external_data_reason": {
+                                "type": "string",
+                                "description": "When requires_external_data is false, explain why the idea can be evaluated without externally acquired data."
                             }
                         },
-                        "required": ["text", "rationale"]
+                        "required": [
+                            "text",
+                            "rationale",
+                            "requires_external_data",
+                            "external_data_request",
+                            "external_data_reason",
+                        ]
                     }
                 },
                 "reasoning": {
@@ -599,6 +618,8 @@ class GenerationAgent(BaseAgent):
                     base_prompt=base_prompt
                 )
 
+            hypotheses = self._normalize_external_data_hypotheses(hypotheses)
+
             # Add metadata to the response
             result = {
                 "hypotheses": hypotheses,
@@ -616,6 +637,57 @@ class GenerationAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Generation agent execution failed: {str(e)}")
             raise AgentExecutionError(f"Failed to generate hypotheses: {str(e)}")
+
+    @staticmethod
+    def _normalize_external_data_hypotheses(
+        hypotheses: Any,
+    ) -> List[Dict[str, Any]]:
+        """Normalize declarations before they leave the generation boundary."""
+        normalized_hypotheses: List[Dict[str, Any]] = []
+        for index, hypothesis in enumerate(hypotheses or []):
+            if not isinstance(hypothesis, dict):
+                logger.warning(
+                    "Generation hypothesis %s was not an object; external data acquisition was disabled",
+                    index,
+                )
+                normalized_hypotheses.append(
+                    {
+                        "text": "",
+                        "rationale": "",
+                        "requires_external_data": False,
+                        "external_data_request": "",
+                        "external_data_reason": (
+                            "Generation returned an invalid hypothesis object; "
+                            "external data acquisition is disabled by default."
+                        ),
+                    }
+                )
+                continue
+
+            (
+                requires_external_data,
+                external_data_request,
+                external_data_reason,
+                warning,
+            ) = normalize_external_data_requirement(
+                hypothesis.get("requires_external_data"),
+                hypothesis.get("external_data_request"),
+                hypothesis.get("external_data_reason"),
+            )
+            if warning:
+                logger.warning("Hypothesis %s external-data declaration: %s", index, warning)
+
+            normalized = dict(hypothesis)
+            normalized.update(
+                {
+                    "requires_external_data": requires_external_data,
+                    "external_data_request": external_data_request,
+                    "external_data_reason": external_data_reason,
+                }
+            )
+            normalized_hypotheses.append(normalized)
+
+        return normalized_hypotheses
     
     def _build_tool_prompt(self) -> str:
         """

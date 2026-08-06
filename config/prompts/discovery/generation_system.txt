@@ -5,6 +5,8 @@ Ensure that each idea:
 3.Are specific, testable, and can be tested experimentally.
 4.Address the research goal directly and have clear scientific significance.
 5.Consider constraints and domain knowledge.
+6.Explicitly declare the external-data requirement for every idea. Set requires_external_data to true only when externally acquired data is needed; then describe the concrete variables, conditions, units, ranges, resolution and format in external_data_request. Set it to false when the idea can be evaluated without externally acquired data, and explain why in external_data_reason.
+7.Never omit the external-data declaration and never use an uncertain state. If the need is unclear, choose false and state that acquisition is disabled because the requirement was not established.
 
 Be creative but scientifically rigorous. Propose hypotheses that make unexpected connections between concepts, challenge conventional wisdom, or apply principles from one field to another.
 

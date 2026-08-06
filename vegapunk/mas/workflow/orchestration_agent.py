@@ -21,7 +21,13 @@ from typing import Dict, List, Optional, Any, Callable
 from ..agents.base_agent import BaseAgent
 from ..memory.memory_manager import MemoryManager
 from ..models.unified_runtime import UnifiedModelRuntime
-from .data_type import Idea, Task, WorkflowSession, WorkflowState
+from .data_type import (
+    Idea,
+    Task,
+    WorkflowSession,
+    WorkflowState,
+    normalize_external_data_requirement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -521,9 +527,13 @@ class OrchestrationAgent:
                     id=f"idea_{int(time.time())}_{idx}",
                     text=idea_data.get("text", ""),
                     rationale=idea_data.get("rationale", ""),
+                    requires_external_data=idea_data.get("requires_external_data", False),
+                    external_data_request=idea_data.get("external_data_request", ""),
+                    external_data_reason=idea_data.get("external_data_reason", ""),
                     baseline_summary=response.get("baseline_summary", ""),
                     iteration=session.iterations_completed
                 )
+                self.should_acquire_external_data(idea)
                 session.ideas.append(idea)
 
             logger.info(f"Idea Innovation Agent: Generated {len(response.get('hypotheses', []))} ideas for session {session.id}")
@@ -536,6 +546,32 @@ class OrchestrationAgent:
                 WorkflowState.ERROR,
                 error=f"Generation phase failed: {e}",
             )
+
+    def should_acquire_external_data(self, idea: Idea) -> bool:
+        """Return whether an Idea explicitly authorizes external data acquisition.
+
+        This is the Idea-level gate for future Connector and Web Evidence
+        integrations. Scholar retrieval remains independent of this result.
+        Invalid or incomplete declarations are normalized to a closed gate and
+        persisted on the Idea so later phases do not infer a third state.
+        """
+        (
+            requires_external_data,
+            external_data_request,
+            external_data_reason,
+            warning,
+        ) = normalize_external_data_requirement(
+            getattr(idea, "requires_external_data", False),
+            getattr(idea, "external_data_request", ""),
+            getattr(idea, "external_data_reason", ""),
+        )
+        if warning:
+            logger.warning("Idea %s external-data declaration: %s", idea.id, warning)
+
+        idea.requires_external_data = requires_external_data
+        idea.external_data_request = external_data_request
+        idea.external_data_reason = external_data_reason
+        return requires_external_data
 
     async def _run_reflection_phase(self, session: WorkflowSession) -> None:
         """
