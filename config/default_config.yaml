@@ -116,6 +116,10 @@ agents:
     search_depth: "moderate"
     sources: ["arxiv", "crossref", "web_search"] # "kg_papers",
 
+  # Structured external-data Connector. It runs through the Codex backend and
+  # writes only inside the individual Idea workspace.
+  connector: {}
+
   # Survey Agent
   survey:
     max_papers: 50
@@ -138,11 +142,22 @@ agents:
 # Workflow Configuration
 workflow:
   max_iterations: 4
+  external_data_workspace_root: "results/external_data"
   top_ideas_count: 5
   top_ideas_evo: true
   max_concurrent_tasks: 5
   loop_rounds: 10  # Maximum number of full discovery rounds (generate ideas -> run experiments -> update memory -> repeat)
   loop_mode: "incremental"  # Loop mode: 'fresh' (each round from baseline) or 'incremental' (each round from best result)
+
+# Registry metadata is presented to the Connector's Codex prompt. Adding a
+# provider means editing this registry, never adding direct HTTP logic to MAS.
+external_data:
+  api_registry:
+    - api_id: "nrel_developer_network"
+      source: "National Renewable Energy Laboratory (NREL)"
+      official_docs_url: "https://developer.nrel.gov/docs/"
+      capabilities: "Official NREL data and service APIs; select endpoint applicability from the documentation."
+      parameter_description: "Use the chosen endpoint's official documentation for required query parameters, units, ranges, and response formats."
 
 # Sci Task Configuration (paper reproduction tasks)
 sci_task:

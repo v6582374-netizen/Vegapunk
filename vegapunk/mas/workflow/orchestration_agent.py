@@ -16,6 +16,7 @@ from rich.live import Live
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 
 from ..agents.base_agent import BaseAgent
@@ -27,6 +28,12 @@ from .data_type import (
     WorkflowSession,
     WorkflowState,
     normalize_external_data_requirement,
+)
+from .external_data import (
+    MANIFEST_FILENAME,
+    allocate_idea_data_workspace,
+    manifest_entries_as_evidence,
+    validate_idea_evidence_manifest,
 )
 
 logger = logging.getLogger(__name__)
@@ -690,6 +697,8 @@ class OrchestrationAgent:
                 else:
                     idea.refine_evidence = results[idx].get("evidence", [])
 
+            await self._acquire_connector_evidence(session, ideas, current_iter)
+
             next_state = WorkflowState.REFINING if session.method_phase else WorkflowState.EVOLVING
             logger.info(
                 f"Scholar Agent: Completed literature gathering for {len(ideas)} ideas in session {session.id}"
@@ -703,6 +712,84 @@ class OrchestrationAgent:
                 WorkflowState.ERROR,
                 error=f"Literature survey phase failed: {e}",
             )
+
+    async def _acquire_connector_evidence(
+        self,
+        session: WorkflowSession,
+        ideas: List[Idea],
+        current_iter: int,
+    ) -> None:
+        """Acquire and admit structured data without changing the Scholar path."""
+        connector = self._get_agent("connector")
+        if connector is None:
+            if any(self.should_acquire_external_data(idea) for idea in ideas):
+                logger.warning("Connector is unavailable; structured data acquisition was skipped")
+            return
+
+        required_ideas = [idea for idea in ideas if self.should_acquire_external_data(idea)]
+        if not required_ideas:
+            return
+
+        workspace_root = self._external_data_workspace_root()
+        api_registry = self._external_data_api_registry()
+        semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
+
+        async def acquire(idea: Idea) -> None:
+            workspace = allocate_idea_data_workspace(workspace_root, session.id, idea.id)
+            idea.data_workspace = str(workspace)
+            context = {
+                "goal": session.task.to_dict(),
+                "hypothesis": idea.to_dict(),
+                "iteration": current_iter,
+                "external_data_request": idea.external_data_request,
+                "api_registry": api_registry,
+                "idea_data_workspace": str(workspace),
+            }
+            try:
+                async with semaphore:
+                    await connector.execute(context, {})
+            except Exception as error:
+                logger.warning(
+                    "Connector acquisition failed for Idea %s; no evidence was admitted: %s",
+                    idea.id,
+                    error,
+                )
+                return
+
+            validation = validate_idea_evidence_manifest(workspace)
+            if not validation.valid:
+                logger.warning(
+                    "Connector manifest rejected for Idea %s: %s",
+                    idea.id,
+                    "; ".join(validation.errors),
+                )
+                return
+
+            admitted_evidence = manifest_entries_as_evidence(
+                validation.entries,
+                workspace / MANIFEST_FILENAME,
+                acquired_by="connector",
+            )
+            idea.evidence.extend(admitted_evidence)
+            if session.method_phase:
+                idea.refine_evidence.extend(admitted_evidence)
+
+        await asyncio.gather(*(acquire(idea) for idea in required_ideas))
+
+    def _external_data_workspace_root(self) -> Path:
+        workflow_config = self.config.get("workflow", {})
+        configured_root = workflow_config.get("external_data_workspace_root")
+        if configured_root:
+            return Path(configured_root)
+        return Path(self.config.get("results_dir", "results")) / "external_data"
+
+    def _external_data_api_registry(self) -> List[Dict[str, Any]]:
+        external_data_config = self.config.get("external_data", {})
+        registry = external_data_config.get("api_registry", [])
+        if not isinstance(registry, list):
+            logger.warning("external_data.api_registry must be a list; using an empty registry")
+            return []
+        return registry
 
     async def _run_evolution_phase(self, session: WorkflowSession) -> None:
         """

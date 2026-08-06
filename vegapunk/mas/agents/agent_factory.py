@@ -14,6 +14,7 @@ from vegapunk.research_draft import attach_research_draft_hook
 
 from .survey_agent import SurveyAgent
 from .scholar_agent import ScholarAgent
+from .connector_agent import ConnectorAgent
 
 from .generation_agent import GenerationAgent
 from .evolution_agent import EvolutionAgent
@@ -69,6 +70,7 @@ class AgentFactory:
         "ranking": RankingAgent,
         "survey": SurveyAgent,
         "scholar": ScholarAgent,
+        "connector": ConnectorAgent,
         "dr": DRAgent,
         'prompt_evolver':PromptGeneratorAgent,
         'experience':ExperienceAgent

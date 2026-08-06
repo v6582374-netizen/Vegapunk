@@ -90,6 +90,7 @@ class Idea:
     requires_external_data: bool = False
     external_data_request: str = ""
     external_data_reason: str = ""
+    data_workspace: str = ""
     baseline_summary: str = ""
     critiques: List[str] = field(default_factory=list)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
@@ -115,6 +116,7 @@ class Idea:
             "requires_external_data": self.requires_external_data,
             "external_data_request": self.external_data_request,
             "external_data_reason": self.external_data_reason,
+            "data_workspace": self.data_workspace,
             "baseline_summary": self.baseline_summary,
             "critiques": self.critiques,
             "evidence": self.evidence,
