@@ -12,6 +12,7 @@ from typing import Any, Mapping, Sequence
 
 MANIFEST_FILENAME = "idea_evidence_manifest.json"
 CONNECTOR_ACQUISITION_FILENAME = "connector_acquisition.json"
+WEB_EVIDENCE_ACQUISITION_FILENAME = "web_evidence_acquisition.json"
 NON_API_MARKER = "non_api"
 _REQUIRED_ENTRY_FIELDS = (
     "artifact_path",

@@ -747,7 +747,7 @@ class OrchestrationAgent:
             }
             try:
                 async with semaphore:
-                    await connector.execute(context, {})
+                    connector_result = await connector.execute(context, {})
             except Exception as error:
                 logger.warning(
                     "Connector acquisition failed for Idea %s; no evidence was admitted: %s",
@@ -763,18 +763,109 @@ class OrchestrationAgent:
                     idea.id,
                     "; ".join(validation.errors),
                 )
-                return
+                connector_artifact_paths: set[str] = set()
+            else:
+                connector_artifact_paths = {
+                    entry["artifact_path"] for entry in validation.entries
+                }
+                self._admit_external_evidence(
+                    idea,
+                    validation.entries,
+                    workspace,
+                    acquired_by="connector",
+                    method_phase=session.method_phase,
+                )
 
-            admitted_evidence = manifest_entries_as_evidence(
-                validation.entries,
-                workspace / MANIFEST_FILENAME,
-                acquired_by="connector",
-            )
-            idea.evidence.extend(admitted_evidence)
-            if session.method_phase:
-                idea.refine_evidence.extend(admitted_evidence)
+            if connector_result.get("open_web_evidence_gate") is True:
+                await self._acquire_web_evidence(
+                    session,
+                    idea,
+                    current_iter,
+                    workspace,
+                    api_registry,
+                    connector_artifact_paths,
+                    str(connector_result.get("coverage_feedback", "")),
+                )
 
         await asyncio.gather(*(acquire(idea) for idea in required_ideas))
+
+    async def _acquire_web_evidence(
+        self,
+        session: WorkflowSession,
+        idea: Idea,
+        current_iter: int,
+        workspace: Path,
+        api_registry: List[Dict[str, Any]],
+        connector_artifact_paths: set[str],
+        connector_coverage_feedback: str,
+    ) -> None:
+        """Invoke Web Evidence only when the Connector-owned gate is open."""
+        web_evidence = self._get_agent("web_evidence")
+        if web_evidence is None:
+            logger.warning("Web Evidence is unavailable for Idea %s", idea.id)
+            return
+
+        context = {
+            "goal": session.task.to_dict(),
+            "hypothesis": idea.to_dict(),
+            "iteration": current_iter,
+            "external_data_request": idea.external_data_request,
+            "api_registry": api_registry,
+            "connector_coverage_feedback": connector_coverage_feedback,
+            "idea_data_workspace": str(workspace),
+        }
+        try:
+            await web_evidence.execute(context, {})
+        except Exception as error:
+            logger.warning(
+                "Web Evidence acquisition failed for Idea %s; no evidence was admitted: %s",
+                idea.id,
+                error,
+            )
+            return
+
+        validation = validate_idea_evidence_manifest(workspace)
+        if not validation.valid:
+            logger.warning(
+                "Web Evidence manifest rejected for Idea %s: %s",
+                idea.id,
+                "; ".join(validation.errors),
+            )
+            return
+
+        web_entries = [
+            entry
+            for entry in validation.entries
+            if entry["artifact_path"] not in connector_artifact_paths
+        ]
+        if not web_entries:
+            logger.warning("Web Evidence returned no new valid artifacts for Idea %s", idea.id)
+            return
+        self._admit_external_evidence(
+            idea,
+            web_entries,
+            workspace,
+            acquired_by="web_evidence",
+            method_phase=session.method_phase,
+        )
+
+    @staticmethod
+    def _admit_external_evidence(
+        idea: Idea,
+        entries: List[Dict[str, Any]],
+        workspace: Path,
+        *,
+        acquired_by: str,
+        method_phase: bool,
+    ) -> None:
+        admitted_evidence = manifest_entries_as_evidence(
+            entries,
+            workspace / MANIFEST_FILENAME,
+            acquired_by=acquired_by,
+        )
+        idea.evidence.extend(admitted_evidence)
+        if method_phase:
+            idea.refine_evidence.extend(admitted_evidence)
 
     def _external_data_workspace_root(self) -> Path:
         workflow_config = self.config.get("workflow", {})

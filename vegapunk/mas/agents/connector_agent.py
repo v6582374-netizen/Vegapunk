@@ -38,7 +38,7 @@ class ConnectorAgent(BaseAgent):
         )
         runner = self._create_runner()
         try:
-            coverage_feedback = await asyncio.to_thread(
+            runner_output = await asyncio.to_thread(
                 runner.run,
                 prompt,
                 cwd=str(workspace_path),
@@ -48,19 +48,25 @@ class ConnectorAgent(BaseAgent):
                 workspace_path,
                 request=request,
                 coverage_feedback="",
+                open_web_evidence_gate=False,
                 status="failed",
                 error=str(error),
             )
             raise AgentExecutionError(f"Connector acquisition failed: {error}") from error
 
+        coverage_feedback, open_web_evidence_gate = self._parse_coverage_decision(
+            str(runner_output)
+        )
         self._write_acquisition_record(
             workspace_path,
             request=request,
-            coverage_feedback=str(coverage_feedback),
+            coverage_feedback=coverage_feedback,
+            open_web_evidence_gate=open_web_evidence_gate,
             status="completed",
         )
         return {
-            "coverage_feedback": str(coverage_feedback),
+            "coverage_feedback": coverage_feedback,
+            "open_web_evidence_gate": open_web_evidence_gate,
             "workspace": str(workspace_path),
             "manifest_path": str(workspace_path / MANIFEST_FILENAME),
         }
@@ -107,8 +113,72 @@ downloaded data file under {workspace}. Do not report an artifact that was not s
 locally. Write {MANIFEST_FILENAME} in that workspace as JSON with an `artifacts` list.
 Each retained API artifact must include artifact_path, source, api_id, docs_url, request,
 and retrieved_at (ISO-8601). artifact_path must point to a real file inside this workspace.
-Finish with concise natural-language coverage feedback explaining what the saved data covers
-and what remains unavailable. Do not lower or assess the scientific score of the Idea."""
+Finish with exactly one JSON object containing `coverage_feedback` (a natural-language
+summary of saved coverage and remaining gaps) and `open_web_evidence_gate` (a boolean). Set the
+gate true when coverage is empty or partial and supplementary Web Evidence would be useful; set
+it false only when the saved local artifacts sufficiently cover the request. Do not lower or
+assess the scientific score of the Idea."""
+
+    @staticmethod
+    def _parse_coverage_decision(output: str) -> tuple[str, bool]:
+        """Read the Connector-owned Web Evidence startup decision from Codex output."""
+        payload = ConnectorAgent._extract_json_object(output)
+        if isinstance(payload, Mapping):
+            feedback = payload.get("coverage_feedback")
+            coverage_feedback = (
+                feedback.strip() if isinstance(feedback, str) else output.strip()
+            )
+            gate = payload.get("open_web_evidence_gate")
+            if isinstance(gate, bool):
+                return coverage_feedback, gate
+        else:
+            coverage_feedback = output.strip()
+
+        return coverage_feedback, ConnectorAgent._coverage_needs_web_evidence(
+            coverage_feedback
+        )
+
+    @staticmethod
+    def _extract_json_object(output: str) -> Mapping[str, Any] | None:
+        """Accept bare, fenced, or prose-wrapped JSON emitted by the Codex runner."""
+        decoder = json.JSONDecoder()
+        for start in (index for index, character in enumerate(output) if character == "{"):
+            try:
+                payload, _ = decoder.raw_decode(output[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, Mapping):
+                return payload
+        return None
+
+    @staticmethod
+    def _coverage_needs_web_evidence(coverage_feedback: str) -> bool:
+        """Keep the Connector gate open unless its own feedback establishes sufficiency."""
+        feedback = coverage_feedback.lower()
+        if not feedback:
+            return True
+        incomplete_markers = (
+            "partial",
+            "incomplete",
+            "unavailable",
+            "missing",
+            "insufficient",
+            "no coverage",
+            "no data",
+            "not covered",
+            "unable",
+        )
+        if any(marker in feedback for marker in incomplete_markers):
+            return True
+        sufficient_markers = (
+            "sufficient",
+            "complete coverage",
+            "fully covers",
+            "all requested",
+        )
+        if any(marker in feedback for marker in sufficient_markers):
+            return False
+        return True
 
     @staticmethod
     def _write_acquisition_record(
@@ -116,6 +186,7 @@ and what remains unavailable. Do not lower or assess the scientific score of the
         *,
         request: str,
         coverage_feedback: str,
+        open_web_evidence_gate: bool,
         status: str,
         error: str | None = None,
     ) -> None:
@@ -123,6 +194,7 @@ and what remains unavailable. Do not lower or assess the scientific score of the
             "acquired_by": "connector",
             "request": request,
             "coverage_feedback": coverage_feedback,
+            "open_web_evidence_gate": open_web_evidence_gate,
             "status": status,
             "retrieved_at": datetime.now(timezone.utc).isoformat(),
         }

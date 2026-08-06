@@ -120,6 +120,9 @@ agents:
   # writes only inside the individual Idea workspace.
   connector: {}
 
+  # Starts only when Connector returns open_web_evidence_gate=true.
+  web_evidence: {}
+
   # Survey Agent
   survey:
     max_papers: 50
