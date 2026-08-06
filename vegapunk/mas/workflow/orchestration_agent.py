@@ -720,14 +720,20 @@ class OrchestrationAgent:
         current_iter: int,
     ) -> None:
         """Acquire and admit structured data without changing the Scholar path."""
-        connector = self._get_agent("connector")
-        if connector is None:
-            if any(self.should_acquire_external_data(idea) for idea in ideas):
-                logger.warning("Connector is unavailable; structured data acquisition was skipped")
-            return
-
         required_ideas = [idea for idea in ideas if self.should_acquire_external_data(idea)]
         if not required_ideas:
+            return
+
+        connector = self._get_agent("connector")
+        if connector is None:
+            logger.warning("Connector is unavailable; structured data acquisition was skipped")
+            for idea in required_ideas:
+                self._record_acquisition_event(
+                    idea,
+                    acquired_by="connector",
+                    status="unavailable",
+                    message="Connector agent is unavailable; structured data acquisition was skipped.",
+                )
             return
 
         workspace_root = self._external_data_workspace_root()
@@ -754,6 +760,12 @@ class OrchestrationAgent:
                     idea.id,
                     error,
                 )
+                self._record_acquisition_event(
+                    idea,
+                    acquired_by="connector",
+                    status="failed",
+                    message=str(error),
+                )
                 return
 
             validation = validate_idea_evidence_manifest(workspace)
@@ -762,6 +774,12 @@ class OrchestrationAgent:
                     "Connector manifest rejected for Idea %s: %s",
                     idea.id,
                     "; ".join(validation.errors),
+                )
+                self._record_acquisition_event(
+                    idea,
+                    acquired_by="connector",
+                    status="invalid_manifest",
+                    message="; ".join(validation.errors),
                 )
                 connector_artifact_paths: set[str] = set()
             else:
@@ -785,6 +803,7 @@ class OrchestrationAgent:
                     api_registry,
                     connector_artifact_paths,
                     str(connector_result.get("coverage_feedback", "")),
+                    semaphore,
                 )
 
         await asyncio.gather(*(acquire(idea) for idea in required_ideas))
@@ -798,11 +817,18 @@ class OrchestrationAgent:
         api_registry: List[Dict[str, Any]],
         connector_artifact_paths: set[str],
         connector_coverage_feedback: str,
+        semaphore: asyncio.Semaphore,
     ) -> None:
         """Invoke Web Evidence only when the Connector-owned gate is open."""
         web_evidence = self._get_agent("web_evidence")
         if web_evidence is None:
             logger.warning("Web Evidence is unavailable for Idea %s", idea.id)
+            self._record_acquisition_event(
+                idea,
+                acquired_by="web_evidence",
+                status="unavailable",
+                message="Web Evidence agent is unavailable.",
+            )
             return
 
         context = {
@@ -815,12 +841,19 @@ class OrchestrationAgent:
             "idea_data_workspace": str(workspace),
         }
         try:
-            await web_evidence.execute(context, {})
+            async with semaphore:
+                await web_evidence.execute(context, {})
         except Exception as error:
             logger.warning(
                 "Web Evidence acquisition failed for Idea %s; no evidence was admitted: %s",
                 idea.id,
                 error,
+            )
+            self._record_acquisition_event(
+                idea,
+                acquired_by="web_evidence",
+                status="failed",
+                message=str(error),
             )
             return
 
@@ -831,6 +864,12 @@ class OrchestrationAgent:
                 idea.id,
                 "; ".join(validation.errors),
             )
+            self._record_acquisition_event(
+                idea,
+                acquired_by="web_evidence",
+                status="invalid_manifest",
+                message="; ".join(validation.errors),
+            )
             return
 
         web_entries = [
@@ -840,6 +879,12 @@ class OrchestrationAgent:
         ]
         if not web_entries:
             logger.warning("Web Evidence returned no new valid artifacts for Idea %s", idea.id)
+            self._record_acquisition_event(
+                idea,
+                acquired_by="web_evidence",
+                status="no_new_artifacts",
+                message="Web Evidence returned no new valid artifacts.",
+            )
             return
         self._admit_external_evidence(
             idea,
@@ -866,6 +911,24 @@ class OrchestrationAgent:
         idea.evidence.extend(admitted_evidence)
         if method_phase:
             idea.refine_evidence.extend(admitted_evidence)
+
+    @staticmethod
+    def _record_acquisition_event(
+        idea: Idea,
+        *,
+        acquired_by: str,
+        status: str,
+        message: str,
+    ) -> None:
+        """Persist an acquisition fact without admitting it as scientific evidence."""
+        idea.acquisition_events.append(
+            {
+                "acquired_by": acquired_by,
+                "status": status,
+                "message": message,
+                "recorded_at": datetime.now().isoformat(),
+            }
+        )
 
     def _external_data_workspace_root(self) -> Path:
         workflow_config = self.config.get("workflow", {})

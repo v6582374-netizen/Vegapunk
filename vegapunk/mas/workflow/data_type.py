@@ -95,6 +95,7 @@ class Idea:
     critiques: List[str] = field(default_factory=list)
     evidence: List[Dict[str, Any]] = field(default_factory=list)
     refine_evidence: List[Dict[str, Any]] = field(default_factory=list)
+    acquisition_events: List[Dict[str, Any]] = field(default_factory=list)
     iteration: int = 0
     scores: Dict[str, float] = field(default_factory=dict)
     references: List[Dict[str, Any]] = field(default_factory=list)
@@ -121,6 +122,7 @@ class Idea:
             "critiques": self.critiques,
             "evidence": self.evidence,
             "refine_evidence": self.refine_evidence,
+            "acquisition_events": self.acquisition_events,
             "iteration": self.iteration,
             "scores": self.scores,
             "references": self.references,
