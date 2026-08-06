@@ -15,6 +15,7 @@ import numpy as np
 import networkx as nx
 from dataclasses import dataclass
 from datetime import datetime
+from collections.abc import Mapping
 from typing import Dict, Any, Optional, List, Iterable, Tuple
 from chromadb import PersistentClient as ChromaClient
 from vegapunk.mas.agents.agent_factory import AgentFactory
@@ -468,7 +469,14 @@ class PromptEvolver:
     3. Update background information with insights from best methods
     """
 
-    def __init__(self, args, logger, config=None, idea_graph=None):
+    def __init__(
+        self,
+        args,
+        logger,
+        config=None,
+        idea_graph=None,
+        runtime: Optional[UnifiedModelRuntime] = None,
+    ):
         """
         Initialize the prompt evolver.
 
@@ -477,12 +485,13 @@ class PromptEvolver:
             logger: Logger instance
             config: Configuration dictionary
             idea_graph: Optional IdeaGraph instance for exploratory prompt selection
+            runtime: Process-owned UnifiedModelRuntime shared by the launch
         """
         self.args = args
         self.logger = logger
         self.config = config or {}
         self.prompt_agent = None
-        self.model_runtime = (
+        self.model_runtime = runtime or (
             idea_graph.runtime
             if idea_graph is not None and idea_graph.runtime is not None
             else self.config.get("_runtime")
@@ -496,7 +505,7 @@ class PromptEvolver:
         self.idea_graph = idea_graph
 
         # Number of parallel prompts to generate for exploration
-        self.num_candidates = config.get("agents", {}).get("prompt_evolver", {}).get("num_candidates", 3)
+        self.num_candidates = self.config.get("agents", {}).get("prompt_evolver", {}).get("num_candidates", 3)
 
     def _initialize_agent(self):
         """Initialize the PromptGeneratorAgent using AgentFactory."""
@@ -1128,17 +1137,31 @@ class ExperienceGenerator:
     All LLM calls and experience generation logic are delegated to the ExperienceAgent.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None, config_path: Optional[Dict] = None):
+    def __init__(
+        self,
+        logger: Optional[logging.Logger] = None,
+        config_path: Optional[str] = None,
+        *,
+        config: Optional[Mapping[str, Any]] = None,
+        runtime: Optional[UnifiedModelRuntime] = None,
+    ):
         """
         Initialize the experience generator manager.
 
         Args:
             logger: Logger instance
             config: Configuration dict containing model settings
+            runtime: Process-owned UnifiedModelRuntime shared by the launch
         """
         self.logger = logger or logging.getLogger("ExperienceGenerator")
-        self.config = self._load_config(config_path)
-        self.model_runtime = self.config.get("_runtime")
+        if config is not None and config_path is not None:
+            raise ValueError("Provide either config or config_path, not both")
+        self.config = (
+            dict(config)
+            if config is not None
+            else self._load_config(config_path)
+        )
+        self.model_runtime = runtime or self.config.get("_runtime")
         if self.model_runtime is None:
             raise ValueError(
                 "ExperienceGenerator requires the process-owned UnifiedModelRuntime"

@@ -16,8 +16,9 @@ import abc
 import asyncio
 import json
 import random
+from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Deque, Dict, List, Union
 
 from pydantic import ValidationError
 from torch.utils.data import IterableDataset
@@ -60,7 +61,7 @@ class BaseGenerator(abc.ABC, IterableDataset):
         self._rng = random.Random(seed)
         self.cache = Path(cache) if cache else None
         self._buffer = buffer
-        self._data: List[DataPoint] = []
+        self._data: Deque[DataPoint] = deque()
         self._batch_to_save: List[DataPoint] = []
 
         if data_path:
@@ -115,7 +116,7 @@ class BaseGenerator(abc.ABC, IterableDataset):
             while True:
                 if not self._data:
                     await self.generate_new(self._buffer)
-                datapoint = self._data.pop(0)
+                datapoint = self._data.popleft()
                 yield datapoint
                 self._batch_to_save.append(datapoint)
                 if len(self._batch_to_save) == 100:
@@ -152,7 +153,7 @@ class BaseGenerator(abc.ABC, IterableDataset):
         while True:
             if not self._data:
                 asyncio.run(self.generate_new(self._buffer))
-            datapoint = self._data.pop(0)
+            datapoint = self._data.popleft()
             yield datapoint
             self._batch_to_save.append(datapoint)
             if len(self._batch_to_save) == 100:
@@ -247,7 +248,7 @@ class BaseGenerator(abc.ABC, IterableDataset):
         """
 
         self.save_to_jsonl(file_path)
-        self._data = []
+        self._data = deque()
         logger.info(f"Data flushed to {file_path} and cleared from the memory")
 
     def _init_from_jsonl(self, file_path: Path) -> List[Dict[str, Any]]:

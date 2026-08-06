@@ -3,13 +3,117 @@ Weather Tool - 天气查询工具函数
 """
 
 import asyncio
+import ast
 import math
 import logging
 import molbloom
-from typing import Dict, Any, List
+from typing import Any, Callable, Dict, List
 from vegapunk.mas.models.runtime import FunctionTool
 
 logger = logging.getLogger(__name__)
+
+
+_MAX_EXPRESSION_LENGTH = 1_000
+_MAX_AST_NODES = 100
+_MAX_POWER_EXPONENT = 1_000
+
+_MATH_FUNCTIONS: Dict[str, Callable[..., float]] = {
+    "sqrt": math.sqrt,
+    "pow": math.pow,
+    "abs": abs,
+    "round": round,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "log": math.log,
+    "exp": math.exp,
+}
+_MATH_CONSTANTS = {"pi": math.pi, "e": math.e}
+
+
+def _safe_math_expression(expression: str) -> float:
+    """Evaluate the small arithmetic language exposed by ``calculate``.
+
+    ``eval`` is deliberately avoided here. Even with an empty ``__builtins__``
+    mapping, Python objects expose introspection attributes that can be chained
+    into arbitrary code execution. An AST whitelist gives the tool an explicit
+    language boundary instead of trying to make Python itself safe.
+    """
+
+    if not isinstance(expression, str):
+        raise TypeError("expression must be a string")
+    if len(expression) > _MAX_EXPRESSION_LENGTH:
+        raise ValueError("expression is too long")
+
+    tree = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(tree)) > _MAX_AST_NODES:
+        raise ValueError("expression is too complex")
+
+    def evaluate(node: ast.AST) -> float:
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(
+                node.value, (int, float)
+            ):
+                raise ValueError("only finite numeric constants are allowed")
+            value = float(node.value)
+            if not math.isfinite(value):
+                raise ValueError("numeric constants must be finite")
+            return value
+
+        if isinstance(node, ast.Name):
+            if node.id in _MATH_CONSTANTS:
+                return _MATH_CONSTANTS[node.id]
+            raise ValueError(f"unknown name: {node.id}")
+
+        if isinstance(node, ast.UnaryOp) and isinstance(
+            node.op, (ast.UAdd, ast.USub)
+        ):
+            value = evaluate(node.operand)
+            return value if isinstance(node.op, ast.UAdd) else -value
+
+        if isinstance(node, ast.BinOp) and isinstance(
+            node.op,
+            (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow),
+        ):
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                value = left + right
+            elif isinstance(node.op, ast.Sub):
+                value = left - right
+            elif isinstance(node.op, ast.Mult):
+                value = left * right
+            elif isinstance(node.op, ast.Div):
+                value = left / right
+            elif isinstance(node.op, ast.Mod):
+                value = left % right
+            else:
+                if abs(right) > _MAX_POWER_EXPONENT:
+                    raise ValueError("power exponent is too large")
+                value = left**right
+            if not math.isfinite(value):
+                raise ValueError("result is not finite")
+            return value
+
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in _MATH_FUNCTIONS:
+                raise ValueError("only approved math functions may be called")
+            if node.keywords:
+                raise ValueError("keyword arguments are not supported")
+            if len(node.args) > 2:
+                raise ValueError("too many function arguments")
+            value = _MATH_FUNCTIONS[node.func.id](
+                *(evaluate(argument) for argument in node.args)
+            )
+            if not math.isfinite(value):
+                raise ValueError("result is not finite")
+            return float(value)
+
+        raise ValueError(
+            f"unsupported expression element: {type(node).__name__}"
+        )
+
+    return evaluate(tree.body)
 
 # 工具的元数据定义
 CALCULATOR_TOOL_DEFINITION = FunctionTool(
@@ -66,23 +170,7 @@ async def calculate(expression: str) -> Dict[str, Any]:
     logger.info(f"Calculating: {expression}")
     
     try:
-        # 安全的数学计算环境
-        safe_dict = {
-            "sqrt": math.sqrt,
-            "pow": math.pow,
-            "abs": abs,
-            "round": round,
-            "sin": math.sin,
-            "cos": math.cos,
-            "tan": math.tan,
-            "log": math.log,
-            "exp": math.exp,
-            "pi": math.pi,
-            "e": math.e,
-        }
-        
-        # 执行计算
-        result = eval(expression, {"__builtins__": {}}, safe_dict)
+        result = _safe_math_expression(expression)
         
         output = {
             "expression": expression,

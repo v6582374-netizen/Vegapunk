@@ -81,7 +81,7 @@ python launch_discovery.py \
 |------|------|
 | `--task` | 任务名 (`Life_000`) 或完整路径 |
 | `--config` | YAML 配置文件 |
-| `--exp_backend` | `codex` / `openhands` / `iflow` |
+| `--exp_backend` | `codex` / `qwen_code` / `openhands` |
 | `--output_dir` | 结果目录 (默认 `results/{task}/`) |
 | `--resume` | 从已有 launch 文件夹断点续跑 |
 | `--skip_idea_generation` | 跳过 idea 生成，用 `--idea_path` 指定现有 ideas |

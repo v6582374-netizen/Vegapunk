@@ -150,10 +150,21 @@ function fallbackWorkspace(current: string | null, projects: RecentWorkspace[]):
 }
 
 export function App() {
-  const prototype = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("prototype") : null;
+  const params = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
+  const prototype = params?.get("prototype") ?? null;
+  const preview = params?.get("preview") ?? null;
   if (prototype === "skills-manager") return <SkillsManagerPrototype />;
   if (prototype === "agents-md") return <AgentsMdPrototype />;
-  return <OpenWorkerApp />;
+  const app = <OpenWorkerApp />;
+  const previewClass =
+    preview === "surface-hierarchy-ma"
+      ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--ma"
+      : preview === "surface-hierarchy-refined"
+        ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--refined"
+        : preview === "surface-hierarchy"
+          ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--quiet"
+          : "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--ma";
+  return <div className={previewClass}>{app}</div>;
 }
 
 function OpenWorkerApp() {
@@ -212,10 +223,14 @@ function OpenWorkerApp() {
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
-  const [settingsTab, setSettingsTab] = useState<"appearance" | "models" | "voice" | "personas" | "prompts">(
+  const [settingsTab, setSettingsTab] = useState<
+    "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services"
+  >(
     "appearance",
   );
-  const openSettings = (tab: "appearance" | "models" | "voice" | "personas" | "prompts" = "appearance") => {
+  const openSettings = (
+    tab: "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services" = "appearance",
+  ) => {
     setSettingsTab(tab);
     setSurface("settings");
   };

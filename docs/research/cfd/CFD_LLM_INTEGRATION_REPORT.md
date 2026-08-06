@@ -211,7 +211,7 @@ DoMINO NIM 官方 Usability Guide 给出硬约束/可信边界：
 
 - 初始化资源分配器和并行上限（`stage.py:466-557`）；
 - 为每个 idea 建立隔离工作目录（`stage.py:715-848`）；
-- 通过 `exp_backend` 分派 Codex、iFlow、OpenHands（`stage.py:899-1059`）；
+- 通过 `exp_backend` 分派 Codex、Qwen Code、OpenHands（`stage.py:899-1059`）；
 - 收集性能并把成功结果写入在线记忆（`stage.py:1061-1171`）。
 
 其中 `_run_single_experiment()` 用 semaphore 包住单个 candidate，说明“一个 candidate 的资源 lease”已经有现成概念；但现有 lease 主要表达 GPU 数量，不能表达 OpenFOAM/MPI 的 CPU 核、内存、临时磁盘和独占 case 目录。
@@ -464,7 +464,7 @@ created -> validating -> previewed -> approved -> queued
 ### 14.2 安全、路径和敏感信息
 
 - worker 只允许在 launch-local root 下读写；解析 STL、case manifest 和 symlink 时拒绝路径逃逸。
-- 不允许 `sudo`、任意网络、任意挂载、shell 插值和未审计环境变量；NGC/API/license secret 不能写入 `record_research_event`、日志或 artifact manifest。
+- 不允许 `sudo`、任意网络、任意挂载、shell 插值和未审计环境变量；NGC/API/license secret 不能写入日志或 artifact manifest。
 - LLM 可以修改白名单设计变量或受控字典模板，不能直接改 launcher、执行脚本、容器参数和宿主机路径。
 - 用户上传的 STL 必须有大小、面数、watertight、单位/姿态和格式上限；失败在 `validate_plan` 阶段返回，不启动求解器。
 

@@ -58,8 +58,8 @@ python launch_discovery.py \
 Agent、提示词、同步 pipeline、文献流程和自主绘图，只在宿主输入输出与模型调用边界做适配。
 
 首个可运行基线只把系统自然产物投影为 `idea_sparse.md` 与
-`experimental_log.md`：不读取 `manuscript/draft.md`、源码、代码差异或
-`code_summary.json`。`report/report.md` 存在时会进入实验记录，缺失时不会阻塞实验、候选选择或论文生成。
+`experimental_log.md`：不读取源码、代码差异或 `code_summary.json`。
+`report/report.md` 存在时会进入实验记录，缺失时不会阻塞实验、候选选择或论文生成。
 
 为已有 Discovery Launch 单独触发同一个单-Paper服务：
 

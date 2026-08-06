@@ -52,6 +52,14 @@ class OnlineMemoryConfigTest(unittest.TestCase):
             saver = self._create_saver(self._config(directory))
         self.assertEqual(saver.memory.embedding_model.model_name, "BAAI/bge-base-en-v1.5")
 
+    def test_explicit_runtime_does_not_require_runtime_in_serializable_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._config(directory)
+            runtime = config.pop("_runtime")
+            saver = OnlineMemorySaver(config, "config-test", runtime=runtime)
+
+        self.assertEqual(saver.memory.analyze_agent.model.model_id, "qwen/qwen3.7-max")
+
 
 if __name__ == "__main__":
     unittest.main()

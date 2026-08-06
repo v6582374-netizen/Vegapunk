@@ -241,18 +241,9 @@ class ToolManager:
         Returns:
             工具执行结果
         """
-        from vegapunk.research_draft import record_research_event
+        return self._call_tool(tool_name, **kwargs)
 
-        record_research_event({"tool_name": tool_name, "arguments": kwargs})
-        try:
-            result = self._call_tool_without_capture(tool_name, **kwargs)
-        except Exception as error:
-            record_research_event(error)
-            raise
-        record_research_event(result)
-        return result
-
-    def _call_tool_without_capture(self, tool_name: str, **kwargs) -> Any:
+    def _call_tool(self, tool_name: str, **kwargs) -> Any:
         if tool_name not in self.tools:
             raise ValueError(f"工具 '{tool_name}' 不存在")
         

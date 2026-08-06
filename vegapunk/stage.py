@@ -13,9 +13,9 @@ import math
 
 from vegapunk.mas.interface import VegapunkInterface
 from vegapunk.experiments_utils_codex import perform_experiments as perform_experiments_codex
-from vegapunk.experiments_utils_iflow import perform_experiments as perform_experiments_iflow
+from vegapunk.experiments_utils_qwen_code import perform_experiments as perform_experiments_qwen_code
 from vegapunk.mcts_experiments_utils_codex import perform_experiments_mcts as perform_experiments_mcts_codex
-from vegapunk.mcts_experiments_utils_iflow import perform_experiments_mcts as perform_experiments_mcts_iflow
+from vegapunk.mcts_experiments_utils_qwen_code import perform_experiments_mcts as perform_experiments_mcts_qwen_code
 from vegapunk.vis_tree import vis_tree
 
 
@@ -218,20 +218,17 @@ class IdeaGenerator:
                 shutil.copy(task_desc_path, backup_path)
                 self.logger.info(f"Backed up prompt to: {backup_path}")
 
-                # Load config for PromptEvolver
-                config = {}
-                if self.args.config and osp.exists(self.args.config):
-                    try:
-                        with open(self.args.config, 'r') as f:
-                            if self.args.config.endswith(('.yaml', '.yml')):
-                                config = yaml.safe_load(f)
-                            else:
-                                config = json.load(f)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to load config: {e}")
-
-                # Initialize PromptEvolver with IdeaGraph
-                prompt_evolver = PromptEvolver(self.args, self.logger, config, idea_graph=self.idea_graph)
+                # Reuse the Interface's already-loaded configuration and the
+                # process-owned runtime instead of reconstructing either from
+                # YAML at the prompt-evolution boundary.
+                config = dict(self.interface.config)
+                prompt_evolver = PromptEvolver(
+                    self.args,
+                    self.logger,
+                    config,
+                    idea_graph=self.idea_graph,
+                    runtime=self.interface.model_runtime,
+                )
 
                 # Get domain from current prompt
                 with open(task_desc_path, 'r') as f:
@@ -501,7 +498,11 @@ class ExperimentRunner:
                     from vegapunk.mas.memory import OnlineMemorySaver
                     task_name = getattr(args, 'task_name', None)
                     if task_name:
-                        self.memory_saver = OnlineMemorySaver(config, task_name)
+                        self.memory_saver = OnlineMemorySaver(
+                            config,
+                            task_name,
+                            runtime=self.model_runtime,
+                        )
                         self.logger.info("Online memory saver initialized")
                     else:
                         self.logger.warning("Online memory enabled but task_name not available")
@@ -996,9 +997,8 @@ class ExperimentRunner:
             self._stop_progress_monitor(stop_event, monitor_thread)
             self.close_experiment_log(log_file)
 
-    def run_iflow_experiment(self, base_dir, results_dir, idea, gpu_ids=""):
-        """
-        Run experiment using iFlow backend
+    def run_qwen_code_experiment(self, base_dir, results_dir, idea, gpu_ids=""):
+        """Run experiment using the official Qwen Code backend.
 
         Args:
             base_dir: Base directory for the experiment
@@ -1006,10 +1006,18 @@ class ExperimentRunner:
             idea: The idea to experiment with
             gpu_ids: Comma-separated GPU IDs to use (e.g., "0,1")
         """
-        if gpu_ids:
-            self.logger.info(f"iFlow experiment using GPUs: {gpu_ids}")
+        task_type = getattr(self.args, "task_type", "auto")
+        if task_type == "sci":
+            folder_name, idea_name = self.setup_sci_experiment_folder(
+                base_dir, results_dir, idea
+            )
+        else:
+            folder_name, idea_name = self.setup_repo_experiment_folder(
+                base_dir, results_dir, idea
+            )
 
-        folder_name, idea_name = self.setup_repo_experiment_folder(base_dir, results_dir, idea)
+        if gpu_ids:
+            self.logger.info(f"Qwen Code experiment using GPUs: {gpu_ids}")
 
         # Create experiment log file (thread-safe, no global redirect)
         log_file = self.setup_experiment_log(folder_name)
@@ -1023,9 +1031,9 @@ class ExperimentRunner:
             use_mcts = self.config.get("experiment", {}).get("use_mcts", False)
 
             if use_mcts:
-                self.logger.info(f"Starting iFlow MCTS experiment: {idea_name}")
+                self.logger.info(f"Starting Qwen Code MCTS experiment: {idea_name}")
             else:
-                self.logger.info(f"Starting iFlow experiment: {idea_name}")
+                self.logger.info(f"Starting Qwen Code experiment: {idea_name}")
 
             experiment_model = (
                 self.config.get("experiment", {}).get("model") or
@@ -1033,7 +1041,7 @@ class ExperimentRunner:
             )
 
             if use_mcts:
-                success = perform_experiments_mcts_iflow(
+                success = perform_experiments_mcts_qwen_code(
                     idea,
                     cwd,
                     model=experiment_model,
@@ -1043,20 +1051,41 @@ class ExperimentRunner:
             else:
                 # Get max_runs from config
                 max_runs = self.config.get("experiment", {}).get("max_runs", 5)
-                success = perform_experiments_iflow(
+                task_info = None
+                checklist = None
+                if task_type == "sci":
+                    task_info_path = osp.join(self.args.task_dir, "task_info.json")
+                    if osp.exists(task_info_path):
+                        with open(task_info_path) as task_info_file:
+                            task_info = json.load(task_info_file)
+                    checklist_path = osp.join(
+                        self.args.task_dir, "target_study", "checklist.json"
+                    )
+                    if osp.exists(checklist_path):
+                        with open(checklist_path) as checklist_file:
+                            checklist = json.load(checklist_file)
+                run_timeout = self.config.get("experiment", {}).get(
+                    "run_timeout", None
+                )
+                success = perform_experiments_qwen_code(
                     idea,
                     cwd,
                     model=experiment_model,
                     gpu_ids=gpu_ids,
                     max_runs=max_runs,
-                    log_file=log_file
+                    log_file=log_file,
+                    task_type=task_type,
+                    task_info=task_info,
+                    checklist=checklist,
+                    run_timeout=run_timeout,
+                    runtime=self.model_runtime,
                 )
 
-            self.logger.info(f"iFlow experiment {'succeeded' if success else 'failed'}: {idea_name}")
+            self.logger.info(f"Qwen Code experiment {'succeeded' if success else 'failed'}: {idea_name}")
             return success, folder_name
 
         except Exception as e:
-            self.logger.error(f"iFlow experiment error: {str(e)}")
+            self.logger.error(f"Qwen Code experiment error: {str(e)}")
             return False, folder_name
         finally:
             self._stop_progress_monitor(stop_event, monitor_thread)
@@ -1091,8 +1120,8 @@ class ExperimentRunner:
                     success, folder_name = self.run_openhands_experiment(base_dir, results_dir, idea, gpu_ids)
                 elif self.backend == "codex":
                     success, folder_name = self.run_codex_experiment(base_dir, results_dir, idea, gpu_ids)
-                elif self.backend == "iflow":
-                    success, folder_name = self.run_iflow_experiment(base_dir, results_dir, idea, gpu_ids)
+                elif self.backend == "qwen_code":
+                    success, folder_name = self.run_qwen_code_experiment(base_dir, results_dir, idea, gpu_ids)
                 else:
                     raise ValueError(f"Unknown backend: {self.backend}")
 

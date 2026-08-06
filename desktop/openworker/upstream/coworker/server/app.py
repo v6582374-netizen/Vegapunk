@@ -1841,6 +1841,40 @@ def create_app(
     def settings_discovery_launch_get() -> dict[str, Any]:
         return manager.get_discovery_launch_preferences()
 
+    @app.get("/v1/settings/api-services")
+    def settings_api_services_get() -> dict[str, Any]:
+        """Return the fixed scholarly-service catalog with redacted credentials."""
+        return {"services": manager.get_api_services()}
+
+    @app.post("/v1/settings/api-services/{name}")
+    def settings_api_service_set(name: str, body: dict | None = None) -> dict[str, Any]:
+        """Save exactly one API service profile; omitted credentials remain stored."""
+        payload = body or {}
+        current = next((item for item in manager.get_api_services() if item["name"] == name), None)
+        if current is None:
+            raise HTTPException(status_code=404, detail=f"unknown API service: {name}")
+        enabled = bool(payload["enabled"]) if "enabled" in payload else bool(current["enabled"])
+        return manager.set_api_service(
+            name,
+            enabled=enabled,
+            credential=payload.get("credential"),
+            credential_provided="credential" in payload,
+        )
+
+    @app.post("/v1/settings/api-services/{name}/test")
+    async def settings_api_service_test(name: str, body: dict | None = None) -> dict[str, Any]:
+        """Run one fixed read-only service check without blocking the event loop."""
+        payload = body or {}
+        current = next((item for item in manager.get_api_services() if item["name"] == name), None)
+        if current is None:
+            raise HTTPException(status_code=404, detail=f"unknown API service: {name}")
+        return await asyncio.to_thread(
+            manager.test_api_service,
+            name,
+            credential=payload.get("credential"),
+            credential_provided="credential" in payload,
+        )
+
     @app.put("/v1/settings/discovery-launch")
     @app.post("/v1/settings/discovery-launch")
     def settings_discovery_launch_set(body: dict | None = None) -> dict[str, Any]:

@@ -155,6 +155,12 @@ const EMPTY_CONVERSION: DiscoveryConversionState = {
 
 const CONVERSION_STATUSES = ["pending", "editing", "saved", "dirty", "failed"] as const;
 
+function isSurfaceHierarchyMa(): boolean {
+  if (typeof window === "undefined") return true;
+  const preview = new URLSearchParams(window.location.search).get("preview");
+  return preview === null || preview === "surface-hierarchy-ma";
+}
+
 function normalizePreparation(raw: DiscoveryPreparation | { status?: string }): DiscoveryPreparation {
   const candidate = raw as Partial<DiscoveryPreparation>;
   const conversion = candidate.conversion as Partial<DiscoveryConversionState> | undefined;
@@ -502,6 +508,10 @@ function prototypeLaunchTitle(launch: DiscoveryLaunch): string {
   return `Discovery Launch ${prototypeLaunchShortId(launch)}`;
 }
 
+function prototypeTextLanguage(value: string): "zh-CN" | "en" {
+  return /[\u3400-\u9fff]/u.test(value) ? "zh-CN" : "en";
+}
+
 function prototypeLaunchIsActive(launch: DiscoveryLaunch): boolean {
   return launch.state === "starting" || launch.state === "running" || launch.state === "stopping";
 }
@@ -547,7 +557,7 @@ function PrototypeStatusPill({ state }: { state: DiscoveryLaunch["state"] }) {
   const stateClass =
     state === "completed"
       ? "is-ready"
-      : state === "failed"
+      : state === "failed" || state === "interrupted"
         ? "is-danger"
         : live ? "is-live" : "is-warn";
   return (
@@ -610,6 +620,7 @@ function DiscoveryLaunchNotice({
   const activeDefinition = HUMAN_REVIEW_CHECKPOINTS.find((checkpoint) => checkpoint.key === active);
   const observedState = status?.state ?? launch?.state ?? "idle";
   const awaitingReview = observedState === "awaiting_review" && Boolean(activeDefinition);
+  const errorState = observedState === "failed" || observedState === "interrupted";
   const message = !launch
     ? "Preparation is the current state. Start a Discovery run from Preparation when you are ready."
     : awaitingReview
@@ -617,7 +628,7 @@ function DiscoveryLaunchNotice({
     : observedState === "failed"
       ? launch.error
         ? `Launch failed: ${launch.error}`
-        : "Launch failed. Open Runtime output for the failure details."
+        : "Launch failed. Open Current Launch for the failure details."
     : observedState === "interrupted"
       ? "Launch interrupted. Review its durable checkpoint before resuming."
     : observedState === "stopped"
@@ -626,7 +637,7 @@ function DiscoveryLaunchNotice({
       ? "This Launch is complete. All three checkpoint bundles remain available as read-only history."
       : "The Launch is active. Checkpoint slots remain unavailable until their boundary is reached.";
   return (
-    <div className={`discovery-launch-notice ${awaitingReview ? "is-review" : ""} ${!launch ? "is-empty" : ""}`} role="status">
+    <div className={`discovery-launch-notice ${awaitingReview ? "is-review" : ""} ${errorState ? "is-error" : ""} ${!launch ? "is-empty" : ""}`} role="status">
       <span className="discovery-launch-notice-dot" aria-hidden="true" />
       <span>{message}</span>
     </div>
@@ -765,69 +776,94 @@ function DiscoveryCheckpointPreview({
   );
 }
 
-function PrototypeHistoryRunItem({
-  launch,
-  selected,
-  onSelect,
-}: {
-  launch: DiscoveryLaunch;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const title = prototypeLaunchTitle(launch);
-  const indexTitle = title.startsWith("Discovery Launch ")
-    ? title.slice("Discovery Launch ".length)
-    : title;
-  const meta = prototypeLaunchIsActive(launch)
-    ? `${prototypeLaunchShortId(launch)} · ${launch.stage}`
-    : `${prototypeLaunchShortId(launch)} · ${launch.state === "failed" ? "stopped" : launch.state}`;
+function prototypeLaunchCanResume(launch: DiscoveryLaunch): boolean {
   return (
-    <button
-      type="button"
-      className={`discovery-history-item ${selected ? "is-selected" : ""}`}
-      aria-label={`Select ${prototypeLaunchTitle(launch)}`}
-      aria-current={selected ? "true" : undefined}
-      onClick={onSelect}
-    >
-      <span className="discovery-history-item-top">
-        <span className="discovery-history-item-title">{indexTitle}</span>
-        <span className={`discovery-history-status discovery-history-status-${launch.state}`}>
-          <span className="discovery-history-status-dot" />
-          {launch.state.charAt(0).toUpperCase() + launch.state.slice(1)}
-        </span>
-      </span>
-      <span className="discovery-history-item-meta">{meta}</span>
-    </button>
+    launch.state === "awaiting_review" ||
+    ((launch.state === "stopped" || launch.state === "interrupted") && Boolean(launch.resumable))
   );
 }
 
-function PrototypeLaunchDetailHeader({
+function prototypeLaunchListSummary(launch: DiscoveryLaunch, observedState: string): string {
+  if (observedState === "failed") {
+    return launch.error ?? "The Launch failed before a trusted terminal outcome was recorded.";
+  }
+  if (observedState === "interrupted") {
+    return launch.error ?? "The worker stopped unexpectedly. Its last durable checkpoint remains available.";
+  }
+  if (observedState === "stopped") {
+    return launch.stop_reason ?? "The Launch was stopped at a durable checkpoint.";
+  }
+  if (observedState === "completed") {
+    return launch.outcome?.trim() || `Completed ${launch.stage} in round ${launch.round}.`;
+  }
+  if (observedState === "awaiting_review") {
+    return "Execution is paused at a deliberate human review seam.";
+  }
+  return `${prototypeLaunchStateLabel(observedState)} · ${launch.stage}`;
+}
+
+function PrototypeHistoryConsolidatedRow({
   launch,
+  selected,
+  onSelect,
+  index,
+  status,
   selectedIsActive,
   busy,
   onStop,
   onResume,
 }: {
   launch: DiscoveryLaunch;
+  selected: boolean;
+  onSelect: () => void;
+  index: number;
+  status: DiscoveryLaunchStatus | null;
   selectedIsActive: boolean;
   busy: Busy;
   onStop?: () => void;
   onResume?: () => void;
 }) {
+  const title = prototypeLaunchTitle(launch);
+  const started = launch.started_at ?? launch.created_at;
+  const date = started
+    ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(started))
+    : "—";
+  const time = started
+    ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(started))
+    : "—";
+  const statusMatches = status?.launch.launch_id === launch.launch_id;
+  const observedState = statusMatches ? status.state : launch.state;
+  const summary = prototypeLaunchListSummary(launch, observedState);
+  const sourceCount = launch.input_summary?.source_count ?? launch.input_summary?.sources?.length ?? 0;
+  const outputCount = statusMatches ? status?.produced_outputs.length ?? 0 : null;
+  const hasAction =
+    (selectedIsActive && Boolean(onStop) && prototypeLaunchIsActive(launch)) ||
+    (!selectedIsActive && Boolean(onResume) && prototypeLaunchCanResume(launch));
   return (
-    <section className="discovery-prototype-panel discovery-detail-header" aria-label="Selected Discovery Launch">
-      <div>
-        <h2 className="discovery-launch-title">{prototypeLaunchTitle(launch)}</h2>
-        <div className="discovery-launch-meta">
-          {prototypeLaunchShortId(launch)} · <span>{launch.state}</span>
-          {selectedIsActive ? ` · ${launch.stage}` : ""}
+    <article className={`discovery-history-consolidated-row ${selected ? "is-selected" : ""} ${observedState === "failed" || observedState === "interrupted" ? "is-error" : ""} ${hasAction ? "has-action" : ""}`}>
+      <button
+        type="button"
+        className="discovery-history-consolidated-hit"
+        aria-label={`Select ${prototypeLaunchTitle(launch)}`}
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+      >
+        <span className="discovery-history-consolidated-grid">
+          <span className="discovery-history-consolidated-main">
+            <span className="discovery-history-consolidated-main-top"><span className="discovery-history-consolidated-index">{String(index + 1).padStart(2, "0")}</span><strong className="discovery-history-consolidated-title" lang={prototypeTextLanguage(title)}>{title}</strong></span>
+            <span className="discovery-history-consolidated-summary" lang={prototypeTextLanguage(summary)}>{summary}</span>
+          </span>
+          <span className="discovery-history-consolidated-started"><span className="discovery-history-consolidated-label">Started</span><span className="discovery-history-consolidated-value">{date}</span><span className="discovery-history-consolidated-muted">{time} · Round {String(launch.round).padStart(2, "0")}</span></span>
+          <span className="discovery-history-consolidated-facts"><span><span className="discovery-history-consolidated-label">Duration</span><strong>{prototypeLaunchElapsed(launch)}</strong></span><span><span className="discovery-history-consolidated-label">Sources</span><strong>{sourceCount || "—"}</strong></span><span><span className="discovery-history-consolidated-label">Outputs</span><strong>{outputCount === null ? "—" : outputCount}</strong></span></span>
+          <span className="discovery-history-consolidated-tail"><PrototypeStatusPill state={observedState as DiscoveryLaunch["state"]} /><span className="discovery-history-consolidated-workspace">{launch.input_summary?.preparation_id ?? launch.preparation_id}</span><span className="discovery-history-consolidated-id">{prototypeLaunchShortId(launch)}</span></span>
+        </span>
+      </button>
+      {hasAction && (
+        <div className="discovery-history-consolidated-action">
+          <PrototypeLaunchAction launch={{ ...launch, state: observedState as DiscoveryLaunch["state"] }} busy={busy} onStop={onStop} onResume={onResume} />
         </div>
-      </div>
-      <div className="discovery-detail-header-actions">
-        <PrototypeStatusPill state={launch.state} />
-        <PrototypeLaunchAction launch={launch} busy={busy} onStop={onStop} onResume={onResume} />
-      </div>
-    </section>
+      )}
+    </article>
   );
 }
 
@@ -839,7 +875,6 @@ function prototypeActivityTime(value: string | undefined, sequence: number): str
 function PrototypeRuntimeDesk({
   status,
   busy,
-  historyMode = false,
   emptyState = false,
   rawOpen,
   rawLines,
@@ -850,7 +885,6 @@ function PrototypeRuntimeDesk({
 }: {
   status: DiscoveryLaunchStatus | null;
   busy: Busy;
-  historyMode?: boolean;
   emptyState?: boolean;
   rawOpen: boolean;
   rawLines: string[];
@@ -862,19 +896,31 @@ function PrototypeRuntimeDesk({
   if (!status && emptyState) {
     return (
       <div className="discovery-runtime-desk is-empty" aria-label="Runtime Desk" data-testid="runtime-desk">
-        <section className="discovery-prototype-panel discovery-runtime-pulse-panel" aria-label="Runtime output">
+        <section className="discovery-prototype-panel discovery-runtime-pulse-panel" aria-label="Runtime pulse">
           <div className="discovery-prototype-panel-head">
             <div>
               <h3>Runtime pulse</h3>
               <span>Standby until a Launch is confirmed</span>
             </div>
-            <button type="button" className="discovery-button discovery-button-quiet" disabled>
-              View Raw Console
+            <button
+              type="button"
+              className="discovery-button discovery-button-quiet"
+              aria-expanded={rawOpen}
+              disabled={!rawOpen}
+              onClick={rawOpen ? onToggleRaw : undefined}
+            >
+              {rawOpen ? "Hide Raw Console" : "View Raw Console"}
             </button>
           </div>
           <div className="discovery-runtime-events discovery-runtime-empty-panel">
             No runtime events yet. Start a Discovery run from Preparation when you are ready.
           </div>
+          {rawOpen && (
+            <div className="discovery-raw-console discovery-raw-console-in" aria-label="Raw Discovery Console">
+              <div className="discovery-raw-console-head"><span>Raw Discovery Console</span><span>stdout + stderr</span></div>
+              <pre>Waiting for a Launch before runner.log output is available...</pre>
+            </div>
+          )}
           <div className="discovery-runtime-footer">
             <span>Standby · no process started</span>
           </div>
@@ -897,43 +943,12 @@ function PrototypeRuntimeDesk({
     ? prototypeActivityTime(lastActivity.occurred_at, lastActivity.sequence)
     : "—";
   return (
-    <div className={`discovery-runtime-desk ${historyMode ? "is-history" : "is-live"}`} aria-label="Runtime Desk" data-testid="runtime-desk">
-      {historyMode && (
-        <section className="discovery-prototype-panel" aria-label="Lifecycle">
-          <div className="discovery-prototype-panel-head">
-            <h3>Lifecycle</h3>
-            <span>{status.state === "completed" || status.state === "failed" || status.state === "stopped" ? "Archived observation" : "Live observation"}</span>
-          </div>
-          <div className="discovery-timeline" aria-label="Research Progress Timeline">
-            {status.timeline.milestones.map((milestone) => {
-              const state = prototypeMilestoneState(milestone, status.timeline.current_milestone_id);
-              return (
-                <div key={milestone.id} className={`discovery-timeline-row ${state}`}>
-                  <span className="discovery-timeline-node" />
-                  <span className="discovery-timeline-step">{String(milestone.position).padStart(2, "0")}</span>
-                  <div className="discovery-timeline-detail">
-                    <strong>{milestone.label}</strong>
-                    <span>{milestone.summary ?? (state === "done" ? "Completed" : state === "active" ? "In progress" : "Awaiting start")}</span>
-                  </div>
-                  <span className="discovery-timeline-state">{state === "done" ? "Done" : state === "active" ? "Live" : "Next"}</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      <section className={`discovery-prototype-panel ${historyMode ? "" : "discovery-runtime-pulse-panel"}`} aria-label="Runtime output">
+    <div className="discovery-runtime-desk is-live" aria-label="Runtime Desk" data-testid="runtime-desk">
+      <section className="discovery-prototype-panel discovery-runtime-pulse-panel" aria-label="Runtime pulse">
         <div className="discovery-prototype-panel-head">
           <div>
-            <h3>{historyMode ? "Runtime output" : "Runtime pulse"}</h3>
-            <span>
-              {historyMode
-                ? status.state === "completed" || status.state === "failed" || status.state === "stopped"
-                  ? "Read-only"
-                  : "Structured events"
-                : "Curated state changes, newest first"}
-            </span>
+            <h3>Runtime pulse</h3>
+            <span>Curated state changes, newest first</span>
           </div>
           <button type="button" className="discovery-button discovery-button-quiet" aria-expanded={rawOpen} onClick={onToggleRaw}>
             {rawOpen ? "Hide Raw Console" : "View Raw Console"}
@@ -975,33 +990,20 @@ function PrototypeRuntimeDesk({
       </section>
 
       <div className="discovery-runtime-footer">
-        <div>
-          {historyMode ? (
-            <>
-              {status.checkpoint ? `Checkpoint: ${status.checkpoint.stage}, round ${status.checkpoint.round}` : "No checkpoint recorded yet."}
-              {status.produced_outputs.length > 0 && <span className="ml-2 text-faint">{status.produced_outputs.length} output reference(s)</span>}
-            </>
-          ) : (
-            <div className="discovery-beacon-runtime-meta">
-              <span>Last durable update {lastDurableUpdate}</span>
-              <span>launch_id {prototypeLaunchShortId(status.launch)}</span>
-            </div>
-          )}
+        <div className="discovery-beacon-runtime-meta">
+          <span>Last durable update {lastDurableUpdate}</span>
+          <span>launch_id {prototypeLaunchShortId(status.launch)}</span>
         </div>
-        {!historyMode && (
-          <div className="flex flex-wrap items-center gap-2">
-            {canStop && <button type="button" className="discovery-button discovery-button-small" disabled={busy === "stop"} onClick={onStop}>{busy === "stop" ? "Stopping..." : "Stop"}</button>}
-            {canResume && <button type="button" className="discovery-button discovery-button-small discovery-button-primary" disabled={busy === "resume"} onClick={onResume}>{busy === "resume" ? "Resuming..." : "Resume"}</button>}
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canStop && <button type="button" className="discovery-button discovery-button-small" disabled={busy === "stop"} onClick={onStop}>{busy === "stop" ? "Stopping..." : "Stop"}</button>}
+          {canResume && <button type="button" className="discovery-button discovery-button-small discovery-button-primary" disabled={busy === "resume"} onClick={onResume}>{busy === "resume" ? "Resuming..." : "Resume"}</button>}
+        </div>
       </div>
-      {!historyMode && (
-        <div className="discovery-beacon-legend" aria-label="Launch state legend">
-          <span><i className="is-live" />Live state</span>
-          <span><i className="is-durable" />Durable checkpoint</span>
-          <span><i className="is-pending" />Awaiting start</span>
-        </div>
-      )}
+      <div className="discovery-beacon-legend" aria-label="Launch state legend">
+        <span><i className="is-live" />Live state</span>
+        <span><i className="is-durable" />Durable checkpoint</span>
+        <span><i className="is-pending" />Awaiting start</span>
+      </div>
     </div>
   );
 }
@@ -1062,7 +1064,7 @@ function PrototypeLaunchHero({
       : observedState === "failed"
         ? launch?.error
           ? `The Launch failed: ${launch.error}`
-          : "The Launch failed before it produced a trusted terminal outcome. Open Runtime output for details."
+          : "The Launch failed before it produced a trusted terminal outcome. Open Current Launch for details."
       : observedState === "interrupted"
         ? "The worker stopped unexpectedly. Review the durable checkpoint before resuming."
       : observedState === "stopped"
@@ -1071,7 +1073,7 @@ function PrototypeLaunchHero({
         ? "The run is complete. Its timeline and artifacts remain available as immutable history."
         : "Evidence is moving through the current seam. The Launch remains interruptible and durable artifacts stay preserved.";
   return (
-    <section className={`discovery-prototype-panel discovery-hero-panel discovery-beacon-hero ${standby ? "is-standby" : ""}`} aria-label="Current Discovery Launch">
+    <section className={`discovery-prototype-panel discovery-hero-panel discovery-beacon-hero ${standby ? "is-standby" : ""} ${observedState === "failed" || observedState === "interrupted" ? "is-error" : ""}`} aria-label="Current Discovery Launch">
       <div className="discovery-beacon-signal">
         <div className="discovery-beacon-signal-head">
           <div className="discovery-beacon-orb" aria-hidden="true"><span /></div>
@@ -1141,6 +1143,7 @@ function LaunchContext({
   rawError: string | null;
   onToggleRaw: () => void;
 }) {
+  const maPreview = isSurfaceHierarchyMa();
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<DiscoveryCheckpointKey | null>(null);
   const fallbackCheckpoint = launch
     ? activeCheckpointKey(launch, runtimeStatus) ??
@@ -1158,42 +1161,73 @@ function LaunchContext({
 
   return (
     <>
-      <div className="discovery-stage-strip-layout">
+      <div className={`discovery-stage-strip-layout ${maPreview ? "discovery-stage-strip-layout-ma" : ""}`}>
         <PrototypeLaunchHero
           launch={launch}
           status={runtimeStatus}
         />
-        <DiscoveryLaunchNotice launch={launch} status={runtimeStatus} />
-        <DiscoveryCheckpointStrip
-          launch={launch}
-          status={runtimeStatus}
-          selected={selectedCheckpointKey}
-          onSelect={setSelectedCheckpoint}
-        />
-        <div className="discovery-stage-body">
-          <div className="discovery-stage-console">
-            <PrototypeRuntimeDesk
-              status={runtimeStatus}
-              busy={busy}
-              emptyState={!launch}
-              rawOpen={rawOpen}
-              rawLines={rawLines}
-              rawError={rawError}
-              onToggleRaw={onToggleRaw}
-              onStop={onStop}
-              onResume={onResume}
-            />
-          </div>
-          <aside className="discovery-stage-inspector">
-            <PrototypeProgressPanel status={runtimeStatus} emptyState={!launch} />
-            <DiscoveryCheckpointPreview
+        {(launch || !maPreview) && <DiscoveryLaunchNotice launch={launch} status={runtimeStatus} />}
+        {maPreview ? (
+          <>
+            <div className="discovery-ma-runtime-row">
+              <PrototypeRuntimeDesk
+                status={runtimeStatus}
+                busy={busy}
+                emptyState={!launch}
+                rawOpen={rawOpen}
+                rawLines={rawLines}
+                rawError={rawError}
+                onToggleRaw={onToggleRaw}
+                onStop={onStop}
+                onResume={onResume}
+              />
+            </div>
+            <div className="discovery-ma-checkpoint-row">
+              <DiscoveryCheckpointStrip
+                launch={launch}
+                status={runtimeStatus}
+                selected={selectedCheckpointKey}
+                onSelect={setSelectedCheckpoint}
+              />
+            </div>
+            <div className="discovery-ma-artifact-row discovery-artifact-rail">
+              <DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} />
+            </div>
+          </>
+        ) : (
+          <>
+            <DiscoveryCheckpointStrip
               launch={launch}
               status={runtimeStatus}
               selected={selectedCheckpointKey}
+              onSelect={setSelectedCheckpoint}
             />
-            <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} /></div>
-          </aside>
-        </div>
+            <div className="discovery-stage-body">
+              <div className="discovery-stage-console">
+                <PrototypeRuntimeDesk
+                  status={runtimeStatus}
+                  busy={busy}
+                  emptyState={!launch}
+                  rawOpen={rawOpen}
+                  rawLines={rawLines}
+                  rawError={rawError}
+                  onToggleRaw={onToggleRaw}
+                  onStop={onStop}
+                  onResume={onResume}
+                />
+              </div>
+              <aside className="discovery-stage-inspector">
+                <PrototypeProgressPanel status={runtimeStatus} emptyState={!launch} />
+                <DiscoveryCheckpointPreview
+                  launch={launch}
+                  status={runtimeStatus}
+                  selected={selectedCheckpointKey}
+                />
+                <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} /></div>
+              </aside>
+            </div>
+          </>
+        )}
       </div>
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
@@ -1233,6 +1267,7 @@ function HistoryContext({
   rawError: string | null;
   onToggleRaw: () => void;
 }) {
+  const maPreview = isSurfaceHierarchyMa();
   if (!history.length && !currentLaunch) {
     return (
       <>
@@ -1252,48 +1287,43 @@ function HistoryContext({
   const selectedIsActive = currentLaunch?.launch_id === selected.launch_id;
   return (
     <>
-      <div className="discovery-history-layout" aria-label="Discovery Launch history">
-        <aside className="discovery-history-index discovery-prototype-panel">
-          <div className="discovery-history-index-head"><strong>Launches</strong><span>{launches.length} total</span></div>
-          <div className="discovery-history-list">
-            {launches.map((launch) => (
-              <PrototypeHistoryRunItem
+      <div className="discovery-history-consolidated" aria-label="Discovery Launch history">
+        <section className="discovery-history-consolidated-frame" aria-label="Launch records">
+          <div className="discovery-history-consolidated-frame-head"><strong>Launch records</strong><span>Newest first <i aria-hidden="true" /> List only</span></div>
+          <div className="discovery-history-consolidated-list" tabIndex={0} aria-label="Scrollable launch history">
+            {launches.map((launch, index) => (
+              <PrototypeHistoryConsolidatedRow
                 key={launch.launch_id}
                 launch={launch}
                 selected={launch.launch_id === selected.launch_id}
                 onSelect={() => onSelect(launch.launch_id)}
+                index={index}
+                status={runtimeStatus}
+                selectedIsActive={selectedIsActive && launch.launch_id === selected.launch_id}
+                busy={busy}
+                onStop={selectedIsActive && launch.launch_id === selected.launch_id ? onStop : undefined}
+                onResume={!selectedIsActive && launch.launch_id === selected.launch_id ? () => onResume(selected) : undefined}
               />
             ))}
           </div>
-        </aside>
-        <main className="discovery-history-detail" aria-label={!selectedIsActive ? "Read-only history" : undefined}>
-          {!selectedIsActive && (
-            <p className="discovery-history-note">Completed and failed Launches are retained as read-only history. Select the active Launch to use Stop or Resume.</p>
-          )}
-          <PrototypeLaunchDetailHeader
+        </section>
+      </div>
+      {maPreview && (
+        <div className="discovery-history-selected-surface">
+          <LaunchContext
             launch={selected}
-            selectedIsActive={selectedIsActive}
             busy={busy}
-            onStop={selectedIsActive ? onStop : undefined}
-            onResume={!selectedIsActive ? () => onResume(selected) : undefined}
-          />
-          <PrototypeRuntimeDesk
-            status={runtimeStatus}
-            busy={busy}
-            historyMode
+            onStop={selectedIsActive ? onStop : () => undefined}
+            onResume={() => onResume(selected)}
+            error={error}
+            runtimeStatus={runtimeStatus}
             rawOpen={rawOpen}
             rawLines={rawLines}
             rawError={rawError}
             onToggleRaw={onToggleRaw}
-            onStop={selectedIsActive ? onStop : undefined}
-            onResume={!selectedIsActive ? () => onResume(selected) : undefined}
           />
-        </main>
-        <aside className="discovery-runtime-rail">
-          <PrototypeProgressPanel status={runtimeStatus} />
-          <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={selected.launch_id} /></div>
-        </aside>
-      </div>
+        </div>
+      )}
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
           {error}
@@ -1405,14 +1435,29 @@ function GatherContext({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isEmpty = !hasPreparationInput(preparation.draft);
+  const maPreview = isSurfaceHierarchyMa();
+  const statusLabel =
+    busy === "intake"
+      ? "Adding Source Entries..."
+      : busy === "delete"
+        ? "Removing Source Entry..."
+        : busy === "save"
+          ? "Saving Preparation..."
+          : resetNotice
+            ? "Preparation reset"
+            : preparation.dirty
+              ? "Draft changes not saved"
+              : isEmpty
+                ? "Empty Preparation - add text or one source to begin"
+                : "Preparation saved";
 
   function handleFiles(files: File[]) {
     if (files.length) onFiles(files);
   }
 
   return (
-    <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-gather-heading">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+    <section className={CARD + " discovery-gather-section overflow-hidden"} aria-labelledby="discovery-gather-heading">
+      <div className="discovery-gather-header flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div>
           <h3 id="discovery-gather-heading" className="text-[13px] font-semibold text-ink">
             Gather context
@@ -1421,17 +1466,37 @@ function GatherContext({
             Drop files individually. Folders are intentionally absent.
           </p>
         </div>
-        <button
-          type="button"
-          className="discovery-button discovery-button-small"
-          onClick={() => inputRef.current?.click()}
-          disabled={busy !== null}
-        >
-          + Add file
-        </button>
+        <div className="discovery-gather-header-actions">
+          {maPreview && (
+            <div className="discovery-gather-inline-meta" aria-label="Preparation status">
+              <span className="discovery-gather-inline-status" aria-live="polite">
+                {statusLabel}
+              </span>
+              <span className="discovery-gather-inline-count">
+                {preparation.draft.sources.length} files
+              </span>
+              <button
+                type="button"
+                className="discovery-button discovery-button-small"
+                disabled={!preparation.dirty || busy !== null}
+                onClick={onSave}
+              >
+                Save Preparation
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className="discovery-button discovery-button-small discovery-gather-add"
+            onClick={() => inputRef.current?.click()}
+            disabled={busy !== null}
+          >
+            + Add file
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
+      <div className="discovery-gather-body grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.12fr)_minmax(280px,0.88fr)]">
         <div>
           <div
             className="discovery-drop-zone"
@@ -1505,21 +1570,10 @@ function GatherContext({
           Saved Preparation remains unchanged until Save.
         </p>
       )}
-      <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-[11px] sm:px-5">
+      {!maPreview && (
+        <div className="discovery-gather-footer flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-[11px] sm:px-5">
         <span className="text-muted" aria-live="polite">
-          {busy === "intake"
-            ? "Adding Source Entries..."
-            : busy === "delete"
-              ? "Removing Source Entry..."
-              : busy === "save"
-                ? "Saving Preparation..."
-                : resetNotice
-                  ? "Preparation reset"
-                  : preparation.dirty
-                    ? "Draft changes not saved"
-                    : isEmpty
-                      ? "Empty Preparation - add text or one source to begin"
-                      : "Preparation saved"}
+          {statusLabel}
         </span>
         <div className="flex items-center gap-2">
           <span className="text-faint">{preparation.draft.sources.length} files</span>
@@ -1532,7 +1586,8 @@ function GatherContext({
             Save Preparation
           </button>
         </div>
-      </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1565,8 +1620,8 @@ function ReviewableInput({
           : "Convert";
 
   return (
-    <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-review-heading">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+    <section className={CARD + " discovery-review-section overflow-hidden"} aria-labelledby="discovery-review-heading">
+      <div className="discovery-review-header flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div>
           <h3 id="discovery-review-heading" className="text-[13px] font-semibold text-ink">
             Reviewable Input
@@ -1596,7 +1651,7 @@ function ReviewableInput({
           </button>
         </div>
       </div>
-      <div className="p-3 sm:p-4" data-testid="execution-input-list">
+      <div className="discovery-review-body p-3 sm:p-4" data-testid="execution-input-list">
         {conversion.status === "failed" && (
           <p className="mb-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
             {conversion.error ?? "The model did not produce a structured Discovery Execution Input."}
@@ -1960,8 +2015,8 @@ function RunLaunch({
   const canRun = eligible && Boolean(executionInput) && currentLaunch === null && busy === null;
 
   return (
-    <section className={CARD + " overflow-hidden"} aria-labelledby="discovery-run-heading">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+    <section className={CARD + " discovery-run-section overflow-hidden"} aria-labelledby="discovery-run-heading">
+      <div className="discovery-run-header flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div>
           <h3 id="discovery-run-heading" className="text-[13px] font-semibold text-ink">
             Run Discovery
@@ -1979,7 +2034,7 @@ function RunLaunch({
           {busy === "launch" ? "Starting..." : "Run"}
         </button>
       </div>
-      <div className="space-y-3 p-4 sm:p-5">
+      <div className="discovery-run-body space-y-3 p-4 sm:p-5">
         <div className="discovery-notice" role="status" aria-live="polite">
           <span aria-hidden="true">{currentLaunch ? "•" : "→"}</span>
           <span>
@@ -2210,9 +2265,14 @@ function ResetPreparationDialog({
 }
 
 export function DiscoveryView() {
+  const maPreview = isSurfaceHierarchyMa();
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [context, setContext] = useState<DiscoveryContextId>("preparation");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  // A terminal Launch is no longer an automatic navigation event. Keep its last
+  // server-authoritative projection visible on Current Launch until the user leaves
+  // that surface, while the backend remains free to remove it from current_launch.
+  const [terminalLaunch, setTerminalLaunch] = useState<DiscoveryLaunch | null>(null);
   const [editingExecutionInput, setEditingExecutionInput] = useState(false);
   const [editingConversionPrompt, setEditingConversionPrompt] = useState(false);
   const [conversionPromptReturn, setConversionPromptReturn] = useState<"preparation" | "input">("preparation");
@@ -2229,16 +2289,17 @@ export function DiscoveryView() {
   const [confirmingRun, setConfirmingRun] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DiscoveryLaunchStatus | null>(null);
-  const [rawOpen, setRawOpen] = useState(false);
+  const [rawOpen, setRawOpen] = useState(() => maPreview);
   const [rawLines, setRawLines] = useState<string[]>([]);
   const [rawError, setRawError] = useState<string | null>(null);
   const idempotencyKeys = useRef(new Map<string, string>());
   const eventCursors = useRef(new Map<string, number>());
   const stopGrace = useRef<{ launch: DiscoveryLaunch; until: number } | null>(null);
 
+  const launchSurfaceLaunch = snapshot?.current_launch ?? (context === "launch" ? terminalLaunch : null);
   const observedLaunchId =
     context === "launch"
-      ? snapshot?.current_launch?.launch_id ?? null
+      ? launchSurfaceLaunch?.launch_id ?? null
       : context === "history"
         ? snapshot?.current_launch?.launch_id === selectedHistoryId
           ? snapshot.current_launch.launch_id
@@ -2258,6 +2319,7 @@ export function DiscoveryView() {
         setEditingExecutionInput(false);
         setEditingConversionPrompt(false);
         setResetNotice(false);
+        setTerminalLaunch(null);
         setContext(next.active_context);
       })
       .catch(() => {
@@ -2267,6 +2329,10 @@ export function DiscoveryView() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (context !== "launch") setTerminalLaunch(null);
+  }, [context]);
 
   useEffect(() => {
     if (!observedLaunchId) {
@@ -2345,11 +2411,18 @@ export function DiscoveryView() {
                   );
                 } else {
                   stopGrace.current = null;
-                  setSnapshot(next);
-                }
-                if (context === "launch") {
-                  setSelectedHistoryId(observedLaunchId);
-                  setContext("history");
+                  if (context === "launch" && restored) {
+                    // The durable store moves terminal launches into history. Keep a
+                    // local presentation copy on Current Launch so completion/error
+                    // feedback remains visible without forcing a context switch.
+                    setTerminalLaunch(restored.launch);
+                    setSnapshot({
+                      ...next,
+                      current_launch: next.current_launch ?? restored.launch,
+                    });
+                  } else {
+                    setSnapshot(next);
+                  }
                 }
               } catch {
                 // The status projection remains visible if the one reconciliation
@@ -2583,8 +2656,13 @@ export function DiscoveryView() {
   }
 
   function applyLaunchResult(result: Awaited<ReturnType<typeof startDiscoveryLaunch>>) {
-    const launch = result.launch;
     const next = result.snapshot;
+    // Older/replayed admission responses may omit the bounded `launch` field;
+    // recover the same immutable record from whichever snapshot collection owns it.
+    const launch =
+      result.launch ??
+      next.current_launch ??
+      next.history.find((candidate) => candidate.launch_id === result.launch_id);
     if (!launch) {
       setSnapshot(next);
       setContext("launch");
@@ -2600,12 +2678,14 @@ export function DiscoveryView() {
         ? next
         : { ...next, history },
     );
-    if (currentMatches) {
-      setContext("launch");
-    } else {
-      setSelectedHistoryId(launch.launch_id);
-      setContext("history");
-    }
+    setTerminalLaunch(
+      currentMatches || !["completed", "failed", "stopped", "interrupted"].includes(launch.state)
+        ? null
+        : launch,
+    );
+    // A start/resume response always belongs on Current Launch. A terminal response
+    // is still a record, but it must not pull the user into History automatically.
+    setContext("launch");
   }
 
   async function confirmRun() {
@@ -2614,6 +2694,7 @@ export function DiscoveryView() {
     if (!revisionId) return;
     setConfirmingRun(false);
     setLaunchError(null);
+    setTerminalLaunch(null);
     setBusy("launch");
     try {
       const key = `start:${revisionId}`;
@@ -2686,6 +2767,7 @@ export function DiscoveryView() {
       idempotencyKeys.current.get(key) ?? createDiscoveryIdempotencyKey("discovery-resume");
     idempotencyKeys.current.set(key, requestKey);
     setLaunchError(null);
+    setTerminalLaunch(null);
     setBusy("resume");
     try {
       const result = await resumeDiscoveryLaunch(launch.launch_id, requestKey);
@@ -2805,20 +2887,18 @@ export function DiscoveryView() {
               <ErrorContext />
             ) : activeContext.id === "preparation" && preparation ? (
               <>
-                {/* The Beacon is the current-state surface, not a conditional
-                    active-launch accessory. In standby it explains that the
-                    backend is still in Preparation while keeping the exact same
-                    visual language ready for the first immutable Launch. */}
-                <div className="mb-4 grid gap-2">
-                  <PrototypeLaunchHero
-                    launch={snapshot?.current_launch ?? null}
-                    status={snapshot?.current_launch ? runtimeStatus : null}
-                  />
-                  <DiscoveryLaunchNotice
-                    launch={snapshot?.current_launch ?? null}
-                    status={snapshot?.current_launch ? runtimeStatus : null}
-                  />
-                </div>
+                {!maPreview && (
+                  <div className="mb-4 grid gap-2">
+                    <PrototypeLaunchHero
+                      launch={snapshot?.current_launch ?? null}
+                      status={snapshot?.current_launch ? runtimeStatus : null}
+                    />
+                    <DiscoveryLaunchNotice
+                      launch={snapshot?.current_launch ?? null}
+                      status={snapshot?.current_launch ? runtimeStatus : null}
+                    />
+                  </div>
+                )}
                 {editingConversionPrompt ? (
                   <ConversionPromptEditor
                     prompt={conversionPrompt}
@@ -2866,7 +2946,7 @@ export function DiscoveryView() {
               </>
             ) : activeContext.id === "launch" ? (
               <LaunchContext
-                launch={snapshot?.current_launch ?? null}
+                launch={launchSurfaceLaunch}
                 busy={busy}
                 onStop={stopLaunch}
                 onResume={() => {

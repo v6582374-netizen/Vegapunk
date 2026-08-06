@@ -2,9 +2,8 @@ import json
 import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.backends.backend_pdf import PdfPages
-import numpy as np
 import textwrap
-from matplotlib.patches import Rectangle, FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch
 from collections import defaultdict
 import matplotlib.colors as mcolors
 import os
@@ -121,10 +120,6 @@ def visualize_hypotheses(json_file_path, output_pdf_path=None, font_size=11, max
             G.add_edge(parent_id, idea_id)
     
     # Calculate text height based on content
-    def calculate_text_height(text, width=60):  # Further reduced width for better estimation
-        wrapped = wrap_text(text, width)
-        return len(wrapped.split('\n'))
-    
     # For each top idea, create a comprehensive visualization
     for idea_id in top_ideas:
         # Estimate number of ancestors to determine figure size
@@ -224,29 +219,6 @@ def visualize_hypotheses(json_file_path, output_pdf_path=None, font_size=11, max
         ax2 = fig.add_subplot(gs[1, :])  # Span both columns in the middle row
         ax2.axis('off')
     
-        # Pre-calculate text heights to better position boxes
-        text_heights = {}
-        total_height_needed = 0
-        
-        for node in relevant_nodes_ordered:
-            idea = get_idea_details(node)
-            if idea:
-                text = idea['text']
-                scores = idea.get('scores', {})
-                
-                # Calculate height based on content - use smaller width for wrapping
-                text_height = calculate_text_height(text, width=60)
-                
-                # Base height + title + content lines + scores + padding
-                total_height = 3 + text_height + (2 if scores else 1)
-                text_heights[node] = total_height
-                total_height_needed += total_height
-        
-        # Calculate scaling factor based on total content and available space
-        # Adjust based on number of ideas
-        max_total_height = 40 * (1 + (num_ideas / 10))  # Scale with number of ideas
-        scale_factor = min(0.022, 0.9 / (total_height_needed / max_total_height))
-        
         # Create a grid layout for idea content boxes
         num_cols = min(2, num_ideas)  # Use 2 columns if we have enough ideas
         num_rows = (num_ideas + num_cols - 1) // num_cols  # Ceiling division
@@ -290,10 +262,6 @@ def visualize_hypotheses(json_file_path, output_pdf_path=None, font_size=11, max
                 # Calculate position in the subplot
                 x_pos = col * cell_width + 0.01
                 y_pos = 1.0 - (row * cell_height) - 0.05
-                
-                # Calculate box width and height
-                box_width = cell_width * 0.98
-                box_height = cell_height * 0.9
                 
                 # Add text box with appropriate font size
                 # Adjust font size based on content length and available space

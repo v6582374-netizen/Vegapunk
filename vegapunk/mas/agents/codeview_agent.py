@@ -478,5 +478,39 @@ def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settin
         }
 
 
+def get_repo_structure_qwen_code(
+    project_path, output_dir, output_name, proxy_settings=None, model="qwen3.6-plus"
+):
+    """Use the official Qwen Code CLI for the same repository-summary seam."""
+    try:
+        from vegapunk.experiments_utils_qwen_code import QwenCodeRunner
+
+        qwen_runner = QwenCodeRunner(proxy_settings, model=model)
+        print(f"Analyzing repository at {project_path} using Qwen Code...")
+        qwen_output = qwen_runner.run(CODEX_REPO_ANALYSIS_PROMPT, cwd=project_path)
+        summary, key_files = extract_from_repo_summary(qwen_output)
+        repo_structure = {
+            "summary": summary,
+            "key_files": key_files,
+            "analyzed_with": "qwen_code",
+            "model": model,
+        }
+        os.makedirs(output_dir, exist_ok=True)
+        if not output_name.endswith(".json"):
+            output_name += ".json"
+        output_path = os.path.join(output_dir, output_name)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(repo_structure, f, ensure_ascii=False, indent=2)
+        print(f"Repository summary saved to {output_path}")
+        return repo_structure
+    except Exception as e:
+        print(f"Error during repository analysis with Qwen Code: {e}")
+        return {
+            "summary": f"Error analyzing repository: {str(e)}",
+            "key_files": "",
+            "error": str(e),
+        }
+
+
 
     

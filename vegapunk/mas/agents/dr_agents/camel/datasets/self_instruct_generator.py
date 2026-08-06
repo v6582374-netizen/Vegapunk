@@ -14,6 +14,7 @@
 
 import asyncio
 import random
+from collections import deque
 from datetime import datetime
 from typing import Iterable, List, Optional, cast
 
@@ -162,7 +163,7 @@ class SelfInstructGenerator(BaseGenerator):
         self.machine_instructions: List[DataPoint] = []
         # Create an instance-level lock for thread-safe updates to _data
         self._lock = asyncio.Lock()
-        self._data = []  # Storage for generated DataPoint instances
+        self._data = deque()  # Storage for generated DataPoint instances
 
     def default_instruction_agent(self) -> ChatAgent:
         r"""Create the default instruction generation agent.

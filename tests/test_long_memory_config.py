@@ -68,6 +68,20 @@ class ExperienceGeneratorConfigTest(unittest.TestCase):
             expected_config = yaml.safe_load(config_file)
         self.assertEqual(loaded_config, expected_config)
 
+    def test_accepts_explicit_config_and_process_runtime(self) -> None:
+        long_memory = _load_long_memory_module()
+        runtime = object()
+        config = {"agents": {"experience": {"temperature": 0.1}}}
+
+        generator = long_memory.ExperienceGenerator(
+            config=config,
+            runtime=runtime,
+        )
+
+        self.assertIs(generator.model_runtime, runtime)
+        self.assertIs(generator.config["_runtime"], runtime)
+        self.assertEqual(generator.config["agents"], config["agents"])
+
 
 if __name__ == "__main__":
     unittest.main()

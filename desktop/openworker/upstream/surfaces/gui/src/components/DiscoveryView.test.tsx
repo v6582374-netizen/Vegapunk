@@ -7,7 +7,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("renders one empty Discovery shell with internal lifecycle navigation", async () => {
+it("renders one empty Discovery shell with internal context navigation", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => ({
     ok: true,
     status: 200,
@@ -33,9 +33,9 @@ it("renders one empty Discovery shell with internal lifecycle navigation", async
   expect(screen.queryByText("Free-form text", { exact: true })).toBeNull();
   expect(screen.getByRole("textbox", { name: "Research text" }).className).toContain("min-h-[172px]");
   expect(screen.getByText(/Empty Preparation/)).toBeTruthy();
-  expect(screen.getByText("CURRENT OBSERVATION · PREPARATION")).toBeTruthy();
-  expect(screen.getByText("Ready to launch")).toBeTruthy();
-  expect(screen.getByText("Waiting for a confirmed Launch")).toBeTruthy();
+  expect(screen.queryByText("CURRENT OBSERVATION · PREPARATION")).toBeNull();
+  expect(screen.queryByText("Ready to launch")).toBeNull();
+  expect(screen.queryByText("Waiting for a confirmed Launch")).toBeNull();
   expect(screen.getByRole("heading", { name: "Discovery" })).toBeTruthy();
   expect(screen.getByText("Preparation in progress").closest(".discovery-context-nav-row")).toBeTruthy();
   expect(screen.queryByText("Preparation / stage canvas", { exact: false })).toBeNull();
@@ -514,7 +514,103 @@ it("requires confirmation before admitting an eligible Discovery Launch", async 
   );
 });
 
-it("shows Launch-owned artifacts for active and selected history contexts only", async () => {
+it("keeps a terminal failure on Current Launch instead of navigating to History", async () => {
+  const launch = {
+    launch_id: "launch-failed",
+    preparation_id: "preparation",
+    revision_id: "revision-1",
+    created_at: "2026-08-01T00:00:00.000Z",
+    started_at: "2026-08-01T00:00:01.000Z",
+    completed_at: "2026-08-01T00:00:04.000Z",
+    state: "failed" as const,
+    stage: "research",
+    round: 1,
+    attempts: [],
+    runner_pid: null,
+    outcome: null,
+    error: "runner crashed",
+  };
+  const preparation = {
+    status: "saved" as const,
+    dirty: false,
+    draft: { text: "Research question.", sources: [] },
+    saved: { text: "Research question.", sources: [] },
+    revisions: [
+      {
+        revision_id: "revision-1",
+        created_at: "2026-08-01T00:00:00.000Z",
+        execution_input: { task_description: "Research question.", domain: "", background: "", constraints: [] },
+        model_id: "gpt-test",
+        eligible: true,
+      },
+    ],
+    conversion: {
+      status: "saved" as const,
+      execution_input: { task_description: "Research question.", domain: "", background: "", constraints: [] },
+      model_id: "gpt-test",
+      error: null,
+      saved_revision_id: "revision-1",
+      base_fingerprint: "fingerprint-1",
+      current_fingerprint: "fingerprint-1",
+    },
+  };
+  const contexts = [
+    { id: "preparation" as const, label: "Preparation", description: "Prepare inputs." },
+    { id: "launch" as const, label: "Current Launch", description: "Observe a launch." },
+    { id: "history" as const, label: "History", description: "Review history." },
+  ];
+  const initial = {
+    module: "discovery" as const,
+    schema_version: 1,
+    contexts,
+    active_context: "preparation" as const,
+    preparation,
+    current_launch: null,
+    history: [],
+  };
+  const terminalSnapshot = { ...initial, history: [launch] };
+  const status = {
+    launch,
+    state: "failed" as const,
+    stage: "research",
+    round: 1,
+    checkpoint: null,
+    timeline: { revision: 1, percent: 33, current_milestone_id: null, milestones: [] },
+    activity: { oldest_sequence: null, newest_sequence: null, truncated_before_sequence: 0, items: [] },
+    allowed_actions: [],
+    produced_outputs: [],
+    latest_event_sequence: 0,
+  };
+  let started = false;
+  const request = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/v1/discovery/launches")) {
+      started = true;
+      expect(init?.method).toBe("POST");
+      return { ok: true, status: 201, json: async () => ({ launch_id: launch.launch_id, state: "failed", snapshot: terminalSnapshot }) } as Response;
+    }
+    if (url.endsWith("/v1/discovery")) {
+      return { ok: true, status: 200, json: async () => (started ? terminalSnapshot : initial) } as Response;
+    }
+    if (url.includes("/status")) return { ok: true, status: 200, json: async () => status } as Response;
+    if (url.includes("/events")) return { ok: true, status: 200, json: async () => ({ events: [], latest_sequence: 0 }) } as Response;
+    if (url.includes("/artifacts")) return { ok: true, status: 200, json: async () => ({ artifacts: [] }) } as Response;
+    return { ok: true, status: 200, json: async () => ({}) } as Response;
+  });
+  vi.stubGlobal("fetch", request);
+
+  render(<DiscoveryView />);
+  fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start Launch" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("tab", { name: "Current Launch" }).getAttribute("aria-selected")).toBe("true"),
+  );
+  expect(screen.getAllByText(/runner crashed/).length).toBeGreaterThan(0);
+  expect(screen.getByLabelText("Current Discovery Launch").className).toContain("is-error");
+  expect(screen.getByText("Runtime pulse")).toBeTruthy();
+});
+
+it("keeps artifacts on Current Launch and makes History a consolidated list", async () => {
   const launch = {
     launch_id: "launch-artifacts",
     preparation_id: "preparation",
@@ -595,8 +691,24 @@ it("shows Launch-owned artifacts for active and selected history contexts only",
   expect(screen.queryByText("Access")).toBeNull();
 
   fireEvent.click(screen.getByRole("tab", { name: "History" }));
-  expect(await screen.findByTestId("discovery-artifacts")).toBeTruthy();
+  expect(await screen.findByLabelText("Discovery Launch history")).toBeTruthy();
+  expect(screen.getByLabelText("Scrollable launch history")).toBeTruthy();
+  expect(screen.queryByText("Archive / immutable records")).toBeNull();
+  expect(screen.queryByText("Past Launches")).toBeNull();
+  expect(screen.queryByText("Terminal feedback remains on Current Launch")).toBeNull();
+  expect(screen.queryByText(/archived launches/)).toBeNull();
+  expect(screen.queryByText("More archived launches below")).toBeNull();
+  expect(document.querySelector(".discovery-history-consolidated-moon")).toBeNull();
+  expect(screen.getByText("Launch records")).toBeTruthy();
+  expect(screen.getByText("Duration")).toBeTruthy();
+  expect(screen.getByText("Sources")).toBeTruthy();
+  expect(screen.getByText("Outputs")).toBeTruthy();
+  expect(screen.getByLabelText("Current Discovery Launch")).toBeTruthy();
+  expect(screen.getByTestId("discovery-artifacts")).toBeTruthy();
   expect(screen.getByText("report.md")).toBeTruthy();
+  expect(screen.getByText("Runtime pulse")).toBeTruthy();
+  expect(screen.queryByText("Research progress")).toBeNull();
+  expect(screen.queryByText("Lifecycle")).toBeNull();
 });
 
 it("renders the Stage Strip with fixed seam slots and one inactive checkpoint Resume path", async () => {

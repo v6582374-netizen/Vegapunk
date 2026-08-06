@@ -38,6 +38,7 @@ class DiscoveryPreferencesValidationError(ValueError):
 # This is the only user-editable parameter set for the Discovery Launch module.
 # Defaults intentionally mirror config/default_config.yaml and launch_discovery.py.
 DEFAULT_DISCOVERY_LAUNCH_PREFERENCES: dict[str, Any] = {
+    "backend": "codex",
     "skip_idea_generation": False,
     "workflow": {
         "loop_rounds": 10,
@@ -93,6 +94,11 @@ DEFAULT_DISCOVERY_LAUNCH_PREFERENCES: dict[str, Any] = {
 
 
 _PARAMETER_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "backend": {
+        "type": "enum",
+        "values": ["codex", "qwen_code", "openhands"],
+        "description": "Coding-agent backend used by a newly admitted Discovery Launch.",
+    },
     "skip_idea_generation": {
         "type": "boolean",
         "description": "Skip MAS idea generation and load the existing idea input.",
@@ -371,6 +377,12 @@ class DiscoveryLaunchPreferences:
         if stored_version is not None and stored_version != self.schema_version:
             return
         values = payload.get("values", payload)
+        # Backend was added as a top-level setting.  Preserve older valid settings
+        # files by applying the installed default only when the field is absent;
+        # Removed backend identities are intentionally rejected by the normal
+        # closed-enum validation below.
+        if isinstance(values, dict) and "backend" not in values:
+            values = {"backend": DEFAULT_DISCOVERY_LAUNCH_PREFERENCES["backend"], **values}
         try:
             self._values = _validate_shape_and_values(values)
         except DiscoveryPreferencesValidationError:

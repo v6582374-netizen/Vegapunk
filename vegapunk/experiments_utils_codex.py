@@ -28,6 +28,24 @@ MAX_STDERR_OUTPUT = 30000
 
 SCI_SYMLINK_DIRS = {'data', 'related_work', 'target_study'}
 
+
+def _split_codex_model_identity(model: str) -> tuple[str, str | None]:
+    """Map Vegapunk's canonical identity to Codex CLI's two-part config.
+
+    Vegapunk persists models as ``provider/model`` (the Web picker also emits
+    ``provider:model``), while Codex CLI keeps ``model_provider`` separate from
+    the ``model`` request field.  Passing the canonical string directly makes
+    an OpenAI-compatible endpoint receive e.g. ``qwen:qwen3-max`` as the model
+    name and can produce a misleading authorization error.
+    """
+    selected = str(model).strip()
+    for separator in ("/", ":"):
+        if separator in selected:
+            provider, local_model = selected.split(separator, 1)
+            if provider and local_model:
+                return local_model, provider
+    return selected, None
+
 def extract_idea_info(idea):
     """Extract idea information from different formats"""
     # Try refined_method_details first (from full MAS pipeline)
@@ -86,16 +104,31 @@ def info_traceback(stderr):
 class CodexRunner:
     """Codex CLI Runner class to handle interactions with Codex CLI"""
 
-    def __init__(self, proxy_settings=None, model='gpt-5.6-sol'):
+    backend_label = "Codex CLI"
+
+    def __init__(
+        self,
+        proxy_settings=None,
+        model='gpt-5.6-sol',
+        *,
+        model_provider: str | None = None,
+    ):
         """
         Initialize the Codex CLI Runner
 
         Args:
             proxy_settings: Optional dictionary with HTTP_PROXY and HTTPS_PROXY settings
             model: Model name to use (default: gpt-5.6-sol)
+            model_provider: Optional native Codex provider section to override
+                (CC Switch profiles normally leave this unset)
         """
         self.proxy_settings = proxy_settings or {}
-        self.model = model
+        self.model, self.canonical_provider = _split_codex_model_identity(model)
+        # CC Switch profiles are materialized as Codex's generic ``custom``
+        # provider, so the canonical provider prefix must not be forced into
+        # ``model_provider``. Callers with a native Codex provider section can
+        # opt in explicitly through this argument.
+        self.model_provider = model_provider
         
     def run(self, prompt, cwd=None):
         """
@@ -146,12 +179,12 @@ class CodexRunner:
             "--json",
             "--output-last-message",
             output_path,
-            prompt,
         ]
-        from vegapunk.research_draft import record_research_event
+        if self.model_provider:
+            command.extend(["-c", f"model_provider={self.model_provider}"])
+        command.append(prompt)
 
         try:
-            record_research_event(command)
             result = subprocess.run(
                 command,
                 cwd=cwd,
@@ -159,11 +192,6 @@ class CodexRunner:
                 text=True,
                 env=env,
             )
-            if result.stdout:
-                record_research_event(result.stdout)
-            if result.stderr:
-                record_research_event(result.stderr)
-            record_research_event(str(result.returncode))
 
             # Enhanced logging - Log completion and output
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -192,22 +220,14 @@ class CodexRunner:
                 with open(output_path, "r", encoding="utf-8") as output_file:
                     output = output_file.read()
             except (OSError, UnicodeError) as exc:
-                record_research_event(
-                    f"Codex final message could not be read from {output_path}: {exc}"
-                )
                 raise RuntimeError(
                     "Codex CLI succeeded but did not produce a readable final message"
                 ) from exc
             if not output:
-                record_research_event(
-                    f"Codex final message file was empty: {output_path}"
-                )
                 raise RuntimeError(
                     "Codex CLI succeeded but produced an empty final message"
                 )
 
-            if output:
-                record_research_event(output)
             return output
         finally:
             try:
@@ -459,6 +479,7 @@ def perform_experiments(
     checklist=None,
     run_timeout=None,
     runtime=None,
+    runner_cls=None,
 ) -> bool:
     """
     Perform multi-round experiments using Codex CLI.
@@ -501,8 +522,11 @@ def perform_experiments(
     current_iter = 0
     run = 1
 
-    # Initialize Codex CLI runner
-    codex_runner = CodexRunner(proxy_settings, model=model)
+    # The workflow contract is shared by coding-agent backends.  The default
+    # remains Codex for compatibility; Qwen Code supplies its runner explicitly.
+    runner_type = runner_cls or CodexRunner
+    codex_runner = runner_type(proxy_settings, model=model)
+    backend_label = getattr(codex_runner, "backend_label", "Codex CLI")
 
     # Extract idea information
     idea_info = extract_idea_info(idea)
@@ -532,17 +556,17 @@ def perform_experiments(
             current_iter = 0
             continue
 
-        log_message(f"Running Codex CLI iteration {current_iter+1} for run {run}")
+        log_message(f"Running {backend_label} iteration {current_iter+1} for run {run}")
         codex_output = codex_runner.run(next_prompt, cwd=folder_name)
-        log_message(f"Codex output received (length: {len(codex_output)})")
+        log_message(f"{backend_label} output received (length: {len(codex_output)})")
         log_message(codex_output)
 
         if "litellm.BadRequestError" in codex_output:
-            log_message("Error: litellm.BadRequestError detected in Codex output")
+            log_message(f"Error: litellm.BadRequestError detected in {backend_label} output")
             return False
         if "ALL_COMPLETED" in codex_output:
             log_message(
-                "Codex reported all experiments completed; validating artifacts"
+                f"{backend_label} reported all experiments completed; validating artifacts"
             )
             break
 
@@ -700,7 +724,8 @@ def _generate_report_with_codex(codex_runner, folder_name, final_run, final_iter
         completed: Whether all experiments completed successfully
     """
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logger.info(f"[{timestamp}] Requesting Codex CLI to generate experiment report for {folder_name}")
+    backend_label = getattr(codex_runner, "backend_label", "Codex CLI")
+    logger.info(f"[{timestamp}] Requesting {backend_label} to generate experiment report for {folder_name}")
 
     # Prepare prompt for Codex to generate the report
     status = "successfully completed" if completed else "partially completed or encountered issues"
@@ -718,9 +743,9 @@ Please check the experimental runs (run_1, run_2, ..., run_{final_run} directori
 Keep descriptions factual and concise. No comparisons needed, just objectively document what each run did and what results it produced. Save as 'experiment_report.txt' in the root directory.
 """
 
-    logger.info("Sending report generation request to Codex CLI")
+    logger.info("Sending report generation request to %s", backend_label)
     codex_output = codex_runner.run(report_prompt, cwd=folder_name)
-    logger.info(f"Codex CLI report generation completed (output length: {len(codex_output)})")
+    logger.info(f"{backend_label} report generation completed (output length: {len(codex_output)})")
 
     # Check if report was created
     report_path = osp.join(folder_name, "experiment_report.txt")

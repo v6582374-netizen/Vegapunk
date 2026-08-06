@@ -92,8 +92,20 @@ def redact(value: str) -> str:
             result = result.replace(secret, "[REDACTED]")
     # Keep common credential assignments from accidentally exposing values read
     # from a config file, while preserving the key name and source location.
+    # The possessive quantifiers make each value branch linear-time even when
+    # an attacker supplies a very long, unterminated credential value.
     result = re.sub(
-        r"(?i)(api[_-]?key|access[_-]?token|password|secret)\s*([:=])\s*(['\"]?)[^\s,'\"}]+\3",
+        r'''(?ix)
+            (?<![A-Za-z0-9_-])["']?
+            (api[_-]?key|access[_-]?token|password|secret)
+            ["']?
+            \s*([:=])\s*
+            (?:
+                "(?:\\.|[^"\\\r\n])*+"
+                |'(?:\\.|[^'\\\r\n])*+'
+                |[^\s,'"}]++
+            )
+        ''',
         r"\1\2 [REDACTED]",
         result,
     )

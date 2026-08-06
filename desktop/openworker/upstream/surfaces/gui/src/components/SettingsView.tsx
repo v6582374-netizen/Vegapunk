@@ -49,15 +49,16 @@ import { ModelsTab } from "./ManageTabs";
 import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
 import { showPersonas } from "../flags";
+import { ApiServicesView } from "./ApiServicesView";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
-// a left sub-nav (Appearance · Files · Models · Discovery Launch · Personas) + centered panel, replacing the old
+// a left sub-nav (General · Models · Discovery Launch · API Services · Voice · Personas) + centered panel, replacing the old
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
 // "appearance" is the General tab's stable key - callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
-type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery";
+type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -68,10 +69,11 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" | "library" }[] = [
+const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" | "library" | "plug" }[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "discovery", label: "Discovery Launch", icon: "sliders" },
+  { key: "api-services", label: "API Services", icon: "plug" },
   { key: "voice", label: "Voice input", icon: "mic" },
   { key: "prompts", label: "Prompt Library", icon: "library" },
   { key: "personas", label: "Personas", icon: "sparkle" },
@@ -133,7 +135,7 @@ export function SettingsView({
       >
         <div
           className={
-            "max-w-3xl mx-auto px-7 py-6 " +
+            (tab === "api-services" ? "max-w-4xl" : "max-w-3xl") + " mx-auto px-7 py-6 " +
             (tab === "prompts" ? "h-full min-h-0 flex flex-col" : "")
           }
         >
@@ -154,6 +156,8 @@ export function SettingsView({
             </section>
           ) : tab === "discovery" ? (
             <DiscoveryLaunchPreferencesSection />
+          ) : tab === "api-services" ? (
+            <ApiServicesView />
           ) : tab === "voice" ? (
             <VoiceInputSection />
           ) : tab === "prompts" ? (
@@ -170,6 +174,10 @@ export function SettingsView({
 type PreferenceGroup = { title: string; paths: string[] };
 
 const DISCOVERY_PREFERENCE_GROUPS: PreferenceGroup[] = [
+  {
+    title: "Backend",
+    paths: ["backend"],
+  },
   {
     title: "Workflow",
     paths: [

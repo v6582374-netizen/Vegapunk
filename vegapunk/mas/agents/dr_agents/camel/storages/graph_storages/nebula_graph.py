@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 MAX_RETRIES = 5
 RETRY_DELAY = 3
+_SPACE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 
 
 class NebulaGraph(BaseGraphStorage):
@@ -61,13 +62,30 @@ class NebulaGraph(BaseGraphStorage):
         self.host = host
         self.username = username
         self.password = password
-        self.space = space
+        self.space = self._validate_space_name(space)
         self.timeout = timeout
         self.port = port
         self.schema: str = ""
         self.structured_schema: Dict[str, Any] = {}
         self.connection_pool = self._init_connection_pool()
         self.session = self._get_session()
+
+    @staticmethod
+    def _validate_space_name(space: str) -> str:
+        """Validate a NebulaGraph space identifier before interpolation.
+
+        NebulaGraph does not expose bind parameters for identifiers. Keeping
+        the identifier to the documented, non-quoted form prevents a caller
+        from injecting a second statement into the ``CREATE SPACE``/``USE``
+        commands.
+        """
+
+        if not isinstance(space, str) or not _SPACE_NAME_PATTERN.fullmatch(space):
+            raise ValueError(
+                "space must start with a letter or underscore and contain "
+                "only ASCII letters, digits, and underscores"
+            )
+        return space
 
     def _init_connection_pool(self) -> "ConnectionPool":
         r"""Initialize the connection pool.

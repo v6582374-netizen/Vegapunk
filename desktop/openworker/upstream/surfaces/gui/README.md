@@ -55,13 +55,34 @@ The web build has explicit platform capability exceptions: native macOS window c
 autostart/keep-awake, the local Tauri updater, and local dictation remain desktop-only. Folder
 selection uses the server-side Linux picker endpoint, and external links use the browser.
 
+## Managed browser preview (recommended)
+
+The repository includes a single preview entry point that owns both processes: it starts the Web
+Sidecar in `--web` mode, waits for `/v1/health` and `/v1/discovery`, and only then starts Vite.
+This prevents a frontend-only preview from appearing to hang while its API is unavailable.
+
+```bash
+cd /path/to/Vegapunk
+systemd-run --user --unit=vegapunk-preview-1420 \
+  --working-directory="$PWD" \
+  "$PWD/scripts/run_vegapunk_preview.sh"
+```
+
+The Sidecar remains loopback-only on `127.0.0.1:8765`; Vite serves the browser preview on
+`0.0.0.0:1420`. Stop the managed preview with:
+
+```bash
+systemctl --user stop vegapunk-preview-1420.service
+```
+
 ## Browser harness (development)
 
 The GUI source can still run in a browser for hermetic UI development and tests. This is not a second product frontend:
 
 ```bash
 cd desktop/openworker/upstream
-.venv/bin/openworker-server --cwd /path/to/your/project --port 8765
+.venv/bin/openworker-server --web --web-dist surfaces/gui/dist \
+  --host 127.0.0.1 --port 8765 --cwd /path/to/your/project
 
 cd surfaces/gui
 npm run dev            # → http://localhost:1420

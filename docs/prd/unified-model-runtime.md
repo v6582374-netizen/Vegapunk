@@ -94,7 +94,7 @@ Provider selection, protocol fallback, model fallback, and runtime capability ne
 
 30. As a maintainer, I want unused vendored Provider implementations excluded from active dispatch, so that historical code cannot reintroduce hidden Provider behavior.
 
-31. As a maintainer, I want the Experiment Backend selection to remain separate from Model Provider selection, so that Claude Code, Qwen Code, and iFlow workflows do not alter in-process LLM routing.
+31. As a maintainer, I want the Experiment Backend selection to remain separate from Model Provider selection, so that Codex CLI, Qwen Code, and OpenHands workflows do not alter in-process LLM routing.
 
 32. As a maintainer, I want existing prompts, research artifacts, experiment execution, and scientific selection semantics preserved, so that this migration changes model infrastructure without changing the research workflow.
 
@@ -202,7 +202,7 @@ Provider selection, protocol fallback, model fallback, and runtime capability ne
 
 ## Out of Scope
 
-- Experiment CLI Backends such as Claude Code, Qwen Code, and iFlow.
+- Experiment CLI Backends such as Codex CLI, Qwen Code, and OpenHands.
 
 - Runtime Provider failover or model failover.
 

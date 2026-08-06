@@ -32,7 +32,7 @@ SIC：相关性 / 证据等级 / 缓存 / 资源 / 许可证 / 审批 / 成本�
 | --- | --- | --- |
 | 任务类型只区分 `sci` 与 `auto` | [`detect_task_type`](../../../launch_discovery.py#L38-L47) | 没有 CFD 相关性、证据等级或高保真要求字段 |
 | 每个 idea 都进入实验执行 | [`ExperimentRunner.run_experiments`](../../../vegapunk/stage.py#L1173-L1239) | 现有 loop 没有“本候选是否值得启动外部 solver”的门控 |
-| 后端分支是 OpenHands/Codex/iFlow | [`run_codex_experiment`](../../../vegapunk/stage.py#L899-L993)、[`_run_single_experiment`](../../../vegapunk/stage.py#L1061-L1171) | 当前边界是代码编辑/运行，不是外部仿真 job 生命周期 |
+| 后端分支是 OpenHands/Codex/Qwen Code | [`run_codex_experiment`](../../../vegapunk/stage.py#L899-L993)、[`_run_single_experiment`](../../../vegapunk/stage.py#L1061-L1171) | 当前边界是代码编辑/运行，不是外部仿真 job 生命周期 |
 | LLM 工具调用只受迭代数和调用数限制 | [`ModelToolLoop.run`](../../../vegapunk/mas/agents/tool_loop.py#L52-L131) | 把 Fluent 工具暴露给模型后，模型仍可能重复提交昂贵 job |
 | 性能按同名指标变化率求平均 | [`_calculate_experiment_performance`](../../../vegapunk/stage.py#L597-L642) | 未表达 Fluent 的收敛、守恒、网格质量和指标方向 |
 | 默认允许 10 轮、最多 4 个并行实验 | [`default_config.yaml`](../../../config/default_config.yaml#L144-L160) | 不能将现有并发配置直接套到 Fluent license、CPU/MPI 和临时磁盘 |

@@ -54,6 +54,8 @@ F = TypeVar('F', bound=Callable[..., Any])
 
 logger = logging.getLogger(__name__)
 
+HTTP_REQUEST_TIMEOUT = 30
+
 
 def print_text_animated(text, delay: float = 0.02, end: str = ""):
     r"""Prints the given text with an animated effect.
@@ -125,7 +127,8 @@ def download_tasks(task: TaskType, folder_path: str) -> None:
     # Download the zip file from the Google Drive link
     response = requests.get(
         "https://huggingface.co/datasets/camel-ai/"
-        f"metadata/resolve/main/{task.value}_tasks.zip"
+        f"metadata/resolve/main/{task.value}_tasks.zip",
+        timeout=HTTP_REQUEST_TIMEOUT,
     )
 
     # Save the zip file
@@ -900,7 +903,9 @@ def download_github_subdirectory(
         f"https://api.github.com/repos/{repo}/contents/{subdir}?ref={branch}"
     )
     headers = {"Accept": "application/vnd.github.v3+json"}
-    response = requests.get(api_url, headers=headers)
+    response = requests.get(
+        api_url, headers=headers, timeout=HTTP_REQUEST_TIMEOUT
+    )
     response.raise_for_status()
     files = response.json()
     os.makedirs(data_dir, exist_ok=True)
@@ -910,7 +915,9 @@ def download_github_subdirectory(
 
         if file["type"] == "file":
             file_url = file["download_url"]
-            file_response = requests.get(file_url)
+            file_response = requests.get(
+                file_url, timeout=HTTP_REQUEST_TIMEOUT
+            )
             with open(file_path, "wb") as f:
                 f.write(file_response.content)
         elif file["type"] == "dir":

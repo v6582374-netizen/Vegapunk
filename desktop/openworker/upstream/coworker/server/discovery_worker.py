@@ -2,7 +2,8 @@
 
 This module is deliberately a thin adapter.  It prepares the private filesystem
 shape required by the existing ``launch_discovery.py`` command, starts that
-command in experiment/Codex mode, streams its output into the Launch console,
+command in experiment mode with the selected coding-agent backend, streams its
+output into the Launch console,
 and projects the process outcome back into the sidecar lifecycle store.
 """
 
@@ -220,6 +221,7 @@ def _materialize_config(
     repository_root: Path,
     launch_dir: Path,
     configuration_snapshot: dict[str, Any],
+    exp_backend: str | None = None,
 ) -> Path:
     default_path = repository_root / "config" / "default_config.yaml"
     try:
@@ -239,6 +241,8 @@ def _materialize_config(
                     _deep_merge(target, value)
         if isinstance(preferences.get("skip_idea_generation"), bool):
             config["skip_idea_generation"] = preferences["skip_idea_generation"]
+        if exp_backend is None:
+            exp_backend = preferences.get("backend")
 
     model_id = configuration_snapshot.get("model_id")
     if isinstance(model_id, str) and model_id.strip():
@@ -299,7 +303,13 @@ def _materialize_config(
         config["discovery_model_settings"] = copy.deepcopy(settings)
     config["experiment"] = dict(config.get("experiment") or {})
     config["experiment"]["mode"] = "experiment"
-    config["experiment"]["backend"] = "codex"
+    # The backend belongs to the immutable Launch snapshot.  The worker receives
+    # it from the sidecar command as well, so a resumed Launch cannot observe later
+    # Settings edits or fall back to a different tool.
+    selected_backend = exp_backend or "codex"
+    if selected_backend not in {"codex", "qwen_code", "openhands"}:
+        raise ValueError(f"Unsupported Discovery backend: {selected_backend}")
+    config["experiment"]["backend"] = selected_backend
 
     config_path = launch_dir / ".execution" / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,7 +488,7 @@ def run(
         launch_catalog_path = launch_dir / ".execution" / "model_catalog.yaml"
         catalog_was_frozen = launch_catalog_path.is_file()
         config_path = _materialize_config(
-            repository_root, launch_dir, configuration_snapshot
+            repository_root, launch_dir, configuration_snapshot, exp_backend
         )
         from coworker.server.discovery_runtime import (
             apply_provider_overrides,
@@ -652,7 +662,7 @@ def main(argv: list[str] | None = None) -> int:
         "--exp-backend",
         "--exp_backend",
         dest="exp_backend",
-        choices=["codex"],
+        choices=["codex", "qwen_code", "openhands"],
         default="codex",
     )
     parser.add_argument("--resume", action="store_true")

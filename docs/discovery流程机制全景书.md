@@ -11,7 +11,7 @@
 - 工作流状态（WorkflowState）
 - 会话账本（WorkflowSession）
 - 工具循环（ModelToolLoop）
-- 研究草稿捕获器（ResearchDraft）
+- 研究材料包（Paper Input Bundle）
 - 论文编排器（PaperOrchestra）
 
 名称里的英文是为了帮助读者把故事中的角色和系统中的机制对应起来，不要求读者会读源码。
@@ -52,7 +52,7 @@
 - MAS 用阶段和状态管理想法；
 - 工具结果会返回模型上下文；
 - 实验结果会形成下一轮的代码或经验反馈；
-- ResearchDraft 以追加方式保存可观察过程；
+- 论文输入由原生 Discovery 产物确定性投影得到；
 - PaperOrchestra 只在 Discovery 汇总完成后接手。
 
 以下内容可能随着配置或版本变化：
@@ -114,9 +114,9 @@
   - 第二十一章：run_0、run_N 和 baseline
   - 第二十二章：incremental baseline
   - 第二十三章：实验模式和报告模式
-- 第十部：ResearchDraft
-  - 第二十四章：ResearchDraft 是什么
-  - 第二十五章：为什么 ResearchDraft 不能直接当论文
+- 第十部：研究材料如何进入 PaperOrchestra
+  - 第二十四章：原生 Discovery 产物是什么
+  - 第二十五章：为什么论文输入要保持稀疏且确定性
 - 第十一部：实验产物如何成为研究证据
 - 第十二部：PaperOrchestra 如何接手
 - 第十三部：一次完整端到端回放
@@ -175,7 +175,7 @@ Vegapunk 的 Discovery 流程，就是把这支“隐形研究团队”显式化
 | Candidate Experiment | 一个独立实验工作台 | 这个想法如何被实现和验证？ |
 | Run | 一次具体实验尝试 | 这一版代码跑出了什么？ |
 | WorkflowSession | 研究会的过程账本 | 当前进行到哪一步，历史发生了什么？ |
-| ResearchDraft | 原始实验记录本 | Agent、工具和日志实际留下了什么？ |
+| Paper Input Bundle | 论文输入材料包 | 哪些原生产物可以进入论文编排？ |
 | Discovery Summary | 探险总结 | 所有轮次和候选结果如何汇总？ |
 | PaperOrchestra Run | 论文制作单 | 这次论文装配过程的状态是什么？ |
 | TeX/PDF | 最终交付包 | 论文能否交付和复现检查？ |
@@ -411,7 +411,7 @@ MAS 组装通常包含以下部件：
 - ideas.json；
 - 轨迹记录；
 - Agent 输出、工具调用及其结果；
-- ResearchDraft 中的原始研究块。
+- 由原生 Discovery 产物投影出的论文输入材料。
 
 ### 输入—处理—输出小结
 
@@ -464,7 +464,7 @@ Factory 本身不负责推进研究 loop。它只保证“需要某个角色时�
 | 模型运行时 | 调用入口和模型配置边界 | Agent 有相同职责 |
 | 工具注册表 | 可用能力的目录 | 每个 Agent 都会调用所有工具 |
 | MemoryManager | 读写历史的接口 | 所有历史会自动进入提示 |
-| ResearchDraft 钩子 | 可观察事件的记录方式 | 会记录模型隐藏思维链 |
+| Paper Input Bundle | 原生 Discovery 产物的确定性投影 | 不替代底层实验事实 |
 
 ### 失败与恢复
 
@@ -1132,7 +1132,7 @@ flowchart TD
 工具结果进入两处：
 
 - 当前 Agent 的下一次模型请求；
-- 可审计的工具使用记录和 ResearchDraft。
+- 在阶段逻辑需要时，进入候选实验记录或阶段摘要。
 
 并不是所有工具结果都永久进入长期记忆。只有被阶段逻辑提取为 Idea 证据、实验记录或经验的内容，才会进入跨 Session 的记忆链路。
 
@@ -1663,78 +1663,64 @@ incremental 机制负责把跨轮实验结果转化为下一轮可用 baseline�
 
 ---
 
-# 第十部：ResearchDraft——把过程留下来，但不冒充最终论文
+# 第十部：研究材料如何进入 PaperOrchestra
 
-## 第二十四章 ResearchDraft 是什么
+## 第二十四章 原生 Discovery 产物是什么
 
 ### 故事场景
 
-工坊有一本“原始研究记录本”。书记员不替队员润色，只按发生顺序追加：谁提出了什么请求、工具返回了什么、实验输出了什么、哪里出错了。
+探险队带回的不是一本无限增长的总日志，而是一组各自有职责的档案：任务说明、候选方法、实验报告、机器指标和失败记录。每份档案都对应一个可以核查的问题。
 
 ### 模块职责
 
-研究草稿捕获器（ResearchDraft）的职责是保存原始、可观察、可追溯的研究过程，供后续复盘和 PaperOrchestra 使用。
+当前论文基线只使用独立于论文生成而存在的 Native Discovery Artifacts。它们是研究事实的来源，PaperOrchestra 只负责把这些事实组织成论文。
 
 ### 机制拆解
 
-它通常在 Launch 下建立 manuscript/draft.md，并以追加方式保存研究块：
+PaperOrchestra 交接前由确定性适配层创建两个稀疏输入文件：
 
-- 不重写旧块；
-- 不覆盖历史；
-- 不把多个 Agent 的输出偷偷合并为一段“看似统一”的结论；
-- 对输入、输出、工具调用和工具结果做事件级捕获；
-- 可以附带 stdout、stderr、日志和异常。
+- `raw_materials/idea_sparse.md`：Launch prompt 与选中候选的方法记录；
+- `raw_materials/experimental_log.md`：实验叙述、每次 Run 的 `final_info.json`、报告和失败记录。
 
-这里的“原始”不等于“把隐藏思维过程全部写出来”。它保存的是可观察上下文：请求、响应、工具事件、日志和错误，不声称捕获模型的不可见内部推理。
+这个适配层不启动模型、不捕获全局 stdout/stderr，也不创建独立的长篇研究草稿。原始候选目录和 Run 文件仍然保留，必要时可以直接回查。
 
 ### 状态与循环
 
-Draft 捕获贯穿 Discovery 的可观察边界。在 PaperOrchestra 接手前，它是原始研究记录之一；论文阶段的正式写作不应继续把所有运行噪声无差别追加进去。
-
-### 记忆与上下文
-
-Draft 是长记录，当前 Agent 通常只看到经过编排的摘要或相关片段。PaperOrchestra 可以从 Draft、ideas、实验报告和机器结果生成更稀疏的论文材料。
+Discovery 完成配置要求的轮次并写入 `discovery_summary.json` 后，才触发一次 Paper Handoff。PaperOrchestra 在自己的 Run 目录中继续执行，写作阶段的日志、检查点和 TeX/PDF 不回写 Discovery 产物。
 
 ### 失败与恢复
 
-- 某个捕获事件写入失败：应留下警告，并尽量保留其他产物；
-- Draft 断裂：不能把后续记录伪装成连续历史；
-- 日志包含敏感信息：在交付前按项目边界处理，不将无关凭据带入论文材料。
+- 缺少某个可选叙述文件：使用约定的候选级 fallback；
+- 机器结果和叙述冲突：以精确的 Run artifact 为事实来源；
+- PaperOrchestra 失败：保留 Discovery Launch 和已经生成的原生材料，单独重试论文阶段。
 
 ### 可观察产物
 
-- manuscript/draft.md；
-- Agent 输入/输出块；
-- 工具调用和结果块；
-- stdout/stderr；
-- 异常和日志块。
+- `prompt.json`、`ideas.json`、候选 `notes.txt`；
+- `experiment_report.txt`、`log.txt`、`final_info.json`、`report/report.md` 和 `traceback.log`；
+- `discovery_summary.json`；
+- `raw_materials/idea_sparse.md` 与 `raw_materials/experimental_log.md`；
+- 独立 PaperOrchestra Run 的日志、检查点、TeX 和 PDF。
 
 ### 输入—处理—输出小结
 
 ~~~text
-输入：可观察研究事件
-处理：按顺序追加、标注来源、保留错误
-输出：可追溯的原始研究记录
+输入：原生 Discovery 产物
+处理：确定性投影与 PaperOrchestra 编排
+输出：可回查的论文输入、TeX 与 PDF
 ~~~
 
-## 第二十五章 为什么 ResearchDraft 不能直接当论文
+## 第二十五章 为什么论文输入要保持稀疏且确定性
 
-原始记录包含大量不适合论文的内容：
+把每次模型请求、工具输出和进程日志无限追加到一个 Markdown 文件，会让输入随运行时间增长，并把计划、失败、重复尝试和最终证据混在一起。当前基线因此明确删除这条捕获链路。
 
-- 重试和失败；
-- 工具参数和冗余输出；
-- 不成熟的假设；
-- 被淘汰的候选；
-- 暂时性的错误解释；
-- 运行时日志。
+论文输入只保留三条边界：
 
-它的价值是证明“过程发生过什么”，不是提供“正文应该怎么写”。论文材料需要重新做三件事：
+1. 事实来自自然产生的结构化或人类可读产物；
+2. 数字和主张能够回查到候选或 Run 文件；
+3. 论文阶段负责组织和表达，不改写 Discovery 的事实来源。
 
-1. 区分计划、观察和结论；
-2. 只保留与最终候选有关的证据；
-3. 把数字和主张连接到可回查来源。
-
-因此，ResearchDraft 是原始矿石，PaperOrchestra 是冶炼和装配工坊。
+这样既避免无界日志拖垮后续上下文，也让 PaperOrchestra 的质量评估只受一个变量影响：它如何处理系统本来就会产生的研究材料。
 
 ---
 
@@ -1768,7 +1754,7 @@ Draft 是长记录，当前 Agent 通常只看到经过编排的摘要或相关�
 | experiment_report.txt | 运行过程的叙述总结 | 其中数字一定没有错 |
 | log.txt | 过程、错误和线索 | 适合直接放入正文 |
 | discovery_summary.json | 全局索引和轮次汇总 | 替代所有底层原始结果 |
-| ResearchDraft | 可观察协作过程 | 最终科学结论 |
+| raw_materials | 论文输入的确定性投影 | 不能替代底层实验事实 |
 
 ### 机制原则
 
@@ -1820,7 +1806,7 @@ PaperOrchestra 接收的是整理后的研究材料，而不是自动获得 MAS 
 - 选中的 Idea 和方法；
 - 实验报告；
 - final_info；
-- ResearchDraft；
+- `raw_materials/idea_sparse.md` 与 `raw_materials/experimental_log.md`；
 - 轨迹和错误记录。
 
 ### 失败与恢复
@@ -2244,7 +2230,7 @@ PaperOrchestra 有自己的论文 refinement loop：
 5. **run_0 与 run_N/final_info.json**：核对基线和指标事实；
 6. **experiment_report.txt**：理解过程叙述；
 7. **log.txt 与 traceback**：只在需要解释失败时深入；
-8. **manuscript/draft.md 与 traj.json**：复盘 Agent、工具和阶段轨迹；
+8. **候选目录中的日志与错误记录**：需要时复盘运行过程；
 9. **paper_orchestra_runs**：查看论文材料、TeX、PDF 和警告。
 
 这个顺序体现了“先目标，后汇总，再事实，最后过程”的证据原则。
@@ -2291,7 +2277,7 @@ PaperOrchestra 有自己的论文 refinement loop：
 | RefinementAgent | 修补方法细节、限制主张范围 |
 | AWAITING_FEEDBACK | 自动反馈插槽，不是人工审批 |
 | ModelToolLoop | Agent 与工具之间的请求—执行—回填循环 |
-| ResearchDraft | 追加保存可观察研究事件的原始记录 |
+| Paper Input Bundle | 原生 Discovery 产物的确定性论文输入 |
 | baseline | 候选比较的起始实现和指标 |
 | run_0 | 候选工作台中的基线运行 |
 | run_N | 候选的第 N 次具体运行 |
@@ -2350,7 +2336,7 @@ flowchart LR
 - 工具循环，才可以获得外部数据和真实执行结果；
 - 记忆，才不会每一轮都失去过去；
 - 实验工作台，才把语言方案交给代码和指标检验；
-- ResearchDraft，才保留可观察过程；
+- 原生 Discovery 产物，才提供可回查的研究证据；
 - PaperOrchestra，才把事实、主张、图表和章节装配为正式论文。
 
 所以，最终的 TeX 和 PDF 并不是“最后一个模型回复的放大版”。它们是一个有边界、有状态、有反馈、有记忆、有证据校验的自动研究流程留下的压缩结果。

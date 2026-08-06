@@ -274,6 +274,31 @@ A top-level capability area selected from the Native Desktop Application's modul
 Each Application Module owns its central work area while the module rail remains stable.
 _Avoid_: role-specific console, page chrome, artifact preview
 
+**API Services Settings Module**:
+The simple System Settings entry point for configuring fixed external service connections used by Application Modules.
+Version 1 exposes only provider-specific credentials or contact identity, enablement, fixed endpoint presentation, connection testing, redacted status, and explicit per-card saving; search execution and Launch parameters remain outside this module.
+_Avoid_: API registry, Paper Search page, generic API dump, custom endpoint proxy
+
+**Paper Service Connection**:
+One fixed provider entry in API Services with one saved connection configuration and no account list or credential profiles.
+It is a visual configuration surface, not a paper-search workflow or a provider profile system.
+_Avoid_: custom endpoint, multi-account provider, search control
+
+**Version 1 Paper Service Catalog**:
+The fixed API Services entries for Version 1 paper search: arXiv, Semantic Scholar, Crossref, and CORE.
+Local `kg_papers` data and other literature-search integrations are outside this catalog until they receive an explicit service decision and adapter contract.
+_Avoid_: arbitrary provider list, local index as an API service, hidden literature source
+
+**Linux API Credential Boundary**:
+Version 1 stores paper-service credentials through the Linux Secret Service when a desktop credential vault is available, while headless Linux accepts only environment-injected credentials.
+Neither path exposes plaintext credentials to the frontend or stores them in project configuration files; removing a stored credential may reveal an environment-backed source, and a required service without either source is disabled.
+_Avoid_: plaintext config, browser-stored key, secret-file fallback
+
+**Effective Paper Service Credential**:
+The credential source currently usable by one paper service: Linux Secret Service storage or its supported environment variable, with the environment source used only when no stored credential exists.
+The frontend may show the source and readiness without receiving the credential value.
+_Avoid_: merged credentials, plaintext readback, environment override of a stored value
+
 **Paper Tools**:
 A Native Desktop Application module selected for finding and later working with scholarly papers.
 Its Version 1 surface contains the Paper Search, Paper Deep Reading, and Citation Verification Paper Tool Submodules.
@@ -714,6 +739,36 @@ A bounded investigation of one research question that gathers evidence and produ
 A stopped, interrupted, or failed Deep Research Run is repeated only by creating a new Run because it has no resumable Workflow Progress checkpoints.
 _Avoid_: QA session, Discovery Launch, chat
 
+**Evidence Coverage Report**:
+The source-scoped assessment of whether an external evidence request is fully covered, partially covered, unavailable, incomparable, or blocked by an operational error.
+It separates evidence coverage from the scientific status of the idea, so an unavailable source never by itself counts as evidence against the idea.
+_Avoid_: connector failure as idea failure, source availability as scientific support, natural-language-only coverage status
+
+**Directly Acquirable Evidence**:
+An external source artifact or API response that the system can retrieve under its current authorization, preserve, and cite without a human-only login or inaccessible download step.
+A preview-only source, a source blocked by unavailable credentials, or a source with no retrievable artifact remains a candidate source rather than evidence.
+_Avoid_: preview-only evidence, citation without a captured artifact, access failure as scientific disproof
+
+**Evidence Acquisition Gate**:
+The pre-start decision, based on an Evidence Coverage Report, that determines whether complementary Web Evidence Discovery should be invoked.
+It controls only invocation; once the Agent starts, it does not constrain the Agent's research process or decide the scientific status of the idea.
+_Avoid_: runtime search policy, evidence validity judgment, connector failure as idea failure
+
+**External Data Requirement Declaration**:
+The generation-time statement attached to each idea that explicitly says whether externally acquired data is needed; when needed, it names the requested data, and when not needed, it gives the reason.
+It has no uncertain or implicit state.
+_Avoid_: implicit data need, uncertain data need, task-wide data requirement
+
+**Idea Data Workspace**:
+The isolated evidence workspace belonging to one idea for storing externally acquired data that can later be consumed when evaluating or evolving that idea.
+Data acquired for one idea remains attributable to that idea even when another idea obtains a similar source separately.
+_Avoid_: shared task data pool, unscoped download directory, cross-idea evidence ownership
+
+**Idea Evidence Manifest**:
+The machine-readable record in an Idea Data Workspace that links each acquired artifact to its source, official documentation, request, retrieval time, and local path.
+An artifact enters formal evidence only when its manifest entry is complete and the referenced file exists.
+_Avoid_: free-form download log, untraceable response, manifest entry without artifact
+
 **Research Submission**:
 The goal, domain, constraints, reference materials, datasets, and optional baseline code supplied by the Sole Researcher to start a Discovery Launch.
 It remains distinct from generated artifacts and the Paper Input Bundle.
@@ -934,8 +989,8 @@ The server-owned execution unit for one Web Discovery Launch, responsible for ca
 _Avoid_: browser task, API request, sidecar, parallel Launch queue
 
 **Web Discovery Execution Profile**:
-The fixed execution profile for a Web Discovery Launch: configured Discovery rounds run in experiment mode through the Codex CLI Backend, followed by the automatic PaperOrchestra Run. Report-only execution and researcher-selected Discovery Backends are outside this Web Launch profile.
-_Avoid_: report mode, Backend picker, hidden Backend fallback, fake execution
+The execution profile for a Web Discovery Launch: configured Discovery rounds run in experiment mode through the Backend selected in the Native Desktop Discovery Launch Preference Module, followed by the automatic PaperOrchestra Run. The selected Backend is captured in the Launch Configuration Snapshot; it is independent from any CLI-started Launch.
+_Avoid_: report mode, hidden Backend fallback, fake execution, CLI/Web precedence
 
 **Web Discovery Start Boundary**:
 The Web-owned boundary ends at one clean Start Entry that accepts a saved Discovery Execution Input and starts the existing production Discovery launcher. Discovery orchestration, Experiment Runs, PaperOrchestra, model calls, and artifact production continue under their existing runtime logic without Web-specific stage control or reimplementation.
@@ -1095,8 +1150,8 @@ _Avoid_: Model Provider, Candidate Experiment, model
 **Codex CLI Backend**:
 The Experiment Backend implemented through Codex's non-interactive command-line coding-agent runtime.
 It receives the existing experiment task and workspace contract, edits candidate code, and returns execution output without owning Discovery orchestration, Experiment Run validation, or Model Provider selection.
-It is a peer replacement for the Codex CLI Backend at the coding-agent boundary, not a second Unified Model Runtime.
-The active Discovery choice is `codex`, and Codex CLI is not retained as a hidden fallback for Discovery.
+It is a peer of the Qwen Code and OpenHands Experiment Backends at the coding-agent boundary, not a second Unified Model Runtime.
+The CLI Discovery entrypoint requires an explicit `codex` selection when this Backend is chosen; Web Launches select it through the saved Discovery Launch preference.
 _Avoid_: Codex Model Provider, Discovery orchestrator, experiment result validator
 
 **Qwen Model Provider**:
@@ -1106,8 +1161,13 @@ _Avoid_: Qwen Code Backend, Qwen model
 
 **Qwen Code Backend**:
 The Experiment Backend implemented through the official Qwen Code coding-agent runtime.
-It is a peer of the Codex CLI and iFlow Experiment Backends rather than an alias or mode of either one.
+It is a peer of the Codex CLI and OpenHands Experiment Backends rather than an alias or mode of either one. Its stable Backend identity is `qwen_code`.
 _Avoid_: Qwen Model Provider, Codex CLI Backend, qwen mode
+
+**OpenHands Backend**:
+The Experiment Backend implemented through the OpenHands coding-agent runtime.
+It is a peer of the Codex CLI and Qwen Code Experiment Backends and is selected independently from Model Provider routing.
+_Avoid_: OpenHands Model Provider, Discovery orchestrator, hidden fallback
 
 **Paper Candidate Round**:
 The most recent completed Discovery Round containing at least one successful Candidate Experiment. Paper candidate comparison is confined to this round.
@@ -1270,6 +1330,7 @@ The current parameter contract is:
 | Path | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `skip_idea_generation` | boolean | `false` | Skip MAS idea generation and use existing ideas. |
+| `backend` | `codex` / `qwen_code` / `openhands` | `codex` | Coding-agent Backend used by a newly admitted Discovery Launch. |
 | `workflow.loop_rounds` | integer | `10` | Maximum complete Discovery rounds. |
 | `workflow.loop_mode` | `fresh` / `incremental` | `incremental` | Restart from baseline or carry forward the best result. |
 | `workflow.max_iterations` | integer | `4` | MAS refinement iterations in a round. |
@@ -1294,7 +1355,7 @@ The current parameter contract is:
 | `experiment.max_runs` | integer | `2` | Experiment Runs per Candidate Experiment. |
 | `experiment.use_mcts` | boolean | `false` | Use the configured MCTS experiment adapter. |
 
-All integer counts require at least `1`; creativity and similarity values are finite numbers in `[0, 1]`; evolution temperature is in `[0, 2]`; enums and object keys are closed. The existing Active Provider Set remains `relay` and `qwen`; arbitrary Provider, endpoint, credential, protocol, retry, timeout, concurrency, path, tool, resource, and `memory` fields are outside this module.
+All integer counts require at least `1`; creativity and similarity values are finite numbers in `[0, 1]`; evolution temperature is in `[0, 2]`; enums and object keys are closed. The Backend enum is closed to `codex`, `qwen_code`, and `openhands`; removed legacy identities are neither accepted nor migrated. Historical Launches created with removed identities remain historical records and cannot be resumed under Qwen Code. The existing Active Provider Set remains `relay` and `qwen`; arbitrary Provider, endpoint, credential, protocol, retry, timeout, concurrency, path, tool, resource, and `memory` fields are outside this module.
 _Avoid_: hidden parameter, guessed Provider, partial ranking weights, memory preference
 
 **Discovery LLM Concurrency Limit**:

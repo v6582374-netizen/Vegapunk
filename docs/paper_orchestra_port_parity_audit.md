@@ -181,10 +181,10 @@ N09 暴露了一项明确的移植回归：
 ## 已确认自然产物基线
 
 - 按 ADR-0110，Vegapunk 在启动子进程前创建一次 run-local `raw_materials/`；上游 CLI 和写作 pipeline 仍只看到原生输入位置，不认识 Launch 内部结构。
-- Paper Input Bundle 只能来自不依赖论文功能也会产生的 Native Discovery Artifacts。不得读取或生成 `manuscript/draft.md`，也不得在上游主链前调用模型提取、总结、筛选或改写材料。
+- Paper Input Bundle 只能来自不依赖论文功能也会产生的 Native Discovery Artifacts。当前主链不再创建额外的研究草稿捕获文件，也不得在上游主链前调用模型提取、总结、筛选或改写材料。
 - `idea_sparse.md` 由确定性程序呈现 Launch prompt 与候选方法记录；`experimental_log.md` 按 ADR-0113 呈现候选级实验叙述、各次 `final_info.json`、存在的 Run 报告及失败记录，不嵌入 `discovery_summary.json`。原始数值、公式和失败记录保持不变。
 - 首个可运行基线不构造额外的 figure catalog，也不修改上游互斥的 figure 路径；`--use_plotting=true` 由 Plotting Agent 自主决定并生成本次论文所需图片。
-- 这一约束用于控制变量：先评估完整上游 PaperOrchestra 在系统自然产物上的论文质量，再根据实测结果单独讨论是否引入 Research Draft 或其他材料增强机制。
+- 这一约束用于控制变量：先评估完整上游 PaperOrchestra 在系统自然产物上的论文质量；当前实现不保留额外的研究草稿捕获机制。
 
 ## 已确认候选范围
 
@@ -219,8 +219,8 @@ N09 暴露了一项明确的移植回归：
 
 - 上游 `OutlineAgent` 和 `SectionWritingAgent` 会读取 `experimental_log.md` 全文；写作提示明确把它当作构造实验表格的原始数据。因此该文件必须内嵌实际内容，不能只列 Launch 内的来源路径。
 - `run_0/final_info.json` 与各数字 `run_N/final_info.json` 是原始精确指标和运行配置的事实源。它们应按 `run_0`、`run_1`、`run_2` 的数字顺序原样呈现，不重新计算改善率、聚合分数或 best run。
-- Candidate 根 `experiment_report.txt` 是 Claude Code 后端在实验结束后根据所有 Run 生成的自然产物，能说明每次修改和结果，但它是模型生成的二级叙述，可能不存在，也可能出现展示编号与目录编号不一致；数值冲突时不能覆盖 `final_info.json`。
-- Candidate 根 `log.txt` 是 Claude Code 与 iFlow 后端共有的完整活动日志，包含模型回复、实验 stdout、临时失败和修复过程。PB-Twin 中两次 return-code-127 的临时失败只在该日志与后生成的 `experiment_report.txt` 中可见。
+- Candidate 根 `experiment_report.txt` 是 coding-agent 后端在实验结束后根据所有 Run 生成的自然产物，能说明每次修改和结果，但它是模型生成的二级叙述，可能不存在，也可能出现展示编号与目录编号不一致；数值冲突时不能覆盖 `final_info.json`。
+- Candidate 根 `log.txt` 是 coding-agent 后端共有的完整活动日志，包含模型回复、实验 stdout、临时失败和修复过程。PB-Twin 中两次 return-code-127 的临时失败只在该日志与后生成的 `experiment_report.txt` 中可见。
 - `run_N/log.txt` 是创建 Run 目录时从 Candidate 根复制的阶段性快照；PB-Twin 的多个副本哈希不同但分别只是根日志的早期前缀，全部传入只会重复内容。
 - `run_N/report/report.md` 和 `run_N/traceback.log` 若存在，分别是该 Run 的科学报告与失败事实。它们比 Launch 级调度摘要更接近上游 `experimental_log.md` 的实验语义。
 - `discovery_summary.json` 主要保存恢复和调度信息，并列出所有轮次与候选；完整嵌入会重新带入 ADR-0111 已排除的兄弟候选。它适合用于定位 Selected Research Candidate，不适合作为论文实验正文。

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use reqwest::Client;
@@ -11,11 +12,14 @@ use crate::services::auth::{build_auth_start_url, generate_code_verifier, pkce_c
 use crate::services::ConfigManager;
 
 const DEFAULT_AUTH_API_BASE: &str = "https://skills-market-api.guardssl.info/api/v1";
+const PENDING_AUTH_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_PENDING_AUTH_STATES: usize = 128;
 
 #[derive(Debug, Clone)]
 struct PendingAuthState {
     code_verifier: String,
     nonce: String,
+    created_at: Instant,
 }
 
 static PENDING_AUTH: OnceLock<Mutex<HashMap<String, PendingAuthState>>> = OnceLock::new();
@@ -112,21 +116,42 @@ pub fn save_auth_session(session: AuthSession) -> Result<(), String> {
 
 fn store_pending_state(state: String, code_verifier: String, nonce: String) {
     if let Ok(mut guard) = pending_auth_states().lock() {
+        let now = Instant::now();
+        guard.retain(|_, pending| {
+            now.checked_duration_since(pending.created_at)
+                .map(|age| age < PENDING_AUTH_TTL)
+                .unwrap_or(true)
+        });
+        if guard.len() >= MAX_PENDING_AUTH_STATES && !guard.contains_key(&state) {
+            if let Some(oldest_state) = guard
+                .iter()
+                .min_by_key(|(_, pending)| pending.created_at)
+                .map(|(state, _)| state.clone())
+            {
+                guard.remove(&oldest_state);
+            }
+        }
         guard.insert(
             state,
             PendingAuthState {
                 code_verifier,
                 nonce,
+                created_at: now,
             },
         );
     }
 }
 
 fn take_pending_state(state: &str) -> Option<PendingAuthState> {
-    pending_auth_states()
-        .lock()
-        .ok()
-        .and_then(|mut guard| guard.remove(state))
+    pending_auth_states().lock().ok().and_then(|mut guard| {
+        let now = Instant::now();
+        guard.retain(|_, pending| {
+            now.checked_duration_since(pending.created_at)
+                .map(|age| age < PENDING_AUTH_TTL)
+                .unwrap_or(true)
+        });
+        guard.remove(state)
+    })
 }
 
 #[cfg(test)]

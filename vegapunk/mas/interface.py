@@ -42,7 +42,7 @@ class VegapunkInterface:
             config: Configuration dictionary (takes precedence over config_path)
             work_dir: Working directory for the system
             task_name: Name of the task (from --task parameter)
-            exp_backend: Experiment backend to use (codex, iflow)
+            exp_backend: Experiment backend to use (codex, qwen_code, openhands)
             model_runtime: Process-owned runtime shared with active callers
         """
         self.work_dir = work_dir

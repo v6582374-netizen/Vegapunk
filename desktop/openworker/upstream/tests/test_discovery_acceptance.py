@@ -302,6 +302,40 @@ def test_web_launch_admission_starts_the_real_discovery_entrypoint(tmp_path, mon
     assert "--launch_dir" in command
 
 
+def test_real_worker_uses_backend_from_launch_snapshot(tmp_path, monkeypatch):
+    root = tmp_path / "state" / "discovery"
+    store = DiscoveryLaunchStore(
+        root,
+        runner_mode="real",
+        repository_root=Path(__file__).resolve().parents[4],
+    )
+    calls: list[list[str]] = []
+
+    class Process:
+        pid = os.getpid()
+
+    def fake_popen(command, **_kwargs):
+        calls.append(list(command))
+        return Process()
+
+    monkeypatch.setattr(discovery_launch_module.subprocess, "Popen", fake_popen)
+    store.admit(
+        request_fingerprint="qwen-backend",
+        idempotency_key="qwen-backend",
+        input_snapshot={"preparation_id": "preparation", "revision_id": "revision"},
+        configuration_snapshot={
+            "model_id": "qwen/qwen3.6-plus",
+            "settings": {},
+            "discovery_launch_preferences": {"backend": "qwen_code"},
+        },
+        response_builder=lambda: {},
+    )
+
+    assert calls
+    command = calls[0]
+    assert command[command.index("--exp_backend") + 1] == "qwen_code"
+
+
 def test_real_worker_setup_failure_is_recorded_as_failed(tmp_path, monkeypatch):
     root = tmp_path / "state" / "discovery"
     store = DiscoveryLaunchStore(

@@ -257,7 +257,12 @@ def download_pdf(pdf_url, save_folder="pdfs", max_retries=2):
     }
     
     try:
-        response = httpx.get(url=pdf_url, headers=headers, timeout=30, verify=False, follow_redirects=True)
+        response = httpx.get(
+            url=pdf_url,
+            headers=headers,
+            timeout=30,
+            follow_redirects=True,
+        )
         
         if response.status_code != 200:
             logger.error(f"Failed to download PDF from {pdf_url}: {response.status_code}")

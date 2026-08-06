@@ -955,8 +955,26 @@ class GenerationAgent(BaseAgent):
                             proxy_settings=proxy_settings,
                             model=codex_model
                         )
+                    elif exp_backend == "qwen_code":
+                        from .codeview_agent import get_repo_structure_qwen_code
+
+                        proxy_settings = global_config.get("proxy_settings", None)
+                        qwen_model = global_config.get("experiment", {}).get(
+                            "model", "qwen3.6-plus"
+                        )
+                        logger.info(
+                            "Using Qwen Code backend to generate code summary with model: %s",
+                            qwen_model,
+                        )
+                        ref_code = get_repo_structure_qwen_code(
+                            project_path=ref_code_path,
+                            output_dir=ref_code_path,
+                            output_name="code_summary.json",
+                            proxy_settings=proxy_settings,
+                            model=qwen_model,
+                        )
                     else:
-                        # Use codeview agent to generate code summary (for codex, iflow, or other backends)
+                        # Use the shared codeview agent for non-Codex coding backends.
                         logger.info(f"Using {exp_backend} backend to generate code summary")
                         ref_code = get_repo_structure(
                             project_path=ref_code_path,

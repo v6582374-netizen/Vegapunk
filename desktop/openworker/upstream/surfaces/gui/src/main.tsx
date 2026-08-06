@@ -6,6 +6,7 @@ import { platformOS } from "./tauri";
 import { installWebTauriBridge } from "./skills-manager/web-bridge";
 import "./tailwind.css";
 import "./styles.css";
+import "./tmp-surface-hierarchy-preview.css";
 
 initTheme();
 installWebTauriBridge();

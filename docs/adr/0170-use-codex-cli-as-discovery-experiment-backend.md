@@ -1,10 +1,11 @@
 ---
-status: accepted
+status: superseded by ADR-0183
 ---
 
-# Use Codex CLI as the Sole Discovery Experiment Backend
+# Use Codex CLI as the Initial Discovery Experiment Backend
 
-Discovery replaces the active Claude Code Backend with a Codex CLI Backend at the coding-agent boundary, exposed as `--exp_backend codex`.
+This ADR records the initial Codex-only decision. ADR-0183 later makes the
+coding-agent backend selectable while retaining Codex as the default.
 The existing Discovery orchestration, workspace, launcher, artifact, metric, and retry contracts remain unchanged.
 Claude Code is not retained as a hidden fallback for Discovery, while unrelated third-party or non-Discovery Claude integrations remain outside this decision.
 

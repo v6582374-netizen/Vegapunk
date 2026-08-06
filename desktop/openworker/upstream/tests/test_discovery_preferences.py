@@ -100,6 +100,23 @@ def test_settings_endpoint_returns_schema_and_rejects_invalid_save(tmp_path):
     assert client.get("/v1/settings").json()["discovery_launch_preferences"]["values"]["workflow"]["loop_rounds"] == 8
 
 
+def test_backend_is_a_top_level_closed_setting(tmp_path):
+    preferences = DiscoveryLaunchPreferences(tmp_path / "discovery-launch.json")
+    assert preferences.get()["backend"] == "codex"
+    assert preferences.document()["parameters"]["backend"]["values"] == [
+        "codex",
+        "qwen_code",
+        "openhands",
+    ]
+
+    preferences.save({"values": {"backend": "qwen_code"}})
+    assert preferences.snapshot()["backend"] == "qwen_code"
+
+    with pytest.raises(DiscoveryPreferencesValidationError) as raised:
+        preferences.save({"values": {"backend": "legacy_backend"}})
+    assert any(item["path"] == "backend" for item in raised.value.violations)
+
+
 def test_launch_configuration_captures_old_preferences_after_later_edit(tmp_path):
     preferences = DiscoveryLaunchPreferences(tmp_path / "discovery-launch.json")
     old_snapshot = preferences.snapshot()

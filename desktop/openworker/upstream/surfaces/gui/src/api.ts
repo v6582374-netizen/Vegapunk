@@ -1373,7 +1373,73 @@ export interface ModelSettings {
   discovery_launch_preferences?: DiscoveryLaunchPreferencesDocument;
 }
 
+export type ApiServiceStatus = "disabled" | "not_configured" | "connected" | "error" | "not_tested";
+
+export interface ApiService {
+  name: string;
+  title: string;
+  description: string;
+  credential_label: string;
+  credential_kind: "email" | "api_key";
+  endpoint: string;
+  requires_credential: boolean;
+  enabled: boolean;
+  credential_configured: boolean;
+  credential_source: "environment" | "stored" | null;
+  status: ApiServiceStatus;
+  last_test_at: string | null;
+  last_error: string | null;
+}
+
+export interface ApiServiceTestResult {
+  ok: boolean;
+  status: ApiServiceStatus | "testing";
+  checked_at?: string;
+  error?: string;
+}
+
+export interface ApiServiceMutationResult {
+  ok: boolean;
+  service?: ApiService;
+  error?: string;
+}
+
+export async function getApiServices(): Promise<{ services: ApiService[] }> {
+  const res = await fetch(`${httpBase()}/v1/settings/api-services`);
+  if (!res.ok) throw new Error("API Services could not be loaded.");
+  return res.json();
+}
+
+export async function setApiService(
+  name: string,
+  values: { enabled: boolean; credential?: string },
+): Promise<ApiServiceMutationResult> {
+  const res = await fetch(`${httpBase()}/v1/settings/api-services/${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(values),
+  });
+  const body = (await res.json().catch(() => null)) as ApiServiceMutationResult | null;
+  if (!res.ok) throw new Error(body?.error || "API Service could not be saved.");
+  return body || { ok: false, error: "API Service could not be saved." };
+}
+
+export async function testApiService(
+  name: string,
+  credential?: string,
+): Promise<ApiServiceTestResult> {
+  const res = await fetch(`${httpBase()}/v1/settings/api-services/${encodeURIComponent(name)}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credential === undefined ? {} : { credential }),
+  });
+  const body = (await res.json().catch(() => null)) as ApiServiceTestResult | null;
+  if (!res.ok) throw new Error(body?.error || "API Service connection test failed.");
+  return body || { ok: false, status: "error", error: "API Service connection test failed." };
+}
+
 export interface DiscoveryLaunchPreferences {
+  backend: "codex" | "qwen_code" | "openhands";
   skip_idea_generation: boolean;
   workflow: {
     loop_rounds: number;

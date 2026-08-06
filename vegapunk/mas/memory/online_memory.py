@@ -8,6 +8,7 @@ when experiments complete during the pipeline execution.
 from pathlib import Path
 from typing import Dict, Any, Optional
 from .task_memory import TaskMemoryLayer
+from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
 
 
 # 在线记忆是在实验完成当下写入的旁路记录；它不参与实验是否成功的判定，
@@ -20,16 +21,24 @@ class OnlineMemorySaver:
     experiment results to TaskMemoryLayer when experiments complete.
     """
 
-    def __init__(self, config: Dict[str, Any], task_name: str):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        task_name: str,
+        *,
+        runtime: UnifiedModelRuntime | None = None,
+    ):
         """
         Initialize online memory saver
 
         Args:
             config: Configuration dictionary with 'task_memory' and 'exp_analyze' sections
             task_name: Task name (e.g., 'AutoPower', 'AutoMem')
+            runtime: Process-owned UnifiedModelRuntime shared by the launch
         """
         self.config = config
         self.task_name = task_name
+        self.model_runtime = runtime or config.get("_runtime")
         # Fix: online_memory is under 'memory' section in config
         memory_config = config.get("memory", {})
         online_memory_config = memory_config.get("online_memory", {})
@@ -48,7 +57,10 @@ class OnlineMemorySaver:
             task_config["task_memory"]["memory_dir"] = task_memory_dir
 
             # Initialize TaskMemoryLayer
-            self.memory = TaskMemoryLayer.from_config(task_config)
+            self.memory = TaskMemoryLayer.from_config(
+                task_config,
+                runtime=self.model_runtime,
+            )
             print(f"[OnlineMemory] Initialized for task: {task_name}")
             print(f"[OnlineMemory] Memory directory: {self.memory.memory_dir}")
             print(f"[OnlineMemory] Existing records: {len(self.memory.records)}")

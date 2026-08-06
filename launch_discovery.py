@@ -250,7 +250,15 @@ def _update_baseline_for_incremental(best_code_path: str, logger, task_type: str
     return True
 
 
-def _generate_experiences_for_round(args, memory, session_id, logger) -> bool:
+def _generate_experiences_for_round(
+    args,
+    memory,
+    session_id,
+    logger,
+    *,
+    model_runtime=None,
+    config=None,
+) -> bool:
     """
     Generate experiences from a single round's experiments.
 
@@ -259,6 +267,8 @@ def _generate_experiences_for_round(args, memory, session_id, logger) -> bool:
         memory: MemoryModule instance
         session_id: Current session ID
         logger: Logger instance
+        model_runtime: The process-owned UnifiedModelRuntime shared by all model stages
+        config: The already-loaded runtime configuration mapping
 
     Returns:
         True if experiences were generated successfully, False otherwise
@@ -298,7 +308,28 @@ def _generate_experiences_for_round(args, memory, session_id, logger) -> bool:
     logger.info(f"Loaded {summary['total_ideas']} ideas and {summary['total_experiments']} experiments")
 
     if summary['total_experiments'] > 0:
-        experience_generator = ExperienceGenerator(logger=logger, config_path=args.config)
+        # Experience generation is model-backed. It must use the runtime that
+        # already owns this launch's provider bindings; reloading YAML here
+        # cannot reconstruct that process-local object.
+        if model_runtime is None:
+            logger.warning(
+                "Skipping experience generation because no process-owned "
+                "UnifiedModelRuntime is available"
+            )
+            return False
+
+        generator_kwargs = {
+            "logger": logger,
+            "runtime": model_runtime,
+        }
+        if config is not None:
+            generator_kwargs["config"] = config
+        else:
+            # Preserve the legacy fallback for direct callers that only provide
+            # a config path; the runtime is still injected explicitly.
+            generator_kwargs["config_path"] = getattr(args, "config", None)
+
+        experience_generator = ExperienceGenerator(**generator_kwargs)
 
         result = asyncio.run(
             experience_generator.generate_experiences_from_memory(
@@ -471,8 +502,7 @@ def parse_arguments():
         "--exp_backend",
         type=str,
         required=True,
-        default="codex",
-        choices=["openhands", "codex", "iflow"],
+        choices=["codex", "qwen_code", "openhands"],
         help="Experiment backend to use (required for experiment mode)"
     )
     # Note: Model configuration is handled through config file (experiment.model)
@@ -786,6 +816,10 @@ def _main():
             logger.info(f"Loaded config from {args.config}")
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
+
+    # The CLI backend is an explicit Launch-local choice.  Keep the generated
+    # config aligned with it without changing the separate Model Provider config.
+    config.setdefault("experiment", {})["backend"] = args.exp_backend
 
     # 轮数和模式来自当前配置；恢复信息只告诉我们已经走到哪里。
     # 这样恢复运行时可以继续追加更多轮，而不是被旧摘要锁死。
@@ -1102,7 +1136,14 @@ def _main():
         # 每轮结束后立刻沉淀经验，下一轮提示演化就能看到刚刚发生的成功和失败。
         if LONG_MEMORY_AVAILABLE and memory is not None:
             logger.info(f"Generating experiences from Round {round_num}...")
-            _generate_experiences_for_round(args, memory, session_id, logger)
+            _generate_experiences_for_round(
+                args,
+                memory,
+                session_id,
+                logger,
+                model_runtime=model_runtime,
+                config=config,
+            )
 
         # 只有还有下一轮时才需要挑最佳结果；最后一轮只做汇总，不再改基线。
         if round_num < loop_rounds:

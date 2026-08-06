@@ -4,6 +4,8 @@
 
 > 关于“系统是否需要调用 Fluent、何时调用 Fluent”的补充决策机制，见 [2026-08-04 外部仿真调用决策机制补充报告](2026-08-04-ansys-fluent-invocation-policy.md)。
 
+> 关于 PyFluent 客户端与 Fluent 商业许可证的边界，以及真实仿真结果如何反馈给 LLM，见 [2026-08-05 PyFluent 许可证与反馈机制调研](2026-08-05-pyfluent-license-and-feedback.md)。
+
 ## 1. 结论先行
 
 Ansys Fluent 已经具备比普通命令行 CFD wrapper 更好的自动化基础：PyFluent 提供 gRPC 会话、Solver/Meshing session、层次化 settings API、workflow、field data、事件与 monitor、文件传输、journal、BatchOps 和参数化执行。它因此是**可被程序化封装的商业 CFD solver**。

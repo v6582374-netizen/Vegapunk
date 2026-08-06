@@ -29,12 +29,6 @@ class BaseAgent(ABC):
         self.task_id: Optional[str] = None
         self.redis_client: Optional[redis.Redis] = None
         self._logger = None
-
-        from vegapunk.research_draft import (
-            attach_sync_research_draft_hook,
-        )
-
-        attach_sync_research_draft_hook(self)
     
     @abstractmethod
     def execute(self, input_data: Any) -> Any:

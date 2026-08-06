@@ -530,7 +530,7 @@ function SheetViewer({ dataUrl }: { dataUrl: string }) {
     setError("");
     setActive(0);
     const base64 = dataUrl.split(",")[1] || "";
-    import("xlsx")
+    import("@e965/xlsx")
       .then((XLSX) => {
         if (cancelled) return;
         const wb = XLSX.read(base64, { type: "base64" });

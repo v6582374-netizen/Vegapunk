@@ -10,7 +10,6 @@ from typing import Dict, Any, Type
 
 from ..models.unified_runtime import UnifiedModelRuntime
 from .base_agent import BaseAgent
-from vegapunk.research_draft import attach_research_draft_hook
 
 from .survey_agent import SurveyAgent
 from .scholar_agent import ScholarAgent
@@ -135,7 +134,6 @@ class AgentFactory:
             
             # Create the agent instance
             agent = agent_class(model, config)
-            attach_research_draft_hook(agent)
             
             # Cache the instance
             cls._agent_cache[cache_key] = agent

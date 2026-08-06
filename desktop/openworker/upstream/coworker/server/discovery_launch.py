@@ -763,6 +763,13 @@ class DiscoveryLaunchStore:
                 raise LaunchStateConflict(
                     "Launch does not have a reconciled checkpoint that can be resumed"
                 )
+            configuration = record.get("launch_configuration_snapshot") or {}
+            preferences = configuration.get("discovery_launch_preferences") or {}
+            snapshot_backend = preferences.get("backend", "codex")
+            if snapshot_backend not in {"codex", "qwen_code", "openhands"}:
+                raise LaunchStateConflict(
+                    "Launch uses a removed Discovery backend and cannot be resumed"
+                )
             self._raise_if_active_locked()
 
             checkpoint = record.get("checkpoint") or {}
@@ -851,6 +858,22 @@ class DiscoveryLaunchStore:
 
         worker_entry = Path(__file__).with_name("discovery_worker.py")
         launcher_entry = self._repository_root / "launch_discovery.py"
+        configuration = record.get("launch_configuration_snapshot") or {}
+        preferences = configuration.get("discovery_launch_preferences") or {}
+        exp_backend = preferences.get("backend", "codex")
+        if exp_backend not in {"codex", "qwen_code", "openhands"}:
+            # A pre-setting snapshot may omit the field and therefore defaults to
+            # Codex.  A snapshot containing a removed identity is terminal instead
+            # of being silently migrated to another coding-agent tool.
+            attempt = self._attempt_or_raise(record, attempt_id)
+            self._finish_failed_locked(
+                record,
+                attempt,
+                f"Unsupported Discovery backend in Launch snapshot: {exp_backend}",
+            )
+            self._persist_record(record)
+            self._persist_index()
+            return
         command = [
             sys.executable,
             str(worker_entry),
@@ -866,7 +889,7 @@ class DiscoveryLaunchStore:
             "--mode",
             "experiment",
             "--exp_backend",
-            "codex",
+            exp_backend,
         ]
         if resume:
             command.append("--resume")
@@ -1937,10 +1960,19 @@ class DiscoveryLaunchStore:
         configuration = record.get("launch_configuration_snapshot")
         if isinstance(configuration, dict):
             model_id = configuration.get("model_id")
+            preferences = configuration.get("discovery_launch_preferences")
+            backend = (
+                preferences.get("backend", "codex")
+                if isinstance(preferences, dict)
+                else "codex"
+            )
             public["configuration_snapshot"] = {
                 "model_id": _public_scalar(model_id, limit=256)
                 if isinstance(model_id, str)
                 else None,
+                "backend": backend
+                if backend in {"codex", "qwen_code", "openhands"}
+                else "codex",
             }
         return public
 

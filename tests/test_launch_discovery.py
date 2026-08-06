@@ -15,6 +15,93 @@ import launch_discovery
 
 
 class DiscoveryPaperHandoffTest(unittest.TestCase):
+    def test_experience_generation_uses_the_shared_runtime(self) -> None:
+        observed = {}
+
+        class Memory:
+            def load_idea_generation_output(self, _: str) -> None:
+                pass
+
+            def load_all_notes_from_directory(self, *_: object) -> None:
+                pass
+
+            def get_memory_summary(self) -> dict[str, int]:
+                return {"total_ideas": 1, "total_experiments": 1}
+
+        class ExperienceGenerator:
+            def __init__(self, *, logger, config, runtime) -> None:
+                observed["logger"] = logger
+                observed["config"] = config
+                observed["runtime"] = runtime
+
+            async def generate_experiences_from_memory(self, **_: object) -> dict[str, list]:
+                return {"new_experiences": [], "updated_library": []}
+
+        long_memory_stub = types.ModuleType("vegapunk.mas.memory.long_memory")
+        long_memory_stub.ExperienceGenerator = ExperienceGenerator
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prompt_path = root / "prompt.json"
+            prompt_path.write_text('{"domain": "testing"}', encoding="utf-8")
+            args = Namespace(
+                prompt_path=str(prompt_path),
+                task_dir=str(root),
+                output_dir=str(root),
+                base_output_dir=str(root),
+                task_name="runtime-test",
+                config={"agents": {"experience": {"temperature": 0.1}}},
+            )
+            runtime = object()
+            logger = logging.getLogger("experience-runtime-test")
+
+            with patch.dict(sys.modules, {"vegapunk.mas.memory.long_memory": long_memory_stub}):
+                result = launch_discovery._generate_experiences_for_round(
+                    args,
+                    Memory(),
+                    "session_1",
+                    logger,
+                    model_runtime=runtime,
+                    config=args.config,
+                )
+
+        self.assertTrue(result)
+        self.assertIs(observed["runtime"], runtime)
+        self.assertIs(observed["config"], args.config)
+
+    def test_experience_generation_skips_without_a_runtime(self) -> None:
+        class Memory:
+            def load_idea_generation_output(self, _: str) -> None:
+                pass
+
+            def load_all_notes_from_directory(self, *_: object) -> None:
+                pass
+
+            def get_memory_summary(self) -> dict[str, int]:
+                return {"total_ideas": 1, "total_experiments": 1}
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            prompt_path = root / "prompt.json"
+            prompt_path.write_text("{}", encoding="utf-8")
+            args = Namespace(
+                prompt_path=str(prompt_path),
+                task_dir=str(root),
+                output_dir=str(root),
+                task_name="runtime-test",
+                config={},
+            )
+
+            result = launch_discovery._generate_experiences_for_round(
+                args,
+                Memory(),
+                "session_1",
+                logging.getLogger("experience-runtime-missing-test"),
+                config=args.config,
+            )
+
+        self.assertFalse(result)
+
     def test_handoff_calls_paperorchestra_directly(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -45,7 +132,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             repository_root / "tests" / "paper_orchestra" / "__init__.py",
         )
 
-    def test_new_discovery_launch_automatically_hands_off_without_draft(
+    def test_new_discovery_launch_automatically_hands_off(
         self,
     ) -> None:
         class ReportWriter:
@@ -109,8 +196,6 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
 
             launches = list((root / "results" / "paper-test").glob("*_launch"))
             self.assertEqual(len(launches), 1)
-            draft_path = launches[0] / "manuscript" / "draft.md"
-            self.assertFalse(draft_path.exists())
             run.assert_called_once()
             called_launch = root / run.call_args.kwargs["launch_dir"]
             self.assertEqual(called_launch.resolve(), launches[0].resolve())
@@ -242,7 +327,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
         create_runtime.assert_called_once_with({})
         self.assertEqual(observed_runtimes, [runtime])
 
-    def test_completed_discovery_resumes_paperorchestra_without_opening_draft(
+    def test_completed_discovery_resumes_paperorchestra(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -291,7 +376,6 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             ), patch("launch_discovery._run_paper_orchestra") as run:
                 launch_discovery.main()
 
-            self.assertFalse((launch_dir / "manuscript" / "draft.md").exists())
             run.assert_called_once()
             self.assertEqual(run.call_args.kwargs["launch_dir"], launch_dir)
 

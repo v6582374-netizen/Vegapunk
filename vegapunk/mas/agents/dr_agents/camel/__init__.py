@@ -12,7 +12,15 @@
 # limitations under the License.
 # ========= Copyright 2023-2024 @ CAMEL-AI.org. All Rights Reserved. =========
 
-from camel.logger import disable_logging, enable_logging, set_log_level
+import sys
+
+# The vendored CAMEL tree keeps upstream's ``camel.*`` imports for source
+# compatibility. Register the package under that name before importing any
+# submodules so those imports resolve to this vendored copy, not an arbitrary
+# working-directory or globally installed module.
+sys.modules["camel"] = sys.modules[__name__]
+
+from .logger import disable_logging, enable_logging, set_log_level
 
 __version__ = '0.2.47'
 

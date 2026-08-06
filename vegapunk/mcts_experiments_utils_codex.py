@@ -55,14 +55,16 @@ class CodexMCTSSearch:
         baseline_results: Dict[str, Any],
         idea_info: Dict[str, str],
         proxy_settings=None,
-        model='gpt-5.6-sol'
+        model='gpt-5.6-sol',
+        runner_cls=CodexRunner,
     ):
         self.folder_name = folder_name
         self.baseline_results = baseline_results
         self.idea_info = idea_info
 
-        # Create Codex runner
-        self.codex_runner = CodexRunner(proxy_settings, model)
+        # Create the selected coding-agent runner.
+        self.codex_runner = runner_cls(proxy_settings, model)
+        self.backend_label = getattr(self.codex_runner, "backend_label", "Codex CLI")
 
         # Create root node
         if USE_BASELINE_AS_ROOT:
@@ -300,11 +302,11 @@ class CodexMCTSSearch:
                 )
                 self._log(f"[draft] node={node.id} generating initial code")
 
-                # Codex works in code directory
+                # The selected coding agent works in the private code directory.
                 code_dir = os.path.join(node.workspace_folder, "code")
-                codex_output = self.codex_runner.run(prompt, cwd=code_dir)
-                if codex_output:
-                    print(f"Codex output: {codex_output}...")
+                agent_output = self.codex_runner.run(prompt, cwd=code_dir)
+                if agent_output:
+                    print(f"{self.backend_label} output: {agent_output}...")
 
                 # Autodebug loop: run → check → fix
                 return_code = 1
@@ -325,10 +327,10 @@ class CodexMCTSSearch:
                         self._log(f"[draft] node={node.id} run FAILED, attempting to fix")
                         # If not last iteration, try to fix
                         if current_iter < MAX_ITERS - 1 and next_prompt:
-                            # Codex fixes code in code directory
+                            # The selected coding agent fixes code in the code directory.
                             fix_output = self.codex_runner.run(next_prompt, cwd=code_dir)
                             if fix_output:
-                                print(f"Codex debug output: {fix_output}...")
+                                print(f"{self.backend_label} debug output: {fix_output}...")
                 else:
                     # Max iterations reached but still failed
                     print(f"[MCTS] Max iterations reached for draft node_{node.id}")
@@ -377,11 +379,11 @@ class CodexMCTSSearch:
                 prompt = MCTS_IMPROVE_PROMPT.format(RESULTS=ancestor_results)
                 self._log(f"[improve] parent={parent_node.id} node={node.id} improving code")
 
-                # Codex works in code directory
+                # The selected coding agent works in the private code directory.
                 code_dir = os.path.join(node.workspace_folder, "code")
-                improve_output = self.codex_runner.run(prompt, cwd=code_dir)
-                if improve_output:
-                    print(f"Codex improve output: {improve_output}...")
+                agent_output = self.codex_runner.run(prompt, cwd=code_dir)
+                if agent_output:
+                    print(f"{self.backend_label} improve output: {agent_output}...")
 
                 # Autodebug loop: run → check → fix
                 return_code = 1
@@ -402,10 +404,10 @@ class CodexMCTSSearch:
                         self._log(f"[improve] node={node.id} run FAILED, attempting to fix")
                         # If not last iteration, try to fix
                         if current_iter < MAX_ITERS - 1 and next_prompt:
-                            # Codex fixes code in code directory
+                            # The selected coding agent fixes code in the code directory.
                             fix_output = self.codex_runner.run(next_prompt, cwd=code_dir)
                             if fix_output:
-                                print(f"Codex debug output: {fix_output}...")
+                                print(f"{self.backend_label} debug output: {fix_output}...")
                 else:
                     # Max iterations reached but still failed
                     print(f"[MCTS] Max iterations reached for improve node_{node.id}")
@@ -710,10 +712,13 @@ def perform_experiments_mcts(
     idea,
     folder_name: str,
     proxy_settings=None,
-    model='gpt-5.6-sol'
+    model='gpt-5.6-sol',
+    runner_cls=CodexRunner,
+    gpu_ids=None,
+    log_file=None,
 ) -> bool:
     """
-    Execute Codex CLI experiments using MCTS
+    Execute coding-agent experiments using MCTS
 
     Args:
         idea: Experiment idea
@@ -725,7 +730,8 @@ def perform_experiments_mcts(
         bool: Whether experiment succeeded
     """
     print("=" * 50)
-    print("CODEX CLI MCTS EXPERIMENTS STARTED")
+    runner_label = getattr(runner_cls, "backend_label", "Codex CLI")
+    print(f"{runner_label.upper()} MCTS EXPERIMENTS STARTED")
     print("=" * 50)
 
     idea_info = extract_idea_info(idea)
@@ -748,7 +754,8 @@ def perform_experiments_mcts(
             baseline_results=baseline_results,
             idea_info=idea_info,
             proxy_settings=proxy_settings,
-            model=model
+            model=model,
+            runner_cls=runner_cls,
         )
         success = mcts_search.run_mcts_search()
     except Exception as e:

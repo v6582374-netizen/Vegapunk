@@ -66,9 +66,6 @@ class BaseModel(abc.ABC):
     async def run(self, request: ModelRunRequest) -> ModelRunResult:
         """Execute one typed inference run and emit provider-neutral telemetry."""
 
-        from vegapunk.research_draft import record_research_event
-
-        record_research_event(request)
         started_at = time.perf_counter()
         self.total_calls += 1
         result: ModelRunResult | None = None
@@ -92,10 +89,6 @@ class BaseModel(abc.ABC):
                 raise
             raise classified from exc
         finally:
-            if result is not None:
-                record_research_event(result)
-            if error is not None:
-                record_research_event(error)
             elapsed = time.perf_counter() - started_at
             self.total_time += elapsed
             telemetry = self._telemetry_event(

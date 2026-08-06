@@ -157,7 +157,11 @@ class TaskMemoryLayer:
         self._load_memory()
 
     @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'TaskMemoryLayer':
+    def from_config(
+        cls,
+        config: Dict[str, Any],
+        runtime: UnifiedModelRuntime | None = None,
+    ) -> 'TaskMemoryLayer':
         """
         Create TaskMemoryLayer from configuration dictionary (Vegapunk config pattern)
 
@@ -228,7 +232,7 @@ class TaskMemoryLayer:
 
         # Extract custom_metric_config if at top level
         custom_metric_config = config.get("custom_metric_config", None)
-        runtime = config.get("_runtime")
+        runtime = runtime or config.get("_runtime")
         if runtime is None and isinstance(config.get("_global_config"), dict):
             runtime = config["_global_config"].get("_runtime")
 

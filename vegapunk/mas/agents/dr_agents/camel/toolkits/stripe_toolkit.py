@@ -46,7 +46,6 @@ class StripeToolkit(BaseToolkit):
         retries: int = 3,
         timeout: Optional[float] = None,
     ):
-        super().__init__(timeout=timeout)
         r"""Initializes the StripeToolkit with the specified number of
         retries.
 

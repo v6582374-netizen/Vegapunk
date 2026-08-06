@@ -302,7 +302,7 @@ manifest 至少应记录 artifact id、kind、路径或对象存储 key、媒体
 
 [`LOOP_ARCHITECTURE.md`](../../LOOP_ARCHITECTURE.md#15-关键源码索引)列出 `vegapunk/mas/agents/tool_loop.py::ModelToolLoop.run`作为模型工具循环入口。
 
-当前 `ModelToolLoop.run`已经负责发送带 tools 的模型请求、执行 function tool call、把工具错误作为模型可见证据，并通过 `record_research_event`记录工具输入和输出。
+当前 `ModelToolLoop.run`已经负责发送带 tools 的模型请求、执行 function tool call，并把工具错误作为模型可见证据返回给模型；工具输入和输出不再写入独立的研究草稿文件。
 
 CFD 工具应复用这个循环和现有 Tool Registry，但在实际执行前增加独立的 `SimulationPlan` schema、引擎能力快照、资源策略和路径 allowlist。
 

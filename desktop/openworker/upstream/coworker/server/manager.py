@@ -35,6 +35,11 @@ from ..subscriptions import ChannelBuffer, SubscriptionStore
 from ..unrouted import UnroutedStore
 from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
+from ..api_services import (
+    get_api_services as _get_api_services,
+    set_api_service as _set_api_service,
+    test_api_service as _test_api_service,
+)
 from ..config import load_config, workspace_allowed_commands
 from ..conversations import ConversationStore, title_from
 from ..engine import ApprovalOutcome, Approver, TurnEngine
@@ -1648,6 +1653,44 @@ class SessionManager:
     def discovery_launch_preferences_snapshot(self) -> dict[str, Any]:
         """Copy the effective defaults for one newly admitted Launch."""
         return self.discovery_launch_preferences.snapshot()
+
+    # -- API services (fixed scholarly-service connection profiles) -------------
+    def get_api_services(self) -> list[dict[str, Any]]:
+        """Return the fixed API Services catalog with redacted credential state."""
+        return _get_api_services(self.secrets)
+
+    def set_api_service(
+        self,
+        name: str,
+        *,
+        enabled: bool,
+        credential: str | None | object = None,
+        credential_provided: bool = False,
+    ) -> dict[str, Any]:
+        """Persist one API service profile without touching Discovery or model settings."""
+        # The sentinel lives in the module that owns the credential boundary.  Keeping
+        # the distinction between an omitted credential and an explicit clear here means
+        # toggling a card never erases a stored secret.
+        if credential_provided:
+            return _set_api_service(
+                self.secrets,
+                name,
+                enabled=enabled,
+                credential=credential,
+            )
+        return _set_api_service(self.secrets, name, enabled=enabled)
+
+    def test_api_service(
+        self,
+        name: str,
+        *,
+        credential: str | None | object = None,
+        credential_provided: bool = False,
+    ) -> dict[str, Any]:
+        """Run the service-owned read-only connection check off the session runtime."""
+        if credential_provided:
+            return _test_api_service(self.secrets, name, credential=credential)
+        return _test_api_service(self.secrets, name)
 
     def _provider_configured(self, name: str) -> bool:
         d = get_descriptor(name)
