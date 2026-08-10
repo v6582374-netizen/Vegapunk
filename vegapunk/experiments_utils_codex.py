@@ -13,6 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from vegapunk.prompt_library import prompts
 from vegapunk.prompts import (
     CODER_PROMPT_OPENHANDS,
     NEXT_EXPERIMENT_PROMPT,
@@ -27,6 +28,23 @@ MAX_RUNS = 5  # Default value, can be overridden by config
 MAX_STDERR_OUTPUT = 30000
 
 SCI_SYMLINK_DIRS = {'data', 'related_work', 'target_study'}
+
+
+def _needs_generated_baseline(folder_name) -> bool:
+    """Whether the workspace lacks an executed and measured baseline."""
+    baseline_metrics_path = osp.join(folder_name, "run_0", "final_info.json")
+    try:
+        with open(baseline_metrics_path, "r", encoding="utf-8") as file:
+            return not _contains_usable_numeric_metric(json.load(file))
+    except (OSError, json.JSONDecodeError):
+        return True
+
+
+def _has_runnable_baseline_sources(folder_name) -> bool:
+    """Check the two source artifacts required before executing run_0."""
+    return osp.isdir(osp.join(folder_name, "code")) and osp.isfile(
+        osp.join(folder_name, "launcher.sh")
+    )
 
 
 def _split_codex_model_identity(model: str) -> tuple[str, str | None]:
@@ -332,6 +350,8 @@ def run_experiment(folder_name, run_num, timeout=None, gpu_ids=None, log_file=No
             process.wait()
             raise subprocess.TimeoutExpired(command, timeout)
         reader.join(timeout=5)  # give reader a moment to flush
+        if process.stdout is not None:
+            process.stdout.close()
 
         returncode = process.returncode
 
@@ -480,6 +500,7 @@ def perform_experiments(
     run_timeout=None,
     runtime=None,
     runner_cls=None,
+    stop_after_baseline=False,
 ) -> bool:
     """
     Perform multi-round experiments using Codex CLI.
@@ -520,7 +541,11 @@ def perform_experiments(
         logger.info(f"[{timestamp}] Using GPUs: {gpu_ids}")
 
     current_iter = 0
-    run = 1
+    bootstrap_baseline = task_type == "auto" and _needs_generated_baseline(folder_name)
+    bootstrap_sources = bootstrap_baseline and not _has_runnable_baseline_sources(
+        folder_name
+    )
+    run = 0 if bootstrap_baseline else 1
 
     # The workflow contract is shared by coding-agent backends.  The default
     # remains Codex for compatibility; Qwen Code supplies its runner explicitly.
@@ -537,6 +562,14 @@ def perform_experiments(
         # Save as INSTRUCTIONS.md for the evaluation judge (official scorer uses it as context)
         with open(osp.join(folder_name, "INSTRUCTIONS.md"), 'w') as f:
             f.write(next_prompt)
+    elif bootstrap_sources:
+        next_prompt = prompts.render(
+            "experiment.coder_bootstrap",
+            idea_description=idea_info["description"],
+            code_server_path=folder_name,
+            method=idea_info["method"],
+            max_runs=max_runs,
+        )
     else:
         next_prompt = CODER_PROMPT_OPENHANDS.format(
             idea_description=idea_info["description"],
@@ -551,29 +584,60 @@ def perform_experiments(
 
     while run < max_runs + 1:
         if current_iter >= MAX_ITERS:
+            if bootstrap_baseline:
+                log_message("Baseline bootstrap exhausted its repair attempts")
+                return False
             log_message(f"Max iterations reached for run {run}. Moving to next run.")
             run += 1
             current_iter = 0
             continue
 
-        log_message(f"Running {backend_label} iteration {current_iter+1} for run {run}")
-        codex_output = codex_runner.run(next_prompt, cwd=folder_name)
-        log_message(f"{backend_label} output received (length: {len(codex_output)})")
-        log_message(codex_output)
+        if bootstrap_baseline and not bootstrap_sources:
+            log_message("Executing the existing source as run_0 baseline")
+        else:
+            log_message(f"Running {backend_label} iteration {current_iter+1} for run {run}")
+            codex_output = codex_runner.run(next_prompt, cwd=folder_name)
+            log_message(f"{backend_label} output received (length: {len(codex_output)})")
+            log_message(codex_output)
 
-        if "litellm.BadRequestError" in codex_output:
-            log_message(f"Error: litellm.BadRequestError detected in {backend_label} output")
-            return False
-        if "ALL_COMPLETED" in codex_output:
-            log_message(
-                f"{backend_label} reported all experiments completed; validating artifacts"
-            )
-            break
+            if "litellm.BadRequestError" in codex_output:
+                log_message(f"Error: litellm.BadRequestError detected in {backend_label} output")
+                return False
+            if bootstrap_sources:
+                if not _has_runnable_baseline_sources(folder_name):
+                    log_message(
+                        "Baseline bootstrap did not create code/ and launcher.sh"
+                    )
+                    return False
+                bootstrap_sources = False
+            elif "ALL_COMPLETED" in codex_output:
+                log_message(
+                    f"{backend_label} reported all experiments completed; validating artifacts"
+                )
+                break
 
         # Run experiment with specified GPU IDs
         log_message(f"Running experiment for run {run}")
         return_code, next_prompt, traceback, message = run_experiment(folder_name, run, timeout=run_timeout, gpu_ids=gpu_ids, log_file=log_file, task_type=task_type)
         logger.info(f"Experiment run {run} completed with return code {return_code}")
+
+        if run == 0 and return_code == 0:
+            baseline_metrics_path = osp.join(folder_name, "run_0", "final_info.json")
+            try:
+                with open(baseline_metrics_path, "r", encoding="utf-8") as file:
+                    baseline_metrics = json.load(file)
+            except (OSError, json.JSONDecodeError):
+                baseline_metrics = None
+            if not _contains_usable_numeric_metric(baseline_metrics):
+                log_message(
+                    "Baseline bootstrap completed without usable run_0/final_info.json metrics"
+                )
+                return False
+            bootstrap_baseline = False
+            if stop_after_baseline:
+                return True
+        elif run == 0:
+            bootstrap_sources = True
 
         # For sci tasks: if report exists but no final_info.json, score the run
         if task_type == 'sci':

@@ -163,6 +163,26 @@ class CodexMCTSSearch:
                                 baseline_value = float(means[metric_name])
                                 print(f"[MCTS] Using baseline metric: {metric_name}={baseline_value:.6f} (maximize={maximize})")
                                 return MetricValue(value=baseline_value, maximize=maximize)
+
+            # Baseline bootstrap uses the shared experiment contract: any
+            # honest finite numeric measurement is valid even when a task has
+            # no legacy metric_config entry yet.
+            def first_numeric(value):
+                if isinstance(value, bool):
+                    return None
+                if isinstance(value, (int, float)):
+                    return float(value)
+                if isinstance(value, dict):
+                    for child in value.values():
+                        metric = first_numeric(child)
+                        if metric is not None:
+                            return metric
+                return None
+
+            baseline_value = first_numeric(data)
+            if baseline_value is not None:
+                print(f"[MCTS] Using bootstrap baseline metric: {baseline_value:.6f}")
+                return MetricValue(value=baseline_value, maximize=True)
         except Exception as e:
             print(f"[MCTS] Warning: Failed to extract baseline metric: {e}")
 

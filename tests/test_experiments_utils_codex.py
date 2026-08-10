@@ -31,6 +31,12 @@ class PerformExperimentsArtifactTest(unittest.TestCase):
             )
 
     def _write_artifact(self, directory: str, payload: object) -> None:
+        baseline_directory = Path(directory) / "run_0"
+        baseline_directory.mkdir()
+        (baseline_directory / "final_info.json").write_text(
+            json.dumps({"accuracy": 0.5}),
+            encoding="utf-8",
+        )
         run_directory = Path(directory) / "run_1"
         run_directory.mkdir()
         content = payload if isinstance(payload, str) else json.dumps(payload)
@@ -88,6 +94,81 @@ class PerformExperimentsArtifactTest(unittest.TestCase):
             completed = self._perform(directory)
 
         self.assertFalse(completed)
+
+    def test_empty_workspace_bootstraps_a_measured_baseline_before_improving_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            prompts: list[str] = []
+
+            def code_agent(prompt: str, *, cwd: Path) -> str:
+                prompts.append(prompt)
+                if len(prompts) == 1:
+                    (cwd / "code").mkdir()
+                    (cwd / "code" / "experiment.py").write_text(
+                        "import json\n"
+                        "from pathlib import Path\n"
+                        "Path('final_info.json').write_text(\n"
+                        "    json.dumps({'accuracy': 0.75}), encoding='utf-8'\n"
+                        ")\n",
+                        encoding="utf-8",
+                    )
+                    (cwd / "launcher.sh").write_text(
+                        "#!/usr/bin/env bash\npython3 code/experiment.py\n",
+                        encoding="utf-8",
+                    )
+                return "implementation ready"
+
+            with patch(
+                "vegapunk.experiments_utils_codex.CodexRunner.run",
+                side_effect=code_agent,
+            ), patch(
+                "vegapunk.experiments_utils_codex._generate_report_with_codex"
+            ):
+                completed = perform_experiments(
+                    self.IDEA,
+                    root,
+                    max_runs=1,
+                )
+
+            self.assertTrue(completed)
+            self.assertIn("first runnable baseline", prompts[0].lower())
+            self.assertTrue((root / "run_0" / "final_info.json").exists())
+            self.assertTrue((root / "run_1" / "final_info.json").exists())
+
+    def test_empty_workspace_does_not_continue_without_baseline_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def code_agent(_: str, *, cwd: Path) -> str:
+                (cwd / "code").mkdir(exist_ok=True)
+                (cwd / "launcher.sh").write_text(
+                    "#!/usr/bin/env bash\n", encoding="utf-8"
+                )
+                return "implementation ready"
+
+            def execute_run(
+                folder: Path, run: int, **_: object
+            ) -> tuple[int, str, None, None]:
+                run_directory = folder / f"run_{run}"
+                run_directory.mkdir(exist_ok=True)
+                if run == 1:
+                    (run_directory / "final_info.json").write_text(
+                        json.dumps({"accuracy": 0.85}), encoding="utf-8"
+                    )
+                return 0, "continue improving", None, None
+
+            with patch(
+                "vegapunk.experiments_utils_codex.CodexRunner.run",
+                side_effect=code_agent,
+            ), patch(
+                "vegapunk.experiments_utils_codex.run_experiment",
+                side_effect=execute_run,
+            ), patch(
+                "vegapunk.experiments_utils_codex._generate_report_with_codex"
+            ):
+                completed = perform_experiments(self.IDEA, root, max_runs=1)
+
+            self.assertFalse(completed)
 
 
 class CodexRunnerTest(unittest.TestCase):

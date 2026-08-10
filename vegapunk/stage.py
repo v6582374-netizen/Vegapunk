@@ -12,7 +12,10 @@ from threading import Semaphore, Lock, Thread, Event
 import math
 
 from vegapunk.mas.interface import VegapunkInterface
-from vegapunk.experiments_utils_codex import perform_experiments as perform_experiments_codex
+from vegapunk.experiments_utils_codex import (
+    _needs_generated_baseline,
+    perform_experiments as perform_experiments_codex,
+)
 from vegapunk.experiments_utils_qwen_code import perform_experiments as perform_experiments_qwen_code
 from vegapunk.mcts_experiments_utils_codex import perform_experiments_mcts as perform_experiments_mcts_codex
 from vegapunk.mcts_experiments_utils_qwen_code import perform_experiments_mcts as perform_experiments_mcts_qwen_code
@@ -899,6 +902,10 @@ class ExperimentRunner:
         """Stop the progress monitor thread"""
         stop_event.set()
         monitor_thread.join(timeout=1)
+
+    def _must_establish_baseline_before_mcts(self, task_type, folder_name) -> bool:
+        """Keep tree search downstream of the first measured auto-task baseline."""
+        return task_type == "auto" and _needs_generated_baseline(folder_name)
     
 
     def run_codex_experiment(self, base_dir, results_dir, idea, gpu_ids=""):
@@ -930,10 +937,24 @@ class ExperimentRunner:
         try:
             # Check if MCTS mode is enabled
             use_mcts = self.config.get("experiment", {}).get("use_mcts", False)
+            bootstrap_before_mcts = use_mcts and self._must_establish_baseline_before_mcts(
+                task_type, cwd
+            )
+            if bootstrap_before_mcts:
+                self.logger.info(
+                    "MCTS deferred until the first measured baseline is established"
+                )
+
+            experiment_model = (
+                self.config.get("experiment", {}).get("model") or
+                "gpt-5.6-sol"
+            )
 
             # 这里是和外部代码修改器的边界：前面只准备工作区，
             # 后面由选定后端实际编辑、运行并写出指标。
-            if use_mcts:
+            if bootstrap_before_mcts:
+                self.logger.info(f"Starting Codex baseline bootstrap: {idea_name}")
+            elif use_mcts:
                 self.logger.info(f"Starting Codex CLI MCTS experiment: {idea_name}")
             else:
                 self.logger.info(f"Starting Codex CLI experiment: {idea_name}")
@@ -941,12 +962,24 @@ class ExperimentRunner:
             if gpu_ids:
                 self.logger.info(f"Codex experiment using GPUs: {gpu_ids}")
 
-            experiment_model = (
-                self.config.get("experiment", {}).get("model") or
-                "gpt-5.6-sol"
-            )
-
-            if use_mcts:
+            if bootstrap_before_mcts:
+                success = perform_experiments_codex(
+                    idea,
+                    cwd,
+                    model=experiment_model,
+                    gpu_ids=gpu_ids,
+                    max_runs=self.config.get("experiment", {}).get("max_runs", 5),
+                    log_file=log_file,
+                    task_type=task_type,
+                    run_timeout=self.config.get('experiment', {}).get('run_timeout', None),
+                    runtime=self.model_runtime,
+                    stop_after_baseline=True,
+                )
+                if success:
+                    success = perform_experiments_mcts_codex(
+                        idea, cwd, model=experiment_model, gpu_ids=gpu_ids, log_file=log_file
+                    )
+            elif use_mcts:
                 success = perform_experiments_mcts_codex(
                     idea,
                     cwd,
@@ -1029,18 +1062,44 @@ class ExperimentRunner:
         try:
             # Check if MCTS mode is enabled
             use_mcts = self.config.get("experiment", {}).get("use_mcts", False)
-
-            if use_mcts:
-                self.logger.info(f"Starting Qwen Code MCTS experiment: {idea_name}")
-            else:
-                self.logger.info(f"Starting Qwen Code experiment: {idea_name}")
+            bootstrap_before_mcts = use_mcts and self._must_establish_baseline_before_mcts(
+                task_type, cwd
+            )
+            if bootstrap_before_mcts:
+                self.logger.info(
+                    "MCTS deferred until the first measured baseline is established"
+                )
 
             experiment_model = (
                 self.config.get("experiment", {}).get("model") or
                 "gpt-5.6-sol"
             )
 
-            if use_mcts:
+            if bootstrap_before_mcts:
+                self.logger.info(f"Starting Qwen Code baseline bootstrap: {idea_name}")
+            elif use_mcts:
+                self.logger.info(f"Starting Qwen Code MCTS experiment: {idea_name}")
+            else:
+                self.logger.info(f"Starting Qwen Code experiment: {idea_name}")
+
+            if bootstrap_before_mcts:
+                success = perform_experiments_qwen_code(
+                    idea,
+                    cwd,
+                    model=experiment_model,
+                    gpu_ids=gpu_ids,
+                    max_runs=self.config.get("experiment", {}).get("max_runs", 5),
+                    log_file=log_file,
+                    task_type=task_type,
+                    run_timeout=self.config.get('experiment', {}).get('run_timeout', None),
+                    runtime=self.model_runtime,
+                    stop_after_baseline=True,
+                )
+                if success:
+                    success = perform_experiments_mcts_qwen_code(
+                        idea, cwd, model=experiment_model, gpu_ids=gpu_ids, log_file=log_file
+                    )
+            elif use_mcts:
                 success = perform_experiments_mcts_qwen_code(
                     idea,
                     cwd,

@@ -1,0 +1,20 @@
+你的首要任务是为该研究想法创建第一个可运行的 Baseline。这里刻意没有任何既有源码：先构建最小、诚实、可执行的实验，后续轮次再进行改进。
+
+Research idea: {idea_description}
+
+Method to investigate: {method}
+
+Working directory: {code_server_path}
+
+You may run at most {max_runs} improvement experiments after establishing this baseline.
+
+Requirements:
+
+1. Create all implementation files under `{code_server_path}/code/`.
+2. Create `{code_server_path}/launcher.sh`. It must execute the baseline from the current working directory and must not install dependencies.
+3. The baseline must prepare or load data, train or compute, evaluate, and print its measured results. Prefer a simple working implementation over sophistication.
+4. A successful invocation of `launcher.sh` must write `final_info.json` in its current working directory. It must contain honest, finite numeric measurement values, not only configuration, seeds, timestamps, or prose.
+5. Keep runtime bounded, make CPU/GPU use safe, and save enough artefacts to make the measurement inspectable.
+6. Do not merely describe an experiment. Create the files now, inspect them, and run the launcher once to correct any implementation error.
+
+This is the first runnable baseline. Do not claim the work is complete until the source, launcher, and measured `final_info.json` contract exist.

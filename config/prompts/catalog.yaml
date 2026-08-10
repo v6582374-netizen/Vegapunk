@@ -329,6 +329,17 @@ prompts:
   template_variables: [idea_description, code_server_path, max_runs, method]
   required_template_variables: [idea_description, code_server_path, max_runs, method]
   file: experiment/coder_openhands.txt
+- id: experiment.coder_bootstrap
+  name: First runnable baseline prompt
+  description: Empty-workspace instruction that creates and measures the initial baseline
+  workflow: experiment
+  stage: implementation
+  order: 5
+  invocation_type: mutually_exclusive
+  mutual_exclusion_group: experiment_coder
+  template_variables: [idea_description, code_server_path, max_runs, method]
+  required_template_variables: [idea_description, code_server_path, max_runs, method]
+  file: experiment/coder_bootstrap.txt
 - id: experiment.coder_sci_task
   name: Sci-task coder prompt
   description: Paper reproduction coding instruction

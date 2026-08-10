@@ -129,6 +129,7 @@ def perform_experiments(
     checklist=None,
     run_timeout=None,
     runtime=None,
+    stop_after_baseline=False,
 ) -> bool:
     """Run the shared Discovery experiment loop through Qwen Code."""
     return _perform_experiments(
@@ -145,6 +146,7 @@ def perform_experiments(
         run_timeout=run_timeout,
         runtime=runtime,
         runner_cls=QwenCodeRunner,
+        stop_after_baseline=stop_after_baseline,
     )
 
 
