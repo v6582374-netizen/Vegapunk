@@ -22,7 +22,7 @@ from ..tools.utils import parse_io_description, format_papers_for_printing_next_
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_LLM_TASKS = 2
-MAX_CONCURRENT_SEARCH_TASKS = 10
+MAX_CONCURRENT_SEARCH_TASKS = 1
 
 
 class SurveyAgent(BaseAgent):
@@ -514,6 +514,7 @@ class SurveyAgent(BaseAgent):
 
         for paper in selected_for_deep_read:
             url = paper.get('url')
+            pdf_url = paper.get('pdf_url')
             doi = paper.get('doi')
 
             # -----------------------------------------------
@@ -528,8 +529,9 @@ class SurveyAgent(BaseAgent):
                 # 2. 否则从 PDF 下载或通过 DOI 下载
                 # -----------------------------------------------
                 pdf_path = None
-                if url:
-                    pdf_path = download_pdf(url, save_folder=pdf_dir)
+                download_url = pdf_url or url
+                if download_url:
+                    pdf_path = download_pdf(download_url, save_folder=pdf_dir)
                 if doi and not pdf_path:
                     pdf_path = download_pdf_by_doi(doi=doi, download_dir=pdf_dir)
 

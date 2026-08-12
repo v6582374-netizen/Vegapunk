@@ -62,6 +62,7 @@ class BaseModel(abc.ABC):
         self.total_tokens = 0
         self.total_time = 0.0
         self._on_completion: Optional[Callable[..., Any]] = None
+        self._telemetry_logging_enabled = True
 
     async def run(self, request: ModelRunRequest) -> ModelRunResult:
         """Execute one typed inference run and emit provider-neutral telemetry."""
@@ -97,7 +98,8 @@ class BaseModel(abc.ABC):
                 error=error,
                 elapsed=elapsed,
             )
-            self._log_telemetry(telemetry)
+            if self._telemetry_logging_enabled:
+                self._log_telemetry(telemetry)
             await self._emit_completion(telemetry)
 
     @abc.abstractmethod
@@ -220,6 +222,11 @@ class BaseModel(abc.ABC):
 
     def set_completion_callback(self, callback: Callable[..., Any]) -> None:
         self._on_completion = callback
+
+    def set_telemetry_logging_enabled(self, enabled: bool) -> None:
+        """Enable or suppress this model object's local telemetry log line."""
+
+        self._telemetry_logging_enabled = enabled
 
     async def _emit_completion(self, telemetry: Dict[str, Any]) -> None:
         if self._on_completion is None:

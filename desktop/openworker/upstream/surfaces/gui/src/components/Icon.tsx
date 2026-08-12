@@ -40,8 +40,7 @@ export type IconName =
   | "fileCode"
   | "image"
   | "table"
-  | "mic"
-  | "stop"
+  | "database"
   | "x";
 
 export function Icon({
@@ -151,17 +150,11 @@ export function Icon({
           <path d="M4 10h16M10 10v9M4 14.5h16" />
         </svg>
       );
-    case "mic":
+    case "database":
       return (
         <svg {...s}>
-          <rect x="8.5" y="3.5" width="7" height="11" rx="3.5" />
-          <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5M8.5 21.5h7" />
-        </svg>
-      );
-    case "stop":
-      return (
-        <svg {...s} fill="currentColor" stroke="none">
-          <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+          <ellipse cx="12" cy="5.5" rx="7.5" ry="3" />
+          <path d="M4.5 5.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6M4.5 11.5v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6" />
         </svg>
       );
     case "x":

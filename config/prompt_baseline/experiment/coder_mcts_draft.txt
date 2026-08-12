@@ -1,23 +1,23 @@
-Your goal is to implement the following idea: {idea}
-The proposed method is as follows: {method}.
+你的目标是实现以下创意：{idea}
+所提出的方法如下：{method}。
 
-You are given a single run to complete the necessary experiments.
-**Note**: It is highly recommended that you implement the core functionality of your code within this run, choose important designs in the proposed method. 
+你只有一次运行机会来完成必要实验。
+**注意**：强烈建议你在本次运行中实现代码的核心功能，并选择所提出方法中的重要设计。
 
-Note that we already provide the vanilla baseline results, so you do not need to re-run it.
+注意：我们已提供原始基线结果，因此无需重新运行基线。
 
-For reference, the baseline results are as follows:
+供参考，基线结果如下：
 
 {baseline_results}
 
-Then, you need to implement code. After you complete the implementation, we will run the command `bash launcher.sh .` to execute the experiment. 
-Do NOT modify launcher.sh under any circumstances.
-Do NOT change the schema of final_info.json; only write to the existing means fields and keep the structure identical to the baseline.
+接下来，你需要实现代码。完成实现后，我们将运行命令 `bash launcher.sh .` 执行实验。
+任何情况下都不得修改 launcher.sh。
+不得改变 final_info.json 的结构；只能写入已有的 means 字段，并保持结构与基线完全一致。
 
-**IMPORTANT CONSTRAINTS:**
-1. YOU MUST NOT MODIFY `launcher.sh` - it must remain as is. We always run this command.
-2. DO NOT create shell scripts (.sh files) or run_xxx folder, any files will be saved to the current directory (`.`)
-3. Treat the current working directory as the project root; results will be saved to the current directory (`.`)
-YOUR PROPOSED CHANGE MUST USE THIS COMMAND FORMAT, DO NOT ADD ADDITIONAL COMMAND LINE ARGS.
+**重要约束：**
+1. **不得修改** `launcher.sh`，它必须保持原样。我们始终运行此命令。
+2. **不得**创建 shell 脚本（.sh 文件）或 run_xxx 文件夹；所有文件都将保存到当前目录（`.`）。
+3. 将当前工作目录视为项目根目录；结果将保存到当前目录（`.`）。
+你提出的改动**必须**使用此命令格式，**不得**添加额外命令行参数。
 
-Any modifications to `argparse` parameters (new/updated) **must enforce the improved implementation as the default behavior** unless explicitly designed as optional. Specifically: Set `default=<revised_value>` for all altered arguments to ensure the enhanced logic activates automatically without CLI flags. Ensure the improved functionality should be the default experience without requiring users to specify additional command-line parameters.
+对 `argparse` 参数的任何改动（新增或更新）**必须使改进后的实现成为默认行为**，除非明确设计为可选功能。具体而言，所有改动过的参数都应设置 `default=<revised_value>`，以确保增强后的逻辑无需 CLI 标志即可自动启用。改进后的功能必须成为默认体验，用户不应需要指定额外命令行参数。

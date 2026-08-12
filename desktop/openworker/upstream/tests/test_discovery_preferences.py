@@ -139,3 +139,34 @@ def test_launch_configuration_captures_old_preferences_after_later_edit(tmp_path
         (launch_dir / "launch_configuration.json").read_text(encoding="utf-8")
     )
     assert persisted["discovery_launch_preferences"] == old_snapshot
+
+
+def test_public_launch_snapshot_projects_external_data_metadata_without_credentials(tmp_path):
+    store = DiscoveryLaunchStore(tmp_path / "discovery")
+    result = store.admit(
+        request_fingerprint="external-data-fingerprint",
+        idempotency_key="external-data-launch",
+        input_snapshot={"preparation_id": "preparation", "revision_id": "revision-1"},
+        configuration_snapshot={
+            "model_id": "relay/test-model",
+            "settings": {},
+            "external_data": {
+                "provider_status": {"nlr_developer_network": "connected"},
+                "api_registry": [
+                    {
+                        "api_id": "nlr_developer_network",
+                        "source": "NLR",
+                        "description": "Official research data.",
+                        "official_docs_url": "https://developer.nlr.gov/docs/",
+                    }
+                ],
+            },
+        },
+        response_builder=lambda: {},
+    )
+
+    public = store.get(result["launch_id"])
+    external_data = public["configuration_snapshot"]["external_data"]
+    assert external_data["provider_status"] == {"nlr_developer_network": "connected"}
+    assert external_data["api_registry"][0]["official_docs_url"] == "https://developer.nlr.gov/docs/"
+    assert "credential" not in external_data["api_registry"][0]

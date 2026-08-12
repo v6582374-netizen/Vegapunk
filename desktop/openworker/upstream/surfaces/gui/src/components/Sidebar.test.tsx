@@ -124,6 +124,24 @@ describe("Skills Manager workspace", () => {
   });
 });
 
+describe("Account menu navigation", () => {
+  it("does not duplicate first-class Automations or Connectors navigation entries", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+
+    fireEvent.click(await screen.findByTestId("account-row"));
+
+    const menu = await screen.findByTestId("account-menu");
+    expect(within(menu).queryByRole("button", { name: "Automations" })).toBeNull();
+    expect(within(menu).queryByRole("button", { name: "Connectors" })).toBeNull();
+    expect(screen.getByTestId("nav-automations")).toBeTruthy();
+    expect(screen.getByTestId("nav-connectors")).toBeTruthy();
+  });
+});
+
 describe("Sidebar group/filter control", () => {
   it("choosing Persona persists via setNavLayout and switches to the per-persona accordion", async () => {
     const calls = stubFetch([

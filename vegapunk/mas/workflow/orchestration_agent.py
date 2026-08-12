@@ -36,9 +36,9 @@ from .external_data import (
 
 logger = logging.getLogger(__name__)
 
-# Keep Discovery's model burst below the one-account relay's observed stable range.
+# Keep Discovery's model and external-search bursts within their bounded limits.
 MAX_CONCURRENT_LLM_TASKS = 2
-MAX_CONCURRENT_SEARCH_TASKS = 10
+MAX_CONCURRENT_SEARCH_TASKS = 1
 
 # 这个类是多代理流程的“交通调度员”：它不亲自生成想法或写方法，
 # 而是按状态把任务交给对应角色，并在每个阶段后保存会话。
@@ -535,6 +535,7 @@ class OrchestrationAgent:
                     requires_external_data=idea_data.get("requires_external_data", False),
                     external_data_request=idea_data.get("external_data_request", ""),
                     external_data_reason=idea_data.get("external_data_reason", ""),
+                    external_data_route=idea_data.get("external_data_route", ""),
                     baseline_summary=response.get("baseline_summary", ""),
                     iteration=session.iterations_completed
                 )
@@ -564,11 +565,13 @@ class OrchestrationAgent:
             requires_external_data,
             external_data_request,
             external_data_reason,
+            external_data_route,
             warning,
         ) = normalize_external_data_requirement(
             getattr(idea, "requires_external_data", False),
             getattr(idea, "external_data_request", ""),
             getattr(idea, "external_data_reason", ""),
+            getattr(idea, "external_data_route", ""),
         )
         if warning:
             logger.warning("Idea %s external-data declaration: %s", idea.id, warning)
@@ -576,6 +579,7 @@ class OrchestrationAgent:
         idea.requires_external_data = requires_external_data
         idea.external_data_request = external_data_request
         idea.external_data_reason = external_data_reason
+        idea.external_data_route = external_data_route
         return requires_external_data
 
     async def _run_reflection_phase(self, session: WorkflowSession) -> None:
@@ -722,17 +726,21 @@ class OrchestrationAgent:
         if not required_ideas:
             return
 
-        connector = self._get_agent("connector")
-        if connector is None:
+        connector_ideas = [
+            idea
+            for idea in required_ideas
+            if idea.external_data_route == "registered_api"
+        ]
+        connector = self._get_agent("connector") if connector_ideas else None
+        if connector_ideas and connector is None:
             logger.warning("Connector is unavailable; structured data acquisition was skipped")
-            for idea in required_ideas:
+            for idea in connector_ideas:
                 self._record_acquisition_event(
                     idea,
                     acquired_by="connector",
                     status="unavailable",
                     message="Connector agent is unavailable; structured data acquisition was skipped.",
                 )
-            return
 
         workspace_root = self._external_data_workspace_root()
         api_registry = self._external_data_api_registry()
@@ -741,6 +749,19 @@ class OrchestrationAgent:
         async def acquire(idea: Idea) -> None:
             workspace = allocate_idea_data_workspace(workspace_root, session.id, idea.id)
             idea.data_workspace = str(workspace)
+            if idea.external_data_route == "public_web":
+                await self._acquire_web_evidence(
+                    session,
+                    idea,
+                    current_iter,
+                    workspace,
+                    api_registry,
+                    set(),
+                    "No registered API was selected; acquire authoritative public-web evidence directly.",
+                    semaphore,
+                )
+                return
+
             context = {
                 "goal": session.task.to_dict(),
                 "hypothesis": idea.to_dict(),
@@ -804,7 +825,12 @@ class OrchestrationAgent:
                     semaphore,
                 )
 
-        await asyncio.gather(*(acquire(idea) for idea in required_ideas))
+        runnable_ideas = [
+            idea
+            for idea in required_ideas
+            if idea.external_data_route == "public_web" or connector is not None
+        ]
+        await asyncio.gather(*(acquire(idea) for idea in runnable_ideas))
 
     async def _acquire_web_evidence(
         self,
@@ -988,6 +1014,18 @@ class OrchestrationAgent:
                             text=evolution.get("text", ""),
                             rationale=evolution.get("rationale", ""),
                             baseline_summary=idea.baseline_summary,
+                            requires_external_data=evolution.get(
+                                "requires_external_data", idea.requires_external_data
+                            ),
+                            external_data_request=evolution.get(
+                                "external_data_request", idea.external_data_request
+                            ),
+                            external_data_reason=evolution.get(
+                                "external_data_reason", idea.external_data_reason
+                            ),
+                            external_data_route=evolution.get(
+                                "external_data_route", idea.external_data_route
+                            ),
                             iteration=current_iter + 1,
                             parent_id=idea.id
                         )

@@ -1,23 +1,23 @@
-You are given multiple extractions from different chunks of the same academic paper. Please synthesize them into a single comprehensive and detailed summary.
+你将获得同一篇学术论文不同片段的多份提取内容。请将它们整合为一份全面且详细的摘要。
 
-Chunk extractions:
+片段提取内容：
 {chunk_extractions}
 
-Please synthesize these into a final summary in JSON format:
+请将这些内容整合为以下 JSON 格式的最终摘要：
 {{
-    "problem_and_background": "Comprehensive synthesis of the research problem, motivation, background, related work, and research gaps from all chunks. Include specific challenges and importance (3-5 sentences minimum).",
-    "method_and_approach": "Complete and detailed synthesis of all methods, approaches, algorithms, models, frameworks, and techniques from all chunks. Include technical details, formulations, and implementation specifics. Be thorough and comprehensive.",
-    "experiments_and_results": "Comprehensive compilation of all experimental setups, datasets, metrics, quantitative results, performance comparisons, and findings from all chunks. Preserve all specific numbers, percentages, improvements, and statistical data.",
-    "conclusions_and_insights": "Complete synthesis of all conclusions, key insights, contributions, implications, and takeaways from all chunks. Include what was learned and the significance of findings.",
-    "limitations_and_future_work": "Comprehensive summary of all limitations, constraints, failure cases, open problems, and future research directions from all chunks. Include challenges and suggested improvements."
+    "problem_and_background": "综合汇总所有片段中的研究问题、动机、背景、相关工作和研究空白。包括具体挑战及其重要性（至少 3-5 句话）。",
+    "method_and_approach": "完整且详细地综合所有片段中的方法、途径、算法、模型、框架和技术。包括技术细节、公式和实现细节。请做到充分且全面。",
+    "experiments_and_results": "全面汇总所有片段中的实验设置、数据集、指标、定量结果、性能比较和发现。保留所有具体数字、百分比、改进幅度和统计数据。",
+    "conclusions_and_insights": "完整综合所有片段中的结论、关键洞见、贡献、影响和要点。包括所获得的认识及研究发现的重要性。",
+    "limitations_and_future_work": "全面总结所有片段中的局限性、约束条件、失败案例、开放问题和未来研究方向。包括挑战和建议的改进方向。"
 }}
 
-Guidelines:
-- Combine ALL information from all chunks - be comprehensive and detailed
-- Organize information logically and coherently
-- Remove redundancy but preserve all unique information
-- Maintain specific technical terms, numbers, formulas, and metrics
-- If an aspect is None in all chunks, keep it as None in the final summary
-- Prioritize completeness and technical detail over brevity
+指南：
+- 整合所有片段中的全部信息——应全面且详细
+- 以逻辑清晰、连贯的方式组织信息
+- 去除冗余，但保留所有独特信息
+- 保持具体技术术语、数字、公式和指标不变
+- 如果某个方面在所有片段中均为 None，则在最终摘要中保留为 None
+- 优先保证完整性和技术细节，而非简洁性
 
-Return ONLY the JSON object, no additional text.
+仅返回 JSON 对象，不要附加任何文本。

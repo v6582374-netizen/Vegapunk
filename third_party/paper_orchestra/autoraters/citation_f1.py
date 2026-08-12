@@ -38,8 +38,12 @@ load_dotenv(dot_file)
 
 DATASET_DIR = os.path.join(os.path.dirname(__file__), "../datasets")
 
-S2_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-print(f"Loaded S2 API Key for this project: {S2_API_KEY}")
+S2_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY") or os.getenv("S2_API_KEY")
+print(
+    "Loaded S2 API Key for this project: configured"
+    if S2_API_KEY
+    else "Loaded S2 API Key for this project: missing"
+)
 
 PRIORITY_PROMPT = _prompt_library.get("paper.citation_f1.priority_prompt")
 

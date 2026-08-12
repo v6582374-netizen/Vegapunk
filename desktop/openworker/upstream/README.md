@@ -106,7 +106,7 @@ export COWORKER_WEB_TOKEN="$(python3 -c 'import secrets; print(secrets.token_url
 
 The server serves the SPA and `/v1`/`/ws` APIs from one origin. Place TLS and any organization
 identity proxy in front of it for shared deployments; the token is the built-in access gate.
-Native window lifecycle, local dictation, autostart/keep-awake, and the Tauri updater remain
+Native window lifecycle, autostart/keep-awake, and the Tauri updater remain
 desktop-only platform capability exceptions.
 
 Tests: `.venv/bin/pytest` (server), `npm test` and `npm run e2e` in `surfaces/gui` (GUI unit + hermetic end-to-end). Desktop bundles are built with `packaging/build_dmg.sh` / `packaging/build_windows.ps1`.
@@ -117,7 +117,6 @@ Tests: `.venv/bin/pytest` (server), `npm test` and `npm run e2e` in `surfaces/gu
 |---|---|
 | `coworker/` | Python backend - agent engine, model providers, connectors, MCP client, memory, automations |
 | `surfaces/gui/` | Desktop app - React UI + Tauri shell that supervises the server |
-| `stt/` | Speech-to-text sidecar (Rust) for voice input |
 | `packaging/` | Installer builds (macOS DMG, Windows), auto-update manifest, dev bootstrap |
 | `docs/` | Design specs and decision logs |
 | `tests/` | Backend test suite |

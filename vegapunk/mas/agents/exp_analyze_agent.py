@@ -185,18 +185,18 @@ class ExpAnalyzeAgent(BaseAgent):
             Extracted metrics dictionary
         """
         prompt = f"""
-You are analyzing experimental results from a machine learning experiment.
-The result file contains the following data structure:
+你正在分析机器学习实验的实验结果。
+结果文件包含以下数据结构：
 
 {json.dumps(data, indent=2)}
 
-Please extract the key performance metrics from this data.
-Return a JSON object with metric names as keys and their values as numbers.
-Focus on metrics like: rmse, accuracy, f1, precision, recall, loss, etc.
-Ignore metadata like epoch numbers or timestamps.
+请从这些数据中提取关键性能指标。
+返回一个 JSON 对象，以指标名称为键、以其数值为值。
+重点关注以下指标：rmse、accuracy、f1、precision、recall、loss 等。
+忽略 epoch 编号或时间戳等元数据。
 
-Return ONLY a valid JSON object, no other text.
-Example format: {{"val_rmse": 0.123, "accuracy": 0.95}}
+仅返回有效的 JSON 对象，不要包含其他文本。
+示例格式：{{"val_rmse": 0.123, "accuracy": 0.95}}
 """
 
         try:
@@ -206,7 +206,7 @@ Example format: {{"val_rmse": 0.123, "accuracy": 0.95}}
                     "type": "object",
                     "additionalProperties": {"type": "number"}
                 },
-                system_prompt="You are a helpful assistant that extracts metrics from experimental results.",
+                system_prompt="你是一个从实验结果中提取指标的有用助手。",
                 temperature=0.0,
                 agent_role=self.name,
             )
@@ -262,27 +262,27 @@ Example format: {{"val_rmse": 0.123, "accuracy": 0.95}}
         """
         context = ""
         if metric_values:
-            context = f"\n\nFor context, here are all the metrics in this experiment:\n{json.dumps(metric_values, indent=2)}"
+            context = f"\n\n作为上下文，以下是本实验中的所有指标：\n{json.dumps(metric_values, indent=2)}"
 
-        prompt = f"""You are analyzing machine learning experiment metrics.
-Given the metric name: "{metric_name}"{context}
+        prompt = f"""你正在分析机器学习实验指标。
+给定指标名称："{metric_name}"{context}
 
-Determine whether this metric is better when HIGHER or LOWER.
+确定该指标在 HIGHER 或 LOWER 时表现更好。
 
-Examples:
-- RMSE, MSE, MAE, loss, error → LOWER is better
-- Accuracy, F1, precision, recall, AUC → HIGHER is better
-- Throughput, speed (ops/sec) → HIGHER is better
-- Latency, time (seconds) → LOWER is better
+示例：
+- RMSE、MSE、MAE、loss、error → LOWER 更好
+- Accuracy、F1、precision、recall、AUC → HIGHER 更好
+- Throughput、speed (ops/sec) → HIGHER 更好
+- Latency、time (seconds) → LOWER 更好
 
-Return ONLY one word: "higher", "lower", or "unknown"
-If you cannot determine with confidence, return "unknown".
+仅返回一个单词："higher"、"lower" 或 "unknown"
+如果你无法有把握地确定，请返回 "unknown"。
 """
 
         try:
             result = await self.model.generate(
                 prompt=prompt,
-                system_prompt="You are a helpful assistant that analyzes ML metrics.",
+                system_prompt="你是一个分析机器学习指标的有用助手。",
                 temperature=0.0,
                 agent_role=self.name,
             )
@@ -368,32 +368,32 @@ If you cannot determine with confidence, return "unknown".
             Name of the selected primary metric, or None if selection fails
         """
         metric_list = list(metrics.keys())
-        task_context = f" for task '{task_name}'" if task_name else ""
+        task_context = f"（任务：'{task_name}'）" if task_name else ""
 
-        prompt = f"""You are analyzing machine learning experiment results{task_context}.
+        prompt = f"""你正在分析机器学习实验结果{task_context}。
 
-Available metrics:
+可用指标：
 {json.dumps(metric_list, indent=2)}
 
-Sample values:
+示例值：
 {json.dumps(metrics, indent=2)}
 
-Select the SINGLE MOST IMPORTANT metric that should be used to determine whether the experiment was successful or not.
+选择一个最重要的指标，用于判断实验是否成功。
 
-Guidelines:
-- Choose the metric that best represents the main objective of the experiment
-- Prefer final evaluation metrics over training metrics
-- Prefer task-specific metrics (e.g., RMSE for regression, accuracy for classification)
-- Avoid auxiliary metrics like epoch numbers or intermediate losses
+指南：
+- 选择最能代表实验主要目标的指标
+- 优先选择最终评估指标，而非训练指标
+- 优先选择任务特定指标（例如，回归任务使用 RMSE，分类任务使用 accuracy）
+- 避免 epoch 编号或中间损失等辅助指标
 
-Return ONLY the exact metric name from the list above, nothing else.
-Example: "val/PQ_Vm_rmse"
+仅返回上方列表中的精确指标名称，不要包含其他内容。
+示例："val/PQ_Vm_rmse"
 """
 
         try:
             response = await self.model.generate(
                 prompt=prompt,
-                system_prompt="You are a helpful assistant that analyzes ML experiments.",
+                system_prompt="你是一个分析机器学习实验的有用助手。",
                 temperature=0.0,
                 agent_role=self.name,
             )

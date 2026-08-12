@@ -1,16 +1,16 @@
-Run {RUN_NUM} completed. Here are the results:
+第 {RUN_NUM} 次运行已完成。结果如下：
 {RESULTS}
 
-Based on these results:
-1. Check what the current score is (total_score out of 100) and which checklist items are weakest.
-2. Analyze what worked and what did not in your implementation.
-3. Decide what to improve: fix errors, improve accuracy, add missing checklist items, or enhance the report.
-4. Implement the improvements in `code/` and update `report/report.md` and `report/images/`.
+请根据这些结果：
+1. 检查当前分数（满分 100 的 total_score）以及哪些检查清单项最弱。
+2. 分析你的实现中哪些有效、哪些无效。
+3. 决定要改进什么：修复错误、提高准确性、补充缺失的检查清单项，或完善报告。
+4. 在 `code/` 中实施改进，并更新 `report/report.md` 和 `report/images/`。
 
-Run {NEXT_RUN_NUM} will execute next via `bash launcher.sh`.
-Do NOT modify `launcher.sh`.
+第 {NEXT_RUN_NUM} 次运行将通过 `bash launcher.sh` 执行。
+不得修改 `launcher.sh`。
 
-If you believe your reproduction is complete and optimal, respond with 'ALL_COMPLETED'.
+如果你认为复现已完成且达到最优，请回复 'ALL_COMPLETED'。
 
-Focus on the checklist criteria with the highest weights — they contribute most to the final score.
-Make sure `report/report.md` exists and describes ALL results with actual numbers and figure references.
+聚焦权重最高的检查清单标准——它们对最终分数贡献最大。
+确保 `report/report.md` 存在，且使用实际数值和图表引用描述**所有**结果。

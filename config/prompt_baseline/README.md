@@ -1,6 +1,6 @@
-# Prompt Library Baseline
+# Prompt Library
 
-Installed system-original bodies for the source-backed Prompt Library.
+Disk-backed registry of editable prompts consumed by Vegapunk runtime code and the Native Desktop sidecar.
 
 ## Layout
 
@@ -19,6 +19,7 @@ Installed system-original bodies for the source-backed Prompt Library.
 
 - `experiment` - experiment-backend coder / debug prompts
 - `discovery` - MAS idea/method/codeview system prompts
+- `external_data` - Connector and Web Evidence acquisition prompts
 - `deep_research` - DR planner/coordinator/section/tool prompts
 - `paper` - PaperOrchestra / autorater prompts
 - `scoring` - Sci evaluation prompts
@@ -29,4 +30,5 @@ See `exemptions.yaml` for patterns still allowed to keep inline strings
 (CAMEL vendored unused paths, dynamic user-prompt assembly, some PDF utils).
 The coverage test in `tests/test_prompt_externalization_coverage.py` enforces this list.
 
-The Native Desktop sidecar packages this directory next to the active Prompt Library and exposes the current-version System-Original Prompt to Settings.
+Native Desktop Settings accesses the editable bodies through the local `openworker-server` sidecar at `/v1/prompt-library/*`.
+The GUI does not start a separate HTTP API service.

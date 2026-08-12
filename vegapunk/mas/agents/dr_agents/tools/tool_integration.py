@@ -2,6 +2,7 @@ import sys
 import os
 import uuid
 import time  # 添加time模块用于重试延迟
+import threading
 
 # 添加本地工具模块路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,7 +22,9 @@ from camel.tasks import Task
 from camel.utils import dependencies_required
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# Launch settings are authoritative; a repository .env must not overwrite the
+# credential/contact values injected by the Desktop SecretStore.
+load_dotenv(override=False)
 
 import json
 import re
@@ -67,6 +70,29 @@ def create_models(runtime):
 
 _models = None
 _runtime = None
+
+_CROSSREF_SYNC_LOCK = threading.Lock()
+_CROSSREF_SYNC_NEXT_REQUEST_AT = 0.0
+_CROSSREF_SYNC_MIN_INTERVAL = 1.0
+_CROSSREF_SYNC_MAX_RETRIES = 3
+
+
+def _wait_for_crossref_slot() -> None:
+    """Serialize synchronous CrossRef calls and keep them below one request/sec."""
+    global _CROSSREF_SYNC_NEXT_REQUEST_AT
+    with _CROSSREF_SYNC_LOCK:
+        delay = max(0.0, _CROSSREF_SYNC_NEXT_REQUEST_AT - time.monotonic())
+        if delay:
+            time.sleep(delay)
+        _CROSSREF_SYNC_NEXT_REQUEST_AT = time.monotonic() + _CROSSREF_SYNC_MIN_INTERVAL
+
+
+def _crossref_retry_delay(response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After") if response.headers else None
+    try:
+        return min(max(0.0, float(retry_after)), 30.0)
+    except (TypeError, ValueError):
+        return min(float(2**attempt), 30.0)
 
 
 def configure_runtime(runtime):
@@ -1113,14 +1139,15 @@ def search_crossref(query: str, max_results: int = 5,
     import requests as _requests
 
     CROSSREF_URL = "https://api.crossref.org/works"
-    MAILTO = os.getenv("CROSSREF_EMAIL", "user@example.com")
+    MAILTO = os.getenv("CROSSREF_EMAIL", "").strip()
     responses = []
 
     try:
         params = {
             "rows": min(max_results, 50),
-            "mailto": MAILTO,
         }
+        if MAILTO:
+            params["mailto"] = MAILTO
 
         # 搜索模式
         if search_mode == "title":
@@ -1150,14 +1177,36 @@ def search_crossref(query: str, max_results: int = 5,
             params["order"] = sort_map[sort][1]
 
         headers = {
-            "User-Agent": f"InternResearchBot/1.0 (mailto:{MAILTO})",
+            "User-Agent": "VegapunkDeepResearch/1.0"
+            + (f" (mailto:{MAILTO})" if MAILTO else ""),
         }
 
         logger.info(f"Searching CrossRef: query='{query}', mode={search_mode}, max_results={max_results}")
 
-        resp = _requests.get(CROSSREF_URL, params=params, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
+        data = None
+        for attempt in range(_CROSSREF_SYNC_MAX_RETRIES + 1):
+            _wait_for_crossref_slot()
+            resp = _requests.get(CROSSREF_URL, params=params, headers=headers, timeout=30)
+            if resp.status_code != 429:
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            if attempt >= _CROSSREF_SYNC_MAX_RETRIES:
+                raise RuntimeError(
+                    f"CrossRef rate limit persisted after {attempt + 1} attempts"
+                )
+            delay = _crossref_retry_delay(resp, attempt)
+            logger.info(
+                "CrossRef rate limited; retrying in %.2fs (attempt %d/%d)",
+                delay,
+                attempt + 1,
+                _CROSSREF_SYNC_MAX_RETRIES,
+            )
+            time.sleep(delay)
+
+        if data is None:
+            return responses
+
         msg = data.get("message", {})
 
         for i, item in enumerate(msg.get("items", []), start=1):

@@ -28,6 +28,10 @@ from typing import Any
 import yaml
 
 
+SUPPORTED_TASK_TYPES = frozenset({"auto", "sci"})
+DEFAULT_TASK_TYPE = "sci"
+
+
 def _repository_root(value: str | None) -> Path:
     if value:
         return Path(value).expanduser().resolve()
@@ -58,6 +62,28 @@ def _deep_merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
             _deep_merge(target[key], value)
         else:
             target[key] = copy.deepcopy(value)
+
+
+def _task_type(input_snapshot: dict[str, Any]) -> str:
+    """Return the immutable task type for one Web Launch.
+
+    Early Web revisions predate the explicit field and were materialized as
+    scientific tasks.  Keep that behavior for resumability, but reject an
+    explicit unknown value instead of silently taking a different branch.
+    """
+
+    execution_input = input_snapshot.get("execution_input") or {}
+    raw = (
+        execution_input.get("task_type")
+        if isinstance(execution_input, dict)
+        else None
+    )
+    if raw is None:
+        return DEFAULT_TASK_TYPE
+    if not isinstance(raw, str) or raw.strip().lower() not in SUPPORTED_TASK_TYPES:
+        supported = ", ".join(sorted(SUPPORTED_TASK_TYPES))
+        raise ValueError(f"task_type must be one of: {supported}")
+    return raw.strip().lower()
 
 
 def _canonical_catalog_model_id(model_id: str, catalog: dict[str, Any]) -> str:
@@ -120,10 +146,14 @@ def _materialize_task(
     execution_root = launch_dir / ".execution"
     task_dir = execution_root / "task"
     task_dir.mkdir(parents=True, exist_ok=True)
-    if (task_dir / "task_info.json").is_file():
+    task_type = _task_type(input_snapshot)
+    marker = task_dir / ("prompt.json" if task_type == "auto" else "task_info.json")
+    if marker.is_file():
         return task_dir
 
     execution_input = input_snapshot.get("execution_input") or {}
+    if not isinstance(execution_input, dict):
+        execution_input = {}
     sources = input_snapshot.get("sources") or []
     data_dir = task_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -188,11 +218,33 @@ def _materialize_task(
         )
 
     constraints = execution_input.get("constraints") or []
+    if not isinstance(constraints, list):
+        constraints = []
+    normalized_constraints = [
+        str(constraint) for constraint in constraints if str(constraint).strip()
+    ]
     checklist = [
         {"type": "text", "weight": 1.0, "content": str(constraint)}
-        for constraint in constraints
+        for constraint in normalized_constraints
         if str(constraint).strip()
     ]
+
+    if task_type == "auto":
+        # Auto tasks use the original repository-shaped contract: a prompt file
+        # is the type marker and the optional ZIP source has already been
+        # extracted into this private task directory.
+        _write_json(
+            task_dir / "prompt.json",
+            {
+                "task_description": str(execution_input.get("task_description") or ""),
+                "domain": str(execution_input.get("domain") or ""),
+                "background": str(execution_input.get("background") or ""),
+                "constraints": normalized_constraints,
+                "task_type": "auto",
+            },
+        )
+        return task_dir
+
     (task_dir / "target_study").mkdir(parents=True, exist_ok=True)
     _write_json(
         task_dir / "task_info.json",
@@ -208,6 +260,7 @@ def _materialize_task(
             ),
             "data": data_manifest,
             "background": str(execution_input.get("background") or ""),
+            "domain": str(execution_input.get("domain") or ""),
         },
     )
     # ``normalize_sci_task`` accepts the historical list form.  Keep that exact
@@ -243,6 +296,20 @@ def _materialize_config(
             config["skip_idea_generation"] = preferences["skip_idea_generation"]
         if exp_backend is None:
             exp_backend = preferences.get("backend")
+
+    if "external_data" in configuration_snapshot:
+        external_data = configuration_snapshot.get("external_data")
+        # The registry is launch-owned metadata. Lists are replaced rather than
+        # merged so an edited Settings catalog cannot leak into an older Launch.
+        config["external_data"] = (
+            copy.deepcopy(external_data)
+            if isinstance(external_data, dict)
+            else {"api_registry": []}
+        )
+    else:
+        # Historical Web Launches predate the External data snapshot seam. Do not
+        # let today's default catalog silently change what a Resume can execute.
+        config["external_data"] = {"api_registry": []}
 
     model_id = configuration_snapshot.get("model_id")
     if isinstance(model_id, str) and model_id.strip():
@@ -496,12 +563,13 @@ def run(
         )
 
         # This is the admission seam for the production launcher.  Resolve every
-        # Provider bound by the frozen catalog, inject credentials only into the
-        # child environment, and freeze non-sensitive endpoint overrides before the
-        # Launch is projected as running.
+        # Provider bound by the frozen catalog and every launch-owned external-data
+        # entry, inject credentials only into the child environment, and freeze
+        # non-sensitive endpoint overrides before the Launch is projected as running.
         prepared_environment = prepare_launch_environment(
             launch_dir / ".execution" / "model_catalog.yaml",
             secret_store=secret_store,
+            external_data=configuration_snapshot.get("external_data"),
         )
         if not catalog_was_frozen:
             apply_provider_overrides(
@@ -523,6 +591,7 @@ def run(
             "--exp_backend",
             exp_backend,
         ]
+        command.extend(["--task_type", _task_type(input_snapshot)])
         preferences = configuration_snapshot.get("discovery_launch_preferences") or {}
         if isinstance(preferences, dict) and preferences.get("skip_idea_generation"):
             command.extend(

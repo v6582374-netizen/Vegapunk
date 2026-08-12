@@ -36,6 +36,8 @@ from ..unrouted import UnroutedStore
 from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..api_services import (
+    _MISSING,
+    get_external_data_snapshot as _get_external_data_snapshot,
     get_api_services as _get_api_services,
     set_api_service as _set_api_service,
     test_api_service as _test_api_service,
@@ -1654,9 +1656,9 @@ class SessionManager:
         """Copy the effective defaults for one newly admitted Launch."""
         return self.discovery_launch_preferences.snapshot()
 
-    # -- API services (fixed scholarly-service connection profiles) -------------
+    # -- External data (fixed service connection profiles) ----------------------
     def get_api_services(self) -> list[dict[str, Any]]:
-        """Return the fixed API Services catalog with redacted credential state."""
+        """Return the fixed External data catalog with redacted credential state."""
         return _get_api_services(self.secrets)
 
     def set_api_service(
@@ -1666,17 +1668,20 @@ class SessionManager:
         enabled: bool,
         credential: str | None | object = None,
         credential_provided: bool = False,
+        docs_url: str | None | object = None,
+        docs_url_provided: bool = False,
     ) -> dict[str, Any]:
         """Persist one API service profile without touching Discovery or model settings."""
         # The sentinel lives in the module that owns the credential boundary.  Keeping
         # the distinction between an omitted credential and an explicit clear here means
         # toggling a card never erases a stored secret.
-        if credential_provided:
+        if credential_provided or docs_url_provided:
             return _set_api_service(
                 self.secrets,
                 name,
                 enabled=enabled,
-                credential=credential,
+                credential=credential if credential_provided else _MISSING,
+                docs_url=docs_url if docs_url_provided else _MISSING,
             )
         return _set_api_service(self.secrets, name, enabled=enabled)
 
@@ -1686,11 +1691,22 @@ class SessionManager:
         *,
         credential: str | None | object = None,
         credential_provided: bool = False,
+        docs_url: str | None | object = None,
+        docs_url_provided: bool = False,
     ) -> dict[str, Any]:
         """Run the service-owned read-only connection check off the session runtime."""
-        if credential_provided:
-            return _test_api_service(self.secrets, name, credential=credential)
+        if credential_provided or docs_url_provided:
+            return _test_api_service(
+                self.secrets,
+                name,
+                credential=credential if credential_provided else _MISSING,
+                docs_url=docs_url if docs_url_provided else _MISSING,
+            )
         return _test_api_service(self.secrets, name)
+
+    def external_data_snapshot(self) -> dict[str, Any]:
+        """Return non-sensitive external-data metadata frozen into new Launches."""
+        return _get_external_data_snapshot(self.secrets)
 
     def _provider_configured(self, name: str) -> bool:
         d = get_descriptor(name)

@@ -19,6 +19,7 @@ dependencies = [
     # swap for a PyPI pin ("aisuite>=x.y") once the next aisuite release ships.
     "aisuite @ git+https://github.com/andrewyng/aisuite.git@1b4bbf303ec21968230b1ec869a144d054e9b3c4",
     "docstring_parser",
+    "colorama>=0.4.6",  # CAMEL/Deep Research console formatting
     "pyyaml>=6",  # persona manifest frontmatter (YAML)
     "pydantic>=2",
     "mcp>=1.1",  # MCP client (stdio + streamable-http); we use our own async layer on it

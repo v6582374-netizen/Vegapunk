@@ -7,11 +7,15 @@ import {
   type ApiService,
   type ApiServiceStatus,
 } from "../api";
-import { PanelHead } from "./IntegrationsView";
+import { ExternalDataIcon } from "./ExternalDataIcon";
+import { Icon } from "./Icon";
+import { PanelHead } from "./PanelHead";
 
 type Draft = {
   credential: string;
   credentialDirty: boolean;
+  docsUrl: string;
+  docsUrlDirty: boolean;
   enabled: boolean;
   showCredential: boolean;
   testing: boolean;
@@ -53,6 +57,8 @@ function draftFrom(service: ApiService): Draft {
   return {
     credential: "",
     credentialDirty: false,
+    docsUrl: service.docs_url || "",
+    docsUrlDirty: false,
     enabled: service.enabled,
     showCredential: false,
     testing: false,
@@ -71,7 +77,8 @@ function displayStatus(service: ApiService, draft: Draft): ApiServiceStatus | "t
   if (service.requires_credential && !service.credential_configured && !draft.credentialDirty && !draft.credential.trim()) {
     return "not_configured";
   }
-  if (draft.credentialDirty) return "not_tested";
+  if (service.docs_url_editable && !draft.docsUrl.trim()) return "not_configured";
+  if (draft.credentialDirty || draft.docsUrlDirty) return "not_tested";
   return service.status === "disabled" ? "not_tested" : service.status;
 }
 
@@ -85,7 +92,7 @@ function formatCheckedAt(value: string | null): string {
 function statusMessage(service: ApiService, draft: Draft, status: ApiServiceStatus | "testing"): string {
   if (status === "disabled") return "Service is off";
   if (status === "testing") return "Checking the service";
-  if (status === "not_configured") return "Add a credential to connect";
+  if (status === "not_configured") return service.docs_url_editable ? "Add an API key and documentation address" : "Add a credential to connect";
   if (status === "connected") {
     return draft.testMessage || (draft.lastTestAt ? formatCheckedAt(draft.lastTestAt) : "Connection is ready");
   }
@@ -108,7 +115,7 @@ function StatusChip({ status }: { status: ApiServiceStatus | "testing" }) {
 function EnabledSwitch({ service, draft, onToggle }: { service: ApiService; draft: Draft; onToggle: () => void }) {
   return (
     <div className="flex items-center gap-2 text-[11px] text-muted">
-      <span>{draft.enabled ? "Enabled" : "Disabled"}</span>
+      <span className="hidden sm:inline">{draft.enabled ? "Enabled" : "Disabled"}</span>
       <button
         type="button"
         role="switch"
@@ -133,6 +140,7 @@ function EnabledSwitch({ service, draft, onToggle }: { service: ApiService; draf
 export function ApiServicesView() {
   const [services, setServices] = useState<ApiService[]>([]);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [openService, setOpenService] = useState<string | null>("semantic-scholar");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -143,8 +151,9 @@ export function ApiServicesView() {
       const result = await getApiServices();
       setServices(result.services);
       setDrafts(Object.fromEntries(result.services.map((service) => [service.name, draftFrom(service)])));
+      setOpenService((current) => (current && result.services.some((service) => service.name === current) ? current : result.services[0]?.name || null));
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "API Services could not be loaded.");
+      setLoadError(error instanceof Error ? error.message : "External data could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -169,11 +178,13 @@ export function ApiServicesView() {
     try {
       const result = await setApiService(
         service.name,
-        draft.credentialDirty
-          ? { enabled: draft.enabled, credential: draft.credential }
-          : { enabled: draft.enabled },
+        {
+          enabled: draft.enabled,
+          ...(draft.credentialDirty ? { credential: draft.credential } : {}),
+          ...(draft.docsUrlDirty ? { docs_url: draft.docsUrl } : {}),
+        },
       );
-      if (!result.ok || !result.service) throw new Error(result.error || "API Service could not be saved.");
+      if (!result.ok || !result.service) throw new Error(result.error || "External data settings could not be saved.");
       setServices((current) => current.map((item) => (item.name === service.name ? result.service! : item)));
       updateDraft(service.name, {
         ...draftFrom(result.service),
@@ -183,7 +194,7 @@ export function ApiServicesView() {
     } catch (error) {
       updateDraft(service.name, {
         saving: false,
-        error: error instanceof Error ? error.message : "API Service could not be saved.",
+        error: error instanceof Error ? error.message : "External data settings could not be saved.",
       });
     }
   };
@@ -192,10 +203,16 @@ export function ApiServicesView() {
     if (!draft.enabled || draft.testing) return;
     updateDraft(service.name, { testing: true, error: null, testMessage: null });
     try {
-      const result = await testApiService(
-        service.name,
-        draft.credentialDirty ? draft.credential : undefined,
-      );
+      const result = draft.docsUrlDirty
+        ? await testApiService(
+            service.name,
+            draft.credentialDirty ? draft.credential : undefined,
+            draft.docsUrl,
+          )
+        : await testApiService(
+            service.name,
+            draft.credentialDirty ? draft.credential : undefined,
+          );
       const status = result.status === "testing" ? "not_tested" : result.status;
       updateDraft(service.name, {
         testing: false,
@@ -215,38 +232,38 @@ export function ApiServicesView() {
   };
 
   return (
-    <section aria-label="API Services">
+    <section aria-label="External data">
       <PanelHead
-        title="API Services"
-        sub="Connect the scholarly services used by discovery. Each profile is saved independently and credentials stay on this computer."
+        title="External data"
+        sub="External sources your workspace can call when it needs grounded context. Credentials stay on this computer."
       />
 
-      <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="API Services summary">
-        <span className="rounded-full border border-line bg-panel px-2.5 py-1 text-[11px] text-muted">{services.length || 4} services</span>
+      <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="External data summary">
+        <span className="rounded-full border border-line bg-panel px-2.5 py-1 text-[11px] text-muted">{services.length || 5} sources</span>
         <span className="rounded-full border border-line bg-panel px-2.5 py-1 text-[11px] text-muted">Local credentials</span>
-        <span className="rounded-full border border-line bg-panel px-2.5 py-1 text-[11px] text-muted">Linux desktop</span>
         {!loading && <span className="ml-auto text-[11px] text-faint">{enabledCount} enabled · {connectedCount} connected</span>}
       </div>
 
       {loading ? (
-        <div className="mt-7 grid grid-cols-1 gap-3.5 md:grid-cols-2" aria-busy="true" aria-label="Loading API Services">
-          {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-[290px] animate-pulse rounded-xl2 border border-line bg-panel/70" />
+        <div className="mt-6 overflow-hidden rounded-xl2 border border-line bg-panel" aria-busy="true" aria-label="Loading External data">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <div key={item} className="h-[72px] animate-pulse border-b border-line bg-panel/70 last:border-b-0" />
           ))}
         </div>
       ) : loadError ? (
-        <div className="mt-7 rounded-xl2 border border-danger/25 bg-dangerSoft px-4 py-3 text-[13px] text-danger" role="alert">
+        <div className="mt-6 rounded-xl2 border border-danger/25 bg-dangerSoft px-4 py-3 text-[13px] text-danger" role="alert">
           <div>{loadError}</div>
           <button type="button" className="mt-2 text-[12px] font-medium underline" onClick={() => void load()}>
             Try again
           </button>
         </div>
       ) : (
-        <div className="mt-7 grid grid-cols-1 gap-3.5 md:grid-cols-2" aria-label="API service connections">
+        <div className="mt-6 overflow-hidden rounded-xl2 border border-line bg-panel shadow-[0_1px_2px_rgba(20,28,40,0.04)]" aria-label="External data sources">
           {services.map((service, index) => {
             const draft = drafts[service.name] || draftFrom(service);
             const status = displayStatus(service, draft);
-            const dirty = draft.enabled !== service.enabled || draft.credentialDirty;
+            const dirty = draft.enabled !== service.enabled || draft.credentialDirty || draft.docsUrlDirty;
+            const isOpen = openService === service.name;
             const credentialInputType = service.credential_kind === "api_key" && !draft.showCredential ? "password" : service.credential_kind === "email" ? "email" : "text";
             const placeholder = service.credential_configured
               ? service.credential_source === "environment"
@@ -259,107 +276,153 @@ export function ApiServicesView() {
             return (
               <article
                 key={service.name}
-                className={`relative min-w-0 overflow-hidden rounded-xl2 border border-line bg-panel p-5 shadow-[0_1px_2px_rgba(20,28,40,0.04)] transition-colors motion-safe:animate-[api-card-in_300ms_ease_both] ${
-                  !draft.enabled ? "bg-panel/70" : ""
-                }`}
-                style={{ animationDelay: `${index * 45}ms` }}
+                className={`border-b border-line last:border-b-0 motion-safe:animate-[external-row-in_280ms_ease_both] ${!draft.enabled ? "bg-paper/35" : ""}`}
+                style={{ animationDelay: `${index * 42}ms` }}
               >
-                <div className="absolute inset-x-0 top-0 h-0.5 bg-lineStrong" aria-hidden="true" />
-                <div className="flex items-start justify-between gap-3.5">
-                  <div className="min-w-0 pt-px">
-                    <h3 className="truncate text-[16px] font-semibold tracking-[-0.02em] text-ink">{service.title}</h3>
-                    <p className="mt-0.5 text-[11px] text-faint">{service.description}</p>
-                  </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
+                <div className="flex min-h-[70px] items-center gap-3 px-4 py-2.5">
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    aria-expanded={isOpen}
+                    aria-controls={`external-data-detail-${service.name}`}
+                    onClick={() => setOpenService(isOpen ? null : service.name)}
+                  >
+                    <ExternalDataIcon name={service.name} size={36} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13.5px] font-semibold tracking-[-0.01em] text-ink">{service.title}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-faint">{service.description}</span>
+                    </span>
+                  </button>
+
+                  <div className="flex shrink-0 items-center gap-2">
                     <StatusChip status={status} />
                     <EnabledSwitch
                       service={service}
                       draft={draft}
                       onToggle={() => updateDraft(service.name, { enabled: !draft.enabled, testStatus: null, error: null })}
                     />
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      aria-label={`${isOpen ? "Collapse" : "Expand"} ${service.title} details`}
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenService(isOpen ? null : service.name)}
+                    >
+                      <Icon name="chevronRight" size={15} className={`transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
+                    </button>
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-3">
-                  <label className="block min-w-0">
-                    <span className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-medium text-ink">
-                      <span>{service.credential_label}</span>
-                      {draft.credentialDirty && <span className="text-[10px] font-normal text-warnInk">Unsaved</span>}
-                    </span>
-                    <span className="flex min-w-0 items-center rounded-lg border border-line bg-paper focus-within:border-accent">
-                      <input
-                        className="min-w-0 flex-1 bg-transparent px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
-                        type={credentialInputType}
-                        value={draft.credential}
-                        placeholder={placeholder}
-                        autoComplete="off"
-                        aria-label={`${service.title} ${service.credential_label}`}
-                        onChange={(event) =>
-                          updateDraft(service.name, {
-                            credential: event.target.value,
-                            credentialDirty: true,
-                            testStatus: null,
-                            testMessage: null,
-                            error: null,
-                          })
-                        }
-                      />
-                      {service.credential_kind === "api_key" && (
+                {isOpen && (
+                  <div id={`external-data-detail-${service.name}`} className="border-t border-line bg-paper/35 px-4 pb-4 pt-4 sm:pl-[64px]">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block min-w-0">
+                        <span className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-medium text-ink">
+                          <span>{service.credential_label}</span>
+                          {draft.credentialDirty && <span className="text-[10px] font-normal text-warnInk">Unsaved</span>}
+                        </span>
+                        <span className="flex min-w-0 items-center rounded-lg border border-line bg-panel focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/10">
+                          <input
+                            className="min-w-0 flex-1 bg-transparent px-3 py-2 text-[13px] text-ink outline-none placeholder:text-faint"
+                            type={credentialInputType}
+                            value={draft.credential}
+                            placeholder={placeholder}
+                            autoComplete="off"
+                            aria-label={`${service.title} ${service.credential_label}`}
+                            onChange={(event) =>
+                              updateDraft(service.name, {
+                                credential: event.target.value,
+                                credentialDirty: true,
+                                testStatus: null,
+                                testMessage: null,
+                                error: null,
+                              })
+                            }
+                          />
+                          {service.credential_kind === "api_key" && (
+                            <button
+                              type="button"
+                              className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                              aria-label={draft.showCredential ? `Hide ${service.title} API key` : `Show ${service.title} API key`}
+                              onClick={() => updateDraft(service.name, { showCredential: !draft.showCredential })}
+                            >
+                              {draft.showCredential ? <EyeOff size={15} strokeWidth={1.7} /> : <Eye size={15} strokeWidth={1.7} />}
+                            </button>
+                          )}
+                        </span>
+                      </label>
+
+                      {service.docs_url_editable ? (
+                        <label className="block min-w-0">
+                          <span className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-medium text-ink">
+                            <span>API documentation address</span>
+                            {draft.docsUrlDirty && <span className="text-[10px] font-normal text-warnInk">Unsaved</span>}
+                          </span>
+                          <input
+                            className="w-full min-w-0 rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[11px] text-ink outline-none placeholder:text-faint focus:border-accent focus:ring-2 focus:ring-accent/10"
+                            type="url"
+                            value={draft.docsUrl}
+                            placeholder="https://developer.nlr.gov/docs/"
+                            autoComplete="url"
+                            aria-label={`${service.title} API documentation address`}
+                            onChange={(event) =>
+                              updateDraft(service.name, {
+                                docsUrl: event.target.value,
+                                docsUrlDirty: true,
+                                testStatus: null,
+                                testMessage: null,
+                                error: null,
+                              })
+                            }
+                          />
+                        </label>
+                      ) : service.endpoint ? (
+                        <label className="block min-w-0">
+                          <span className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-medium text-ink">
+                            <span>Service address</span>
+                            <span className="text-[10px] font-normal text-faint">Fixed · read-only</span>
+                          </span>
+                          <input
+                            className="w-full min-w-0 rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[11px] text-muted outline-none"
+                            type="text"
+                            value={service.endpoint}
+                            readOnly
+                            aria-readonly="true"
+                            aria-label={`${service.title} service address`}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-3 border-t border-line pt-3.5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-2 text-[11px] text-muted" aria-live="polite">
+                        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot[status]}`} aria-hidden="true" />
+                        <span className={status === "error" || status === "not_configured" ? "text-danger" : status === "connected" ? "text-ok" : ""}>
+                          {statusMessage(service, draft, status)}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <button
                           type="button"
-                          className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-panel hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-                          aria-label={draft.showCredential ? `Hide ${service.title} API key` : `Show ${service.title} API key`}
-                          onClick={() => updateDraft(service.name, { showCredential: !draft.showCredential })}
+                          className="rounded-lg border border-line bg-panel px-3 py-2 text-[12.5px] text-ink transition-colors hover:border-lineStrong disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={!draft.enabled || draft.testing}
+                          onClick={() => void test(service, draft)}
                         >
-                          {draft.showCredential ? <EyeOff size={15} strokeWidth={1.7} /> : <Eye size={15} strokeWidth={1.7} />}
+                          {draft.testing ? "Testing…" : service.endpoint ? "Test connection" : "Validate settings"}
                         </button>
-                      )}
-                    </span>
-                  </label>
-
-                  <label className="block min-w-0">
-                    <span className="mb-1.5 flex items-center justify-between gap-2 text-[12px] font-medium text-ink">
-                      <span>Service address</span>
-                      <span className="text-[10px] font-normal text-faint">Fixed · read-only</span>
-                    </span>
-                    <input
-                      className="w-full min-w-0 rounded-lg border border-line bg-paper px-3 py-2 font-mono text-[11px] text-muted outline-none"
-                      type="text"
-                      value={service.endpoint}
-                      readOnly
-                      aria-readonly="true"
-                      aria-label={`${service.title} service address`}
-                    />
-                  </label>
-                </div>
-
-                <div className="mt-4 border-t border-line pt-3.5">
-                  <div className="mb-3 flex min-w-0 items-center gap-2 text-[11px] text-muted" aria-live="polite">
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot[status]}`} aria-hidden="true" />
-                    <span className={status === "error" || status === "not_configured" ? "text-danger" : status === "connected" ? "text-ok" : ""}>
-                      {statusMessage(service, draft, status)}
-                    </span>
+                        <button
+                          type="button"
+                          className="rounded-lg bg-accent px-3 py-2 text-[12.5px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={!dirty || draft.saving}
+                          onClick={() => void save(service, draft)}
+                        >
+                          {draft.saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
+                        </button>
+                      </div>
+                    </div>
+                    {draft.error && <p className="mt-2 text-right text-[11px] text-danger" role="alert">{draft.error}</p>}
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-line bg-paper px-3 py-2 text-[12.5px] text-ink transition-colors hover:border-lineStrong disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!draft.enabled || draft.testing}
-                      onClick={() => void test(service, draft)}
-                    >
-                      {draft.testing ? "Testing…" : "Test connection"}
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-lg bg-accent px-3 py-2 text-[12.5px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={!dirty || draft.saving}
-                      onClick={() => void save(service, draft)}
-                    >
-                      {draft.saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
-                    </button>
-                  </div>
-                  {draft.error && <p className="mt-2 text-right text-[11px] text-danger" role="alert">{draft.error}</p>}
-                </div>
+                )}
               </article>
             );
           })}
@@ -368,17 +431,17 @@ export function ApiServicesView() {
 
       {!loading && !loadError && (
         <p className="mt-4 text-[11px] leading-relaxed text-faint">
-          Color is reserved for connection state. Fixed service addresses are shown for transparency; retrieval and launch parameters live outside this module.
+          Credentials never leave the local SecretStore. NLR endpoint and field details stay in its official documentation; retrieval and launch parameters live outside this module.
         </p>
       )}
 
       <style>{`
-        @keyframes api-card-in {
-          from { opacity: 0; transform: translateY(6px); }
+        @keyframes external-row-in {
+          from { opacity: 0; transform: translateY(5px); }
           to { opacity: 1; transform: translateY(0); }
         }
         @media (prefers-reduced-motion: reduce) {
-          @keyframes api-card-in { from, to { opacity: 1; transform: none; } }
+          @keyframes external-row-in { from, to { opacity: 1; transform: none; } }
         }
       `}</style>
     </section>

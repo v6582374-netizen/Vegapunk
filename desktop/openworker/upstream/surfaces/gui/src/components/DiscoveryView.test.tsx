@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { DiscoveryView } from "./DiscoveryView";
 
 afterEach(() => {
@@ -363,6 +363,15 @@ it("converts a saved Preparation into structured inputs and saves an editor revi
   expect(await screen.findByTestId("execution-input-row")).toBeTruthy();
   fireEvent.click(screen.getByTestId("execution-input-row"));
   expect(await screen.findByRole("textbox", { name: "Task description" })).toBeTruthy();
+  const schemaTabs = screen.getByRole("tablist", { name: "Execution schema" });
+  expect(within(schemaTabs).getAllByRole("tab")).toHaveLength(5);
+  expect(screen.getByRole("tabpanel", { name: /Task description/ })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Conversion prompt" })).toBeNull();
+  fireEvent.click(within(schemaTabs).getByRole("tab", { name: /Constraints/ }));
+  expect(await screen.findByRole("textbox", { name: "Constraints" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Previous field/ }));
+  expect(await screen.findByRole("textbox", { name: "Background" })).toBeTruthy();
+  fireEvent.click(within(schemaTabs).getByRole("tab", { name: /Task description/ }));
   fireEvent.change(screen.getByRole("textbox", { name: "Task description" }), {
     target: { value: "Reviewed objective." },
   });

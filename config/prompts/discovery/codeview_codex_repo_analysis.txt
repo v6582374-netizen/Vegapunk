@@ -1,22 +1,22 @@
-Please analyze the codebase in the current directory and provide a comprehensive summary.
+请分析当前目录中的代码库并提供完整摘要。
 
-Your analysis should include:
+你的分析应包括：
 
-1. **Main Functionality**: Provide a complete overview of what the repository is designed to do. Avoid overly detailed explanations; focus on delivering a clear and concise summary of its purpose.
+1. **主要功能**：完整概述该仓库的设计目标。避免过度细节化，重点清晰、简洁地说明其用途。
 
-2. **Key Files**: Identify the key files that are critical to understanding or implementing the functionality. Provide brief explanations for why these files are important.
+2. **关键文件**：找出理解或实现该功能所必需的关键文件，并简要说明其重要性。
 
-Please structure your response in the following format:
+请按以下格式组织回答：
 
 <code_repo_func>
-[Your summary of the main functionality]
+[主要功能摘要]
 </code_repo_func>
 
 <code_repo_key_files>
-[A list of key files with explanations, one file per line with format: filename - explanation]
+[关键文件及说明列表；每行一个文件，格式为：文件名 - 说明]
 </code_repo_key_files>
 
-Focus on:
-- Methods and Concepts: Describe the main methods and concepts used in the code
-- Model Structure: If applicable, outline the model architecture and design choices
-- Limitations: What are the limitations of the code and how can they be addressed?
+重点关注：
+- 方法与概念：描述代码中使用的主要方法和概念
+- 模型结构：如适用，概述模型架构和设计选择
+- 局限性：代码有哪些局限，以及如何解决

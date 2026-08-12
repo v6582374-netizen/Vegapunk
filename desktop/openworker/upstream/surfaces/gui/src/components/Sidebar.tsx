@@ -135,6 +135,7 @@ interface Props {
   // Scheduled-band row click: open the Automations surface ON that automation (UX-023).
   onOpenAutomation: (id: string) => void;
   onOpenDiscovery?: () => void;
+  onOpenCamera?: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
@@ -142,6 +143,7 @@ interface Props {
   onOpenAgentsMd: () => void;
   scheduledActive: boolean;
   discoveryActive?: boolean;
+  cameraActive?: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
@@ -355,7 +357,7 @@ export function Sidebar(props: Props) {
   // §31 (revised 2026-07-21): mention-spawned sessions list chronologically in Recent like any
   // other session — the OriginIcon in the row's indicator cluster marks where they came from.
   // The separate collapsed "From Slack" band hid fresh mentions below week-old sessions.
-  // A row in the account menu (§26): closes the menu, then runs the destination.
+  // Rows in the account menu (§26) close the menu before running their destination.
   const appMenuItem = (
     icon: IconName,
     label: string,
@@ -1051,8 +1053,7 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
-      {/* Automations: a first-class nav row (UX-023) — the account menu keeps its entry.
-          The badge is the cross-automation unseen-run total. */}
+      {/* Automations: a first-class nav row (UX-023). The badge is the cross-automation unseen-run total. */}
       <div className="px-2.5 mt-1">
         <button
           className={
@@ -1064,6 +1065,36 @@ export function Sidebar(props: Props) {
         >
           <Icon name="clock" size={15} className="shrink-0" />
           <span className="flex-1">Automations</span>
+        </button>
+      </div>
+
+      <div className="px-2.5 mt-1">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.cameraActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-camera"
+          aria-current={props.cameraActive ? "page" : undefined}
+          onClick={() => props.onOpenCamera?.()}
+        >
+          <Icon name="image" size={15} className="shrink-0" />
+          <span className="flex-1">Camera</span>
+        </button>
+      </div>
+
+      {/* Connectors: a first-class nav row alongside Automations. */}
+      <div className="px-2.5 mt-1">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.integrationsActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-connectors"
+          onClick={props.onOpenIntegrations}
+        >
+          <Icon name="plug" size={15} className="shrink-0" />
+          <span className="flex-1">Connectors</span>
         </button>
       </div>
 
@@ -1202,7 +1233,7 @@ export function Sidebar(props: Props) {
 
       {/* Bottom (§26): exactly ONE row — the account anchor. The inbox chip on it is
           state-driven with a sticky unlock (quiet when empty, accent + count when pending);
-          everything else lives in the account menu, which ALWAYS lists Inbox + Connectors. */}
+          the account menu holds account-scoped actions and Inbox. */}
       <div className="px-2.5 py-2 border-t border-line">
         <div className="relative">
           {appMenuOpen && (
@@ -1253,7 +1284,6 @@ export function Sidebar(props: Props) {
                   props.inboxActive,
                   <AttnBadge n={totalAttention} />,
                 )}
-                {appMenuItem("plug", "Connectors", props.onOpenIntegrations, props.integrationsActive)}
                 <div className="h-px bg-line my-1 mx-2" />
                 {appMenuItem(
                   "gear",
@@ -1262,7 +1292,6 @@ export function Sidebar(props: Props) {
                   false,
                   <span className="text-[11px] text-faint">⌘ ,</span>,
                 )}
-                {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
                 {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
                 {cloud?.signed_in && (
                   <>

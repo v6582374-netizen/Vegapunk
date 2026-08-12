@@ -265,3 +265,20 @@ It distinguishes repository defects from intentional product behavior and host-s
 
 The current checkout has no `PAPER_ORCHESTRA_MINIMAL_E2E` mode.
 Any future investigation of Relay capacity must retain the full production prompts and quality loops.
+
+## Current Relay Compatibility Repair - 2026-08-09
+
+- **Observed:** Relay rejected the optional Responses prompt-cache extension
+  (`prompt_cache_options`) during vision requests with HTTP 400, before the
+  `gpt-5.6-sol` model could process the image.
+- **Change:** `OpenAIModel` now keeps the legacy cache configuration readable
+  but never sends `prompt_cache_options` or `prompt_cache_breakpoint`. The
+  standard `prompt_cache_key` remains available. The default catalog marks the
+  extension unsupported for Relay and Qwen.
+- **Image binding:** The default `image_generation` binding is now
+  `relay/gpt-image-2`, using the OpenAI Images protocol. The adapter follows
+  the GPT Image 2 request shape and does not send an unnecessary
+  `response_format` override.
+- **Verification:** Runtime unit and bridge tests pass; real Relay text,
+  image-understanding, and `gpt-image-2` image-generation probes all returned
+  valid responses. Historical Launch directories remain unchanged.

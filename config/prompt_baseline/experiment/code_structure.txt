@@ -1,9 +1,9 @@
-You are an expert code analyst specializing in error detection, debugging, and error handling patterns. Your task is to thoroughly analyze the provided code with a focus on potential errors below:
+你是一名擅长错误检测、调试和错误处理模式的代码分析专家。你的任务是深入分析所提供的代码，重点关注下列潜在错误：
 
 {error_messages}
 
-You need to focus on error-related aspects of code and analyze their relations. The following functions and codes may highly related to the error which is extracted from the traceback.
+你需要聚焦代码中与错误相关的方面并分析它们的关系。以下函数和代码可能与从回溯信息中提取的错误高度相关：
 
 {function_code}
 
-Note that you do not need to modify the code in this step and just need to give the error-related code structure.
+注意：此步骤无需修改代码，只需给出与错误相关的代码结构。

@@ -96,6 +96,74 @@ def test_materialized_config_snapshots_selected_qwen_catalog(tmp_path):
     ] == "gpt-5.6-sol"
 
 
+def test_materialized_config_freezes_external_data_metadata_without_credentials(tmp_path):
+    repository_root = Path(__file__).resolve().parents[4]
+    launch_dir = tmp_path / "launch"
+    config_path = discovery_worker_module._materialize_config(
+        repository_root,
+        launch_dir,
+        {
+            "model_id": "gpt-5.6-sol",
+            "settings": {},
+            "external_data": {
+                "provider_status": {"nlr_developer_network": "connected"},
+                "api_registry": [
+                    {
+                        "api_id": "nlr_developer_network",
+                        "source": "NLR",
+                        "description": "Use the official NLR API documentation.",
+                        "official_docs_url": "https://developer.nlr.gov/docs/",
+                    }
+                ]
+            },
+        },
+    )
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert config["external_data"]["provider_status"] == {
+        "nlr_developer_network": "connected"
+    }
+    assert config["external_data"]["api_registry"] == [
+        {
+            "api_id": "nlr_developer_network",
+            "source": "NLR",
+            "description": "Use the official NLR API documentation.",
+            "official_docs_url": "https://developer.nlr.gov/docs/",
+        }
+    ]
+    assert "credential" not in config["external_data"]
+    assert "api_key" not in config["external_data"]
+
+
+def test_materialized_task_preserves_explicit_auto_and_sci_branches(tmp_path):
+    for task_type, marker, forbidden in (
+        ("auto", "prompt.json", "task_info.json"),
+        ("sci", "task_info.json", "prompt.json"),
+    ):
+        task_dir = discovery_worker_module._materialize_task(
+            tmp_path / task_type,
+            {
+                "execution_input": {
+                    "task_description": "Run the reviewed task",
+                    "domain": "Scientific ML",
+                    "background": "saved context",
+                    "constraints": ["keep the baseline"],
+                    "task_type": task_type,
+                },
+                "sources": [],
+            },
+        )
+
+        assert (task_dir / marker).is_file()
+        assert not (task_dir / forbidden).exists()
+        payload = json.loads((task_dir / marker).read_text(encoding="utf-8"))
+        if task_type == "auto":
+            assert payload["task_type"] == "auto"
+            assert payload["constraints"] == ["keep the baseline"]
+        else:
+            assert payload["domain"] == "Scientific ML"
+
+
 def test_materialized_config_reuses_frozen_catalog_on_resume(tmp_path):
     repository_root = tmp_path / "repo"
     (repository_root / "config").mkdir(parents=True)
@@ -273,6 +341,7 @@ def test_web_launch_admission_starts_the_real_discovery_entrypoint(tmp_path, mon
                 "domain": "Scientific ML",
                 "background": "",
                 "constraints": [],
+                "task_type": "auto",
             }
         },
     ).json()["preparation"]["revisions"][0]["revision_id"]
@@ -295,6 +364,10 @@ def test_web_launch_admission_starts_the_real_discovery_entrypoint(tmp_path, mon
 
     assert started.status_code == 201
     assert calls
+    assert (
+        started.json()["snapshot"]["current_launch"]["input_summary"]["task_type"]
+        == "auto"
+    )
     command = calls[0]
     assert command[command.index("--mode") + 1] == "experiment"
     assert command[command.index("--exp_backend") + 1] == "codex"

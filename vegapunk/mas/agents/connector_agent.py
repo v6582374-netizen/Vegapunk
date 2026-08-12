@@ -1,4 +1,4 @@
-"""Connector agent for structured external-data acquisition through Codex."""
+"""Connector agent for structured external-data acquisition in a private workspace."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from typing import Any, Callable, Dict, Mapping
 
 from .base_agent import AgentExecutionError, BaseAgent
 from ..workflow.external_data import CONNECTOR_ACQUISITION_FILENAME, MANIFEST_FILENAME
+from vegapunk.prompt_library import prompts
 
 
 class ConnectorAgent(BaseAgent):
-    """Ask the existing Codex runner to acquire API data into one Idea workspace."""
+    """Ask the Launch-selected coding-agent backend to acquire API data."""
 
     async def execute(self, context: Dict[str, Any], params: Dict[str, Any]) -> Dict[str, Any]:
         del params
@@ -77,12 +78,40 @@ class ConnectorAgent(BaseAgent):
             return factory()
 
         global_config = self.config.get("_global_config", {})
-        experiment_config = global_config.get("experiment", {})
-        from vegapunk.experiments_utils_codex import CodexRunner
+        if not isinstance(global_config, Mapping):
+            global_config = {}
+        runtime = self.config.get("_runtime") or global_config.get("_runtime")
+        if runtime is None:
+            raise ValueError(
+                "Connector requires the process-owned UnifiedModelRuntime"
+            )
 
-        return CodexRunner(
-            global_config.get("proxy_settings"),
-            model=experiment_config.get("model", "gpt-5.6-sol"),
+        catalog = getattr(runtime, "catalog", None)
+        model = getattr(catalog, "active_text_model", None)
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError(
+                "UnifiedModelRuntime catalog must expose active_text_model"
+            )
+        model = model.strip()
+
+        experiment_config = global_config.get("experiment", {})
+        if not isinstance(experiment_config, Mapping):
+            experiment_config = {}
+        backend = (
+            experiment_config.get("backend") or global_config.get("exp_backend")
+        )
+        proxy_settings = global_config.get("proxy_settings")
+        if backend == "qwen_code":
+            from vegapunk.experiments_utils_qwen_code import QwenCodeRunner
+
+            return QwenCodeRunner(proxy_settings, model=model)
+        if backend == "codex":
+            from vegapunk.experiments_utils_codex import CodexRunner
+
+            return CodexRunner(proxy_settings, model=model)
+        raise ValueError(
+            "Connector requires Launch experiment.backend to be 'codex' or "
+            "'qwen_code'"
         )
 
     @staticmethod
@@ -94,34 +123,42 @@ class ConnectorAgent(BaseAgent):
         goal: Any,
         workspace: Path,
     ) -> str:
-        return f"""You are the structured-data Connector for one research Idea.
+        registry_metadata = ConnectorAgent._skill_like_registry(registry)
+        return prompts.render(
+            "external_data.connector",
+            request=request,
+            registry=json.dumps(registry_metadata, ensure_ascii=False, indent=2),
+            idea=json.dumps(idea, ensure_ascii=False, indent=2),
+            goal=json.dumps(goal, ensure_ascii=False, indent=2),
+            workspace=str(workspace),
+            manifest_filename=MANIFEST_FILENAME,
+        )
 
-Research goal:
-{json.dumps(goal, ensure_ascii=False, indent=2)}
+    @staticmethod
+    def _skill_like_registry(registry: list[Mapping[str, Any]]) -> list[dict[str, str]]:
+        """Project each API entry to a progressive-disclosure description and docs link.
 
-Idea:
-{json.dumps(idea, ensure_ascii=False, indent=2)}
+        Endpoint names, request fields, and response mappings deliberately stay out of the
+        Connector prompt. The model discovers those details from the official documentation.
+        """
 
-Concrete external-data request:
-{request}
-
-Available API registry (choose the appropriate available API yourself):
-{json.dumps(registry, ensure_ascii=False, indent=2)}
-
-Use the available APIs through this Codex workspace and save every raw response or
-downloaded data file under {workspace}. Do not report an artifact that was not saved
-locally. Write {MANIFEST_FILENAME} in that workspace as JSON with an `artifacts` list.
-Each retained API artifact must include artifact_path, source, api_id, docs_url, request,
-and retrieved_at (ISO-8601). artifact_path must point to a real file inside this workspace.
-Finish with exactly one JSON object containing `coverage_feedback` (a natural-language
-summary of saved coverage and remaining gaps) and `open_web_evidence_gate` (a boolean). Set the
-gate true when coverage is empty or partial and supplementary Web Evidence would be useful; set
-it false only when the saved local artifacts sufficiently cover the request. Do not lower or
-assess the scientific score of the Idea."""
+        projected: list[dict[str, str]] = []
+        for item in registry:
+            if not isinstance(item, Mapping):
+                continue
+            entry: dict[str, str] = {}
+            for key in ("api_id", "source", "description", "official_docs_url"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    entry[key] = value.strip()
+            if "description" not in entry:
+                entry["description"] = "Use the official API documentation for this source."
+            projected.append(entry)
+        return projected
 
     @staticmethod
     def _parse_coverage_decision(output: str) -> tuple[str, bool]:
-        """Read the Connector-owned Web Evidence startup decision from Codex output."""
+        """Read the Connector-owned Web Evidence startup decision from runner output."""
         payload = ConnectorAgent._extract_json_object(output)
         if isinstance(payload, Mapping):
             feedback = payload.get("coverage_feedback")
@@ -140,7 +177,7 @@ assess the scientific score of the Idea."""
 
     @staticmethod
     def _extract_json_object(output: str) -> Mapping[str, Any] | None:
-        """Accept bare, fenced, or prose-wrapped JSON emitted by the Codex runner."""
+        """Accept bare, fenced, or prose-wrapped JSON emitted by the runner."""
         decoder = json.JSONDecoder()
         for start in (index for index, character in enumerate(output) if character == "{"):
             try:

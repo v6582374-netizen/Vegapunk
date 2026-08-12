@@ -3,7 +3,7 @@ version: 1
 active_text_model: relay/gpt-5.6-sol
 capability_models:
   vision: relay/gpt-5.6-sol
-  image_generation: relay/gpt-image-1
+  image_generation: relay/gpt-image-2
   embedding: local/BAAI-bge-base-en-v1.5
 providers:
   relay:
@@ -13,7 +13,7 @@ providers:
     - base_url
     api_key_env: OPENAI_API_KEY
     timeout: 600
-    request_timeout: 300
+    request_timeout: 3600
     reasoning:
       effort: xhigh
       context: auto
@@ -22,6 +22,8 @@ providers:
     prompt_cache:
       mode: implicit
       ttl: 30m
+      # Relay rejects the Responses prompt-cache options extension.
+      supports_options: false
   qwen:
     protocol: responses
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -30,7 +32,7 @@ providers:
     native_base_url: https://dashscope.aliyuncs.com
     api_key_env: DASHSCOPE_API_KEY
     timeout: 600
-    request_timeout: 300
+    request_timeout: 3600
     reasoning:
       effort: xhigh
       context: auto
@@ -39,6 +41,8 @@ providers:
     prompt_cache:
       mode: implicit
       ttl: 30m
+      # DashScope's OpenAI-compatible Responses endpoint rejects this extension.
+      supports_options: false
   local:
     protocol: local_embedding
 models:
@@ -52,9 +56,9 @@ models:
     - vision
     - reasoning
     - continuation
-  relay/gpt-image-1:
+  relay/gpt-image-2:
     provider: relay
-    model: gpt-image-1
+    model: gpt-image-2
     capabilities:
     - image_generation
     protocol: openai_images
@@ -100,7 +104,7 @@ models:
     protocol: local_embedding
 retry:
   max_attempts: 8
-  max_elapsed_seconds: 900
+  max_elapsed_seconds: 3600
   initial_backoff_seconds: 2
   max_backoff_seconds: 60
 concurrency:

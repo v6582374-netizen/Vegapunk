@@ -160,6 +160,36 @@ def _public_scalar(value: Any, *, limit: int = PUBLIC_TEXT_LIMIT) -> str | int |
     return None
 
 
+def _public_external_data_snapshot(value: Any) -> dict[str, Any] | None:
+    """Whitelist launch-owned external-data metadata for public observations."""
+
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, Any] = {}
+    registry = value.get("api_registry")
+    if isinstance(registry, list):
+        entries: list[dict[str, str]] = []
+        for item in registry[:32]:
+            if not isinstance(item, dict):
+                continue
+            entry: dict[str, str] = {}
+            for key in ("api_id", "source", "description", "official_docs_url"):
+                scalar = _public_scalar(item.get(key), limit=512)
+                if isinstance(scalar, str) and scalar.strip():
+                    entry[key] = scalar
+            if entry:
+                entries.append(entry)
+        result["api_registry"] = entries
+    statuses = value.get("provider_status")
+    if isinstance(statuses, dict):
+        result["provider_status"] = {
+            str(key): str(status)
+            for key, status in list(statuses.items())[:32]
+            if isinstance(key, str) and isinstance(status, str)
+        }
+    return result or None
+
+
 def _compact_idempotency_result(result: dict[str, Any]) -> dict[str, Any]:
     """Keep only durable identity metadata for an idempotent request.
 
@@ -297,6 +327,11 @@ def _public_input_summary(
         if isinstance(input_snapshot.get("title"), str)
         else None
     )
+    task_type = (
+        execution_input.get("task_type")
+        if isinstance(execution_input, dict)
+        else input_snapshot.get("task_type")
+    )
     summary: dict[str, Any] = {
         "preparation_id": (
             _public_scalar(input_snapshot.get("preparation_id"), limit=128)
@@ -322,6 +357,8 @@ def _public_input_summary(
     title = _bounded_text(task_description)
     if title:
         summary["title"] = title
+    if task_type in {"auto", "sci"}:
+        summary["task_type"] = task_type
     return summary
 
 
@@ -1974,6 +2011,9 @@ class DiscoveryLaunchStore:
                 if backend in {"codex", "qwen_code", "openhands"}
                 else "codex",
             }
+            external_data = _public_external_data_snapshot(configuration.get("external_data"))
+            if external_data is not None:
+                public["configuration_snapshot"]["external_data"] = external_data
         return public
 
     def _persist_record(self, record: dict[str, Any]) -> None:

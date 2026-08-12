@@ -66,6 +66,7 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 score=0.2,
                 requires_external_data=True,
                 external_data_request="Water permeability by salinity.",
+                external_data_route="registered_api",
             )
             web_supplemented = Idea(
                 id="web-supplemented",
@@ -73,6 +74,7 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 score=0.3,
                 requires_external_data=True,
                 external_data_request="Water and salt permeability by salinity.",
+                external_data_route="registered_api",
             )
             failed = Idea(
                 id="failed-acquisition",
@@ -80,6 +82,7 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 score=0.4,
                 requires_external_data=True,
                 external_data_request="Unavailable quantity by salinity.",
+                external_data_route="registered_api",
             )
             ideas = [data_free, connector_only, web_supplemented, failed]
             session = WorkflowSession(
@@ -203,6 +206,7 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 text="Measure water and salt permeability.",
                 requires_external_data=True,
                 external_data_request="Water and salt permeability by salinity.",
+                external_data_route="registered_api",
                 method_details={"method": "Compare transport curves."},
             )
             session = WorkflowSession(

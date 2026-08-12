@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import os.path as osp
+import re
 import subprocess
 from datetime import datetime
 
@@ -23,8 +24,97 @@ from .experiments_utils_codex import (
 logger = logging.getLogger(__name__)
 
 
+_DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+class QwenCodeAuthenticationError(RuntimeError):
+    """Raised when Qwen Code reports an upstream authentication failure.
+
+    Qwen Code currently emits some API failures as a JSON ``result`` event with
+    ``subtype=success`` and exits with status 0.  Keeping a dedicated exception
+    lets callers stop the experiment attempt instead of treating that text as a
+    model response.
+    """
+
+
+class QwenCodeConfigurationError(RuntimeError):
+    """Raised when the Launch Qwen credential is not configured."""
+
+
+def _text_values(value):
+    """Yield text leaves from a Qwen Code JSON event tree."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from _text_values(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _text_values(child)
+
+
+def _qwen_structured_error_values(payload):
+    """Yield error-bearing fields without scanning ordinary model prose."""
+    events = payload if isinstance(payload, list) else [payload]
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        subtype = event.get("subtype")
+        if event_type == "error" or subtype in {
+            "error",
+            "error_during_execution",
+            "success",
+        }:
+            for field in ("error", "result"):
+                yield from _text_values(event.get(field))
+
+
+def _qwen_authentication_error_text(stdout: str | None, stderr: str | None = None) -> str | None:
+    """Return a bounded upstream authentication message, if one is present."""
+    candidates: list[str] = []
+    for raw in (stdout, stderr):
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            candidates.append(raw)
+            continue
+        candidates.extend(_qwen_structured_error_values(payload))
+
+    for candidate in candidates:
+        compact = " ".join(candidate.split())
+        lowered = compact.lower()
+        has_401 = bool(re.search(r"\b401\b", lowered))
+        mentions_key = any(
+            marker in lowered
+            for marker in (
+                "api key",
+                "api-key",
+                "apikey",
+                "invalid_api_key",
+                "authentication",
+                "unauthorized",
+            )
+        )
+        if (has_401 and mentions_key) or re.search(
+            r"\b(?:invalid|incorrect|expired|missing)\s+(?:api[- ]?)?key\b",
+            lowered,
+        ):
+            return compact[:500]
+    return None
+
+
 def _final_qwen_message(stdout: str) -> str:
     """Extract the terminal model message from Qwen Code JSON output."""
+    auth_error = _qwen_authentication_error_text(stdout)
+    if auth_error:
+        raise QwenCodeAuthenticationError(
+            "Qwen Code authentication failed: upstream rejected the configured "
+            f"API key ({auth_error}). Check the Launch Qwen credential and "
+            "DASHSCOPE_API_KEY precedence."
+        )
     try:
         payload = json.loads(stdout)
     except (TypeError, json.JSONDecodeError) as exc:
@@ -73,12 +163,28 @@ class QwenCodeRunner:
         workspace_root = osp.abspath(cwd or os.getcwd())
         env = os.environ.copy()
         env.update(self.proxy_settings)
+        # Qwen Code uses the OpenAI-compatible protocol name for its generic
+        # provider.  Bind that protocol to the Qwen provider's credential here
+        # instead of inheriting a user-level OPENAI_API_KEY / selected auth mode.
+        # This child-only alias never changes the parent process environment.
+        dashscope_api_key = env.get("DASHSCOPE_API_KEY")
+        if not dashscope_api_key:
+            raise QwenCodeConfigurationError(
+                "Qwen Code requires DASHSCOPE_API_KEY for the configured DashScope "
+                "provider; it will not fall back to OPENAI_API_KEY."
+            )
+        env["OPENAI_API_KEY"] = dashscope_api_key
+        env["OPENAI_BASE_URL"] = _DASHSCOPE_COMPATIBLE_BASE_URL
         command = [
             self.command,
             "--prompt",
             prompt,
             "--model",
             self.model,
+            "--auth-type",
+            "openai",
+            "--openai-base-url",
+            _DASHSCOPE_COMPATIBLE_BASE_URL,
             "--approval-mode",
             "yolo",
             "--output-format",
@@ -101,6 +207,13 @@ class QwenCodeRunner:
             logger.info("Qwen Code stdout: %s", result.stdout[-30000:])
         if result.stderr:
             logger.warning("Qwen Code stderr: %s", result.stderr[-30000:])
+        auth_error = _qwen_authentication_error_text(result.stdout, result.stderr)
+        if auth_error:
+            raise QwenCodeAuthenticationError(
+                "Qwen Code authentication failed: upstream rejected the configured "
+                f"API key ({auth_error}). Check the Launch Qwen credential and "
+                "DASHSCOPE_API_KEY precedence."
+            )
         if result.returncode != 0:
             raise subprocess.CalledProcessError(
                 result.returncode,
@@ -150,4 +263,10 @@ def perform_experiments(
     )
 
 
-__all__ = ["QwenCodeRunner", "perform_experiments", "extract_idea_info"]
+__all__ = [
+    "QwenCodeAuthenticationError",
+    "QwenCodeConfigurationError",
+    "QwenCodeRunner",
+    "perform_experiments",
+    "extract_idea_info",
+]

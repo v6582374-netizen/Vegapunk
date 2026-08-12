@@ -402,6 +402,23 @@ class EvolutionAgent(BaseAgent):
                                 "type": "string",
                                 "description": "Reasoning for the evolved hypothesis"
                             },
+                            "requires_external_data": {
+                                "type": "boolean",
+                                "description": "Whether this evolved idea needs externally acquired data."
+                            },
+                            "external_data_request": {
+                                "type": "string",
+                                "description": "Concrete data variables, range, resolution, and format when external data is required."
+                            },
+                            "external_data_reason": {
+                                "type": "string",
+                                "description": "Why no external data is required when requires_external_data is false."
+                            },
+                            "external_data_route": {
+                                "type": "string",
+                                "enum": ["registered_api", "public_web", "none"],
+                                "description": "registered_api for a specifically appropriate configured provider, public_web for official public sources, or none when no data is needed."
+                            },
                             "improvements": {
                                 "type": "array",
                                 "items": {
@@ -410,7 +427,7 @@ class EvolutionAgent(BaseAgent):
                                 }
                             }
                         },
-                        "required": ["text", "rationale", "improvements"]
+                        "required": ["text", "rationale", "improvements", "requires_external_data", "external_data_request", "external_data_reason", "external_data_route"]
                     }
                 },
                 "reasoning": {

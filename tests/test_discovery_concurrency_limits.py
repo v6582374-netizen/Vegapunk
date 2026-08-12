@@ -35,7 +35,7 @@ def _module_assignments(path: Path) -> dict[str, object]:
 
 
 class DiscoveryConcurrencyLimitTest(unittest.TestCase):
-    def test_llm_and_search_limits_are_distinct(self) -> None:
+    def test_llm_and_search_limits_are_bounded(self) -> None:
         orchestration = _module_assignments(
             REPOSITORY_ROOT / "vegapunk/mas/workflow/orchestration_agent.py"
         )
@@ -44,9 +44,9 @@ class DiscoveryConcurrencyLimitTest(unittest.TestCase):
         )
 
         self.assertEqual(orchestration["MAX_CONCURRENT_LLM_TASKS"], 2)
-        self.assertEqual(orchestration["MAX_CONCURRENT_SEARCH_TASKS"], 10)
+        self.assertEqual(orchestration["MAX_CONCURRENT_SEARCH_TASKS"], 1)
         self.assertEqual(survey["MAX_CONCURRENT_LLM_TASKS"], 2)
-        self.assertEqual(survey["MAX_CONCURRENT_SEARCH_TASKS"], 10)
+        self.assertEqual(survey["MAX_CONCURRENT_SEARCH_TASKS"], 1)
 
 
 if __name__ == "__main__":

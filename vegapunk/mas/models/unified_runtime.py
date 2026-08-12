@@ -413,7 +413,6 @@ class _OpenAIImageAdapter:
             model=self.model_def.model,
             prompt=prompt,
             size=_openai_image_size(aspect_ratio),
-            response_format="b64_json",
         )
         data = getattr(response, "data", None) or []
         first = data[0] if data else None
@@ -468,6 +467,8 @@ class _RuntimeEmbeddingModel:
 class _RuntimeBoundModel(BaseModel):
     def __init__(self, runtime: "UnifiedModelRuntime", model_id: str, capability: str) -> None:
         super().__init__()
+        # UnifiedModelRuntime owns the one logical request telemetry event.
+        self.set_telemetry_logging_enabled(False)
         self.runtime = runtime
         self.model_id = model_id
         self.capability = capability
@@ -539,17 +540,32 @@ class UnifiedModelRuntime:
         model_id: str | None = None,
         capability: str = "text",
     ) -> ModelRunResult:
-        model_def = self._resolve_request_model(
-            request, model_id=model_id, capability=capability
-        )
-        adapter = self._adapter_for(model_def)
-        result = await self._execute(
-            model_def.provider,
-            lambda: adapter.run(request),
-        )
-        if not isinstance(result, ModelRunResult):
-            raise TypeError("Runtime adapter returned a non-ModelRunResult")
-        return result
+        started_at = time.perf_counter()
+        result: ModelRunResult | None = None
+        error: Exception | None = None
+        try:
+            model_def = self._resolve_request_model(
+                request, model_id=model_id, capability=capability
+            )
+            adapter = self._adapter_for(model_def)
+            result = await self._execute(
+                model_def.provider,
+                lambda: adapter.run(request),
+            )
+            if not isinstance(result, ModelRunResult):
+                raise TypeError("Runtime adapter returned a non-ModelRunResult")
+            return result
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            telemetry = BaseModel._telemetry_event(
+                request=request,
+                result=result,
+                error=error,
+                elapsed=time.perf_counter() - started_at,
+            )
+            BaseModel._log_telemetry(telemetry)
 
     async def generate_text(
         self,
@@ -712,6 +728,10 @@ class UnifiedModelRuntime:
                 adapter = self._adapter_factory(
                     model_def, self.catalog.provider_for(model_def)
                 )
+                if isinstance(adapter, BaseModel):
+                    # Provider adapters may share BaseModel for direct use, but
+                    # runtime-managed calls are logged at this boundary only.
+                    adapter.set_telemetry_logging_enabled(False)
                 self._adapters[model_def.canonical_id] = adapter
             return adapter
 

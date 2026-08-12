@@ -1,110 +1,107 @@
+你正在撰写一份综合研究报告的**引言/背景部分**。
 
-You are writing the **introduction/background section** of a comprehensive research report.
+你将获得：
+- 本引言部分的**章节大纲**，
+- 展示后续所有章节的**完整报告大纲**，
+- 包含研究相关节点输出的一个**图**，
+- 一个指定哪些节点包含本引言信息的 **relevant_node_ids** 列表。
 
-You are given:
-- a **section outline** for this introduction section,
-- the **complete report outline** showing all sections that will follow,
-- a **graph** containing research-related node outputs,
-- a list of **relevant_node_ids** specifying which nodes contain information for this introduction.
-
-Your task is to write a **focused, concise introduction** that sets the stage for the rest of the report WITHOUT over-expanding or diving too deeply into details that belong in later sections.
+你的任务是撰写一篇**聚焦、简洁的引言**，为报告其余部分奠定基础，**不要**过度展开或深入讨论属于后续章节的细节。
 
 
 ============================================================
-INPUT FORMAT
+输入格式
 ============================================================
 
 1. **section_outline**
-   - `section_title`: The title for this introduction section.
-   - `description`: What this introduction should cover.
-   - `relevant_node_ids`: Nodes containing relevant information.
+   - `section_title`：本引言章节的标题。
+   - `description`：本引言应涵盖的内容。
+   - `relevant_node_ids`：包含相关信息的节点。
 
 2. **full_report_outline**
-   - The complete outline showing all sections of the report.
-   - Use this to understand what topics will be covered in detail later.
+   - 展示报告所有章节的完整大纲。
+   - 使用它理解后续将详细讨论哪些主题。
 
 3. **graph** (JSON)
-   - Contains all nodes with their execution results.
+   - 包含所有节点及其执行结果。
 
 4. **question**
-   - The overall research question.
+   - 总体研究问题。
 
 ============================================================
-PROVIDED INPUT
+提供的输入
 ============================================================
 
-Query:
+查询：
 =====================================
 {question}
 =====================================
 
-Introduction Section Outline:
+引言章节大纲：
 =====================================
 {section_outline}
 =====================================
 
-Full Report Outline (for context):
+完整报告大纲（供参考）：
 =====================================
 {full_outline}
 =====================================
 
-Graph:
+图：
 =====================================
 {graph_dict}
 =====================================
 
 
 ============================================================
-WRITING REQUIREMENTS
+写作要求
 ============================================================
 
-### 1. STRICT CONTENT DEPENDENCE — NO EXTERNAL KNOWLEDGE
-- Every factual statement must originate from the `final_response` or `reasoning` of relevant nodes.
-- You may paraphrase and organize, but **never introduce new facts**.
-- Never mention the workflow, graph structure, or node IDs.
+### 1. 严格依赖内容 — 不得使用外部知识
+- 每一项事实性陈述都必须源自相关节点的 `final_response` 或 `reasoning`。
+- 你可以进行改写和组织，但**绝不能引入新事实**。
+- 不得提及工作流程、图结构或节点 ID。
 
-### 2. FOCUSED INTRODUCTION — DO NOT OVER-EXPAND
-**CRITICAL**: This is an introduction, not the main body of the report.
+### 2. 聚焦引言 — 不要过度展开
+**关键**：这是引言，不是报告正文。
 
-- **Keep it concise and focused**: Provide necessary background and context, but do NOT dive into extensive details.
-- **Avoid over-expansion**: Do not exhaustively cover topics that will be addressed in later sections.
-- **Preview, don't duplicate**: Briefly introduce key concepts and themes, but save detailed analysis for subsequent sections.
-- **Stay high-level**: Focus on setting the stage, defining scope, and orienting the reader.
-- **Reference the full outline**: Be aware of what topics are covered in later sections to avoid redundancy.
+- **保持简洁和聚焦**：提供必要的背景和上下文，但不要深入展开大量细节。
+- **避免过度扩展**：不要穷尽式地覆盖将在后续章节讨论的主题。
+- **预览，而非重复**：简要介绍关键概念和主题，将详细分析留给后续章节。
+- **保持高层次**：重点是铺垫背景、界定范围并帮助读者建立认识。
+- **参考完整大纲**：了解后续章节涵盖的主题，以避免重复。
 
-Target length: A well-structured introduction that is **significantly shorter** than the main content sections.
+目标长度：一篇结构良好的引言，且其篇幅应**显著短于**正文内容章节。
 
-### 3. CITATION HANDLING
-- Preserve citation markers such as [[1]], [[2]], [[tag]] *exactly as they appear*.
-- You may move a citation from its original location to:
-  * the end of the sentence, or  
-  * the end of the paragraph  
-  that contains the referenced content.
-- Do not merge citations; write them separately: [[1]][[2]]
-- **DO NOT** cite any node_id in the graph like [[n2]] or execution details.
+### 3. 引文处理
+- 必须原样保留引文标记，例如 [[1]]、[[2]]、[[tag]]。
+- 你可以将引文从原始位置移动至：
+  * 包含所引用内容的句末，或
+  * 包含所引用内容的段末。
+- 不得合并引文；请分别书写：[[1]][[2]]
+- **不得**引用图中的任何 node_id，例如 [[n2]]，也不得引用执行细节。
 
-### 4. INTRODUCTION STRUCTURE
-A good introduction should:
-- **Establish context**: Briefly explain the background and motivation.
-- **Define the problem**: Clearly state what question or issue is being addressed.
-- **Outline scope**: Indicate what aspects will be covered (and optionally what won't be).
-- **Preview structure**: Optionally mention the organization of the report (e.g., "This report examines...").
+### 4. 引言结构
+一篇好的引言应当：
+- **建立背景**：简要说明背景和动机。
+- **界定问题**：清晰说明所要处理的问题或议题。
+- **说明范围**：指出将覆盖哪些方面（并可选择性说明不涵盖哪些方面）。
+- **预览结构**：可选择性提及报告的组织方式（例如：“本报告考察……”）。
 
-### 5. ACADEMIC STYLE
-- Use formal, academic language.
-- Maintain objective, neutral tone.
-- Write in the **same language as the query**.
+### 5. 学术风格
+- 使用正式的学术语言。
+- 保持客观、中立的语气。
+- 使用与查询相同的语言撰写。
 
-### 6. FORMAT
-- Output in **Markdown**.
-- Use the section title as a second-level header (`##`).
-- May include brief subsections if appropriate.
+### 6. 格式
+- 以 **Markdown** 输出。
+- 使用章节标题作为二级标题（`##`）。
+- 如适当，可包含简短的小节。
 
 ============================================================
-OUTPUT FORMAT (STRICT JSON)
+输出格式（严格 JSON）
 ============================================================
 
 {{
-  "section_content": "<the introduction section in markdown format, with ALL citation markers preserved>"
+  "section_content": "<采用 Markdown 格式撰写的引言章节内容，且保留所有引文标记>"
 }}
-

@@ -130,7 +130,7 @@ class ToolManager:
                 return
                 
             # 导入本地工具模块
-            import tool_integration
+            from tools import tool_integration
             
             # 获取本地工具列表
             if hasattr(tool_integration, 'construct_agent_list'):

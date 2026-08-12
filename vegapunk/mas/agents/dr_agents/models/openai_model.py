@@ -26,6 +26,18 @@ except ImportError:  # pragma: no cover - legacy top-level DR bootstrap
 logger = get_logger(__name__)
 
 
+_GENERATION_OPTIONS = frozenset({"max_output_tokens", "temperature"})
+_RUNTIME_CONSTRUCTION_OPTIONS = frozenset(
+    {
+        "agent_role",
+        "extraction_model",
+        "reasoning_context",
+        "reasoning_mode",
+        "runtime_config",
+    }
+)
+
+
 def _is_likely_json_response(text: str) -> bool:
     stripped = text.strip() if isinstance(text, str) else ""
     return stripped.startswith(("{", "[", "```json")) or "```json" in stripped.lower()
@@ -126,8 +138,11 @@ class OpenAIModel(BaseModel):
         system_prompt: Optional[str] = None,
         **kwargs: Any,
     ) -> str:
-        allowed = {"max_output_tokens", "temperature"}
-        unsupported = set(kwargs) - allowed
+        # DeepResearch's legacy agents retain the kwargs used to construct a
+        # model and repeat them on each ``generate`` call.  Runtime identity and
+        # policy have already been bound to this facade in ``__init__``; they
+        # are not model-generation options and must not cross this boundary.
+        unsupported = set(kwargs) - _GENERATION_OPTIONS - _RUNTIME_CONSTRUCTION_OPTIONS
         if unsupported:
             raise ValueError(
                 "Unsupported DeepResearch Runtime options: "

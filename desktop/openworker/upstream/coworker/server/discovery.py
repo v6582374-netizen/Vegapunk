@@ -46,12 +46,14 @@ DISCOVERY_CONTEXTS = (
 )
 
 SUPPORTED_SOURCE_EXTENSIONS = frozenset({".txt", ".md", ".pdf", ".docx", ".csv", ".zip"})
+SUPPORTED_TASK_TYPES = frozenset({"auto", "sci"})
 
 EXECUTION_INPUT_FIELDS = (
     "task_description",
     "domain",
     "background",
     "constraints",
+    "task_type",
 )
 
 
@@ -142,12 +144,18 @@ def _public_preparation(preparation: dict[str, Any]) -> dict[str, Any]:
 
 
 def _public_execution_input(execution_input: dict[str, Any]) -> dict[str, Any]:
-    return {
+    public = {
         "task_description": execution_input["task_description"],
         "domain": execution_input["domain"],
         "background": execution_input["background"],
         "constraints": list(execution_input["constraints"]),
     }
+    # ``task_type`` was added after the first Web Launches shipped.  Keep it
+    # optional at the wire boundary so old saved revisions remain readable,
+    # while preserving it whenever a reviewer explicitly selects a type.
+    if "task_type" in execution_input:
+        public["task_type"] = execution_input["task_type"]
+    return public
 
 
 def _normalize_execution_input(value: Any) -> dict[str, Any]:
@@ -158,6 +166,7 @@ def _normalize_execution_input(value: Any) -> dict[str, Any]:
     domain = value.get("domain")
     background = value.get("background", "")
     constraints = value.get("constraints", [])
+    task_type = value.get("task_type")
     if not isinstance(task_description, str) or not task_description.strip():
         raise ValueError("task_description is required")
     if not isinstance(domain, str) or not domain.strip():
@@ -168,12 +177,21 @@ def _normalize_execution_input(value: Any) -> dict[str, Any]:
         raise ValueError("constraints must be a list")
     if any(not isinstance(item, str) for item in constraints):
         raise ValueError("constraints must contain only strings")
-    return {
+    normalized = {
         "task_description": task_description.strip(),
         "domain": domain.strip(),
         "background": background.strip(),
         "constraints": [item.strip() for item in constraints if item.strip()],
     }
+    if task_type is not None:
+        if (
+            not isinstance(task_type, str)
+            or task_type.strip().lower() not in SUPPORTED_TASK_TYPES
+        ):
+            supported = ", ".join(sorted(SUPPORTED_TASK_TYPES))
+            raise ValueError(f"task_type must be one of: {supported}")
+        normalized["task_type"] = task_type.strip().lower()
+    return normalized
 
 
 def _public_revision(
@@ -325,6 +343,7 @@ class DiscoveryFacade:
         model_id: str,
         settings: dict[str, Any],
         discovery_preferences: dict[str, Any] | None = None,
+        external_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(body, dict):
             raise LaunchValidationError("Launch payload must be an object")
@@ -462,6 +481,11 @@ class DiscoveryFacade:
                 configuration_snapshot["discovery_launch_preferences"] = copy.deepcopy(
                     discovery_preferences
                 )
+            if external_data is not None:
+                # Only the non-sensitive API registry and provider status are frozen
+                # into the Launch. API credentials remain in SecretStore and are
+                # resolved by the worker.
+                configuration_snapshot["external_data"] = copy.deepcopy(external_data)
             return self._launches.admit(
                 request_fingerprint=request_fingerprint,
                 idempotency_key=idempotency_key,

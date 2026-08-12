@@ -15,13 +15,21 @@ from typing import Dict, List, Optional, Any
 EXTERNAL_DATA_FALLBACK_REASON = (
     "External data requirement was missing or invalid; acquisition is disabled by default."
 )
+EXTERNAL_DATA_ROUTE_REGISTERED_API = "registered_api"
+EXTERNAL_DATA_ROUTE_PUBLIC_WEB = "public_web"
+EXTERNAL_DATA_ROUTE_NONE = "none"
+_EXTERNAL_DATA_ROUTES = {
+    EXTERNAL_DATA_ROUTE_REGISTERED_API,
+    EXTERNAL_DATA_ROUTE_PUBLIC_WEB,
+}
 
 
 def normalize_external_data_requirement(
     requires_external_data: Any,
     external_data_request: Any,
     external_data_reason: Any,
-) -> tuple[bool, str, str, Optional[str]]:
+    external_data_route: Any = "",
+) -> tuple[bool, str, str, str, Optional[str]]:
     """Normalize an Idea's explicit external-data declaration.
 
     The declaration is deliberately closed by default.  A missing/non-boolean
@@ -32,12 +40,14 @@ def normalize_external_data_requirement(
     """
     request = external_data_request.strip() if isinstance(external_data_request, str) else ""
     reason = external_data_reason.strip() if isinstance(external_data_reason, str) else ""
+    route = external_data_route.strip() if isinstance(external_data_route, str) else ""
 
     if not isinstance(requires_external_data, bool):
         return (
             False,
             "",
             EXTERNAL_DATA_FALLBACK_REASON,
+            EXTERNAL_DATA_ROUTE_NONE,
             "requires_external_data must be a boolean; acquisition was disabled",
         )
 
@@ -46,7 +56,26 @@ def normalize_external_data_requirement(
             False,
             "",
             EXTERNAL_DATA_FALLBACK_REASON,
+            EXTERNAL_DATA_ROUTE_NONE,
             "requires_external_data was true without a concrete external_data_request; acquisition was disabled",
+        )
+
+    if requires_external_data and not route:
+        return (
+            True,
+            request,
+            reason,
+            EXTERNAL_DATA_ROUTE_PUBLIC_WEB,
+            "external_data_route was omitted; defaulting to public_web rather than an unrelated registered API",
+        )
+
+    if requires_external_data and route not in _EXTERNAL_DATA_ROUTES:
+        return (
+            False,
+            "",
+            EXTERNAL_DATA_FALLBACK_REASON,
+            EXTERNAL_DATA_ROUTE_NONE,
+            "external_data_route must be registered_api or public_web; acquisition was disabled",
         )
 
     if not requires_external_data:
@@ -56,9 +85,9 @@ def normalize_external_data_requirement(
         if not reason:
             reason = EXTERNAL_DATA_FALLBACK_REASON
             warning = warning or "external_data_reason was empty; acquisition remains disabled"
-        return False, "", reason, warning
+        return False, "", reason, EXTERNAL_DATA_ROUTE_NONE, warning
 
-    return True, request, reason, None
+    return True, request, reason, route, None
 
 
 # 这些状态就是发现流程的路线图：先产生想法，再批评、查证、改进、排序，
@@ -90,6 +119,7 @@ class Idea:
     requires_external_data: bool = False
     external_data_request: str = ""
     external_data_reason: str = ""
+    external_data_route: str = ""
     data_workspace: str = ""
     baseline_summary: str = ""
     critiques: List[str] = field(default_factory=list)
@@ -117,6 +147,7 @@ class Idea:
             "requires_external_data": self.requires_external_data,
             "external_data_request": self.external_data_request,
             "external_data_reason": self.external_data_reason,
+            "external_data_route": self.external_data_route,
             "data_workspace": self.data_workspace,
             "baseline_summary": self.baseline_summary,
             "critiques": self.critiques,

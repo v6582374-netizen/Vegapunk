@@ -110,6 +110,181 @@ def test_preflight_injects_secret_store_credentials_for_every_bound_provider(tmp
     assert "relay-secret" not in repr(prepared)
 
 
+def test_preflight_prefers_stored_qwen_key_over_inherited_environment(
+    tmp_path, monkeypatch
+):
+    """A stale parent-shell key must not shadow the Launch's configured key."""
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "stale-parent-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "relay-parent-key")
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=MemorySecrets(
+            {
+                "provider:qwen": {"api_key": "stored-qwen-key"},
+                "provider:relay": {"api_key": "stored-relay-key"},
+            }
+        ),
+        base_environment={
+            "DASHSCOPE_API_KEY": "stale-parent-key",
+            "OPENAI_API_KEY": "relay-parent-key",
+        },
+        required_modules=(),
+    )
+
+    assert prepared.environment["DASHSCOPE_API_KEY"] == "stored-qwen-key"
+    assert prepared.environment["OPENAI_API_KEY"] == "stored-relay-key"
+
+
+def test_preflight_injects_nlr_key_only_for_launch_owned_external_data(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.delenv("NLR_API_KEY", raising=False)
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=MemorySecrets(
+            {
+                "provider:qwen": {"api_key": "qwen-secret"},
+                "provider:relay": {"api_key": "relay-secret"},
+                "api-service:nlr_developer_network": {
+                    "enabled": True,
+                    "credential": "nlr-secret",
+                    "docs_url": "https://developer.nlr.gov/docs/",
+                },
+            }
+        ),
+        external_data={
+            "api_registry": [
+                {
+                    "api_id": "nlr_developer_network",
+                    "source": "NLR",
+                    "description": "Use the official NLR API documentation.",
+                    "official_docs_url": "https://developer.nlr.gov/docs/",
+                }
+            ]
+        },
+        required_modules=(),
+    )
+
+    assert prepared.required_external_data == ("nlr_developer_network",)
+    assert prepared.environment["NLR_API_KEY"] == "nlr-secret"
+    assert "nlr-secret" not in repr(prepared)
+
+
+def test_preflight_injects_enabled_paper_service_credentials_for_paper_orchestra(
+    tmp_path, monkeypatch
+):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    for variable in (
+        "SEMANTIC_SCHOLAR_API_KEY",
+        "S2_API_KEY",
+        "ARXIV_EMAIL",
+        "CROSSREF_EMAIL",
+        "CORE_API_KEY",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=MemorySecrets(
+            {
+                "provider:qwen": {"api_key": "qwen-secret"},
+                "provider:relay": {"api_key": "relay-secret"},
+                "api-service:semantic-scholar": {
+                    "enabled": True,
+                    "credential": "semantic-secret",
+                },
+                "api-service:arxiv": {
+                    "enabled": True,
+                    "credential": "research@example.com",
+                },
+                "api-service:crossref": {
+                    "enabled": True,
+                    "credential": "crossref@example.com",
+                },
+                "api-service:core": {
+                    "enabled": True,
+                    "credential": "core-secret",
+                },
+                "api-service:nlr_developer_network": {
+                    "enabled": True,
+                    "credential": "nlr-secret",
+                    "docs_url": "https://developer.nlr.gov/docs/",
+                },
+            }
+        ),
+        required_modules=(),
+    )
+
+    assert prepared.environment["SEMANTIC_SCHOLAR_API_KEY"] == "semantic-secret"
+    assert prepared.environment["S2_API_KEY"] == "semantic-secret"
+    assert prepared.environment["ARXIV_EMAIL"] == "research@example.com"
+    assert prepared.environment["CROSSREF_EMAIL"] == "crossref@example.com"
+    assert prepared.environment["CORE_API_KEY"] == "core-secret"
+    assert "NLR_API_KEY" not in prepared.environment
+    assert "semantic-secret" not in repr(prepared)
+    assert "core-secret" not in repr(prepared)
+
+
+def test_preflight_prefers_stored_paper_service_credentials_over_inherited_environment(
+    tmp_path, monkeypatch
+):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "inherited-secret")
+    monkeypatch.setenv("S2_API_KEY", "inherited-alias")
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=MemorySecrets(
+            {
+                "provider:qwen": {"api_key": "qwen-secret"},
+                "provider:relay": {"api_key": "relay-secret"},
+                "api-service:semantic-scholar": {
+                    "enabled": True,
+                    "credential": "stored-secret",
+                },
+            }
+        ),
+        required_modules=(),
+    )
+
+    assert prepared.environment["SEMANTIC_SCHOLAR_API_KEY"] == "stored-secret"
+    assert prepared.environment["S2_API_KEY"] == "stored-secret"
+
+
+def test_preflight_reports_missing_nlr_key_without_leaking_snapshot_or_prompt_data(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.delenv("NLR_API_KEY", raising=False)
+
+    with pytest.raises(DiscoveryRuntimePreflightError, match="nlr_developer_network"):
+        prepare_launch_environment(
+            catalog_path,
+            secret_store=MemorySecrets(
+                {
+                    "provider:qwen": {"api_key": "qwen-secret"},
+                    "provider:relay": {"api_key": "relay-secret"},
+                }
+            ),
+            external_data={
+                "api_registry": [
+                    {
+                        "api_id": "nlr_developer_network",
+                        "source": "NLR",
+                        "description": "Use the official NLR API documentation.",
+                        "official_docs_url": "https://developer.nlr.gov/docs/",
+                    }
+                ]
+            },
+            required_modules=(),
+        )
+
+
 def test_preflight_reports_all_missing_credentials_before_workflow_start(tmp_path, monkeypatch):
     catalog_path = tmp_path / "model_catalog.yaml"
     catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")

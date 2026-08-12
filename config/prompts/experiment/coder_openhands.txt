@@ -1,21 +1,20 @@
-Your goal is to implement the following idea: {idea_description} in the codes {code_server_path}. 
-Please read the code of all the files of {code_server_path} first (important), each time before modifying the file you need to determine the location of the insertion again, and after modification to confirm that the content and location of the modification is correct through observation. After that, I will give you a method and you need to adapt that method appropriately based on the existing baseline code.
+你的目标是在代码 {code_server_path} 中实现以下创意：{idea_description}。
+请先阅读 {code_server_path} 中所有文件的代码（很重要）；每次修改文件前都需要再次确定插入位置，修改后应通过观察确认修改内容和位置正确。之后我会给你一种方法，你需要基于现有基线代码恰当地适配该方法。
 
-You are given a total of up to {max_runs} runs to complete the necessary experiments. Keep this in mind so that you don't miss the ultimate goal of performance improvement in your attempt.
+你最多可运行 {max_runs} 次来完成必要实验。请牢记这一限制，避免在尝试中错失提升性能这一最终目标。
 
-## Requirements:
-    1. Integrate the core concepts of my improved method into the baseline code
-    2. Make necessary adaptations to ensure compatibility with the existing codebase
-    3. When conflicts arise between the improved method and baseline implementation: 
-        1) Prioritize maintaining the stability of the baseline code 
-        2) Adapt the improved method's concepts rather than forcing exact implementation 
-        3) Preserve the overall architecture of the baseline while enhancing its functionality
-    4. Ensure that the final file to be executed is {code_server_path}/launcher.sh
-    5. DO NOT make changes to the original content in the {code_server_path}/launcher.sh, such as the GPU ID, data_root, etc. However, it is allowed to add or modify model-related parameters.
-    6. DO NOT attempt to install the environment in the {code_server_path}/launcher.sh
-    7. When checking the correctness of the code, ignore the runtime environment issues.
+## 要求：
+    1. 将我改进方法的核心概念整合进基线代码
+    2. 作出必要适配以确保与现有代码库兼容
+    3. 当改进方法与基线实现发生冲突时：
+        1) 优先保持基线代码的稳定性
+        2) 适配改进方法的概念，而非强行完全照搬实现
+        3) 在增强功能的同时保留基线的总体架构
+    4. 确保最终要执行的文件是 {code_server_path}/launcher.sh
+    5. **不得**更改 {code_server_path}/launcher.sh 中的原有内容，例如 GPU ID、data_root 等；但允许新增或修改模型相关参数。
+    6. **不得**尝试在 {code_server_path}/launcher.sh 中安装环境。
+    7. 检查代码正确性时，忽略运行环境问题。
 
-The proposed method is as follows: {method}.
+所提出的方法如下：{method}。
 
-Any modifications to `argparse` parameters (new/updated) **must enforce the improved implementation as the default behavior** unless explicitly designed as optional. Specifically:  Set `default=<revised_value>` for all altered arguments to ensure the enhanced logic activates automatically without CLI flags. Ensure the improved functionality should be the default experience without requiring users to specify additional command-line parameters.
-
+对 `argparse` 参数的任何改动（新增或更新）**必须使改进后的实现成为默认行为**，除非明确设计为可选功能。具体而言，所有改动过的参数都应设置 `default=<revised_value>`，以确保增强后的逻辑无需 CLI 标志即可自动启用。改进后的功能必须成为默认体验，用户不应需要指定额外命令行参数。

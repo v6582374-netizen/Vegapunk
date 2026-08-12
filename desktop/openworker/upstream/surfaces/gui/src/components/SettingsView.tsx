@@ -21,26 +21,15 @@ import {
   type WorkspaceCommandTrust,
 } from "../api";
 import {
-  cancelDictationModelDownload,
-  deleteDictationModel,
-  downloadDictationModel,
   getAutostart,
-  getDictationStatus,
   getKeepAwake,
   checkForUpdate,
   installUpdate,
   isTauri,
   isUpdaterEnabled,
-  listenDictationDownloadProgress,
-  markDictationTestPassed,
   pickFolder,
   setAutostart,
   setKeepAwake,
-  startDictation,
-  stopDictation,
-  verifyDictationModel,
-  type DictationDownloadProgress,
-  type DictationStatus,
 } from "../tauri";
 import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
@@ -49,16 +38,15 @@ import { ModelsTab } from "./ManageTabs";
 import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
 import { showPersonas } from "../flags";
-import { ApiServicesView } from "./ApiServicesView";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
-// a left sub-nav (General · Models · Discovery Launch · API Services · Voice · Personas) + centered panel, replacing the old
+// a left sub-nav (General · Models · Discovery Launch · Personas) + centered panel, replacing the old
 // top-tab ManageModal. Local/app concerns live here; anything external (Connectors, Messaging, MCP,
 // Activity) stays under Integrations. Appearance + Files are re-skinned to the mock's Tailwind idiom;
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
 // "appearance" is the General tab's stable key - callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
-type SetTab = "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services";
+type SetTab = "appearance" | "models" | "personas" | "prompts" | "discovery";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -69,15 +57,32 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "mic" | "sparkle" | "library" | "plug" }[] = [
+const SET_TABS: { key: SetTab; label: string; icon: "sliders" | "code" | "sparkle" | "library" }[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "discovery", label: "Discovery Launch", icon: "sliders" },
-  { key: "api-services", label: "API Services", icon: "plug" },
-  { key: "voice", label: "Voice input", icon: "mic" },
   { key: "prompts", label: "Prompt Library", icon: "library" },
   { key: "personas", label: "Personas", icon: "sparkle" },
 ];
+
+const PROMPT_WORKFLOW_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "deep_research", label: "Deep research" },
+  { value: "discovery", label: "Discovery" },
+  { value: "experiment", label: "Experiment" },
+  { value: "paper", label: "Paper" },
+  { value: "scoring", label: "Scoring" },
+] as const;
+
+function promptWorkflowLabel(workflow: string): string {
+  return (
+    PROMPT_WORKFLOW_FILTERS.find((filter) => filter.value === workflow)?.label ||
+    workflow
+      .split("_")
+      .map((word) => word.charAt(0).toLocaleUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
 
 export function SettingsView({
   initialTab,
@@ -135,8 +140,9 @@ export function SettingsView({
       >
         <div
           className={
-            (tab === "api-services" ? "max-w-4xl" : "max-w-3xl") + " mx-auto px-7 py-6 " +
-            (tab === "prompts" ? "h-full min-h-0 flex flex-col" : "")
+            tab === "prompts"
+              ? "w-full max-w-none px-7 py-6 h-full min-h-0 flex flex-col"
+              : "max-w-3xl mx-auto px-7 py-6"
           }
         >
           {tab === "appearance" ? (
@@ -156,10 +162,6 @@ export function SettingsView({
             </section>
           ) : tab === "discovery" ? (
             <DiscoveryLaunchPreferencesSection />
-          ) : tab === "api-services" ? (
-            <ApiServicesView />
-          ) : tab === "voice" ? (
-            <VoiceInputSection />
           ) : tab === "prompts" ? (
             <PromptLibrarySection onDirtyChange={stablePromptDirty} />
           ) : (
@@ -446,7 +448,6 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
-  const workflows = [...new Set(prompts.map((prompt) => prompt.workflow))];
   const filtered = prompts.filter((prompt) => {
     const matchesWorkflow = workflowFilter === "all" || prompt.workflow === workflowFilter;
     const matchesQuery = [prompt.id, prompt.name, prompt.description, prompt.workflow, prompt.stage, prompt.text]
@@ -523,306 +524,124 @@ function PromptLibrarySection({ onDirtyChange }: { onDirtyChange: (dirty: boolea
   if (loading) return <section><PanelHead title="Prompt Library" sub="Registered Prompts used by future Vegapunk work." /><div className={CARD + " p-4 text-[12px] text-muted"}>Loading Prompt Library…</div></section>;
   if (error && !selected) return <section><PanelHead title="Prompt Library" sub="Registered Prompts used by future Vegapunk work." /><div className={CARD + " p-4"}><div className="text-[13px] text-red-600">{error}</div><button className={BTN_BORDERED + " mt-3"} onClick={() => void load()}>Retry</button></div></section>;
 
-  const grouped = new Map<string, Map<string, PromptRecord[]>>();
-  for (const prompt of filtered) {
-    const stages = grouped.get(prompt.workflow) || new Map<string, PromptRecord[]>();
-    stages.set(prompt.stage, [...(stages.get(prompt.stage) || []), prompt]);
-    grouped.set(prompt.workflow, stages);
-  }
-
   return (
     <section className="flex min-h-0 flex-1 flex-col">
       <PanelHead title="Prompt Library" sub="Inspect and revise Registered Prompts used by future Vegapunk work." />
       {error && <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
       {notice && <div role="status" className="mb-4 rounded-lg border border-line bg-accentSoft px-3 py-2.5 text-[12px] text-accent">{notice}</div>}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-1.5 w-full">
         <input
-          className={INPUT + " min-w-[260px] flex-1"}
+          className={INPUT + " h-10 w-full"}
           placeholder="Search name, ID, metadata, or body"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
-        <div className="flex max-w-full items-center gap-1 overflow-x-auto">
-          {["all", ...workflows].map((workflow) => {
-            const active = workflowFilter === workflow;
-            const words = workflow.split("_").join(" ");
-            const label = workflow === "all" ? "All" : words.charAt(0).toLocaleUpperCase() + words.slice(1);
-            return (
-              <button
-                key={workflow}
-                type="button"
-                className={
-                  "shrink-0 rounded-lg px-3 py-2 text-[12px] " +
-                  (active ? "bg-accentSoft text-accent font-medium" : "text-muted hover:bg-panel hover:text-ink")
-                }
-                onClick={() => setWorkflowFilter(workflow)}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(230px,0.8fr)_minmax(0,1.7fr)] gap-4">
-        <div className={CARD + " min-h-0 overflow-y-auto p-3"}>
-          <div className="px-1 pb-3 text-[11px] uppercase tracking-wider text-muted">
-            {filtered.length} Registered Prompts
-          </div>
-          <div className="space-y-4">
-            {[...grouped].map(([workflow, stages]) => (
-              <div key={workflow}>
-                <div className="text-[11px] uppercase tracking-wider text-muted mb-1.5">{workflow}</div>
-                {[...stages].map(([stage, items]) => (
-                  <div key={stage} className="space-y-1 mb-3">
-                    <div className="text-[11px] text-muted">{stage}</div>
-                    {items.map((prompt) => (
-                      <button key={prompt.id} type="button" onClick={() => void selectPrompt(prompt)} className={"w-full text-left rounded-lg px-3 py-2 " + (selectedId === prompt.id ? "bg-paper text-accent" : "hover:bg-paper") }>
-                        <span className="block text-[12.5px] font-medium text-ink">{prompt.name}</span>
-                        <span className="block text-[11.5px] text-muted mt-0.5">{prompt.invocation_type}</span>
-                      </button>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className={CARD + " min-w-0 min-h-0 overflow-y-auto p-4 flex flex-col"}>
-          {selected ? (
-            <>
-              <div className="flex items-start gap-3">
-                <div className="min-w-0 flex-1"><div className="text-[15px] font-medium text-ink">{selected.name}</div><div className="text-[11.5px] text-muted mt-1 font-mono break-all">{selected.id}</div></div>
-                {dirty && <span className="text-[11px] text-accent">Unsaved</span>}
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 text-[11.5px] text-muted border-y border-line py-3">
-                <div><span className="block text-ink font-medium">Workflow</span>{selected.workflow} · {selected.stage}</div>
-                <div><span className="block text-ink font-medium">Invocation</span>{selected.invocation_type}</div>
-                <div><span className="block text-ink font-medium">Template variables</span>{selected.template_variables.join(", ") || "None"}</div>
-                <div><span className="block text-ink font-medium">Required</span>{selected.required_template_variables.join(", ") || "None"}</div>
-              </div>
-              <textarea className="mt-4 flex-1 min-h-[180px] w-full resize-none rounded-lg border border-line bg-paper p-3 font-mono text-[12px] leading-relaxed text-ink outline-none focus:border-accent" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false} />
-              <div className="mt-3 flex items-center gap-2"><button className={BTN_BORDERED} onClick={resetDraft} disabled={!selected || draft === systemOriginal}>Reset to system original</button><button className={BTN_ACCENT + " ml-auto"} onClick={() => void save()} disabled={!dirty || saving}>{saving ? "Saving…" : "Save Prompt"}</button></div>
-            </>
-          ) : <div className="text-[12px] text-muted">Select a Prompt to inspect it.</div>}
-        </div>
+      <div className="mb-4 flex w-full items-center gap-1 overflow-x-auto py-0.5">
+        {PROMPT_WORKFLOW_FILTERS.map(({ value, label }) => {
+          const active = workflowFilter === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              className={
+                "shrink-0 rounded-md px-3 py-1.5 text-[12px] transition-colors duration-150 " +
+                (active ? "bg-accentSoft font-medium text-accent" : "text-muted hover:bg-panel hover:text-ink")
+              }
+              onClick={() => setWorkflowFilter(value)}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
-    </section>
-  );
-}
-
-// -- Voice input: deliberate model provisioning + compatibility + microphone test (§37) --------
-const voiceError = (error: unknown) =>
-  error instanceof Error ? error.message : typeof error === "string" ? error : "Voice Input could not complete that action.";
-
-const formatBytes = (bytes: number) => {
-  if (!bytes) return "0 MiB";
-  return `${Math.round(bytes / 1024 / 1024)} MiB`;
-};
-
-function VoiceInputSection() {
-  const [status, setStatus] = useState<DictationStatus | null>(null);
-  const [progress, setProgress] = useState<DictationDownloadProgress | null>(null);
-  const [phase, setPhase] = useState<"idle" | "downloading" | "verifying" | "testing" | "transcribing">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [testTranscript, setTestTranscript] = useState("");
-  const desktop = isTauri();
-
-  const publish = (next: DictationStatus) => {
-    setStatus(next);
-    window.dispatchEvent(new CustomEvent("coworker:voice-input-changed", { detail: next }));
-  };
-
-  useEffect(() => {
-    if (!desktop) return;
-    let active = true;
-    let unlisten = () => {};
-    void listenDictationDownloadProgress((next) => {
-      if (active) setProgress(next);
-    }).then((stop) => {
-      unlisten = stop;
-    });
-    void getDictationStatus().then(async (initial) => {
-      if (!active || !initial) return;
-      publish(initial);
-      // One-time migration for models installed by the first STT cut, before verification markers.
-      if (initial.model_installed && !initial.model_verified) {
-        setPhase("verifying");
-        try {
-          const verified = await verifyDictationModel();
-          if (active) publish(verified);
-        } catch (verifyError) {
-          if (active) setError(voiceError(verifyError));
-        } finally {
-          if (active) setPhase("idle");
-        }
-      }
-    });
-    return () => {
-      active = false;
-      unlisten();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [desktop]);
-
-  const download = async () => {
-    setError(null);
-    setProgress({ downloaded_bytes: 0, total_bytes: status?.model_bytes || 0 });
-    setPhase("downloading");
-    try {
-      publish(await downloadDictationModel());
-    } catch (downloadError) {
-      setError(voiceError(downloadError));
-      const latest = await getDictationStatus();
-      if (latest) publish(latest);
-    } finally {
-      setPhase("idle");
-    }
-  };
-
-  const cancelDownload = async () => {
-    await cancelDictationModelDownload().catch(() => undefined);
-  };
-
-  const repair = async () => {
-    setError(null);
-    try {
-      publish(await deleteDictationModel());
-      await download();
-    } catch (repairError) {
-      setError(voiceError(repairError));
-    }
-  };
-
-  const remove = async () => {
-    if (!window.confirm("Delete the local Whisper model and disable Voice Input?")) return;
-    setError(null);
-    try {
-      publish(await deleteDictationModel());
-      setTestTranscript("");
-      setProgress(null);
-    } catch (deleteError) {
-      setError(voiceError(deleteError));
-    }
-  };
-
-  const toggleTest = async () => {
-    if (!status?.supported || !status.model_verified) return;
-    setError(null);
-    try {
-      if (status.recording) {
-        setPhase("transcribing");
-        const transcript = (await stopDictation()).trim();
-        setTestTranscript(transcript);
-        if (!transcript) throw new Error("No speech was detected. Try again and speak for a little longer.");
-        publish(await markDictationTestPassed());
-      } else {
-        setTestTranscript("");
-        setPhase("testing");
-        publish(await startDictation());
-      }
-    } catch (testError) {
-      setError(voiceError(testError));
-      const latest = await getDictationStatus();
-      if (latest) publish(latest);
-    } finally {
-      setPhase("idle");
-    }
-  };
-
-  const downloading = phase === "downloading" || !!status?.download_in_progress;
-  const progressTotal = progress?.total_bytes || status?.model_bytes || 1;
-  const progressPercent = Math.min(100, Math.round(((progress?.downloaded_bytes || 0) / progressTotal) * 100));
-  const ready = !!status?.supported && !!status?.model_verified && !!status?.test_passed;
-
-  return (
-    <section>
-      <PanelHead
-        title="Voice input"
-        sub="Speak naturally in the composer. Recordings and transcripts stay on this device."
-      />
-
-      {!desktop ? (
-        <div className={CARD + " p-4 text-[13px] text-muted"}>Voice Input setup is available in the OpenWorker desktop app.</div>
-      ) : (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-green-200 bg-green-50/70 px-4 py-3 text-[12.5px] text-green-800">
-            <span className="font-medium">Private by design.</span> Audio is held in memory only while you record and is transcribed locally.
-          </div>
-
-          <div className={CARD}>
-            <div className="p-4 flex items-start gap-3">
-              <Icon name="code" size={18} className="text-accent mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">This device</div>
-                <div className="text-[12px] text-muted mt-1">{status?.device_summary || "Checking compatibility…"}</div>
-                {status?.compatibility_reason && <div className="text-[12px] text-red-600 mt-1.5">{status.compatibility_reason}</div>}
-              </div>
-              {status && (
-                <span className={"text-[11.5px] px-2 py-1 rounded-full " + (status.supported ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600")}>
-                  {status.supported ? "● Compatible" : "Unsupported"}
-                </span>
-              )}
+      <div className="grid min-h-0 flex-1 items-stretch gap-8 grid-cols-[minmax(0,1.32fr)_minmax(360px,0.68fr)]">
+        <section className="min-h-0 min-w-0 flex flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden border-y border-ink">
+            <div className="grid min-h-11 grid-cols-[minmax(220px,2.4fr)_minmax(125px,1.1fr)_minmax(115px,0.9fr)] items-center gap-x-4 border-b border-ink px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+              <span>Prompt ({prompts.length})</span>
+              <span>Workflow</span>
+              <span>Invocation</span>
             </div>
-            <div className="border-t border-line bg-paper/50 px-4 py-3 grid grid-cols-2 gap-3 text-[12px] text-muted">
-              <div><span className="block text-ink font-medium">Mac</span>macOS 12+ · Apple Silicon M1+</div>
-              <div><span className="block text-ink font-medium">Windows</span>Windows 10 22H2/11 · x64</div>
-              <div><span className="block text-ink font-medium">Memory</span>8 GB recommended</div>
-              <div><span className="block text-ink font-medium">Processor</span>4 CPU cores recommended</div>
-            </div>
-          </div>
-
-          <div className={CARD}>
-            <div className="p-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center font-semibold">W</div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">Whisper Base · English</div>
-                <div className="text-[12px] text-muted mt-0.5">
-                  {status?.model_verified ? `Installed and verified · ${formatBytes(status.model_bytes)}` : `Local voice model · ${formatBytes(status?.model_bytes || 147_964_211)}`}
-                </div>
-              </div>
-              {status?.model_verified ? (
-                <>
-                  <span className="text-[11.5px] px-2 py-1 rounded-full bg-green-50 text-green-700">Verified</span>
-                  <button className={BTN_BORDERED} onClick={() => void repair()}>Repair</button>
-                  <button className="text-[12px] text-red-600 px-2 py-2" onClick={() => void remove()}>Delete</button>
-                </>
-              ) : downloading ? (
-                <button className={BTN_BORDERED} onClick={() => void cancelDownload()}>Cancel</button>
-              ) : phase === "verifying" ? (
-                <span className="text-[12px] text-muted">Verifying…</span>
-              ) : (
-                <button className={BTN_ACCENT} disabled={!status?.supported} onClick={() => void download()}>Download model</button>
-              )}
-            </div>
-            {downloading && (
-              <div className="border-t border-line px-4 py-3">
-                <div className="h-1.5 rounded-full bg-line overflow-hidden"><div className="h-full bg-accent transition-all" style={{ width: `${progressPercent}%` }} /></div>
-                <div className="mt-1.5 text-[11.5px] text-muted flex"><span>{formatBytes(progress?.downloaded_bytes || 0)} of {formatBytes(progressTotal)}</span><span className="ml-auto">{progressPercent}%</span></div>
-              </div>
+            {filtered.length > 0 ? (
+              filtered.map((prompt, index) => {
+                const isSelected = selectedId === prompt.id;
+                return (
+                  <button
+                    key={prompt.id}
+                    type="button"
+                    onClick={() => void selectPrompt(prompt)}
+                    className={
+                      "relative grid min-h-[72px] w-full grid-cols-[minmax(220px,2.4fr)_minmax(125px,1.1fr)_minmax(115px,0.9fr)] items-center gap-x-4 border-t border-line border-l-2 px-1 text-left text-ink transition-[background-color,transform] duration-[160ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-safe:hover:translate-x-[3px] motion-reduce:transition-none motion-reduce:hover:translate-x-0 " +
+                      (isSelected
+                        ? "border-l-accent bg-accentSoft"
+                        : "border-l-transparent hover:bg-panel/60")
+                    }
+                  >
+                    <span className="flex min-w-0 items-center gap-3 pl-1">
+                      <span className="w-6 shrink-0 font-mono text-[10px] text-faint">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[12px] font-semibold text-ink">{prompt.name}</span>
+                        <span className="mt-1 block truncate font-mono text-[10px] text-faint">{prompt.id}</span>
+                      </span>
+                    </span>
+                    <span className="min-w-0 text-[11px] text-muted">
+                      <span className="block truncate font-medium text-ink">{promptWorkflowLabel(prompt.workflow)}</span>
+                      <span className="mt-1 block truncate text-[10px] text-faint">{prompt.stage}</span>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="inline-flex max-w-full items-center truncate rounded-full border border-lineStrong px-2 py-1 text-[10px] leading-none text-muted">
+                        {prompt.invocation_type}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-1 py-9 text-[12px] text-muted">No prompts match this search.</div>
             )}
           </div>
-
-          <div className={CARD}>
-            <div className="p-4 flex items-center gap-3">
-              <Icon name="mic" size={18} className={ready ? "text-green-600" : "text-muted"} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13.5px] font-medium">Microphone test</div>
-                <div className="text-[12px] text-muted mt-0.5">
-                  {ready ? "Your microphone and local transcription engine are working." : "Record a short phrase to enable the composer microphone."}
+        </section>
+        <aside className="min-h-0 min-w-0 flex flex-col border-y border-ink">
+          <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-line bg-panel p-4">
+            {selected ? (
+              <>
+                <div className="flex min-w-0 items-start justify-between gap-3 border-b border-line pb-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-[15px] font-medium tracking-[-0.02em] text-ink">{selected.name}</h3>
+                    <div className="mt-1 truncate font-mono text-[11px] text-faint">{selected.id}</div>
+                  </div>
+                  {dirty && <span className="shrink-0 text-[11px] font-medium text-accent">Unsaved</span>}
                 </div>
-              </div>
-              {ready && <span className="text-[11.5px] px-2 py-1 rounded-full bg-green-50 text-green-700">● Ready</span>}
-              <button className={BTN_BORDERED} disabled={!status?.supported || !status?.model_verified || phase === "transcribing"} onClick={() => void toggleTest()}>
-                {status?.recording ? "Stop and check" : phase === "transcribing" ? "Transcribing…" : ready ? "Test again" : "Test microphone"}
-              </button>
-            </div>
-            {status?.recording && <div className="border-t border-line px-4 py-3 text-[12px] text-accent" role="status">● Listening… speak a short phrase, then stop.</div>}
-            {testTranscript && <div className="border-t border-line bg-paper/50 px-4 py-3 text-[13px]">“{testTranscript}”</div>}
+                <textarea
+                  className="mt-3 min-h-[220px] min-w-0 flex-1 resize-none border-0 bg-transparent p-0 font-mono text-[12px] leading-[1.65] text-ink outline-none focus:ring-0"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  spellCheck={false}
+                />
+              </>
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-[12px] text-muted">Select a Prompt to inspect it.</div>
+            )}
           </div>
-
-          {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] text-red-700">{error}</div>}
-        </div>
-      )}
+          <div className="mt-3 flex items-center gap-2 pb-1">
+            <button
+              className={BTN_BORDERED + " disabled:cursor-not-allowed disabled:opacity-40"}
+              onClick={resetDraft}
+              disabled={!selected || draft === systemOriginal}
+            >
+              Reset original
+            </button>
+            <button
+              className={BTN_ACCENT + " ml-auto"}
+              onClick={() => void save()}
+              disabled={!dirty || saving}
+            >
+              Save changes
+            </button>
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }

@@ -1,23 +1,23 @@
-You are an expert academic reviewer. Read the following paper text and analyze its references.
-Your goal is to categorize the provided references into two priorities:
-- P0 (Must-Have): Core citations strictly necessary for the paper. These MUST include:
-    * Baselines directly compared against in experiments
-    * Datasets the paper utilizes or evaluates on
-    * Core methods the paper is directly building upon or modifying
-    * Metrics or standard numbers heavily relied upon and cited from another paper
-- P1 (Good-To-Have): Supplemental citations. These include:
-    * Standard background references covering broad history
-    * General related work that is not directly competing or built-upon
-    * Minor implementations or utility tools mentioned in passing
+你是一名学术评审专家。阅读以下论文文本并分析其参考文献。
+你的目标是将提供的参考文献分为两个优先级：
+- P0（必需）：论文严格必需的核心引用。这些**必须**包括：
+    * 实验中直接进行比较的基线
+    * 论文使用或评估的数据集
+    * 论文直接建立于其上或加以修改的核心方法
+    * 大量依赖且引用自另一篇论文的指标或标准数值
+- P1（推荐）：补充性引用。包括：
+    * 涵盖广泛历史的标准背景参考文献
+    * 并非直接竞争对象或基础的通用相关工作
+    * 顺带提及的次要实现或实用工具
 
-PAPER TEXT:
+论文文本：
 {paper_text}
 
-REFERENCES LIST:
+参考文献列表：
 {references_str}
 
-Please return ONLY a JSON dictionary where the keys are the exact reference numbers (e.g., "1", "2") and the values are either "P0" or "P1".
-Example output:
+请**仅**返回一个 JSON 字典：键为精确的参考文献编号（例如 "1"、"2"），值只能是 "P0" 或 "P1"。
+示例输出：
 
 ```json
 {{

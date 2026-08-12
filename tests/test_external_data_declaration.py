@@ -42,6 +42,7 @@ class GenerationExternalDataDeclarationTest(unittest.IsolatedAsyncioTestCase):
                         "requires_external_data": True,
                         "external_data_request": "Water and salt permeability by salinity and temperature.",
                         "external_data_reason": "",
+                        "external_data_route": "public_web",
                     },
                     {
                         "text": "Compare two existing analytical models.",
@@ -49,6 +50,7 @@ class GenerationExternalDataDeclarationTest(unittest.IsolatedAsyncioTestCase):
                         "requires_external_data": False,
                         "external_data_request": "",
                         "external_data_reason": "The idea is evaluated from the supplied analytical models.",
+                        "external_data_route": "none",
                     },
                 ],
                 "reasoning": "Generated two distinct candidates.",
@@ -76,6 +78,7 @@ class GenerationExternalDataDeclarationTest(unittest.IsolatedAsyncioTestCase):
         hypotheses = result["hypotheses"]
         self.assertEqual(hypotheses[0]["requires_external_data"], True)
         self.assertIn("salinity", hypotheses[0]["external_data_request"])
+        self.assertEqual(hypotheses[0]["external_data_route"], "public_web")
         self.assertEqual(hypotheses[1]["requires_external_data"], False)
         self.assertTrue(hypotheses[1]["external_data_reason"])
 
@@ -88,9 +91,10 @@ class GenerationExternalDataDeclarationTest(unittest.IsolatedAsyncioTestCase):
                 "requires_external_data",
                 "external_data_request",
                 "external_data_reason",
+                "external_data_route",
             },
         )
-        self.assertIn("external-data", model.system_prompts[0].lower())
+        self.assertIn("external_data_route", model.system_prompts[0])
 
     async def test_invalid_declaration_closes_gate_with_reason(self) -> None:
         model = _StructuredModel(
@@ -281,6 +285,48 @@ class OrchestrationExternalDataGateTest(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertFalse(self.orchestrator.should_acquire_external_data(invalid))
         self.assertTrue(invalid.external_data_reason)
+
+    async def test_evolved_idea_preserves_its_parent_public_data_route(self) -> None:
+        parent = Idea(
+            id="idea-1",
+            text="Assess GenAI labor-market effects.",
+            requires_external_data=True,
+            external_data_request="BLS employment projections by SOC occupation.",
+            external_data_route="public_web",
+        )
+        session = WorkflowSession(
+            id="session-1",
+            task=Task(
+                id="task-1",
+                description="Study GenAI labor-market effects.",
+                domain="labor economics",
+            ),
+            ideas=[parent],
+        )
+        evolution = SimpleNamespace(
+            execute=AsyncMock(
+                return_value={
+                    "evolved_hypotheses": [
+                        {
+                            "text": "Refined labor-market effect model.",
+                            "rationale": "Addresses the identification critique.",
+                        }
+                    ]
+                }
+            )
+        )
+        self.orchestrator._get_agent = Mock(return_value=evolution)
+        self.orchestrator._update_session_state = AsyncMock()
+
+        await self.orchestrator._run_evolution_phase(session)
+
+        evolved = next(idea for idea in session.ideas if idea.parent_id == parent.id)
+        self.assertTrue(evolved.requires_external_data)
+        self.assertEqual(evolved.external_data_route, "public_web")
+        self.assertEqual(
+            evolved.external_data_request,
+            "BLS employment projections by SOC occupation.",
+        )
 
 
 if __name__ == "__main__":

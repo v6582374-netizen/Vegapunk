@@ -8,7 +8,14 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UPSTREAM="$ROOT/desktop/openworker/upstream"
 GUI_DIR="$UPSTREAM/surfaces/gui"
-SIDECAR_BIN="$UPSTREAM/.venv/bin/openworker-server"
+# Prefer the Python 3.11 runtime provisioned from the complete project
+# dependency set.  Keep an explicit override and a legacy fallback so a clean
+# checkout can still report the normal missing-environment error.
+RUNTIME_VENV="${VEGAPUNK_VENV:-$UPSTREAM/.venv311}"
+if [[ ! -x "$RUNTIME_VENV/bin/openworker-server" ]]; then
+  RUNTIME_VENV="$UPSTREAM/.venv"
+fi
+SIDECAR_BIN="$RUNTIME_VENV/bin/openworker-server"
 GUI_DIST="$GUI_DIR/dist"
 SIDECAR_URL="http://127.0.0.1:8765"
 PREVIEW_URL="http://127.0.0.1:1420"

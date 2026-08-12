@@ -1,38 +1,38 @@
-Your goal is to reproduce the findings from a scientific paper by implementing the following approach.
+你的目标是通过实现以下方法复现一篇科学论文的研究发现。
 
-## Reproduction Approach
+## 复现方法
 {idea_description}
 
-## Proposed Method
+## 所提方法
 {method}
 
-## Research Task
+## 研究任务
 {task_description}
 
-## Available Data
+## 可用数据
 {data_manifest}
 
-## Evaluation Criteria (Checklist)
-Your work will be scored on {checklist_count} criteria:
+## 评估标准（检查清单）
+你的工作将按 {checklist_count} 项标准评分：
 {checklist_summary}
 
-## Workspace Layout
-- Write analysis code in `code/experiment.py` (and helper modules in `code/`)
-- Save intermediate outputs (data files, CSV, etc.) in `outputs/`
-- Write your final report as `report/report.md` — this is REQUIRED and will be scored
-- Save ALL generated figures in `report/images/`
-- Reference papers are in `related_work/`
-- Raw data is in `data/`
+## 工作区布局
+- 在 `code/experiment.py` 中编写分析代码（辅助模块放在 `code/` 中）
+- 将中间输出（数据文件、CSV 等）保存到 `outputs/`
+- 将最终报告写入 `report/report.md`——**这是必需项，且将被评分**
+- 将所有生成图表保存到 `report/images/`
+- 参考论文位于 `related_work/`
+- 原始数据位于 `data/`
 
-## Execution
-You have up to {max_runs} runs. Each run executes `bash launcher.sh` from the workspace directory.
-Do NOT modify `launcher.sh`.
+## 执行
+你最多可运行 {max_runs} 次。每次运行都将在工作区目录中执行 `bash launcher.sh`。
+不得修改 `launcher.sh`。
 
-## Requirements
-1. Implement a complete, runnable `code/experiment.py` that reproduces the findings
-2. Paths should be relative to the workspace root (e.g., `data/filename.dat`, `outputs/result.csv`)
-3. Your `report/report.md` MUST describe all results quantitatively and reference generated figures
-4. Each generated figure must be saved to `report/images/` and referenced in the report
-5. Focus on the checklist criteria — they specify exactly what must be reproduced
+## 要求
+1. 实现一个完整、可运行的 `code/experiment.py` 来复现研究发现
+2. 路径应相对于工作区根目录（例如 `data/filename.dat`、`outputs/result.csv`）
+3. `report/report.md` **必须**定量描述所有结果，并引用生成的图表
+4. 每张生成图表必须保存到 `report/images/` 并在报告中引用
+5. 聚焦检查清单标准——它们准确规定了必须复现的内容
 
-Any modifications to argparse parameters **must set improved implementations as defaults**.
+对 argparse 参数的任何改动**必须将改进后的实现设为默认值**。

@@ -1,18 +1,18 @@
-Run {RUN_NUM} completed. Here are the results:
+第 {RUN_NUM} 次运行已完成。结果如下：
 {RESULTS}
 
-Based on these results:
-1. Analyze what worked and what didn't work in your approach.
-2. Compare the current run with previous runs and baseline.
-3. Decide if you need to re-plan your experiments or continue with your current strategy.
-4. If continuing, implement the next improvement on your list.
-5. If re-planning, explain why and outline your new approach.
+请根据这些结果：
+1. 分析你的方法中哪些有效、哪些无效。
+2. 将当前运行与先前运行及基线进行比较。
+3. 决定是否需要重新规划实验，或继续当前策略。
+4. 若继续，实施清单中的下一项改进。
+5. 若重新规划，说明原因并概述新方法。
 
-We will run the command `bash launcher.sh {NEXT_RUN_NUM}` to execute your next experiment.
-YOUR PROPOSED CHANGE MUST USE THIS COMMAND FORMAT, DO NOT ADD ADDITIONAL COMMAND LINE ARGS.
+我们将运行命令 `bash launcher.sh {NEXT_RUN_NUM}` 执行下一次实验。
+你提出的改动**必须**使用此命令格式，**不得**添加额外命令行参数。
 
-If you believe you have completed all necessary experiments and found the optimal solution, respond with 'ALL_COMPLETED'.
+如果你认为已完成所有必要实验并找到了最优解，请回复 'ALL_COMPLETED'。
 
-You don't have to follow the initial approach exactly, feel free to suggest additional optimizations if you think there are better improvements. Our ultimate goal is to improve the performance of the optimization algorithm, not to limit our vision to the initial method, but to analyze, optimize, and improve according to the phenomenon.
-**It's important to make sure that all of your proposed changes are already directly performed in {code_server_path}, don't just say it and leave it there. And do not care about files in {code_server_path}/run_xxx/, because they are only versions of a certain time.**
-Make sure that your toggle Settings, such as True /False, are aligned with what you've modified by default, and that you don't need to do any extra toggle control on launcher.sh.
+你不必严格遵循初始方法；如果认为存在更好的改进，可以自由提出额外优化。我们的最终目标是提升优化算法性能，而非将视野限制于初始方法；应根据现象分析、优化和改进。
+**重要：确保你提出的所有改动都已直接在 {code_server_path} 中执行，不要只提出而不落实。不要关注 {code_server_path}/run_xxx/ 中的文件，因为它们只是某一时刻的版本。**
+确保你的开关设置（例如 True / False）与默认修改保持一致，并且无需在 launcher.sh 中进行额外开关控制。

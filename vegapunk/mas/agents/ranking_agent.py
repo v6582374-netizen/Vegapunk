@@ -342,30 +342,30 @@ class RankingAgent(BaseAgent):
         constraints = goal.get("constraints", [])
         
         # Build the prompt
-        prompt = f"# Research Goal\n{goal_description}\n\n"
+        prompt = f"# 研究目标\n{goal_description}\n\n"
         
         # Add domain if available
         if domain:
-            prompt += f"# Domain\n{domain}\n\n"
+            prompt += f"# 领域\n{domain}\n\n"
             
         # Add constraints if available
         if constraints:
-            prompt += "# Constraints\n"
+            prompt += "# 约束条件\n"
             for constraint in constraints:
                 prompt += f"- {constraint}\n"
             prompt += "\n"
             
         # Add evaluation criteria
-        prompt += "# Evaluation Criteria\n"
+        prompt += "# 评估标准\n"
         for criterion, details in criteria.items():
             description = details.get("description", "")
             weight = details.get("weight", 0.0)
-            prompt += f"- {criterion.upper()} (weight: {weight:.2f}): {description}\n"
+            prompt += f"- {criterion.upper()}（权重：{weight:.2f}）：{description}\n"
         prompt += "\n"
         
         # Add recent feedback if available
         if feedback:
-            prompt += "# Scientist Feedback\n"
+            prompt += "# 科学家反馈\n"
             recent_feedback = sorted(
                 feedback, 
                 key=lambda x: x.get("iteration", 0),
@@ -377,30 +377,30 @@ class RankingAgent(BaseAgent):
                 feedback_iter = entry.get("iteration", 0)
                 
                 if feedback_text:
-                    prompt += f"From iteration {feedback_iter}: {feedback_text}\n\n"
+                    prompt += f"来自第 {feedback_iter} 轮：{feedback_text}\n\n"
         
         # Add the hypotheses to evaluate
-        prompt += "# Hypotheses to Evaluate\n"
+        prompt += "# 待评估假设\n"
         for i, hypothesis in enumerate(hypotheses, 1):
             hyp_id = hypothesis.get("id", f"hyp{i}")
             text = hypothesis.get("text", "")
             rationale = hypothesis.get("rationale", "")
             
-            prompt += f"\n## Hypothesis {i} [ID: {hyp_id}]\n"
-            prompt += f"Text: {text}\n"
+            prompt += f"\n## 假设 {i} [ID: {hyp_id}]\n"
+            prompt += f"文本：{text}\n"
             if rationale:
-                prompt += f"Rationale: {rationale}\n"
+                prompt += f"理由：{rationale}\n"
                 
         # Add task description
-        prompt += "\n# Task\n"
-        prompt += "Evaluate each hypothesis according to the criteria provided. For each hypothesis:\n"
-        prompt += "1. Assign a score from 0.0 to 10.0 for each criterion\n"
-        prompt += "2. Calculate a weighted overall score based on the criterion weights\n"
-        prompt += "3. Provide a brief rationale for the scores\n"
-        prompt += "Ensure consistent and fair evaluation across all hypotheses."
+        prompt += "\n# 任务\n"
+        prompt += "根据提供的标准评估每个假设。对每个假设：\n"
+        prompt += "1. 为每项标准赋予 0.0 至 10.0 的分数\n"
+        prompt += "2. 根据标准权重计算加权总分\n"
+        prompt += "3. 为评分提供简短理由\n"
+        prompt += "确保对所有假设进行一致且公平的评估。"
         
         if iteration > 0:
-            prompt += f"\nThis is iteration {iteration}, so consider how the hypotheses have evolved and improved."
+            prompt += f"\n这是第 {iteration} 轮，因此请考虑这些假设如何演化和改进。"
         
         return prompt
     

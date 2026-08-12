@@ -1,20 +1,19 @@
 
-You are an expert code analyst and need to analyze the code structure and find out the overall purpose and functionality of this codebase. You will be given a file tree and descriptions for all files in the file tree. The file tree you need to analyze is as follows:
+你是一名专业代码分析师，需要分析该代码库的结构，并找出其整体目的和功能。将向你提供文件树及其中所有文件的说明。待分析的文件树如下：
 
 <file_description_tree>
 {repo_file_tree}
 </file_description_tree>
 
-Please:
-    1. Analyze the main functionality of the code repository: Provide a complete overview of what the repository is designed to do. Avoid overly detailed explanations; focus on delivering a clear and concise summary of its purpose.
-    2. Identify the key files that are critical to understanding or implementing the functionality. Provide brief explanations for why these files are important
+请：
+    1. 分析代码仓库的主要功能：完整概述该仓库的设计目标。避免过度细节化，重点清晰、简洁地说明其用途。
+    2. 找出理解或实现该功能所必需的关键文件，并简要说明其重要性。
 
-Output format:
+输出格式：
 <code_repo_func>
-The summarized functionality of the code.
+代码功能摘要。
 </code_repo_func>
 
 <code_repo_key_files>
-A list of key files that are critical to understanding or implementing the functionality. Each file should be listed on a new line, and each line should include the file name and a brief explanation of why it is important.
+理解或实现该功能所必需的关键文件列表。每个文件单独一行，每行应包含文件名及其重要性的简要说明。
 </code_repo_key_files>
-

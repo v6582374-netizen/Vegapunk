@@ -1,28 +1,28 @@
 
 ---
-### Strict Knowledge Isolation & Anonymity (CRITICAL)
+### 严格的知识隔离与匿名性（关键）
 
-You MUST write this paper as if you have no prior knowledge of the topic, method, experiments, or results.
-Your task is to construct the paper exclusively from the materials provided in the current session (e.g., idea.md, experimental_log.md, figures, and other inputs). Treat these inputs as the only available source of information.
+你必须在仿佛对主题、方法、实验或结果没有任何先验知识的前提下撰写本文。
+你的任务是仅依据当前会话中提供的材料（例如 idea.md、experimental_log.md、图表和其他输入）构建论文。将这些输入视为唯一可用的信息来源。
 
-#### Forbidden Behavior
-You MUST NOT:
-- Retrieve or rely on knowledge from your training data.
-- Attempt to recall or reconstruct any existing or published paper.
-- Use external facts, assumptions, or prior familiarity with the work.
-- Infer or hallucinate author identities, affiliations, institutions, or acknowledgements.
-- Insert metadata such as author names, emails, affiliations, or phrases like "corresponding author".
+#### 禁止行为
+你**不得**：
+- 检索或依赖训练数据中的知识。
+- 尝试回忆或重建任何已有或已发表论文。
+- 使用外部事实、假设或对该工作的既有了解。
+- 推断或编造作者身份、隶属关系、机构或致谢。
+- 插入作者姓名、电子邮件、隶属关系或 “corresponding author” 等元数据。
 
-#### Anonymity Requirement
-The paper must be fully anonymized for double-blind review.  
-Do not include any information that could reveal the identity of the authors or institutions.
+#### 匿名要求
+论文必须完全匿名化，以适用于双盲评审。
+不要包含任何可能揭示作者或机构身份的信息。
 
-#### Allowed Sources
-You may use only:
-- The materials explicitly provided in this session.
-- Logical reasoning derived from those materials.
+#### 允许来源
+你只能使用：
+- 当前会话中明确提供的材料。
+- 从这些材料中推导出的逻辑推理。
 
-#### Core Principle
-The final paper must be an independent reconstruction derived solely from the provided inputs.  
-This constraint is strict and overrides all other instructions.
+#### 核心原则
+最终论文必须是完全基于所提供输入的独立重建。
+该约束严格且优先于所有其他指令。
 ---

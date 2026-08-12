@@ -13,6 +13,7 @@ from vegapunk.mas.memory.memory_manager import InMemoryMemoryManager
 from vegapunk.mas.workflow.data_type import Idea, Task, WorkflowSession, WorkflowState
 from vegapunk.mas.workflow.external_data import MANIFEST_FILENAME
 from vegapunk.mas.workflow.orchestration_agent import OrchestrationAgent
+from vegapunk.prompt_library import prompts
 
 
 API_REGISTRY = [
@@ -37,6 +38,65 @@ class _GateRunner:
 
 
 class WebEvidenceAgentTest(unittest.IsolatedAsyncioTestCase):
+    async def test_external_data_agents_render_their_library_entries(self) -> None:
+        connector_runner = _GateRunner(
+            json.dumps({"coverage_feedback": "", "open_web_evidence_gate": True})
+        )
+        web_runner = _GateRunner("Supplementary evidence saved.")
+        idea = {"id": "idea-1"}
+        goal = {"description": "Study membrane transport."}
+        request = "Water permeability by salinity."
+        feedback = "Partial coverage: no salt measurements."
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            connector = ConnectorAgent(
+                SimpleNamespace(), {"runner_factory": lambda: connector_runner}
+            )
+            web_evidence = WebEvidenceAgent(
+                SimpleNamespace(), {"runner_factory": lambda: web_runner}
+            )
+            connector_context = {
+                "external_data_request": request,
+                "api_registry": API_REGISTRY,
+                "idea_data_workspace": temporary_directory,
+                "hypothesis": idea,
+                "goal": goal,
+            }
+            await connector.execute(connector_context, {})
+            await web_evidence.execute(
+                {**connector_context, "connector_coverage_feedback": feedback}, {}
+            )
+
+            self.assertEqual(
+                connector_runner.calls[0][0],
+                prompts.render(
+                    "external_data.connector",
+                    request=request,
+                    registry=json.dumps(
+                        ConnectorAgent._skill_like_registry(API_REGISTRY),
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    idea=json.dumps(idea, ensure_ascii=False, indent=2),
+                    goal=json.dumps(goal, ensure_ascii=False, indent=2),
+                    workspace=temporary_directory,
+                    manifest_filename=MANIFEST_FILENAME,
+                ),
+            )
+            self.assertEqual(
+                web_runner.calls[0][0],
+                prompts.render(
+                    "external_data.web_evidence",
+                    request=request,
+                    connector_feedback=feedback,
+                    registry=json.dumps(API_REGISTRY, ensure_ascii=False, indent=2),
+                    idea=json.dumps(idea, ensure_ascii=False, indent=2),
+                    goal=json.dumps(goal, ensure_ascii=False, indent=2),
+                    workspace=temporary_directory,
+                    manifest_filename=MANIFEST_FILENAME,
+                ),
+            )
+
     async def test_connector_preserves_empty_coverage_and_opens_its_own_gate(self) -> None:
         runner = _GateRunner(
             json.dumps(
@@ -112,7 +172,11 @@ class WebEvidenceAgentTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Partial coverage: no salt measurements.", prompt)
             self.assertIn("NREL", prompt)
             self.assertIn("Continue research freely", prompt)
-            self.assertIn("additional Connector-specific search restrictions", prompt)
+            self.assertIn(
+                "Continue research freely without applying Connector-specific search",
+                prompt,
+            )
+            self.assertIn("restrictions: prefer authoritative public sources", prompt)
 
 
 class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
@@ -123,6 +187,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 text="Measure membrane transport.",
                 requires_external_data=True,
                 external_data_request="Water and salt permeability by salinity.",
+                external_data_route="registered_api",
             )
             session = WorkflowSession(
                 id="session-1",
@@ -213,6 +278,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 text="Measure membrane transport.",
                 requires_external_data=True,
                 external_data_request="Water permeability by salinity.",
+                external_data_route="registered_api",
             )
             session = WorkflowSession(
                 id="session-1",

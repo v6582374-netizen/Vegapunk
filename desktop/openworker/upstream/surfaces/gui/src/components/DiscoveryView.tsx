@@ -155,12 +155,6 @@ const EMPTY_CONVERSION: DiscoveryConversionState = {
 
 const CONVERSION_STATUSES = ["pending", "editing", "saved", "dirty", "failed"] as const;
 
-function isSurfaceHierarchyMa(): boolean {
-  if (typeof window === "undefined") return true;
-  const preview = new URLSearchParams(window.location.search).get("preview");
-  return preview === null || preview === "surface-hierarchy-ma";
-}
-
 function normalizePreparation(raw: DiscoveryPreparation | { status?: string }): DiscoveryPreparation {
   const candidate = raw as Partial<DiscoveryPreparation>;
   const conversion = candidate.conversion as Partial<DiscoveryConversionState> | undefined;
@@ -173,7 +167,12 @@ function normalizePreparation(raw: DiscoveryPreparation | { status?: string }): 
     dirty: candidate.dirty ?? false,
     draft: candidate.draft ?? EMPTY_CONTENT,
     saved: candidate.saved ?? EMPTY_CONTENT,
-    revisions: Array.isArray(candidate.revisions) ? candidate.revisions : [],
+    revisions: Array.isArray(candidate.revisions)
+      ? candidate.revisions.map((revision) => ({
+          ...revision,
+          execution_input: normalizeExecutionInput(revision.execution_input),
+        }))
+      : [],
     conversion: {
       ...EMPTY_CONVERSION,
       ...conversion,
@@ -194,6 +193,8 @@ function normalizeExecutionInput(raw: unknown): DiscoveryExecutionInput | undefi
     domain: String(candidate.domain ?? ""),
     background: String(candidate.background ?? ""),
     constraints,
+    // Legacy Web revisions omitted the branch and were materialized as sci.
+    task_type: candidate.task_type === "auto" ? "auto" : "sci",
   };
 }
 
@@ -332,22 +333,6 @@ function checkpointArtifactRows(
     );
   }
   return definition.artifacts;
-}
-
-function checkpointPreviewRows(
-  definition: (typeof HUMAN_REVIEW_CHECKPOINTS)[number],
-  status: DiscoveryLaunchStatus | null,
-): Array<[string, string]> {
-  const checkpoint = status?.checkpoint;
-  if (!checkpoint) return definition.preview;
-  if (checkpointKeyFromRecord(checkpoint) !== definition.key) return definition.preview;
-  const facts = checkpoint as DiscoveryCheckpoint & {
-    preview?: Array<{ label?: string; value?: string }>;
-  };
-  if (!Array.isArray(facts.preview)) return definition.preview;
-  return facts.preview
-    .map((fact): [string, string] => [String(fact.label ?? ""), String(fact.value ?? "")])
-    .filter(([label, value]) => Boolean(label && value));
 }
 
 function normalizeLaunchStatus(raw: DiscoveryLaunchStatus | DiscoverySnapshot): DiscoveryLaunchStatus | null {
@@ -725,57 +710,6 @@ function DiscoveryCheckpointStrip({
   );
 }
 
-function DiscoveryCheckpointPreview({
-  launch,
-  status,
-  selected,
-}: {
-  launch: DiscoveryLaunch | null;
-  status: DiscoveryLaunchStatus | null;
-  selected: DiscoveryCheckpointKey;
-}) {
-  const definition = HUMAN_REVIEW_CHECKPOINTS.find((checkpoint) => checkpoint.key === selected) ?? HUMAN_REVIEW_CHECKPOINTS[0];
-  const state = checkpointSlotState(definition.key, launch, status);
-  if (state === "locked") {
-    return (
-      <section className="discovery-checkpoint-preview discovery-prototype-panel is-empty" aria-label="Review bundle preview">
-        <span className="discovery-checkpoint-empty-mark" aria-hidden="true">—</span>
-        <div>
-          <h3>{launch ? "No review bundle yet" : "Awaiting first Launch"}</h3>
-          <p>
-            {launch
-              ? <>Reach <strong>{definition.label}</strong> to make its fixed artifacts available here.</>
-              : <>Start a Discovery run to populate the <strong>{definition.label}</strong> bundle.</>}
-          </p>
-        </div>
-      </section>
-    );
-  }
-  const facts = checkpointPreviewRows(definition, status);
-  const artifacts = checkpointArtifactRows(definition, launch, status);
-  return (
-    <section className="discovery-checkpoint-preview discovery-prototype-panel" aria-label="Review bundle preview">
-      <div className="discovery-checkpoint-preview-head">
-        <div>
-          <div className="discovery-checkpoint-eyebrow">Read-only artifact bundle</div>
-          <h3>{definition.label}</h3>
-        </div>
-        <span>{state === "active" ? "Current" : "Available"}</span>
-      </div>
-      <p className="discovery-checkpoint-preview-reason">{definition.reason}</p>
-      <div className="discovery-checkpoint-preview-facts">
-        {facts.map(([label, value]) => (
-          <div key={label}><span>{label}</span><strong>{value}</strong></div>
-        ))}
-      </div>
-      <div className="discovery-checkpoint-preview-foot">
-        <span>Launch-owned · immutable snapshot · no edits in v1</span>
-        <span>{artifacts.length} artifacts</span>
-      </div>
-    </section>
-  );
-}
-
 function prototypeLaunchCanResume(launch: DiscoveryLaunch): boolean {
   return (
     launch.state === "awaiting_review" ||
@@ -893,6 +827,14 @@ function PrototypeRuntimeDesk({
   onStop?: () => void;
   onResume?: () => void;
 }) {
+  const rawConsoleRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (rawOpen && rawConsoleRef.current) {
+      rawConsoleRef.current.scrollTop = rawConsoleRef.current.scrollHeight;
+    }
+  }, [rawLines, rawOpen]);
+
   if (!status && emptyState) {
     return (
       <div className="discovery-runtime-desk is-empty" aria-label="Runtime Desk" data-testid="runtime-desk">
@@ -918,7 +860,7 @@ function PrototypeRuntimeDesk({
           {rawOpen && (
             <div className="discovery-raw-console discovery-raw-console-in" aria-label="Raw Discovery Console">
               <div className="discovery-raw-console-head"><span>Raw Discovery Console</span><span>stdout + stderr</span></div>
-              <pre>Waiting for a Launch before runner.log output is available...</pre>
+              <pre ref={rawConsoleRef}>Waiting for a Launch before runner.log output is available...</pre>
             </div>
           )}
           <div className="discovery-runtime-footer">
@@ -983,7 +925,7 @@ function PrototypeRuntimeDesk({
         {rawOpen && (
           <div className="discovery-raw-console discovery-raw-console-in" aria-label="Raw Discovery Console">
             <div className="discovery-raw-console-head"><span>Raw Discovery Console</span><span>stdout + stderr</span></div>
-            <pre>{rawLines.length ? rawLines.join("") : "Waiting for durable runner.log output..."}</pre>
+            <pre ref={rawConsoleRef}>{rawLines.length ? rawLines.join("") : "Waiting for durable runner.log output..."}</pre>
             {rawError && <p role="alert">{rawError}</p>}
           </div>
         )}
@@ -1005,36 +947,6 @@ function PrototypeRuntimeDesk({
         <span><i className="is-pending" />Awaiting start</span>
       </div>
     </div>
-  );
-}
-
-function PrototypeProgressPanel({
-  status,
-  emptyState = false,
-}: {
-  status: DiscoveryLaunchStatus | null;
-  emptyState?: boolean;
-}) {
-  if (!status && !emptyState) return null;
-  const percent = status?.timeline.percent ?? 0;
-  const completed = status?.timeline.milestones.filter((milestone) => milestone.state === "completed").length ?? 0;
-  const total = status?.timeline.milestones.length ?? 0;
-  const stageLabel = prototypeLaunchStageLabel(status, status?.stage ?? "Preparation");
-  const awaitingReview = String(status?.state) === "awaiting_review";
-  return (
-    <section className="discovery-prototype-panel discovery-progress-panel discovery-beacon-progress-panel" aria-label="Discovery Progress">
-      <div className="discovery-beacon-progress-head"><div><strong>Research progress</strong><span>{stageLabel}</span></div><strong>{percent}%</strong></div>
-      <div className="discovery-progress-bar"><span style={{ width: `${percent}%` }} /></div>
-      <div className="discovery-progress-caption"><span>{stageLabel}</span><strong>{status ? `${completed} / ${total} stages` : "Standby"}</strong></div>
-      <div className="discovery-beacon-progress-seam"><span>Next human seam</span><strong>{awaitingReview ? "Review now" : "Start Launch"}</strong></div>
-      <p className="discovery-beacon-progress-copy">
-        {awaitingReview
-          ? "The checkpoint is ready for a deliberate read-only review."
-          : status
-            ? "The checkpoint stays quiet until its boundary is reached."
-            : "The first durable timeline begins when a Launch is confirmed in Preparation."}
-      </p>
-    </section>
   );
 }
 
@@ -1143,7 +1055,6 @@ function LaunchContext({
   rawError: string | null;
   onToggleRaw: () => void;
 }) {
-  const maPreview = isSurfaceHierarchyMa();
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<DiscoveryCheckpointKey | null>(null);
   const fallbackCheckpoint = launch
     ? activeCheckpointKey(launch, runtimeStatus) ??
@@ -1161,73 +1072,36 @@ function LaunchContext({
 
   return (
     <>
-      <div className={`discovery-stage-strip-layout ${maPreview ? "discovery-stage-strip-layout-ma" : ""}`}>
+      <div className="discovery-stage-strip-layout discovery-stage-strip-layout-ma">
         <PrototypeLaunchHero
           launch={launch}
           status={runtimeStatus}
         />
-        {(launch || !maPreview) && <DiscoveryLaunchNotice launch={launch} status={runtimeStatus} />}
-        {maPreview ? (
-          <>
-            <div className="discovery-ma-runtime-row">
-              <PrototypeRuntimeDesk
-                status={runtimeStatus}
-                busy={busy}
-                emptyState={!launch}
-                rawOpen={rawOpen}
-                rawLines={rawLines}
-                rawError={rawError}
-                onToggleRaw={onToggleRaw}
-                onStop={onStop}
-                onResume={onResume}
-              />
-            </div>
-            <div className="discovery-ma-checkpoint-row">
-              <DiscoveryCheckpointStrip
-                launch={launch}
-                status={runtimeStatus}
-                selected={selectedCheckpointKey}
-                onSelect={setSelectedCheckpoint}
-              />
-            </div>
-            <div className="discovery-ma-artifact-row discovery-artifact-rail">
-              <DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} />
-            </div>
-          </>
-        ) : (
-          <>
-            <DiscoveryCheckpointStrip
-              launch={launch}
-              status={runtimeStatus}
-              selected={selectedCheckpointKey}
-              onSelect={setSelectedCheckpoint}
-            />
-            <div className="discovery-stage-body">
-              <div className="discovery-stage-console">
-                <PrototypeRuntimeDesk
-                  status={runtimeStatus}
-                  busy={busy}
-                  emptyState={!launch}
-                  rawOpen={rawOpen}
-                  rawLines={rawLines}
-                  rawError={rawError}
-                  onToggleRaw={onToggleRaw}
-                  onStop={onStop}
-                  onResume={onResume}
-                />
-              </div>
-              <aside className="discovery-stage-inspector">
-                <PrototypeProgressPanel status={runtimeStatus} emptyState={!launch} />
-                <DiscoveryCheckpointPreview
-                  launch={launch}
-                  status={runtimeStatus}
-                  selected={selectedCheckpointKey}
-                />
-                <div className="discovery-artifact-rail"><DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} /></div>
-              </aside>
-            </div>
-          </>
-        )}
+        {launch && <DiscoveryLaunchNotice launch={launch} status={runtimeStatus} />}
+        <div className="discovery-ma-runtime-row">
+          <PrototypeRuntimeDesk
+            status={runtimeStatus}
+            busy={busy}
+            emptyState={!launch}
+            rawOpen={rawOpen}
+            rawLines={rawLines}
+            rawError={rawError}
+            onToggleRaw={onToggleRaw}
+            onStop={onStop}
+            onResume={onResume}
+          />
+        </div>
+        <div className="discovery-ma-checkpoint-row">
+          <DiscoveryCheckpointStrip
+            launch={launch}
+            status={runtimeStatus}
+            selected={selectedCheckpointKey}
+            onSelect={setSelectedCheckpoint}
+          />
+        </div>
+        <div className="discovery-ma-artifact-row discovery-artifact-rail">
+          <DiscoveryArtifactPanel launchId={launch?.launch_id ?? null} />
+        </div>
       </div>
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
@@ -1267,7 +1141,6 @@ function HistoryContext({
   rawError: string | null;
   onToggleRaw: () => void;
 }) {
-  const maPreview = isSurfaceHierarchyMa();
   if (!history.length && !currentLaunch) {
     return (
       <>
@@ -1308,22 +1181,20 @@ function HistoryContext({
           </div>
         </section>
       </div>
-      {maPreview && (
-        <div className="discovery-history-selected-surface">
-          <LaunchContext
-            launch={selected}
-            busy={busy}
-            onStop={selectedIsActive ? onStop : () => undefined}
-            onResume={() => onResume(selected)}
-            error={error}
-            runtimeStatus={runtimeStatus}
-            rawOpen={rawOpen}
-            rawLines={rawLines}
-            rawError={rawError}
-            onToggleRaw={onToggleRaw}
-          />
-        </div>
-      )}
+      <div className="discovery-history-selected-surface">
+        <LaunchContext
+          launch={selected}
+          busy={busy}
+          onStop={selectedIsActive ? onStop : () => undefined}
+          onResume={() => onResume(selected)}
+          error={error}
+          runtimeStatus={runtimeStatus}
+          rawOpen={rawOpen}
+          rawLines={rawLines}
+          rawError={rawError}
+          onToggleRaw={onToggleRaw}
+        />
+      </div>
       {error && (
         <p className="mt-3 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">
           {error}
@@ -1435,7 +1306,6 @@ function GatherContext({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isEmpty = !hasPreparationInput(preparation.draft);
-  const maPreview = isSurfaceHierarchyMa();
   const statusLabel =
     busy === "intake"
       ? "Adding Source Entries..."
@@ -1467,24 +1337,22 @@ function GatherContext({
           </p>
         </div>
         <div className="discovery-gather-header-actions">
-          {maPreview && (
-            <div className="discovery-gather-inline-meta" aria-label="Preparation status">
-              <span className="discovery-gather-inline-status" aria-live="polite">
-                {statusLabel}
-              </span>
-              <span className="discovery-gather-inline-count">
-                {preparation.draft.sources.length} files
-              </span>
-              <button
-                type="button"
-                className="discovery-button discovery-button-small"
-                disabled={!preparation.dirty || busy !== null}
-                onClick={onSave}
-              >
-                Save Preparation
-              </button>
-            </div>
-          )}
+          <div className="discovery-gather-inline-meta" aria-label="Preparation status">
+            <span className="discovery-gather-inline-status" aria-live="polite">
+              {statusLabel}
+            </span>
+            <span className="discovery-gather-inline-count">
+              {preparation.draft.sources.length} files
+            </span>
+            <button
+              type="button"
+              className="discovery-button discovery-button-small"
+              disabled={!preparation.dirty || busy !== null}
+              onClick={onSave}
+            >
+              Save Preparation
+            </button>
+          </div>
           <button
             type="button"
             className="discovery-button discovery-button-small discovery-gather-add"
@@ -1569,24 +1437,6 @@ function GatherContext({
         <p className="mx-4 mb-3 text-[11px] text-muted sm:mx-5">
           Saved Preparation remains unchanged until Save.
         </p>
-      )}
-      {!maPreview && (
-        <div className="discovery-gather-footer flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-[11px] sm:px-5">
-        <span className="text-muted" aria-live="polite">
-          {statusLabel}
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="text-faint">{preparation.draft.sources.length} files</span>
-          <button
-            type="button"
-            className="discovery-button discovery-button-small"
-            disabled={!preparation.dirty || busy !== null}
-            onClick={onSave}
-          >
-            Save Preparation
-          </button>
-        </div>
-        </div>
       )}
     </section>
   );
@@ -1673,7 +1523,7 @@ function ReviewableInput({
                 {executionInput.task_description}
               </span>
               <span className="mt-1 block truncate text-[10px] text-faint">
-                {executionInput.domain} · {executionInput.constraints.length} constraint{executionInput.constraints.length === 1 ? "" : "s"}
+                {executionInput.domain} · {executionInput.task_type ?? "sci"} · {executionInput.constraints.length} constraint{executionInput.constraints.length === 1 ? "" : "s"}
               </span>
             </span>
             <span aria-hidden="true" className="shrink-0 text-[16px] text-accent">↗</span>
@@ -1690,6 +1540,7 @@ function ReviewableInput({
 }
 
 type ExecutionInputField =
+  | "task_type"
   | "task_description"
   | "domain"
   | "background"
@@ -1697,6 +1548,7 @@ type ExecutionInputField =
 ;
 
 const EXECUTION_INPUT_EDITOR_FIELDS: Array<{ key: ExecutionInputField; label: string }> = [
+  { key: "task_type", label: "Task type" },
   { key: "task_description", label: "Task description" },
   { key: "domain", label: "Domain" },
   { key: "background", label: "Background" },
@@ -1758,21 +1610,20 @@ function ExecutionInputEditor({
   error,
   onBack,
   onSave,
-  onOpenPrompt,
 }: {
   input: DiscoveryExecutionInput;
   busy: Busy;
   error: string | null;
   onBack: () => void;
   onSave: (input: DiscoveryExecutionInput) => void;
-  onOpenPrompt: () => void;
 }) {
   const [draft, setDraft] = useState<DiscoveryExecutionInput>(input);
   const [field, setField] = useState<ExecutionInputField>("task_description");
   const fieldDefinition = EXECUTION_INPUT_EDITOR_FIELDS.find((item) => item.key === field)!;
   const isListField = field === "constraints";
+  const isTaskTypeField = field === "task_type";
   const value = draft[field];
-  const textValue = Array.isArray(value) ? value.join("\n") : value;
+  const textValue = Array.isArray(value) ? value.join("\n") : value ?? "";
   const updateValue = (next: string) => {
     setDraft((current) => ({
       ...current,
@@ -1792,92 +1643,111 @@ function ExecutionInputEditor({
       onBack={onBack}
       onSave={() => onSave(draft)}
     >
-        <section className={CARD + " overflow-hidden"} aria-label="Execution schema">
-          <div className="border-b border-line px-4 py-3">
-            <h3 className="text-[12px] font-semibold text-ink">Execution schema</h3>
-            <p className="mt-0.5 text-[10px] text-faint">4 backend fields</p>
-          </div>
-          <div className="space-y-1 p-2">
-            {EXECUTION_INPUT_EDITOR_FIELDS.map((definition, index) => (
-              <button
-                key={definition.key}
-                type="button"
-                className={
-                  "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[10px] " +
-                  (field === definition.key
-                    ? "border border-accent/20 bg-accentSoft text-accent"
-                    : "text-muted hover:bg-paper")
-                }
-                onClick={() => setField(definition.key)}
-              >
-                <span className="w-5 font-mono text-[9px] text-faint">{String(index + 1).padStart(2, "0")}</span>
-                <span className="min-w-0 flex-1 truncate">{definition.label}</span>
-                <span className="text-ok">✓</span>
-              </button>
-            ))}
-          </div>
-        </section>
-        <section className={CARD + " min-w-0 overflow-hidden"} aria-label="Execution input field editor">
-          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Field editor</div>
-              <h3 className="mt-1 text-[14px] font-semibold text-ink">{fieldDefinition.label}</h3>
+        <div className="col-span-full discovery-execution-focus">
+          <nav className="discovery-execution-schema" aria-label="Execution schema" role="tablist">
+            <div className="discovery-execution-schema-header">
+              <div>
+                <h3>Execution schema</h3>
+                <p>Five backend fields · select one to focus the editor.</p>
+              </div>
+              <span>structured.execution_input</span>
             </div>
-            <span className="font-mono text-[9px] text-faint">structured.execution_input</span>
-          </div>
-          <div className="p-4">
-            <label className="block text-[11px] font-semibold text-muted" htmlFor="execution-input-field-editor">
-              {fieldDefinition.label}
-              <span className="float-right text-[9px] font-normal text-faint">{isListField ? "one item per line" : "multiline"}</span>
-            </label>
-            <textarea
-              id="execution-input-field-editor"
-              aria-label={fieldDefinition.label}
-              className="discovery-text-input mt-2 min-h-[290px]"
-              value={textValue}
-              onChange={(event) => updateValue(event.target.value)}
-              disabled={busy !== null}
-            />
-            <p className="mt-2 text-[10px] text-faint">Changes stay in the review draft until Save.</p>
-          </div>
-          <div className="flex items-center justify-between border-t border-line px-4 py-3">
-            <button
-              type="button"
-              className="discovery-button discovery-button-small"
-              disabled={field === EXECUTION_INPUT_EDITOR_FIELDS[0].key}
-              onClick={() => {
-                const index = EXECUTION_INPUT_EDITOR_FIELDS.findIndex((item) => item.key === field);
-                setField(EXECUTION_INPUT_EDITOR_FIELDS[Math.max(0, index - 1)].key);
-              }}
-            >
-              ← Previous field
-            </button>
-            <button
-              type="button"
-              className="discovery-button discovery-button-small"
-              disabled={field === EXECUTION_INPUT_EDITOR_FIELDS[EXECUTION_INPUT_EDITOR_FIELDS.length - 1].key}
-              onClick={() => {
-                const index = EXECUTION_INPUT_EDITOR_FIELDS.findIndex((item) => item.key === field);
-                setField(EXECUTION_INPUT_EDITOR_FIELDS[Math.min(EXECUTION_INPUT_EDITOR_FIELDS.length - 1, index + 1)].key);
-              }}
-            >
-              Next field →
-            </button>
-          </div>
-          {error && <p className="mx-4 mb-4 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">{error}</p>}
-        </section>
-        <section className={CARD + " overflow-hidden"} aria-label="Conversion prompt">
-          <div className="border-b border-line px-4 py-3">
-            <h3 className="text-[12px] font-semibold text-ink">Conversion prompt</h3>
-            <p className="mt-0.5 text-[10px] text-faint">Controls the structured conversion.</p>
-          </div>
-          <div className="p-4">
-            <p className="text-[11px] leading-relaxed text-muted">The prompt is editable in the shared editor surface.</p>
-            <button type="button" className="discovery-button discovery-button-small mt-3" onClick={onOpenPrompt}>
-              View or edit prompt ↗
-            </button>
-          </div>
-        </section>
+            <div className="discovery-execution-schema-list">
+              {EXECUTION_INPUT_EDITOR_FIELDS.map((definition, index) => {
+                const selected = field === definition.key;
+                return (
+                  <button
+                    key={definition.key}
+                    id={`execution-input-tab-${definition.key}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls="execution-input-field-panel"
+                    className={selected ? "is-active" : ""}
+                    onClick={() => setField(definition.key)}
+                  >
+                    <span className="discovery-execution-schema-number">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="discovery-execution-schema-label">{definition.label}</span>
+                    <span className="discovery-execution-schema-check" aria-hidden="true">✓</span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+
+          <section
+            key={field}
+            className={CARD + " discovery-execution-focus-card min-w-0 overflow-hidden"}
+            aria-label="Execution input field editor"
+            id="execution-input-field-panel"
+            role="tabpanel"
+            aria-labelledby={`execution-input-tab-${field}`}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Field editor</div>
+                <h3 className="mt-1 font-serif text-[20px] font-medium tracking-[-0.03em] text-ink">{fieldDefinition.label}</h3>
+              </div>
+              <span className="font-mono text-[9px] text-faint">structured.execution_input.{field}</span>
+            </div>
+            <div className="p-5">
+              <label className="block text-[11px] font-semibold text-muted" htmlFor="execution-input-field-editor">
+                {fieldDefinition.label}
+                <span className="float-right text-[9px] font-normal text-faint">
+                  {isTaskTypeField ? "choose one" : isListField ? "one item per line" : "multiline"}
+                </span>
+              </label>
+              {isTaskTypeField ? (
+                <select
+                  id="execution-input-field-editor"
+                  aria-label={fieldDefinition.label}
+                  className="discovery-text-input mt-2"
+                  value={textValue === "auto" ? "auto" : "sci"}
+                  onChange={(event) => updateValue(event.target.value)}
+                  disabled={busy !== null}
+                >
+                  <option value="auto">auto · repository/code task</option>
+                  <option value="sci">sci · scientific reproduction task</option>
+                </select>
+              ) : (
+                <textarea
+                  id="execution-input-field-editor"
+                  aria-label={fieldDefinition.label}
+                  className="discovery-text-input mt-2 min-h-[290px]"
+                  value={textValue}
+                  onChange={(event) => updateValue(event.target.value)}
+                  disabled={busy !== null}
+                />
+              )}
+              <p className="mt-2 text-[10px] text-faint">Changes stay in the review draft until Save.</p>
+            </div>
+            <div className="flex items-center justify-between border-t border-line px-5 py-3">
+              <button
+                type="button"
+                className="discovery-button discovery-button-small"
+                disabled={field === EXECUTION_INPUT_EDITOR_FIELDS[0].key}
+                onClick={() => {
+                  const index = EXECUTION_INPUT_EDITOR_FIELDS.findIndex((item) => item.key === field);
+                  setField(EXECUTION_INPUT_EDITOR_FIELDS[Math.max(0, index - 1)].key);
+                }}
+              >
+                ← Previous field
+              </button>
+              <button
+                type="button"
+                className="discovery-button discovery-button-small"
+                disabled={field === EXECUTION_INPUT_EDITOR_FIELDS[EXECUTION_INPUT_EDITOR_FIELDS.length - 1].key}
+                onClick={() => {
+                  const index = EXECUTION_INPUT_EDITOR_FIELDS.findIndex((item) => item.key === field);
+                  setField(EXECUTION_INPUT_EDITOR_FIELDS[Math.min(EXECUTION_INPUT_EDITOR_FIELDS.length - 1, index + 1)].key);
+                }}
+              >
+                Next field →
+              </button>
+            </div>
+            {error && <p className="mx-5 mb-5 rounded-lg border border-danger/30 bg-dangerSoft px-3 py-2.5 text-[12px] text-danger" role="alert">{error}</p>}
+          </section>
+        </div>
     </DiscoveryEditorSurface>
   );
 }
@@ -2265,7 +2135,6 @@ function ResetPreparationDialog({
 }
 
 export function DiscoveryView() {
-  const maPreview = isSurfaceHierarchyMa();
   const [snapshot, setSnapshot] = useState<DiscoverySnapshot | null>(null);
   const [context, setContext] = useState<DiscoveryContextId>("preparation");
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
@@ -2289,7 +2158,7 @@ export function DiscoveryView() {
   const [confirmingRun, setConfirmingRun] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [runtimeStatus, setRuntimeStatus] = useState<DiscoveryLaunchStatus | null>(null);
-  const [rawOpen, setRawOpen] = useState(() => maPreview);
+  const [rawOpen, setRawOpen] = useState(true);
   const [rawLines, setRawLines] = useState<string[]>([]);
   const [rawError, setRawError] = useState<string | null>(null);
   const idempotencyKeys = useRef(new Map<string, string>());
@@ -2887,18 +2756,6 @@ export function DiscoveryView() {
               <ErrorContext />
             ) : activeContext.id === "preparation" && preparation ? (
               <>
-                {!maPreview && (
-                  <div className="mb-4 grid gap-2">
-                    <PrototypeLaunchHero
-                      launch={snapshot?.current_launch ?? null}
-                      status={snapshot?.current_launch ? runtimeStatus : null}
-                    />
-                    <DiscoveryLaunchNotice
-                      launch={snapshot?.current_launch ?? null}
-                      status={snapshot?.current_launch ? runtimeStatus : null}
-                    />
-                  </div>
-                )}
                 {editingConversionPrompt ? (
                   <ConversionPromptEditor
                     prompt={conversionPrompt}
@@ -2918,7 +2775,6 @@ export function DiscoveryView() {
                     error={reviewError}
                     onBack={() => setEditingExecutionInput(false)}
                     onSave={saveRevision}
-                    onOpenPrompt={openConversionPrompt}
                   />
                 ) : (
                   <PreparationCanvas

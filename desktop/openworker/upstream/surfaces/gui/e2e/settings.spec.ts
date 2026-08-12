@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 
 // Guards the Settings-as-page refactor (§13, IA per UX-021): the ⚙ menu opens a full-page
-// surface with a left sub-nav — General · Models · Voice input — and each section renders.
+// surface with a left sub-nav — General · Models · Discovery Launch — and each section renders.
 // Files is a card inside General; Personas is launch-flagged off.
 test("Settings opens as a full page and navigates sections", async ({ page }) => {
   await page.goto("/");
@@ -12,7 +12,7 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
   // Full-page: left sub-nav + the General section (no modal backdrop).
   await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
   await expect(page.locator(".modal-backdrop")).toHaveCount(0);
-  for (const label of ["General", "Models", "Voice input"]) {
+  for (const label of ["General", "Models", "Discovery Launch"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
   // Folded/hidden tabs: Files is a General card now; Personas is launch-flagged off.

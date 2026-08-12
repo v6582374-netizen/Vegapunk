@@ -43,6 +43,10 @@ def test_prompt_library_is_served_by_the_native_sidecar(tmp_path: Path) -> None:
     assert catalogue.status_code == 200
     prompts = catalogue.json()["prompts"]
     assert any(prompt["id"] == "discovery.generation.system" for prompt in prompts)
+    assert {
+        "external_data.connector",
+        "external_data.web_evidence",
+    }.issubset({prompt["id"] for prompt in prompts})
 
     detail = client.get("/v1/prompt-library/prompts/discovery.generation.system")
     assert detail.status_code == 200

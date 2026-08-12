@@ -1,0 +1,10 @@
+# Dependencies owned by the long-lived Discovery runtime. Task-local package
+# installation must honor these constraints instead of replacing them in place.
+#
+# IdeaGraph crosses ChromaDB, the local embedding backend, and its dataset
+# loading path. These exact versions are a single compatibility contract.
+chromadb==1.5.9
+datasets==2.21.0
+pyarrow==20.0.0
+sentence-transformers==5.1.1
+transformers==4.57.6

@@ -17,6 +17,10 @@ from dotenv import load_dotenv
 
 from typing import List, Dict, Any, Optional
 from vegapunk.mas.models.unified_runtime import create_model_runtime
+from vegapunk.runtime_dependencies import (
+    enforce_runtime_pip_constraint,
+    verify_ideagraph_runtime,
+)
 
 # Long memory imports (optional - only if long_memory is available)
 try:
@@ -71,9 +75,13 @@ def normalize_sci_task(task_dir: str, output_path: str) -> dict:
         with open(checklist_path, 'r') as f:
             checklist = json.load(f)
 
-    # Extract domain from directory name (e.g., "Chemistry_000" → "Chemistry")
+    # Prefer the structured domain carried by adapters.  Historical task
+    # directories do not have it, so retain the directory-name fallback.
     dir_name = osp.basename(task_dir.rstrip('/\\'))
-    domain = dir_name.split('_')[0] if '_' in dir_name else dir_name
+    domain = task_info.get('domain')
+    if not isinstance(domain, str) or not domain.strip():
+        domain = dir_name.split('_')[0] if '_' in dir_name else dir_name
+    domain = domain.strip()
 
     # Build data manifest
     data_items = task_info.get('data', [])
@@ -439,6 +447,14 @@ def parse_arguments():
         help="Task name or path to task directory. If it's a name, will use tasks/{task}; if it's a path, will use it directly"
     )
     task_group.add_argument(
+        "--task_type",
+        "--task-type",
+        dest="task_type",
+        choices=["auto", "sci"],
+        default=None,
+        help="Explicit task type for adapters; when omitted, infer it from the task directory",
+    )
+    task_group.add_argument(
         "--output_dir",
         type=str,
         default=None,
@@ -657,6 +673,7 @@ def _scan_completed_rounds(resume_path: str, resume_state: dict, logger) -> dict
 # ============================================================================
 def _main():
     logger = setup_logging()
+    enforce_runtime_pip_constraint()
     args = parse_arguments()
 
     # Launch Configuration Snapshot owns prompts for this run (ADR-0157).
@@ -705,7 +722,11 @@ def _main():
         raise FileNotFoundError(f"Task directory not found: {args.task_dir}")
 
     # 后续目录准备和评分方式会按任务来源分支，但想法生成阶段看到的是统一提示。
-    args.task_type = detect_task_type(args.task_dir)
+    detected_task_type = detect_task_type(args.task_dir)
+    # Traditional CLI callers keep the historical file-marker detection.  Web
+    # Launches pass the reviewed type explicitly so a stale marker cannot change
+    # the adapter's intended branch.
+    args.task_type = getattr(args, "task_type", None) or detected_task_type
 
     # Setup reference code path
     if args.ref_code_path is None:
@@ -816,6 +837,9 @@ def _main():
             logger.info(f"Loaded config from {args.config}")
         except Exception as e:
             logger.warning(f"Failed to load config: {e}")
+
+    if config.get("memory", {}).get("long_memory", {}).get("enabled", False):
+        verify_ideagraph_runtime()
 
     # The CLI backend is an explicit Launch-local choice.  Keep the generated
     # config aligned with it without changing the separate Model Provider config.
@@ -1132,6 +1156,16 @@ def _main():
         logger.info(f"Successful: {round_result['successful']}/{len(results)}")
         logger.info(f"Failed: {round_result['failed']}/{len(results)}")
         logger.info("=" * 80)
+
+        # A round with no successful experiment has produced no evidence and
+        # therefore no baseline for another round or for downstream handoff.
+        # Stop at this boundary rather than presenting workflow progress as
+        # experimental progress.
+        if args.mode == "experiment" and round_result["successful"] == 0:
+            raise RuntimeError(
+                f"Round {round_num} produced no valid experiment baseline; "
+                "stopping the Launch."
+            )
 
         # 每轮结束后立刻沉淀经验，下一轮提示演化就能看到刚刚发生的成功和失败。
         if LONG_MEMORY_AVAILABLE and memory is not None:

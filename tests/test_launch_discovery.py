@@ -221,7 +221,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 observed_runtimes.append(model_runtime)
 
             def run_experiments(self, **_: object) -> list[dict[str, object]]:
-                return [{"idea_name": "measured idea", "success": False}]
+                return [{"idea_name": "measured idea", "success": True}]
 
         stage_stub = types.ModuleType("vegapunk.stage")
         stage_stub.IdeaGenerator = IdeaGenerator
@@ -266,8 +266,79 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             finally:
                 os.chdir(previous_directory)
 
-        create_runtime.assert_called_once_with({})
+        create_runtime.assert_called_once_with({"experiment": {"backend": "codex"}})
         self.assertEqual(observed_runtimes, [runtime, runtime])
+
+    def test_experiment_launch_stops_before_the_next_round_without_a_baseline(
+        self,
+    ) -> None:
+        experiment_calls = 0
+
+        class IdeaGenerator:
+            def __init__(self, *_: object, **__: object) -> None:
+                self.session_id = "session_1"
+
+            async def generate_ideas(self) -> tuple[list[dict[str, str]], str]:
+                return (
+                    [{"refined_method_details": {"name": "unmeasured idea"}}],
+                    "session.json",
+                )
+
+        class ExperimentRunner:
+            def __init__(self, *_: object, **__: object) -> None:
+                pass
+
+            def run_experiments(self, **_: object) -> list[dict[str, object]]:
+                nonlocal experiment_calls
+                experiment_calls += 1
+                return [{"idea_name": "unmeasured idea", "success": False}]
+
+        stage_stub = types.ModuleType("vegapunk.stage")
+        stage_stub.IdeaGenerator = IdeaGenerator
+        stage_stub.ExperimentRunner = ExperimentRunner
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            task_dir = root / "task"
+            task_dir.mkdir()
+            (task_dir / "prompt.json").write_text("{}", encoding="utf-8")
+            config_path = root / "config.yaml"
+            config_path.write_text(
+                "workflow:\n  loop_rounds: 2\n  loop_mode: incremental\n",
+                encoding="utf-8",
+            )
+            arguments = Namespace(
+                resume=None,
+                task=str(task_dir),
+                ref_code_path=None,
+                output_dir="no-baseline-test",
+                config=str(config_path),
+                skip_idea_generation=False,
+                idea_path=None,
+                mode="experiment",
+                exp_backend="codex",
+            )
+
+            previous_directory = Path.cwd()
+            os.chdir(root)
+            try:
+                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
+                    "launch_discovery.parse_arguments", return_value=arguments
+                ), patch(
+                    "launch_discovery.setup_logging",
+                    return_value=logging.getLogger("no-baseline-launch-test"),
+                ), patch.object(
+                    launch_discovery, "LONG_MEMORY_AVAILABLE", False
+                ), patch(
+                    "launch_discovery.create_model_runtime", return_value=object()
+                ), patch("launch_discovery._handoff_to_paper_orchestra") as handoff:
+                    with self.assertRaisesRegex(RuntimeError, "valid experiment baseline"):
+                        launch_discovery.main()
+            finally:
+                os.chdir(previous_directory)
+
+        self.assertEqual(experiment_calls, 1)
+        handoff.assert_not_called()
 
     def test_skipped_idea_generation_still_injects_runtime_into_experiments(self) -> None:
         observed_runtimes = []
@@ -277,7 +348,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 observed_runtimes.append(model_runtime)
 
             def run_experiments(self, **_: object) -> list[dict[str, object]]:
-                return [{"idea_name": "reused idea", "success": False}]
+                return [{"idea_name": "reused idea", "success": True}]
 
         stage_stub = types.ModuleType("vegapunk.stage")
         stage_stub.IdeaGenerator = object
@@ -324,7 +395,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             finally:
                 os.chdir(previous_directory)
 
-        create_runtime.assert_called_once_with({})
+        create_runtime.assert_called_once_with({"experiment": {"backend": "codex"}})
         self.assertEqual(observed_runtimes, [runtime])
 
     def test_completed_discovery_resumes_paperorchestra(
@@ -366,6 +437,9 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
                 output_dir=None,
                 config=None,
                 skip_idea_generation=False,
+                idea_path=None,
+                mode="report",
+                exp_backend="codex",
             )
 
             with patch(

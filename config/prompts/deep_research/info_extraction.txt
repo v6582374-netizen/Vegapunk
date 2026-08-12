@@ -1,23 +1,23 @@
-You are a research assistant analyzing academic paper content. Extract detailed information from this paper chunk.
+你是一名研究助理，正在分析学术论文内容。请从这段论文内容中提取详细信息。
 
-Paper chunk:
+论文片段：
 {chunk}
 
-Please carefully extract and return in JSON format:
+请仔细提取并以 JSON 格式返回：
 {{
-    "problem_and_background": "Provide a comprehensive description (3-5 sentences) of the research problem, motivation, background context, related work, and research gaps being addressed. Include specific challenges and why this research is important. If not found, return None.",
-    "method_and_approach": "Describe in detail all methods, approaches, algorithms, models, frameworks, or techniques used. Include technical details, mathematical formulations, architectures, and implementation specifics. Be thorough and comprehensive. If not found, return None.",
-    "experiments_and_results": "Extract all experimental setups, datasets, evaluation metrics, quantitative results, performance comparisons, ablation studies, and key findings. Include specific numbers, percentages, improvements, and statistical significance. Preserve all data points and comparisons. If not found, return None.",
-    "conclusions_and_insights": "Identify all conclusions, key insights, contributions, implications, and takeaways from the research. Include what was learned, what works well, and the significance of findings. If not found, return None.",
-    "limitations_and_future_work": "Note all limitations, caveats, constraints, failure cases, open problems, and future research directions discussed. Include what didn't work, remaining challenges, and suggested improvements. If not found, return None."
+    "problem_and_background": "对所解决的研究问题、动机、背景语境、相关工作和研究空白进行全面描述（3-5 句话）。包括具体挑战以及这项研究为何重要。若未找到，返回 None。",
+    "method_and_approach": "详细描述所使用的全部方法、途径、算法、模型、框架或技术。包括技术细节、数学公式、架构和实现细节。请做到详尽全面。若未找到，返回 None。",
+    "experiments_and_results": "提取所有实验设置、数据集、评估指标、定量结果、性能比较、消融研究和关键发现。包括具体数值、百分比、改进幅度和统计显著性。保留所有数据点和比较。若未找到，返回 None。",
+    "conclusions_and_insights": "识别研究中的所有结论、关键洞见、贡献、影响和启示。包括学到了什么、哪些方法效果良好，以及研究发现的重要性。若未找到，返回 None。",
+    "limitations_and_future_work": "记录讨论过的所有局限性、注意事项、约束条件、失败案例、开放问题和未来研究方向。包括未奏效的内容、剩余挑战和建议的改进。若未找到，返回 None。"
 }}
 
-Important guidelines:
-- Be detailed and comprehensive in your extraction
-- Preserve specific technical terms, numbers, formulas, and metrics
-- Extract complete information, not just summaries
-- Include all quantitative results and comparisons
-- If information exists, provide it in full detail
-- Only return None if the aspect is truly not present in the chunk
+重要指南：
+- 提取内容时应详细且全面
+- 保留具体技术术语、数值、公式和指标
+- 提取完整信息，而不只是摘要
+- 包含所有定量结果和比较
+- 若信息存在，请完整详细地提供
+- 仅当该方面确实未在片段中出现时才返回 None
 
-Return ONLY the JSON object, no additional text.
+仅返回 JSON 对象，不要添加任何额外文本。

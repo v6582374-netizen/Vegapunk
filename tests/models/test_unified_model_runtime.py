@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import logging
 import os
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from vegapunk.mas.models.base_model import ServiceUnavailableError
+from vegapunk.mas.models.base_model import BaseModel, ServiceUnavailableError
 from vegapunk.mas.models.runtime import (
     Message,
     ModelRunRequest,
     ModelRunResult,
+    ModelUsage,
     OutputText,
 )
 from vegapunk.mas.models.unified_runtime import (
@@ -107,6 +111,28 @@ class FakeAdapter:
             self.active -= 1
 
 
+class TelemetryFakeAdapter(BaseModel):
+    """Provider-shaped adapter that exercises the nested BaseModel seam."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__()
+        self.model = model
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "TelemetryFakeAdapter":
+        return cls(str(config["model"]))
+
+    async def _run(self, request: ModelRunRequest) -> ModelRunResult:
+        del request
+        return ModelRunResult(
+            response_id="resp-telemetry",
+            status="completed",
+            model=self.model,
+            items=(OutputText("ok"),),
+            usage=ModelUsage(input_tokens=1, output_tokens=2, total_tokens=3),
+        )
+
+
 class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.created: list[FakeAdapter] = []
@@ -136,6 +162,30 @@ class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.model, "qwen3.7-max")
         self.assertEqual(self.created[0].provider, "qwen")
         self.assertEqual(self.created[0].calls, 3)
+
+    async def test_runtime_bound_model_logs_one_completion_per_provider_request(self) -> None:
+        def adapter_factory(model_def: Any, provider_config: Any) -> TelemetryFakeAdapter:
+            del provider_config
+            return TelemetryFakeAdapter(model_def.model)
+
+        runtime = UnifiedModelRuntime(
+            ModelCatalog.from_mapping(CATALOG),
+            adapter_factory=adapter_factory,
+        )
+
+        with self.assertLogs(
+            "vegapunk.mas.models.base_model", level=logging.INFO
+        ) as captured:
+            result = await runtime.model_for().run(
+                ModelRunRequest(input=(Message.user("hello"),))
+            )
+
+        model_run_lines = [
+            line for line in captured.output if "model_run " in line
+        ]
+        self.assertEqual(result.response_id, "resp-telemetry")
+        self.assertEqual(len(model_run_lines), 1)
+        self.assertIn("response_id=resp-telemetry", model_run_lines[0])
 
     async def test_retries_do_not_change_provider_or_model(self) -> None:
         await self.runtime.run(
@@ -190,16 +240,79 @@ class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
             catalog.capability_models["vision"], "relay/gpt-5.6-sol"
         )
         self.assertEqual(
-            catalog.capability_models["image_generation"], "relay/gpt-image-1"
+            catalog.capability_models["image_generation"], "relay/gpt-image-2"
         )
 
         for provider in catalog.providers.values():
             if provider.protocol == "local_embedding":
                 continue
             request_timeout = provider.settings["request_timeout"]
-            self.assertEqual(request_timeout, 300)
+            self.assertEqual(request_timeout, 3600)
             self.assertLessEqual(request_timeout, catalog.retry.max_elapsed_seconds)
             self.assertNotIn("max_output_tokens", provider.settings)
+
+    def test_default_catalog_disables_prompt_cache_options(self) -> None:
+        catalog_path = (
+            Path(__file__).resolve().parents[2] / "config/model_catalog.yaml"
+        )
+        catalog = ModelCatalog.from_yaml(catalog_path)
+
+        with patch.dict(
+            os.environ,
+            {"OPENAI_API_KEY": "test-key", "DASHSCOPE_API_KEY": "test-key"},
+        ):
+            relay = UnifiedModelRuntime._default_adapter_factory(
+                catalog.resolve_model("relay/gpt-5.6-sol"),
+                catalog.provider_for(catalog.resolve_model("relay/gpt-5.6-sol")),
+            )
+            qwen = UnifiedModelRuntime._default_adapter_factory(
+                catalog.resolve_model("qwen/qwen3-max"),
+                catalog.provider_for(catalog.resolve_model("qwen/qwen3-max")),
+            )
+
+        self.assertFalse(relay.prompt_cache_supports_options)
+        self.assertFalse(qwen.prompt_cache_supports_options)
+
+    async def test_openai_image_adapter_uses_gpt_image_2_images_endpoint(self) -> None:
+        catalog_path = (
+            Path(__file__).resolve().parents[2] / "config/model_catalog.yaml"
+        )
+        catalog = ModelCatalog.from_yaml(catalog_path)
+        model = catalog.resolve_model(
+            "relay/gpt-image-2", capability="image_generation"
+        )
+        provider = catalog.provider_for(model)
+        requests: list[dict[str, object]] = []
+
+        def generate(**request: object) -> SimpleNamespace:
+            requests.append(request)
+            encoded = base64.b64encode(b"fake-png").decode("ascii")
+            return SimpleNamespace(
+                data=[SimpleNamespace(b64_json=encoded)]
+            )
+
+        fake_client = SimpleNamespace(
+            images=SimpleNamespace(generate=generate)
+        )
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}), patch(
+            "openai.OpenAI", return_value=fake_client
+        ):
+            adapter = UnifiedModelRuntime._default_adapter_factory(model, provider)
+            image = await adapter.generate_image(
+                prompt="draw a method diagram", aspect_ratio="16:9"
+            )
+
+        self.assertEqual(image, b"fake-png")
+        self.assertEqual(
+            requests,
+            [
+                {
+                    "model": "gpt-image-2",
+                    "prompt": "draw a method diagram",
+                    "size": "1536x1024",
+                }
+            ],
+        )
 
     def test_default_adapter_ignores_provider_ui_metadata(self) -> None:
         """Provider settings may contain Desktop-only metadata, not adapter kwargs."""

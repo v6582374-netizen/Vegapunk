@@ -11,6 +11,8 @@ import tempfile
 from datetime import datetime
 import logging
 
+from .runtime_dependencies import enforce_runtime_pip_constraint
+
 logger = logging.getLogger(__name__)
 
 from vegapunk.prompt_library import prompts
@@ -312,6 +314,9 @@ def run_experiment(folder_name, run_num, timeout=None, gpu_ids=None, log_file=No
 
     # Prepare environment variables (thread-safe copy)
     env = os.environ.copy()
+    # Experiments may install task dependencies, but they must never replace a
+    # package owned by the long-lived Discovery runtime in place.
+    enforce_runtime_pip_constraint(env)
     if gpu_ids:
         env['CUDA_VISIBLE_DEVICES'] = gpu_ids
         logger.info(f"Setting CUDA_VISIBLE_DEVICES={gpu_ids} for run {run_num}")

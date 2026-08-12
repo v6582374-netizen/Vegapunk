@@ -490,19 +490,6 @@ button.btn.danger { color: var(--accent); }
   background: transparent; color: var(--ink); min-height: 24px; max-height: 88px; overflow: hidden;
 }
 .composer textarea::placeholder { color: var(--faint); }
-.voice-wave-line { flex: 1; min-width: 28px; border-top: 1px dashed var(--line-strong); }
-.voice-wave-bars { height: 28px; display: inline-flex; align-items: center; gap: 2px; color: var(--accent); }
-.voice-wave-bars i {
-  display: block; width: 2px; max-height: 27px; min-height: 4px; border-radius: 2px;
-  background: currentColor; animation: voice-wave .7s ease-in-out infinite alternate;
-}
-.voice-wave-bars i:nth-child(2n) { animation-delay: -.28s; }
-.voice-wave-bars i:nth-child(3n) { animation-delay: -.49s; }
-.voice-wave-bars i:nth-child(5n) { animation-delay: -.13s; }
-@keyframes voice-wave {
-  from { transform: scaleY(.32); opacity: .55; }
-  to { transform: scaleY(1); opacity: 1; }
-}
 /* Quiet text trigger — the send button stays the composer's only loud element. inline-flex keeps
    the chevron glued to the label (the old inline pill let it wrap onto its own line). */
 .pill {
@@ -1877,6 +1864,113 @@ html[data-theme="dark"] .discovery-drop-icon { border-color: color-mix(in srgb, 
 .discovery-page-frame > .discovery-context-nav-row .discovery-context-nav button {
   padding: 8px 12px;
   font-size: 12px;
+}
+
+/* ---------- Structured Execution Input / Focus editor ------------------- */
+/* The selected Focus direction keeps one calm field editor in view.  The
+   schema index is a booktabs-style three-rule strip: top rule, header rule,
+   bottom rule; no vertical dividers compete with the field labels. */
+.discovery-execution-focus {
+  width: min(100%, 860px);
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 auto;
+}
+.discovery-execution-schema {
+  overflow-x: auto;
+  border-top: 2px solid var(--line-strong);
+  border-bottom: 2px solid var(--line-strong);
+}
+.discovery-execution-schema-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 680px;
+  padding: 11px 0 10px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.discovery-execution-schema-header h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.discovery-execution-schema-header p {
+  margin: 4px 0 0;
+  color: var(--faint);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.discovery-execution-schema-header > span {
+  flex: none;
+  color: var(--faint);
+  font: 9px var(--mono);
+}
+.discovery-execution-schema-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-width: 680px;
+}
+.discovery-execution-schema-list button {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 74px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 10px 13px;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+  text-align: left;
+  transition: color var(--duration-press) var(--ease-out), background-color var(--duration-press) var(--ease-out), transform var(--duration-press) var(--ease-out);
+}
+.discovery-execution-schema-list button:hover { color: var(--ink); background: var(--paper); }
+.discovery-execution-schema-list button:active { transform: scale(.985); }
+.discovery-execution-schema-list button.is-active { color: var(--accent); background: var(--accent-soft); }
+.discovery-execution-schema-list button.is-active::after {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: "";
+}
+.discovery-execution-schema-list button:focus-visible {
+  z-index: 1;
+  outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: -2px;
+}
+.discovery-execution-schema-number { color: var(--faint); font: 9px var(--mono); }
+.discovery-execution-schema-list button.is-active .discovery-execution-schema-number { color: var(--accent); }
+.discovery-execution-schema-label { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
+.discovery-execution-schema-check { position: absolute; top: 12px; right: 10px; color: var(--ok); font-size: 11px; }
+.discovery-execution-focus-card {
+  max-width: 790px;
+  margin: 32px auto 0;
+  border-radius: 4px;
+  box-shadow: 0 15px 32px rgba(23, 25, 28, .06);
+  animation: discovery-execution-focus-in 220ms var(--ease-out) both;
+}
+.discovery-execution-focus-card h3 { font-family: var(--editorial-serif); font-weight: 500; }
+@keyframes discovery-execution-focus-in {
+  from { opacity: .5; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery-execution-focus-card { animation: none; }
+}
+@media (max-width: 720px) {
+  .discovery-execution-focus { width: 100%; }
+  .discovery-execution-schema-header { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .discovery-execution-focus-card { margin-top: 24px; }
 }
 .discovery-prototype-panel {
   border: 1px solid var(--line);

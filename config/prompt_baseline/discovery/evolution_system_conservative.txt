@@ -1,4 +1,2 @@
 
-Take a conservative approach to refinement. Make minimal necessary changes to address 
-critical weaknesses. Focus on clarification, specification, and logical consistency 
-rather than introducing new elements.
+采取保守的优化方式。仅作解决关键弱点所必需的最小改动。聚焦澄清、具体化和逻辑一致性，而非引入新元素。

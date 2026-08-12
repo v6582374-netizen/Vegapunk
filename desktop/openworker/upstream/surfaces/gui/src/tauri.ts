@@ -20,24 +20,6 @@ export const platformOS = (): string => {
   return /mac/i.test(navigator.userAgent) ? "macos" : /win/i.test(navigator.userAgent) ? "windows" : "linux";
 };
 
-export type DictationStatus = {
-  recording: boolean;
-  model_installed: boolean;
-  model_verified: boolean;
-  test_passed: boolean;
-  download_in_progress: boolean;
-  model_name: string;
-  model_bytes: number;
-  supported: boolean;
-  device_summary: string;
-  compatibility_reason: string | null;
-};
-
-export type DictationDownloadProgress = {
-  downloaded_bytes: number;
-  total_bytes: number;
-};
-
 const invoke = async <T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> => {
   const tauri = (globalThis as any).__TAURI__;
   if (!tauri?.core?.invoke) return null;
@@ -80,31 +62,6 @@ export const setKeepAwake = (enabled: boolean) => invoke<boolean>("set_keep_awak
 
 /** Begin native window dragging from a custom title/header region. */
 export const startWindowDrag = () => invoke<boolean>("start_window_drag");
-
-// Local dictation is native-only. The browser build deliberately keeps this unavailable rather
-// than silently sending microphone audio to a server.
-export const getDictationStatus = () => invoke<DictationStatus>("get_dictation_status");
-/** Instantaneous mic loudness 0..1 while recording (0 otherwise) - drives the composer's
- * live waveform. Cheap; poll at ~10Hz. */
-export const getDictationLevel = () => invoke<number>("dictation_level");
-export const startDictation = () => invokeStrict<DictationStatus>("start_dictation");
-export const stopDictation = () => invokeStrict<string>("stop_dictation");
-export const cancelDictation = () => invokeStrict<void>("cancel_dictation");
-export const downloadDictationModel = () => invokeStrict<DictationStatus>("download_dictation_model");
-export const cancelDictationModelDownload = () => invokeStrict<void>("cancel_dictation_model_download");
-export const verifyDictationModel = () => invokeStrict<DictationStatus>("verify_dictation_model");
-export const markDictationTestPassed = () => invokeStrict<DictationStatus>("mark_dictation_test_passed");
-export const deleteDictationModel = () => invokeStrict<DictationStatus>("delete_dictation_model");
-
-export async function listenDictationDownloadProgress(
-  handler: (progress: DictationDownloadProgress) => void,
-): Promise<() => void> {
-  const listen = (globalThis as any).__TAURI__?.event?.listen;
-  if (!listen) return () => {};
-  return (await listen("dictation-download-progress", (event: { payload: DictationDownloadProgress }) => {
-    handler(event.payload);
-  })) as () => void;
-}
 
 // --- Application update (release desktop builds only) ---------------------------
 

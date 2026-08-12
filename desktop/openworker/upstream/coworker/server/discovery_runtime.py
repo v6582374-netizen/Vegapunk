@@ -1,8 +1,8 @@
 """Admission-time runtime configuration for production Discovery Launches.
 
-The Launch snapshot is the only source of model identity.  This module turns that
-snapshot into the short-lived environment a worker needs, resolving credentials from
-the SecretStore at the process seam and validating the complete bound Provider set
+The Launch snapshot is the only source of model and external-data metadata. This module
+turns that snapshot into the short-lived environment a worker needs, resolving credentials
+from the SecretStore at the process seam and validating the complete bound Provider/API set
 before the production launcher is marked as running.
 """
 
@@ -39,6 +39,7 @@ class PreparedRuntimeEnvironment:
     environment: dict[str, str] = field(repr=False)
     required_providers: tuple[str, ...]
     provider_overrides: dict[str, dict[str, str]]
+    required_external_data: tuple[str, ...]
 
 
 def prepare_launch_environment(
@@ -46,6 +47,7 @@ def prepare_launch_environment(
     *,
     secret_store: SecretResolver | None = None,
     base_environment: Mapping[str, str] | None = None,
+    external_data: Mapping[str, Any] | None = None,
     required_modules: Sequence[str] = ("fastmcp", "json_repair"),
 ) -> PreparedRuntimeEnvironment:
     """Resolve and validate everything required before ``launch_discovery.py``.
@@ -53,8 +55,9 @@ def prepare_launch_environment(
     Stored credentials take precedence over inherited environment variables, matching
     the desktop SecretStore contract.  Plaintext values are never written to the
     catalog or returned in an exception.  The required Provider set is derived from
-    the active text model plus every capability binding, so a Launch cannot appear
-    ready while a later capability is unusable.
+    the active text model plus every capability binding, and enabled external-data
+    entries are resolved from their API-service profiles, so a Launch cannot appear
+    ready while a later capability or configured data source is unusable.
     """
 
     catalog = _read_catalog(Path(catalog_path))
@@ -66,6 +69,7 @@ def prepare_launch_environment(
     environment = dict(base_environment or os.environ)
     issues: list[str] = []
     required_providers = _required_providers(catalog, issues)
+    required_external_data = _required_external_data(external_data, issues)
     providers = catalog.get("providers")
     if not isinstance(providers, Mapping):
         issues.append("model catalog providers must be a mapping")
@@ -125,6 +129,54 @@ def prepare_launch_environment(
             else:
                 overrides[provider_name] = {"base_url": base_url.rstrip("/")}
 
+    # PaperOrchestra and future paper adapters use the same API Services SecretStore
+    # profiles as the settings surface. Keep credentials out of catalogs and snapshots;
+    # expose them only to this trusted Launch child process, using every declared
+    # environment-variable alias so legacy and current adapters share one source.
+    from coworker.api_services import get_runtime_api_service_environment
+
+    environment.update(
+        get_runtime_api_service_environment(
+            secret_store,
+            inherited_environment=environment,
+        )
+    )
+
+    for api_id, docs_url in required_external_data:
+        from coworker.api_services import external_data_descriptor
+
+        service = external_data_descriptor(api_id)
+        if service is None:
+            issues.append(f"External data API {api_id!r} is not declared in the static catalog")
+            continue
+        parsed_docs_url = urlparse(docs_url)
+        if parsed_docs_url.scheme not in {"http", "https"} or not parsed_docs_url.netloc:
+            issues.append(f"External data API {api_id!r} documentation URL must be HTTP(S)")
+        profile: Mapping[str, Any] = {}
+        try:
+            resolved = secret_store.get(f"api-service:{service.name}")
+            if isinstance(resolved, Mapping):
+                profile = resolved
+        except Exception as error:  # pragma: no cover - platform vault failures vary
+            issues.append(
+                f"Credential store could not be read for external data API {api_id!r}: "
+                f"{type(error).__name__}"
+            )
+        stored_key = profile.get("credential")
+        api_key = stored_key.strip() if isinstance(stored_key, str) else ""
+        env_name = service.environment_variables[0] if service.environment_variables else ""
+        if not api_key and env_name:
+            inherited_key = environment.get(env_name, "")
+            api_key = inherited_key.strip() if isinstance(inherited_key, str) else ""
+        if not api_key:
+            issues.append(
+                f"Missing API key for external data API {api_id!r} (expected {env_name})"
+            )
+        elif env_name:
+            # API keys are injected only into the child process environment and never
+            # copied into the launch snapshot, prompt, catalog, or worker log.
+            environment[env_name] = api_key
+
     missing_modules = [
         module_name
         for module_name in required_modules
@@ -143,7 +195,40 @@ def prepare_launch_environment(
         environment=environment,
         required_providers=required_providers,
         provider_overrides=overrides,
+        required_external_data=tuple(api_id for api_id, _ in required_external_data),
     )
+
+
+def _required_external_data(
+    external_data: Mapping[str, Any] | None,
+    issues: list[str],
+) -> tuple[tuple[str, str], ...]:
+    """Validate the launch-owned API registry without retaining any credentials."""
+
+    if external_data is None:
+        return ()
+    if not isinstance(external_data, Mapping):
+        issues.append("external_data must be a mapping")
+        return ()
+    registry = external_data.get("api_registry", [])
+    if not isinstance(registry, list):
+        issues.append("external_data.api_registry must be a list")
+        return ()
+    entries: list[tuple[str, str]] = []
+    for index, item in enumerate(registry):
+        if not isinstance(item, Mapping):
+            issues.append(f"external_data.api_registry[{index}] must be an object")
+            continue
+        api_id = item.get("api_id")
+        docs_url = item.get("official_docs_url")
+        if not isinstance(api_id, str) or not api_id.strip():
+            issues.append(f"external_data.api_registry[{index}] requires api_id")
+            continue
+        if not isinstance(docs_url, str) or not docs_url.strip():
+            issues.append(f"external_data.api_registry[{index}] requires official_docs_url")
+            continue
+        entries.append((api_id.strip(), docs_url.strip()))
+    return tuple(entries)
 
 
 def apply_provider_overrides(

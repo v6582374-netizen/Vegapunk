@@ -7,9 +7,11 @@ from vegapunk.mas.models.openai_model import OpenAIModel
 from vegapunk.mas.models.runtime import (
     FunctionCallOutput,
     FunctionTool,
+    ImageContent,
     Message,
     ModelRunRequest,
     ReasoningConfig,
+    TextContent,
 )
 
 
@@ -206,9 +208,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
             sent["reasoning"],
             {"effort": "xhigh", "context": "auto", "mode": "pro"},
         )
-        self.assertEqual(
-            sent["prompt_cache_options"], {"mode": "explicit", "ttl": "30m"}
-        )
+        self.assertNotIn("prompt_cache_options", sent)
         self.assertEqual(
             sent["prompt_cache_key"], "vegapunk:generation:prompt-v1"
         )
@@ -230,19 +230,103 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(
-            sent["input"][0],
-            {
-                "type": "message",
-                "role": "developer",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": "Keep the original agent instructions unchanged.",
-                        "prompt_cache_breakpoint": {"mode": "explicit"},
-                    }
-                ],
-            },
+            sent["instructions"], "Keep the original agent instructions unchanged."
         )
+        self.assertNotIn("prompt_cache_breakpoint", repr(sent))
+
+    async def test_provider_without_prompt_cache_options_omits_unsupported_fields(
+        self,
+    ) -> None:
+        model = OpenAIModel.from_config(
+            {
+                "api_key": "test-key",
+                "provider_name": "qwen",
+                "model_name": "qwen3-max",
+                "prompt_cache": {
+                    "mode": "implicit",
+                    "ttl": "30m",
+                    "supports_options": False,
+                },
+            }
+        )
+        client = _FakeOpenAIClient()
+        model.client = client
+
+        await model.run(
+            ModelRunRequest(
+                instructions="Provider-specific cache options are optional.",
+                input=(Message.user("Return a short answer."),),
+                prompt_cache_key="qwen:stable-prefix",
+            )
+        )
+
+        sent = client.responses.requests[0]
+        self.assertNotIn("prompt_cache_options", sent)
+        self.assertEqual(sent["prompt_cache_key"], "qwen:stable-prefix")
+
+    async def test_provider_with_prompt_cache_options_is_omitted(
+        self,
+    ) -> None:
+        model = OpenAIModel.from_config(
+            {
+                "api_key": "test-key",
+                "provider_name": "relay",
+                "model_name": "gpt-5.6-sol",
+                "prompt_cache": {
+                    "mode": "implicit",
+                    "ttl": "30m",
+                    "supports_options": True,
+                },
+            }
+        )
+        client = _FakeOpenAIClient()
+        model.client = client
+
+        await model.run(
+            ModelRunRequest(input=(Message.user("Return a short answer."),))
+        )
+
+        self.assertNotIn("prompt_cache_options", client.responses.requests[0])
+
+    async def test_vision_request_omits_prompt_cache_extensions(self) -> None:
+        client = _FakeOpenAIClient(text="VISION_OK")
+        model = OpenAIModel(
+            api_key="test-key",
+            model_name="gpt-5.6-sol",
+            prompt_cache_supports_options=True,
+            client=client,
+        )
+
+        await model.run(
+            ModelRunRequest(
+                input=(
+                    Message(
+                        role="user",
+                        content=(
+                            TextContent("Inspect this figure."),
+                            ImageContent("data:image/png;base64,AA=="),
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        sent = client.responses.requests[0]
+        self.assertNotIn("prompt_cache_options", sent)
+        self.assertNotIn("prompt_cache_breakpoint", repr(sent))
+
+    def test_prompt_cache_configuration_is_accepted_but_not_sent(self) -> None:
+        model = OpenAIModel.from_config(
+            {
+                "api_key": "test-key",
+                "prompt_cache": {
+                    "mode": "explicit",
+                    "ttl": "30m",
+                    "supports_options": False,
+                },
+            }
+        )
+        self.assertFalse(model.prompt_cache_supports_options)
 
     async def test_run_sends_tool_results_as_function_call_outputs(self) -> None:
         client = _FakeOpenAIClient()
@@ -366,9 +450,7 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {"paper_id": "paper-1"})
         sent = client.responses.requests[0]
         self.assertEqual(sent["text"], {"format": {"type": "json_object"}})
-        self.assertIn(
-            "Return the requested selection.", sent["input"][0]["content"][0]["text"]
-        )
+        self.assertIn("Return the requested selection.", sent["instructions"])
 
     async def test_synchronous_responses_do_not_poll_or_submit_background_work(self) -> None:
         client = _FakeOpenAIClient(text="Synchronous response")

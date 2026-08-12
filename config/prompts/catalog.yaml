@@ -263,6 +263,28 @@ prompts:
   template_variables: []
   required_template_variables: []
   file: discovery/ranking_system.txt
+- id: external_data.connector
+  name: Structured data Connector prompt
+  description: Registered-API acquisition instruction for one research idea
+  workflow: discovery
+  stage: data_acquisition
+  order: 10
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: [request, registry, idea, goal, workspace, manifest_filename]
+  required_template_variables: [request, registry, idea, goal, workspace, manifest_filename]
+  file: external_data/connector.txt
+- id: external_data.web_evidence
+  name: Web Evidence acquisition prompt
+  description: Public-web evidence acquisition instruction for one research idea
+  workflow: discovery
+  stage: data_acquisition
+  order: 20
+  invocation_type: conditional
+  mutual_exclusion_group: null
+  template_variables: [request, connector_feedback, registry, idea, goal, workspace, manifest_filename]
+  required_template_variables: [request, connector_feedback, registry, idea, goal, workspace, manifest_filename]
+  file: external_data/web_evidence.txt
 - id: discovery.refinement.system
   name: Refinement system prompt
   description: System prompt for method refinement

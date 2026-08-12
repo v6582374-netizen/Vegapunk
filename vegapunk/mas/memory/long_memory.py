@@ -20,11 +20,20 @@ from typing import Dict, Any, Optional, List, Iterable, Tuple
 from chromadb import PersistentClient as ChromaClient
 from vegapunk.mas.agents.agent_factory import AgentFactory
 from vegapunk.mas.models.unified_runtime import UnifiedModelRuntime
+
+try:
+    from chromadb.api.types import EmbeddingFunction
+except ImportError:  # Keep config-only imports working without Chroma installed.
+    class EmbeddingFunction:
+        """Fallback base used when the optional Chroma package is stubbed out."""
+
+        pass
+
 logger = logging.getLogger(__name__)
 CHROMA_AVAILABLE = True
 
 
-class _RuntimeChromaEmbeddingFunction:
+class _RuntimeChromaEmbeddingFunction(EmbeddingFunction):
     """Adapt the explicit catalog embedding binding to Chroma's callback API."""
 
     def __init__(self, runtime: UnifiedModelRuntime) -> None:
@@ -33,6 +42,27 @@ class _RuntimeChromaEmbeddingFunction:
     def __call__(self, input: list[str]) -> list[list[float]]:
         values = self.embedding_model.encode(input)
         return values.tolist() if hasattr(values, "tolist") else values
+
+    @staticmethod
+    def name() -> str:
+        """Identify the process-local adapter to Chroma's collection config."""
+
+        return "vegapunk-runtime"
+
+    def get_config(self) -> dict[str, Any]:
+        """Return the serializable part of this adapter's configuration."""
+
+        # The actual model is injected from UnifiedModelRuntime and cannot be
+        # reconstructed from a persisted Chroma config.
+        return {}
+
+    @staticmethod
+    def build_from_config(config: dict[str, Any]) -> Any:
+        """Keep this process-owned adapter out of Chroma's auto-rehydration."""
+
+        # There is intentionally no hidden/global runtime to use here. Chroma
+        # treats NotImplemented as a legacy, runtime-owned embedding binding.
+        return NotImplemented
 
 # 长期记忆分三层：把想法连成图、把实验记录整理成经验、再用经验改写下一轮提示。
 # 它增强多轮发现质量，但主实验流程不依赖它才能启动。

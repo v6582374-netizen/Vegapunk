@@ -10,9 +10,16 @@ import asyncio
 import logging
 import re
 import json
+import random
+import threading
+import time as time_module
+import weakref
+from collections import deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import urllib.parse
 import requests
 
@@ -31,6 +38,133 @@ except ImportError:
     from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+# CrossRef currently advertises a small anonymous/polite-pool budget.  Keep a
+# conservative process-wide budget because LiteratureSearch is instantiated by
+# both Survey and Scholar agents, and their local semaphores do not coordinate.
+_CROSSREF_REQUESTS_PER_WINDOW = 2
+_CROSSREF_WINDOW_SECONDS = 1.0
+_CROSSREF_MAX_CONCURRENT = 2
+_CROSSREF_MAX_RETRIES = 3
+_CROSSREF_BACKOFF_BASE_SECONDS = 1.0
+_CROSSREF_BACKOFF_MAX_SECONDS = 30.0
+
+# arXiv's public API terms require one connection at a time and no more than
+# one request every three seconds. Preserve the existing direct search path;
+# this only paces its request starts.
+_ARXIV_REQUESTS_PER_WINDOW = 1
+_ARXIV_WINDOW_SECONDS = 3.0
+_ARXIV_MAX_CONCURRENT = 1
+
+
+class _CrossRefLoopState:
+    def __init__(self, max_concurrent: int) -> None:
+        self.concurrency = asyncio.Semaphore(max_concurrent)
+        self.rate_lock = asyncio.Lock()
+        self.started_at = deque()
+
+
+class _CrossRefRateLimiter:
+    """Coordinate CrossRef request starts across all searcher instances."""
+
+    def __init__(
+        self,
+        *,
+        requests_per_window: int,
+        window_seconds: float,
+        max_concurrent: int,
+    ) -> None:
+        self.requests_per_window = requests_per_window
+        self.window_seconds = window_seconds
+        self.max_concurrent = max_concurrent
+        self._states = weakref.WeakKeyDictionary()
+        self._states_guard = threading.Lock()
+
+    def _state(self) -> tuple[asyncio.AbstractEventLoop, _CrossRefLoopState]:
+        loop = asyncio.get_running_loop()
+        with self._states_guard:
+            state = self._states.get(loop)
+            if state is None:
+                state = _CrossRefLoopState(self.max_concurrent)
+                self._states[loop] = state
+        return loop, state
+
+    @asynccontextmanager
+    async def permit(self):
+        loop, state = self._state()
+        await state.concurrency.acquire()
+        try:
+            while True:
+                async with state.rate_lock:
+                    now = loop.time()
+                    cutoff = now - self.window_seconds
+                    while state.started_at and state.started_at[0] <= cutoff:
+                        state.started_at.popleft()
+
+                    if len(state.started_at) < self.requests_per_window:
+                        state.started_at.append(now)
+                        break
+
+                    delay = max(
+                        0.01,
+                        self.window_seconds - (now - state.started_at[0]),
+                    )
+                await asyncio.sleep(delay)
+            yield
+        finally:
+            state.concurrency.release()
+
+
+_CROSSREF_LIMITER = _CrossRefRateLimiter(
+    requests_per_window=_CROSSREF_REQUESTS_PER_WINDOW,
+    window_seconds=_CROSSREF_WINDOW_SECONDS,
+    max_concurrent=_CROSSREF_MAX_CONCURRENT,
+)
+
+_ARXIV_LIMITER = _CrossRefRateLimiter(
+    requests_per_window=_ARXIV_REQUESTS_PER_WINDOW,
+    window_seconds=_ARXIV_WINDOW_SECONDS,
+    max_concurrent=_ARXIV_MAX_CONCURRENT,
+)
+
+
+def _retry_after_seconds(headers: Any) -> Optional[float]:
+    """Parse CrossRef's Retry-After header as seconds from now."""
+    if not headers:
+        return None
+    raw_value = headers.get("Retry-After") or headers.get("retry-after")
+    if raw_value is None:
+        return None
+
+    raw = str(raw_value).strip()
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+
+    try:
+        retry_at = parsedate_to_datetime(raw)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        return max(0.0, retry_at.timestamp() - time_module.time())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _crossref_retry_delay(headers: Any, retry_number: int) -> float:
+    """Return a bounded server-directed or exponential retry delay."""
+    retry_after = _retry_after_seconds(headers)
+    if retry_after is not None:
+        return min(retry_after, _CROSSREF_BACKOFF_MAX_SECONDS)
+
+    exponential = min(
+        _CROSSREF_BACKOFF_BASE_SECONDS * (2**retry_number),
+        _CROSSREF_BACKOFF_MAX_SECONDS,
+    )
+    return exponential + random.uniform(0.0, 0.25)
 
 
 @dataclass
@@ -127,7 +261,11 @@ class LiteratureSearch:
             citation_manager: Citation manager
             timeout: Request timeout in seconds
         """
-        self.email = config.get("email") or "user@example.com"
+        config = config or {}
+        configured_email = config.get("email")
+        if not isinstance(configured_email, str) or not configured_email.strip():
+            configured_email = os.getenv("CROSSREF_EMAIL", "")
+        self.email = configured_email.strip() if isinstance(configured_email, str) else ""
         self.api_keys = config.get("api_keys") or {}
         self.timeout = config.get("timeout") or 30
         
@@ -142,8 +280,10 @@ class LiteratureSearch:
         
         # User-Agent for requests
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
+            "User-Agent": "VegapunkLiteratureSearch/1.0",
         }
+        if self.email:
+            self.headers["User-Agent"] += f" (mailto:{self.email})"
     
     async def search_arxiv(self,
                           query: str,
@@ -178,21 +318,26 @@ class LiteratureSearch:
         try:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params, headers=self.headers) as response:
-                    if response.status != 200:
-                        logger.error(f"[arXiv] Request failed: {response.status}")
-                        return []
-                    
-                    xml_text = await response.text()
-                    papers = self._parse_arxiv_xml(xml_text)
-                    
-                    # logger.info(f"[arXiv] Found {len(papers)} papers")
-                    
-                    self._cache[cache_key] = papers
-                    for paper in papers:
-                        self.citation_manager.add_paper(paper)
-                    
-                    return papers
+                async with _ARXIV_LIMITER.permit():
+                    async with session.get(
+                        url,
+                        params=params,
+                        headers=self.headers,
+                    ) as response:
+                        if response.status != 200:
+                            logger.error(f"[arXiv] Request failed: {response.status}")
+                            return []
+
+                        xml_text = await response.text()
+                        papers = self._parse_arxiv_xml(xml_text)
+
+                        # logger.info(f"[arXiv] Found {len(papers)} papers")
+
+                        self._cache[cache_key] = papers
+                        for paper in papers:
+                            self.citation_manager.add_paper(paper)
+
+                        return papers
                     
         except asyncio.TimeoutError:
             logger.error(f"[arXiv] Request timeout")
@@ -314,65 +459,98 @@ class LiteratureSearch:
             "rows": max_results,
             "select": "DOI,title,author,abstract,published,container-title,URL"
         }
-        
+        if self.email:
+            params["mailto"] = self.email
+
         headers = dict(self.headers)
-        headers["mailto"] = self.email
         
         try:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params, headers=headers) as response:
-                    if response.status != 200:
-                        logger.error(f"[CrossRef] Request failed: {response.status}")
-                        return []
-                    
-                    data = await response.json()
-                    papers = []
-                    
-                    for item in data.get("message", {}).get("items", []):
-                        # Extract authors
-                        authors = []
-                        for author in item.get("author", []):
-                            given = author.get("given", "")
-                            family = author.get("family", "")
-                            if given and family:
-                                authors.append(f"{given} {family}")
-                            elif family:
-                                authors.append(family)
-                        
-                        # Extract title
-                        title_list = item.get("title", [])
-                        title = title_list[0] if title_list else ""
-                        
-                        # Extract year
-                        year = None
-                        pub_date = item.get("published", {}).get("date-parts", [[]])[0]
-                        if pub_date:
-                            year = pub_date[0] if len(pub_date) > 0 else None
-                        
-                        # Extract journal
-                        journal_list = item.get("container-title", [])
-                        journal = journal_list[0] if journal_list else None
-                        
-                        paper = PaperMetadata(
-                            title=title,
-                            authors=authors,
-                            abstract=item.get("abstract", ""),
-                            year=year,
-                            doi=item.get("DOI"),
-                            journal=journal,
-                            url=item.get("URL"),
-                            source="crossref"
+                data = None
+                for attempt in range(_CROSSREF_MAX_RETRIES + 1):
+                    retry_delay = None
+                    async with _CROSSREF_LIMITER.permit():
+                        async with session.get(url, params=params, headers=headers) as response:
+                            if response.status == 429:
+                                retry_delay = _crossref_retry_delay(
+                                    response.headers,
+                                    attempt,
+                                )
+                                await response.read()
+                            elif response.status != 200:
+                                logger.error(
+                                    f"[CrossRef] Request failed: {response.status}"
+                                )
+                                return []
+                            else:
+                                data = await response.json()
+
+                    if retry_delay is None:
+                        break
+                    if attempt >= _CROSSREF_MAX_RETRIES:
+                        logger.error(
+                            "[CrossRef] Request failed: 429 after %d attempts",
+                            attempt + 1,
                         )
-                        papers.append(paper)
-                    
-                    # logger.info(f"[CrossRef] Found {len(papers)} papers")
-                    
-                    self._cache[cache_key] = papers
-                    for paper in papers:
-                        self.citation_manager.add_paper(paper)
-                    
-                    return papers
+                        return []
+                    logger.info(
+                        "[CrossRef] Rate limited; retrying in %.2fs (attempt %d/%d)",
+                        retry_delay,
+                        attempt + 1,
+                        _CROSSREF_MAX_RETRIES,
+                    )
+                    await asyncio.sleep(retry_delay)
+
+                if data is None:
+                    return []
+
+                papers = []
+
+                for item in data.get("message", {}).get("items", []):
+                    # Extract authors
+                    authors = []
+                    for author in item.get("author", []):
+                        given = author.get("given", "")
+                        family = author.get("family", "")
+                        if given and family:
+                            authors.append(f"{given} {family}")
+                        elif family:
+                            authors.append(family)
+
+                    # Extract title
+                    title_list = item.get("title", [])
+                    title = title_list[0] if title_list else ""
+
+                    # Extract year
+                    year = None
+                    pub_date = item.get("published", {}).get("date-parts", [[]])[0]
+                    if pub_date:
+                        year = pub_date[0] if len(pub_date) > 0 else None
+
+                    # Extract journal
+                    journal_list = item.get("container-title", [])
+                    journal = journal_list[0] if journal_list else None
+
+                    paper = PaperMetadata(
+                        title=title,
+                        authors=authors,
+                        abstract=item.get("abstract", ""),
+                        year=year,
+                        doi=item.get("DOI"),
+                        journal=journal,
+                        url=item.get("URL"),
+                        source="crossref"
+                    )
+                    papers.append(paper)
+
+                # logger.info(f"[CrossRef] Found {len(papers)} papers")
+
+                self._cache[cache_key] = papers
+                for paper in papers:
+                    self.citation_manager.add_paper(paper)
+
+                return papers
                     
         except asyncio.TimeoutError:
             logger.error(f"[CrossRef] Request timeout")

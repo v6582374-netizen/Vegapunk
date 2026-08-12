@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import unittest
+import importlib
+import os
+from pathlib import Path
+import subprocess
+import sys
+import warnings
 from types import SimpleNamespace
 
 from vegapunk.mas.agents.dr_agents.models import get_model
@@ -45,6 +51,66 @@ class _Runtime:
 
 
 class DeepResearchRuntimeTest(unittest.TestCase):
+    def test_tool_manager_uses_the_runtime_configured_integration_module(self):
+        """Tool loading must not re-import integration under a second module name."""
+        repository_root = Path(__file__).parents[2]
+        dr_agents_root = repository_root / "vegapunk" / "mas" / "agents" / "dr_agents"
+        script = """
+import importlib
+from unittest.mock import patch
+
+tools = importlib.import_module("tools")
+integration = importlib.import_module("tools.tool_integration")
+config = {
+    "tools": {"enabled_tools": ["image_processor"]},
+    "extraction_model": "qwen/qwen3.7-max",
+    "runtime_model": {},
+}
+with patch.object(integration, "construct_agent_list", return_value=[]) as construct:
+    tools.ToolManager(config=config)
+assert construct.call_count == 1, (
+    "ToolManager bypassed the runtime-configured tools.tool_integration module"
+)
+"""
+        environment = os.environ.copy()
+        inherited_path = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = os.pathsep.join(
+            part for part in (str(dr_agents_root), inherited_path) if part
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repository_root,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+
+    def test_camel_config_imports_without_pydantic_instance_field_warnings(self):
+        modules = (
+            "camel.configs.cohere_config",
+            "camel.configs.mistral_config",
+            "camel.configs.reka_config",
+            "camel.configs.samba_config",
+        )
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            for module_name in modules:
+                importlib.reload(importlib.import_module(module_name))
+
+        deprecated = [
+            warning
+            for warning in captured
+            if "model_fields" in str(warning.message)
+        ]
+        self.assertEqual(deprecated, [])
+
     def test_get_model_requires_explicit_runtime_and_canonical_identity(self):
         runtime = _Runtime()
         model = get_model(
@@ -54,6 +120,20 @@ class DeepResearchRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(model.model_id, "qwen/qwen3.7-max")
         self.assertEqual(model.generate("Reply with OK."), "OK")
+
+    def test_generate_ignores_repeated_runtime_construction_policy(self):
+        """Legacy DR agents repeat their construction policy on every generation."""
+        runtime = _Runtime()
+        policy = {
+            "runtime_config": {"runtime": runtime},
+            "agent_role": "dr_synthesizer",
+            "reasoning_context": "all_turns",
+            "reasoning_mode": "standard",
+            "extraction_model": "qwen/qwen3.7-max",
+        }
+        model = get_model("qwen/qwen3.7-max", **policy)
+
+        self.assertEqual(model.generate("Reply with OK.", **policy), "OK")
 
     def test_model_name_prefixes_are_not_provider_dispatch(self):
         with self.assertRaisesRegex(ValueError, "injected UnifiedModelRuntime"):

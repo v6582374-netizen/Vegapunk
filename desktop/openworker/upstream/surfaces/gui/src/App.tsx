@@ -62,6 +62,7 @@ import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
 import { AgentsMdWorkspace, type AgentsMdFileTarget } from "./components/AgentsMdWorkspace";
 import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
 import { DiscoveryView } from "./components/DiscoveryView";
+import { CameraView } from "./components/CameraView";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -152,19 +153,10 @@ function fallbackWorkspace(current: string | null, projects: RecentWorkspace[]):
 export function App() {
   const params = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
   const prototype = params?.get("prototype") ?? null;
-  const preview = params?.get("preview") ?? null;
   if (prototype === "skills-manager") return <SkillsManagerPrototype />;
   if (prototype === "agents-md") return <AgentsMdPrototype />;
   const app = <OpenWorkerApp />;
-  const previewClass =
-    preview === "surface-hierarchy-ma"
-      ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--ma"
-      : preview === "surface-hierarchy-refined"
-        ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--refined"
-        : preview === "surface-hierarchy"
-          ? "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--quiet"
-          : "ui-preview-surface-hierarchy ui-preview-surface-hierarchy--ma";
-  return <div className={previewClass}>{app}</div>;
+  return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }
 
 function OpenWorkerApp() {
@@ -224,12 +216,12 @@ function OpenWorkerApp() {
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<
-    "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services"
+    "appearance" | "models" | "personas" | "prompts" | "discovery"
   >(
     "appearance",
   );
   const openSettings = (
-    tab: "appearance" | "models" | "voice" | "personas" | "prompts" | "discovery" | "api-services" = "appearance",
+    tab: "appearance" | "models" | "personas" | "prompts" | "discovery" = "appearance",
   ) => {
     setSettingsTab(tab);
     setSurface("settings");
@@ -242,6 +234,7 @@ function OpenWorkerApp() {
     | "session"
     | "scheduled"
     | "integrations"
+    | "camera"
     | "audit"
     | "inbox"
     | "persona"
@@ -1349,8 +1342,10 @@ function OpenWorkerApp() {
           setSurface("agents-md");
         }}
         onOpenDiscovery={() => setSurface("discovery")}
+        onOpenCamera={() => setSurface("camera")}
         scheduledActive={surface === "scheduled"}
         discoveryActive={surface === "discovery"}
+        cameraActive={surface === "camera"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
@@ -1366,6 +1361,8 @@ function OpenWorkerApp() {
           onRunNow={runTaskNow}
           initialOpenId={scheduledOpenId}
         />
+      ) : surface === "camera" ? (
+        <CameraView />
       ) : surface === "integrations" ? (
         <IntegrationsView />
       ) : surface === "settings" ? (
@@ -1620,7 +1617,6 @@ function OpenWorkerApp() {
               connected={connected}
               modelReady={modelReady}
               onConnectModel={openModelSetup}
-              onConfigureVoiceInput={() => openSettings("voice")}
               onSend={send}
               onInterrupt={interrupt}
               onModeChange={changeMode}

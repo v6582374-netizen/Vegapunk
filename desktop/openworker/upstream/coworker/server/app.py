@@ -588,6 +588,7 @@ def create_app(
                 model_id=manager.model,
                 settings=manager.discovery_model_settings(),
                 discovery_preferences=manager.discovery_launch_preferences_snapshot(),
+                external_data=manager.external_data_snapshot(),
             )
         except LaunchValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1843,7 +1844,7 @@ def create_app(
 
     @app.get("/v1/settings/api-services")
     def settings_api_services_get() -> dict[str, Any]:
-        """Return the fixed scholarly-service catalog with redacted credentials."""
+        """Return the fixed External data catalog with redacted credentials."""
         return {"services": manager.get_api_services()}
 
     @app.post("/v1/settings/api-services/{name}")
@@ -1859,11 +1860,13 @@ def create_app(
             enabled=enabled,
             credential=payload.get("credential"),
             credential_provided="credential" in payload,
+            docs_url=payload.get("docs_url"),
+            docs_url_provided="docs_url" in payload,
         )
 
     @app.post("/v1/settings/api-services/{name}/test")
     async def settings_api_service_test(name: str, body: dict | None = None) -> dict[str, Any]:
-        """Run one fixed read-only service check without blocking the event loop."""
+        """Run one read-only service check without blocking the event loop."""
         payload = body or {}
         current = next((item for item in manager.get_api_services() if item["name"] == name), None)
         if current is None:
@@ -1873,6 +1876,8 @@ def create_app(
             name,
             credential=payload.get("credential"),
             credential_provided="credential" in payload,
+            docs_url=payload.get("docs_url"),
+            docs_url_provided="docs_url" in payload,
         )
 
     @app.put("/v1/settings/discovery-launch")

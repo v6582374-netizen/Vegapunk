@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from vegapunk.mas.agents.connector_agent import ConnectorAgent
 from vegapunk.mas.memory.memory_manager import InMemoryMemoryManager
@@ -58,6 +58,59 @@ class _FakeCodexRunner:
 
 
 class ConnectorAgentTest(unittest.IsolatedAsyncioTestCase):
+    def test_connector_runner_uses_injected_runtime_model_and_launch_backend(self) -> None:
+        runtime = SimpleNamespace(
+            catalog=SimpleNamespace(active_text_model="qwen/qwen3-max")
+        )
+        config = {
+            "_runtime": runtime,
+            "_global_config": {
+                "exp_backend": "qwen_code",
+                "proxy_settings": {"HTTPS_PROXY": "https://proxy.invalid"},
+                "experiment": {
+                    "backend": "qwen_code",
+                    "model": "relay/gpt-5.6-sol",
+                },
+            },
+        }
+
+        with patch("vegapunk.experiments_utils_codex.CodexRunner") as codex_runner, patch(
+            "vegapunk.experiments_utils_qwen_code.QwenCodeRunner"
+        ) as qwen_runner:
+            agent = ConnectorAgent(SimpleNamespace(), config)
+
+            runner = agent._create_runner()
+
+        self.assertIs(runner, qwen_runner.return_value)
+        qwen_runner.assert_called_once_with(
+            {"HTTPS_PROXY": "https://proxy.invalid"},
+            model="qwen/qwen3-max",
+        )
+        codex_runner.assert_not_called()
+
+    def test_connector_registry_prompt_is_limited_to_description_and_docs(self) -> None:
+        prompt = ConnectorAgent._build_prompt(
+            request="Use NLR data.",
+            registry=[
+                {
+                    "api_id": "nlr_developer_network",
+                    "source": "NLR",
+                    "description": "Official research data.",
+                    "official_docs_url": "https://developer.nlr.gov/docs/",
+                    "endpoint": "https://api.example.test/private",
+                    "parameter_description": "secret field mapping",
+                }
+            ],
+            idea={},
+            goal={},
+            workspace=Path("/tmp/connector-test"),
+        )
+
+        self.assertIn("Official research data.", prompt)
+        self.assertIn("https://developer.nlr.gov/docs/", prompt)
+        self.assertNotIn("https://api.example.test/private", prompt)
+        self.assertNotIn("secret field mapping", prompt)
+
     def test_each_idea_receives_an_isolated_workspace(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             first = allocate_idea_data_workspace(temporary_directory, "session-1", "idea-1")
@@ -161,6 +214,77 @@ class ConnectorAgentTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
+    async def test_public_web_data_bypasses_an_unrelated_registered_api(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            idea = Idea(
+                id="idea-1",
+                text="Assess GenAI's effect on employment.",
+                requires_external_data=True,
+                external_data_request=(
+                    "BLS employment projections by SOC occupation for 2022–2032."
+                ),
+                external_data_route="public_web",
+            )
+            session = WorkflowSession(
+                id="session-1",
+                task=Task(
+                    id="task-1",
+                    description="Study GenAI labor-market effects.",
+                    domain="labor economics",
+                ),
+                ideas=[idea],
+            )
+            scholar = SimpleNamespace(
+                execute=AsyncMock(return_value={"evidence": [], "references": []})
+            )
+            connector = SimpleNamespace(execute=AsyncMock())
+
+            async def web_evidence_execute(context: dict, _: dict) -> None:
+                workspace = Path(context["idea_data_workspace"])
+                (workspace / "bls_projections.csv").write_text(
+                    "soc,employment\n15-1252,1650000\n", encoding="utf-8"
+                )
+                (workspace / MANIFEST_FILENAME).write_text(
+                    json.dumps(
+                        {
+                            "artifacts": [
+                                {
+                                    "artifact_path": "bls_projections.csv",
+                                    "source": "U.S. Bureau of Labor Statistics",
+                                    "api_id": "non_api",
+                                    "request": idea.external_data_request,
+                                    "retrieved_at": "2026-08-10T12:00:00+00:00",
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            web_evidence = SimpleNamespace(
+                execute=AsyncMock(side_effect=web_evidence_execute)
+            )
+            orchestrator = OrchestrationAgent(
+                {
+                    "workflow": {"external_data_workspace_root": str(root)},
+                    "external_data": {"api_registry": API_REGISTRY},
+                },
+                InMemoryMemoryManager(),
+                model_runtime=SimpleNamespace(),
+                agent_registry={
+                    "scholar": scholar,
+                    "connector": connector,
+                    "web_evidence": web_evidence,
+                },
+            )
+
+            await orchestrator._run_external_data_phase(session)
+
+            connector.execute.assert_not_awaited()
+            web_evidence.execute.assert_awaited_once()
+            self.assertEqual(idea.evidence[0]["acquired_by"], "web_evidence")
+
     async def test_data_required_idea_admits_valid_local_connector_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -170,6 +294,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 score=0.7,
                 requires_external_data=True,
                 external_data_request="Water and salt permeability by salinity.",
+                external_data_route="registered_api",
             )
             session = WorkflowSession(
                 id="session-1",
@@ -230,6 +355,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 score=0.7,
                 requires_external_data=True,
                 external_data_request="Water permeability by salinity.",
+                external_data_route="registered_api",
             )
             session = WorkflowSession(
                 id="session-1",
@@ -258,6 +384,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 text="Measure membrane transport.",
                 requires_external_data=True,
                 external_data_request="Water permeability by salinity.",
+                external_data_route="registered_api",
             )
             session = WorkflowSession(
                 id="session-1",

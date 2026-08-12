@@ -13,6 +13,7 @@ from ..workflow.external_data import (
     MANIFEST_FILENAME,
     WEB_EVIDENCE_ACQUISITION_FILENAME,
 )
+from vegapunk.prompt_library import prompts
 
 
 class WebEvidenceAgent(BaseAgent):
@@ -80,12 +81,40 @@ class WebEvidenceAgent(BaseAgent):
             return factory()
 
         global_config = self.config.get("_global_config", {})
-        experiment_config = global_config.get("experiment", {})
-        from vegapunk.experiments_utils_codex import CodexRunner
+        if not isinstance(global_config, Mapping):
+            global_config = {}
+        runtime = self.config.get("_runtime") or global_config.get("_runtime")
+        if runtime is None:
+            raise ValueError(
+                "Web Evidence requires the process-owned UnifiedModelRuntime"
+            )
 
-        return CodexRunner(
-            global_config.get("proxy_settings"),
-            model=experiment_config.get("model", "gpt-5.6-sol"),
+        catalog = getattr(runtime, "catalog", None)
+        model = getattr(catalog, "active_text_model", None)
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError(
+                "UnifiedModelRuntime catalog must expose active_text_model"
+            )
+        model = model.strip()
+
+        experiment_config = global_config.get("experiment", {})
+        if not isinstance(experiment_config, Mapping):
+            experiment_config = {}
+        backend = (
+            experiment_config.get("backend") or global_config.get("exp_backend")
+        )
+        proxy_settings = global_config.get("proxy_settings")
+        if backend == "qwen_code":
+            from vegapunk.experiments_utils_qwen_code import QwenCodeRunner
+
+            return QwenCodeRunner(proxy_settings, model=model)
+        if backend == "codex":
+            from vegapunk.experiments_utils_codex import CodexRunner
+
+            return CodexRunner(proxy_settings, model=model)
+        raise ValueError(
+            "Web Evidence requires Launch experiment.backend to be 'codex' or "
+            "'qwen_code'"
         )
 
     @staticmethod
@@ -98,32 +127,16 @@ class WebEvidenceAgent(BaseAgent):
         goal: Any,
         workspace: Path,
     ) -> str:
-        return f"""You are the Web Evidence Agent supplementing one research Idea.
-
-Research goal:
-{json.dumps(goal, ensure_ascii=False, indent=2)}
-
-Idea:
-{json.dumps(idea, ensure_ascii=False, indent=2)}
-
-Original external-data request:
-{request}
-
-Connector coverage feedback:
-{connector_feedback}
-
-Relevant API and source context:
-{json.dumps(registry, ensure_ascii=False, indent=2)}
-
-The Connector has already authorized this startup. Continue research freely without applying
-additional Connector-specific search restrictions: search, browse, call APIs, use available
-local authentication, and download complementary artifacts as appropriate. Save every retained
-artifact locally under {workspace}. Read {MANIFEST_FILENAME} if it exists and append Web Evidence
-entries to its `artifacts` list; do not discard existing Connector entries. Each retained web
-artifact needs artifact_path, source, api_id set to `non_api`, request, and retrieved_at
-(ISO-8601); include docs_url whenever an official documentation page applies. Never claim an
-artifact that is not a real file in this workspace. Finish with concise natural-language coverage
-feedback. Do not lower or assess the scientific score of the Idea."""
+        return prompts.render(
+            "external_data.web_evidence",
+            request=request,
+            connector_feedback=connector_feedback,
+            registry=json.dumps(registry, ensure_ascii=False, indent=2),
+            idea=json.dumps(idea, ensure_ascii=False, indent=2),
+            goal=json.dumps(goal, ensure_ascii=False, indent=2),
+            workspace=str(workspace),
+            manifest_filename=MANIFEST_FILENAME,
+        )
 
     @staticmethod
     def _write_acquisition_record(

@@ -72,13 +72,13 @@ class PaperOrchestraResponsesRuntimeTest(unittest.TestCase):
         bridge = PaperOrchestraResponsesRuntime(runtime=runtime)
         self.assertEqual(
             bridge.generate_image(
-                model_name="qwen/qwen-image-2.0-pro",
+                model_name="relay/gpt-image-2",
                 prompt="draw a method diagram",
                 aspect_ratio="16:9",
             ),
             b"generated image",
         )
-        self.assertEqual(runtime.requests[0][1:], ("qwen/qwen-image-2.0-pro", "16:9"))
+        self.assertEqual(runtime.requests[0][1:], ("relay/gpt-image-2", "16:9"))
 
 
 if __name__ == "__main__":

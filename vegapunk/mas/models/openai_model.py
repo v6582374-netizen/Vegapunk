@@ -77,6 +77,7 @@ class OpenAIModel(BaseModel):
         store: bool = True,
         prompt_cache_mode: str = "explicit",
         prompt_cache_ttl: str = "30m",
+        prompt_cache_supports_options: bool = False,
         request_timeout: float = 3600.0,
         response_state_mode: str = "server",
         response_state_max_entries: int = 128,
@@ -104,8 +105,18 @@ class OpenAIModel(BaseModel):
         self.reasoning_context = reasoning_context
         self.reasoning_mode = reasoning_mode
         self.store = store
+        # The Relay-compatible Responses endpoint does not accept the
+        # optional prompt-cache policy extension. Keep the legacy configuration
+        # values readable for launch snapshots, but never project them into a
+        # request payload.  prompt_cache_key remains a standard, harmless
+        # routing hint when supplied by the caller.
         self.prompt_cache_mode = prompt_cache_mode
         self.prompt_cache_ttl = prompt_cache_ttl
+        if not isinstance(prompt_cache_supports_options, bool):
+            raise ValueError("OpenAI prompt_cache.supports_options must be a boolean")
+        if prompt_cache_mode not in {"implicit", "explicit"}:
+            raise ValueError("Unsupported OpenAI prompt_cache.mode")
+        self.prompt_cache_supports_options = False
         self.request_timeout = request_timeout
         if response_state_mode not in {"server", "replay"}:
             raise ValueError("OpenAI response state mode must be server or replay")
@@ -175,13 +186,8 @@ class OpenAIModel(BaseModel):
             "model": self.model_name,
             "reasoning": reasoning,
             "store": self.store,
-            "prompt_cache_options": {
-                "mode": self.prompt_cache_mode,
-                "ttl": self.prompt_cache_ttl,
-            },
             "text": {"format": {"type": request.response_format}},
         }
-
         max_output_tokens = (
             request.max_output_tokens
             if request.max_output_tokens is not None
@@ -191,15 +197,7 @@ class OpenAIModel(BaseModel):
             request_params["max_output_tokens"] = max_output_tokens
 
         if request.instructions:
-            if self.prompt_cache_mode == "explicit":
-                input_items.append(
-                    self._message_to_response_input(
-                        Message.developer(request.instructions),
-                        cache_breakpoint=True,
-                    )
-                )
-            else:
-                request_params["instructions"] = request.instructions
+            request_params["instructions"] = request.instructions
         input_items.extend(
             self._input_to_response_item(item) for item in request.input
         )
@@ -291,9 +289,7 @@ class OpenAIModel(BaseModel):
         raise TypeError(f"Unsupported Runtime input item: {type(item).__name__}")
 
     @staticmethod
-    def _message_to_response_input(
-        message: Message, *, cache_breakpoint: bool = False
-    ) -> Dict[str, Any]:
+    def _message_to_response_input(message: Message) -> Dict[str, Any]:
         content: list[Dict[str, Any]] = []
         for item in message.content:
             if isinstance(item, ImageContent):
@@ -304,10 +300,6 @@ class OpenAIModel(BaseModel):
                 }
             else:
                 content_item = {"type": "input_text", "text": item.text}
-                if cache_breakpoint:
-                    content_item["prompt_cache_breakpoint"] = {
-                        "mode": "explicit"
-                    }
             content.append(content_item)
         return {
             "type": "message",
@@ -442,6 +434,9 @@ class OpenAIModel(BaseModel):
             store=config.get("store", True),
             prompt_cache_mode=prompt_cache.get("mode", "explicit"),
             prompt_cache_ttl=prompt_cache.get("ttl", "30m"),
+            prompt_cache_supports_options=prompt_cache.get(
+                "supports_options", False
+            ),
             request_timeout=config.get("request_timeout", 3600),
             response_state_mode=response_state.get("mode", "server"),
             response_state_max_entries=response_state.get("max_entries", 128),
@@ -496,13 +491,16 @@ class OpenAIModel(BaseModel):
         prompt_cache = config.get("prompt_cache", {})
         if not isinstance(prompt_cache, dict):
             raise ValueError("OpenAI prompt_cache must be a mapping")
-        if set(prompt_cache).difference({"mode", "ttl"}):
+        if set(prompt_cache).difference({"mode", "ttl", "supports_options"}):
             raise ValueError("Unknown OpenAI prompt_cache configuration")
-        if prompt_cache.get("mode", "explicit") not in {"implicit", "explicit"}:
+        prompt_cache_mode = prompt_cache.get("mode", "explicit")
+        if prompt_cache_mode not in {"implicit", "explicit"}:
             raise ValueError("Unsupported OpenAI prompt_cache.mode")
         if prompt_cache.get("ttl", "30m") != "30m":
             raise ValueError("OpenAI prompt_cache.ttl currently supports only '30m'")
-
+        supports_options = prompt_cache.get("supports_options", False)
+        if not isinstance(supports_options, bool):
+            raise ValueError("OpenAI prompt_cache.supports_options must be a boolean")
         response_state = config.get("response_state", {})
         if not isinstance(response_state, dict):
             raise ValueError("OpenAI response_state must be a mapping")

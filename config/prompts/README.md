@@ -19,6 +19,7 @@ Disk-backed registry of editable prompts consumed by Vegapunk runtime code and t
 
 - `experiment` - experiment-backend coder / debug prompts
 - `discovery` - MAS idea/method/codeview system prompts
+- `external_data` - Connector and Web Evidence acquisition prompts
 - `deep_research` - DR planner/coordinator/section/tool prompts
 - `paper` - PaperOrchestra / autorater prompts
 - `scoring` - Sci evaluation prompts

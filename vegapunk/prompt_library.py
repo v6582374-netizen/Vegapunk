@@ -1,10 +1,8 @@
 """Prompt Library: disk-backed registry of every editable prompt text.
 
 The catalog at ``config/prompts/catalog.yaml`` is the index; each entry
-points at a text file under ``config/prompts/``. Chinese Prompt Mirrors live
-alongside, but outside, the Prompt Library root so a Discovery Launch copies
-only runtime English sources into its Launch Configuration Snapshot (ADR-0157).
-Callers never hardcode prompt bodies.
+points at a text file under ``config/prompts/``. Callers never hardcode prompt
+bodies.
 
 Access:
 
@@ -18,7 +16,6 @@ Override the root for tests or for a Launch snapshot via
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
@@ -36,7 +33,6 @@ DEFAULT_LIBRARY_ROOT = REPOSITORY_ROOT / "config" / "prompts"
 CATALOG_NAME = "catalog.yaml"
 ENV_LIBRARY_ROOT = "VEGAPUNK_PROMPT_LIBRARY_ROOT"
 TEMPLATE_FIELD_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:[.\[].*)?$")
-MIRROR_FIELD_REFERENCE = re.compile(r"\{([^{}]*)\}")
 
 
 @dataclass(frozen=True)
@@ -69,25 +65,11 @@ class PromptEntry:
         }
 
 
-@dataclass(frozen=True)
-class ChinesePromptMirror:
-    state: str
-    file: str
-    text: str | None
-
-    def to_dict(self) -> dict:
-        return {"state": self.state, "file": self.file, "text": self.text}
-
-
 class UnknownPromptError(KeyError):
     pass
 
 
 class InvalidPromptError(ValueError):
-    pass
-
-
-class PromptSourceChangedError(InvalidPromptError):
     pass
 
 
@@ -162,8 +144,6 @@ class PromptLibrary:
             return {
                 **entry.to_dict(),
                 "text": text,
-                "source_revision": _source_revision(text),
-                "chinese_mirror": self._chinese_mirror(entry, text).to_dict(),
             }
 
     def render(self, prompt_id: str, **kwargs: object) -> str:
@@ -194,169 +174,6 @@ class PromptLibrary:
                 if temporary_path is not None:
                     temporary_path.unlink(missing_ok=True)
         return entry
-
-    def save_chinese_mirror(
-        self,
-        prompt_id: str,
-        text: str,
-        *,
-        source_revision: str,
-    ) -> ChinesePromptMirror:
-        """Persist a validated Chinese sidecar for the observed English source."""
-
-        entry = self.get_entry(prompt_id)
-        with self._lock:
-            source_text = self.get(prompt_id)
-            if _source_revision(source_text) != source_revision:
-                raise PromptSourceChangedError(
-                    f"English source changed while translating {prompt_id!r}"
-                )
-            self._validate_mirror_text(entry, text, source_text)
-            relative_path, path = self._chinese_mirror_path(entry)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with NamedTemporaryFile(
-                dir=path.parent,
-                prefix=f".{path.name}.",
-                suffix=".tmp",
-                delete=False,
-                mode="w",
-                encoding="utf-8",
-            ) as temporary:
-                temporary_path = Path(temporary.name)
-                yaml.safe_dump(
-                    {"source_revision": source_revision, "text": text},
-                    temporary,
-                    allow_unicode=True,
-                    sort_keys=False,
-                )
-                temporary.flush()
-                os.fsync(temporary.fileno())
-            try:
-                os.replace(temporary_path, path)
-            finally:
-                temporary_path.unlink(missing_ok=True)
-        return ChinesePromptMirror("ready", relative_path.as_posix(), text)
-
-    def validate_chinese_mirror_draft(
-        self,
-        prompt_id: str,
-        text: str,
-        *,
-        source_revision: str,
-    ) -> tuple[PromptEntry, str]:
-        """Validate a local Chinese draft against its observed English source."""
-
-        entry = self.get_entry(prompt_id)
-        with self._lock:
-            source_text = self.get(prompt_id)
-            if _source_revision(source_text) != source_revision:
-                raise PromptSourceChangedError(
-                    f"English source changed while editing {prompt_id!r}"
-                )
-            self._validate_mirror_text(entry, text, source_text)
-            return entry, source_text
-
-    def synchronize_chinese_mirror(
-        self,
-        prompt_id: str,
-        chinese_text: str,
-        english_text: str,
-        *,
-        source_revision: str,
-    ) -> PromptEntry:
-        """Commit an English prompt and its Chinese mirror with rollback on failure."""
-
-        entry = self.get_entry(prompt_id)
-        with self._lock:
-            source_text = self.get(prompt_id)
-            if _source_revision(source_text) != source_revision:
-                raise PromptSourceChangedError(
-                    f"English source changed while synchronizing {prompt_id!r}"
-                )
-            self._validate_mirror_text(entry, chinese_text, source_text)
-            self._validate_mirror_text(entry, english_text, source_text)
-            english_path = self._root / entry.file
-            _, mirror_path = self._chinese_mirror_path(entry)
-            mirror_path.parent.mkdir(parents=True, exist_ok=True)
-            english_temporary = self._write_temporary(english_path, english_text)
-            mirror_temporary = self._write_temporary(
-                mirror_path,
-                yaml.safe_dump(
-                    {
-                        "source_revision": _source_revision(english_text),
-                        "text": chinese_text,
-                    },
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-            )
-            originals = {
-                english_path: english_path.read_bytes() if english_path.exists() else None,
-                mirror_path: mirror_path.read_bytes() if mirror_path.exists() else None,
-            }
-            try:
-                os.replace(english_temporary, english_path)
-                os.replace(mirror_temporary, mirror_path)
-            except Exception:
-                self._restore_path(english_path, originals[english_path])
-                self._restore_path(mirror_path, originals[mirror_path])
-                raise
-            finally:
-                english_temporary.unlink(missing_ok=True)
-                mirror_temporary.unlink(missing_ok=True)
-            return entry
-
-    def _chinese_mirror(
-        self, entry: PromptEntry, source_text: str
-    ) -> ChinesePromptMirror:
-        relative_path, path = self._chinese_mirror_path(entry)
-        if not path.exists():
-            return ChinesePromptMirror("missing", relative_path.as_posix(), None)
-
-        values = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        mirror_text = values.get("text") if isinstance(values, dict) else None
-        source_revision = (
-            values.get("source_revision") if isinstance(values, dict) else None
-        )
-        if not isinstance(mirror_text, str) or not mirror_text.strip():
-            return ChinesePromptMirror("missing", relative_path.as_posix(), None)
-        if source_revision != _source_revision(source_text):
-            return ChinesePromptMirror("stale", relative_path.as_posix(), None)
-        return ChinesePromptMirror("ready", relative_path.as_posix(), mirror_text)
-
-    def _chinese_mirror_path(self, entry: PromptEntry) -> tuple[Path, Path]:
-        relative_path = Path("prompt_localizations") / "zh-CN" / Path(
-            *entry.id.split(".")
-        ).with_suffix(".yaml")
-        return relative_path, self._root.parent / relative_path
-
-    @staticmethod
-    def _write_temporary(path: Path, content: str | bytes) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = content.encode("utf-8") if isinstance(content, str) else content
-        with NamedTemporaryFile(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-            mode="wb",
-        ) as temporary:
-            temporary_path = Path(temporary.name)
-            temporary.write(payload)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-        return temporary_path
-
-    @classmethod
-    def _restore_path(cls, path: Path, original: bytes | None) -> None:
-        if original is None:
-            path.unlink(missing_ok=True)
-            return
-        temporary_path = cls._write_temporary(path, original)
-        try:
-            os.replace(temporary_path, path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
 
     @staticmethod
     def _validate_text(entry: PromptEntry, text: str) -> None:
@@ -401,54 +218,6 @@ class PromptLibrary:
                 f"unknown template variable(s): {', '.join(unknown)}"
             )
 
-        missing = sorted(set(entry.required_template_variables) - fields)
-        if missing:
-            raise InvalidPromptError(
-                f"required template variable(s) removed: {', '.join(missing)}"
-            )
-
-    @classmethod
-    def _validate_mirror_text(
-        cls,
-        entry: PromptEntry,
-        text: str,
-        source_text: str,
-    ) -> None:
-        """Apply the contract without rejecting legacy literal JSON in sources."""
-
-        try:
-            cls._validate_text(entry, text)
-            return
-        except InvalidPromptError as target_error:
-            try:
-                cls._validate_text(entry, source_text)
-            except InvalidPromptError:
-                cls._validate_legacy_mirror_text(entry, text)
-                return
-            raise target_error
-
-    @staticmethod
-    def _validate_legacy_mirror_text(entry: PromptEntry, text: str) -> None:
-        if not text.strip():
-            raise InvalidPromptError("prompt text must not be empty")
-        if text.count("{") != text.count("}"):
-            raise InvalidPromptError("malformed template syntax: unbalanced braces")
-
-        fields: set[str] = set()
-        for match in MIRROR_FIELD_REFERENCE.finditer(text):
-            field = match.group(1).strip()
-            if not field or not re.match(r"^[A-Za-z_]", field):
-                continue
-            if not TEMPLATE_FIELD_PATTERN.fullmatch(field):
-                raise InvalidPromptError(f"invalid template variable: {field}")
-            fields.add(field.split(".", 1)[0].split("[", 1)[0])
-
-        allowed = set(entry.template_variables)
-        unknown = sorted(fields - allowed)
-        if unknown:
-            raise InvalidPromptError(
-                f"unknown template variable(s): {', '.join(unknown)}"
-            )
         missing = sorted(set(entry.required_template_variables) - fields)
         if missing:
             raise InvalidPromptError(
@@ -505,7 +274,3 @@ class _PromptsFacade:
 
 
 prompts = _PromptsFacade()
-
-
-def _source_revision(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()

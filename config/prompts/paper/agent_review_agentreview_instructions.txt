@@ -1,5 +1,5 @@
 
-Respond in the following format:
+请按以下格式回答：
 
 THOUGHT:
 <THOUGHT>
@@ -9,28 +9,28 @@ REVIEW JSON:
 <JSON>
 ```
 
-In <THOUGHT>, first briefly discuss your intuitions and reasoning for the evaluation.
-Detail your high-level arguments, necessary choices and desired outcomes of the review.
-Do not make generic comments here, but be specific to your current paper.
-Treat this as the note-taking phase of your review.
+在 <THOUGHT> 中，先简要讨论你对评估的直觉和推理。
+详细说明评审的高层论据、必要选择和期望结论。
+不要在此处发表泛泛评论，而要针对当前论文具体分析。
+将此视为评审的笔记阶段。
 
-In <JSON>, provide the review in JSON format with the following fields in the order:
-- "Summary": A summary of the paper content and its contributions.
-- "Strengths": A list of strengths of the paper.
-- "Weaknesses": A list of weaknesses of the paper.
-- "Originality": A rating from 1 to 4 (low, medium, high, very high).
-- "Quality": A rating from 1 to 4 (low, medium, high, very high).
-- "Clarity": A rating from 1 to 4 (low, medium, high, very high).
-- "Significance": A rating from 1 to 4 (low, medium, high, very high).
-- "Questions": A set of clarifying questions to be answered by the paper authors.
-- "Limitations": A set of limitations and potential negative societal impacts of the work.
-- "Ethical Concerns": A boolean value indicating whether there are ethical concerns.
-- "Soundness": A rating from 1 to 4 (poor, fair, good, excellent).
-- "Presentation": A rating from 1 to 4 (poor, fair, good, excellent).
-- "Contribution": A rating from 1 to 4 (poor, fair, good, excellent).
-- "Overall": A rating from 1 to 10 (very strong reject to award quality).
-- "Confidence": A rating from 1 to 5 (low, medium, high, very high, absolute).
-- "Decision": A decision that has to be one of the following: Accept, Reject.
+在 <JSON> 中，按以下字段顺序以 JSON 格式提供评审：
+- "Summary"：论文内容及其贡献的摘要。
+- "Strengths"：论文优势列表。
+- "Weaknesses"：论文弱点列表。
+- "Originality"：1 至 4 的评分（低、中、高、很高）。
+- "Quality"：1 至 4 的评分（低、中、高、很高）。
+- "Clarity"：1 至 4 的评分（低、中、高、很高）。
+- "Significance"：1 至 4 的评分（低、中、高、很高）。
+- "Questions"：需要论文作者回答的一组澄清问题。
+- "Limitations"：工作的一组局限及潜在负面社会影响。
+- "Ethical Concerns"：表示是否存在伦理关切的布尔值。
+- "Soundness"：1 至 4 的评分（差、一般、好、优秀）。
+- "Presentation"：1 至 4 的评分（差、一般、好、优秀）。
+- "Contribution"：1 至 4 的评分（差、一般、好、优秀）。
+- "Overall"：1 至 10 的评分（从强烈拒绝到获奖级）。
+- "Confidence"：1 至 5 的评分（低、中、高、很高、绝对）。
+- "Decision"：必须为以下之一的决定：Accept、Reject。
 
-For the "Decision" field, don't use Weak Accept, Borderline Accept, Borderline Reject, or Strong Reject. Instead, only use Accept or Reject.
-This JSON will be automatically parsed, so ensure the format is precise.
+对于 "Decision" 字段，不要使用 Weak Accept、Borderline Accept、Borderline Reject 或 Strong Reject。只能使用 Accept 或 Reject。
+此 JSON 将被自动解析，因此必须确保格式精确。

@@ -510,6 +510,11 @@ class GenerationAgent(BaseAgent):
                             "external_data_reason": {
                                 "type": "string",
                                 "description": "When requires_external_data is false, explain why the idea can be evaluated without externally acquired data."
+                            },
+                            "external_data_route": {
+                                "type": "string",
+                                "enum": ["registered_api", "public_web", "none"],
+                                "description": "Use registered_api only for a specifically appropriate configured provider; use public_web for official public sources such as BLS or O*NET; use none when external data is unnecessary."
                             }
                         },
                         "required": [
@@ -518,6 +523,7 @@ class GenerationAgent(BaseAgent):
                             "requires_external_data",
                             "external_data_request",
                             "external_data_reason",
+                            "external_data_route",
                         ]
                     }
                 },
@@ -660,6 +666,7 @@ class GenerationAgent(BaseAgent):
                             "Generation returned an invalid hypothesis object; "
                             "external data acquisition is disabled by default."
                         ),
+                        "external_data_route": "none",
                     }
                 )
                 continue
@@ -668,11 +675,13 @@ class GenerationAgent(BaseAgent):
                 requires_external_data,
                 external_data_request,
                 external_data_reason,
+                external_data_route,
                 warning,
             ) = normalize_external_data_requirement(
                 hypothesis.get("requires_external_data"),
                 hypothesis.get("external_data_request"),
                 hypothesis.get("external_data_reason"),
+                hypothesis.get("external_data_route"),
             )
             if warning:
                 logger.warning("Hypothesis %s external-data declaration: %s", index, warning)
@@ -683,6 +692,7 @@ class GenerationAgent(BaseAgent):
                     "requires_external_data": requires_external_data,
                     "external_data_request": external_data_request,
                     "external_data_reason": external_data_reason,
+                    "external_data_route": external_data_route,
                 }
             )
             normalized_hypotheses.append(normalized)

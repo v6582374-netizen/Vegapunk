@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
 import unittest
 from pathlib import Path
 from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
 
-from vegapunk.experiments_utils_codex import CodexRunner, perform_experiments
+from vegapunk.experiments_utils_codex import (
+    CodexRunner,
+    perform_experiments,
+    run_experiment,
+)
 
 
 class PerformExperimentsArtifactTest(unittest.TestCase):
@@ -298,6 +303,31 @@ class CodexRunnerTest(unittest.TestCase):
             CodexRunner(model="gpt-5.6-sol").run("run experiment")
 
         self.assertIn("final message", str(raised.exception))
+
+
+class ExperimentRuntimeConstraintTest(unittest.TestCase):
+    def test_experiment_subprocess_cannot_override_runtime_dataset_constraint(self) -> None:
+        class Process:
+            def __init__(self) -> None:
+                self.stdout = io.StringIO("")
+                self.returncode = 0
+
+            def wait(self, timeout: float | None = None) -> int:
+                del timeout
+                return self.returncode
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "launcher.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            with patch(
+                "vegapunk.experiments_utils_codex.subprocess.Popen",
+                return_value=Process(),
+            ) as start:
+                run_experiment(root, 1)
+
+        environment = start.call_args.kwargs["env"]
+        expected = Path(__file__).parents[1] / "config" / "runtime_constraints.txt"
+        self.assertEqual(environment["PIP_CONSTRAINT"], str(expected))
 
 
 if __name__ == "__main__":

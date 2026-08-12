@@ -52,7 +52,7 @@ unchanged. Put TLS and any organization SSO in front of the process for shared d
 Web authentication disabled for trusted/private-network development only.
 
 The web build has explicit platform capability exceptions: native macOS window controls,
-autostart/keep-awake, the local Tauri updater, and local dictation remain desktop-only. Folder
+autostart/keep-awake and the local Tauri updater remain desktop-only. Folder
 selection uses the server-side Linux picker endpoint, and external links use the browser.
 
 ## Managed browser preview (recommended)

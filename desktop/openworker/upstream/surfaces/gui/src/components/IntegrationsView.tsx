@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
 import { getConnectors } from "../api";
+import { ApiServicesView } from "./ApiServicesView";
 import { McpTab } from "./ManageTabs";
+import { PanelHead } from "./PanelHead";
 import { ConnectorsSection } from "./connectors/ConnectorsSection";
 import { Icon } from "./Icon";
 
-// The Connectors surface (renamed from "Integrations", §26) keeps the left sub-nav, now just
-// Connectors · MCP. The old "Messaging routing" tab (and its ⚠ unrouted badge) moved whole to
-// Inbox ▸ Configure (§28): inbox-delivery config belongs with the Inbox, and Unrouted is
-// "messages that never reached you". The one remaining Activity is the audit log, reached from
-// the account menu.
-type IntTab = "connectors" | "mcp";
+export { PanelHead } from "./PanelHead";
+
+// Integrations keeps three stable sibling modules: Connectors, External data, and MCP servers.
+// Connector detail remains a subpage under Connectors; research-source credentials never live in
+// that list, so the quiet stack can stay calm as the catalog grows.
+type IntTab = "connectors" | "external-data" | "mcp";
 
 // Fixed sub-nav (UX-DECISIONS §21): connector detail lives as a SUBPAGE under
 // Connectors, never as a nav item — the nav must not grow per connector.
-const INT_TABS: { key: IntTab; label: string; icon: "plug" | "code" }[] = [
+const INT_TABS: { key: IntTab; label: string; icon: "plug" | "database" | "code" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
+  { key: "external-data", label: "External data", icon: "database" },
   { key: "mcp", label: "MCP servers", icon: "code" },
 ];
 
@@ -36,7 +39,7 @@ export function IntegrationsView() {
     <main className="flex-1 min-w-0 flex bg-paper">
       <nav className="page-subnav w-[208px] shrink-0 border-r border-line bg-panel/40 px-3 py-4">
         <div className="px-2 text-[13.5px] font-semibold mb-3 flex items-center gap-2">
-          <Icon name="plug" size={16} /> Connectors
+          <Icon name="plug" size={16} /> Integrations
         </div>
         {INT_TABS.map((t) => {
           const active = tab === t.key;
@@ -74,6 +77,8 @@ export function IntegrationsView() {
               />
               <ConnectorsSection />
             </section>
+          ) : tab === "external-data" ? (
+            <ApiServicesView />
           ) : (
             <section>
               <PanelHead
@@ -86,14 +91,5 @@ export function IntegrationsView() {
         </div>
       </div>
     </main>
-  );
-}
-
-export function PanelHead({ title, sub }: { title: string; sub: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="editorial-heading text-[28px] font-medium leading-[1.08] tracking-[-0.045em]">{title}</h2>
-      <p className="editorial-subtitle text-[13px] leading-[1.5] text-muted mt-1.5">{sub}</p>
-    </div>
   );
 }

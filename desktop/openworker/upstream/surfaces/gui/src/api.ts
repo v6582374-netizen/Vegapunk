@@ -141,6 +141,8 @@ export interface DiscoveryExecutionInput {
   domain: string;
   background: string;
   constraints: string[];
+  /** Explicit adapter branch; old revisions omit it and remain sci-compatible. */
+  task_type?: "auto" | "sci";
 }
 
 export interface DiscoveryInputRevision {
@@ -239,6 +241,7 @@ export interface DiscoveryLaunch {
     source_bytes: number;
     sources: DiscoverySourceEntry[];
     title?: string;
+    task_type?: "auto" | "sci";
   };
   configuration_snapshot?: Record<string, unknown>;
 }
@@ -1381,7 +1384,9 @@ export interface ApiService {
   description: string;
   credential_label: string;
   credential_kind: "email" | "api_key";
-  endpoint: string;
+  endpoint: string | null;
+  docs_url: string | null;
+  docs_url_editable: boolean;
   requires_credential: boolean;
   enabled: boolean;
   credential_configured: boolean;
@@ -1406,13 +1411,13 @@ export interface ApiServiceMutationResult {
 
 export async function getApiServices(): Promise<{ services: ApiService[] }> {
   const res = await fetch(`${httpBase()}/v1/settings/api-services`);
-  if (!res.ok) throw new Error("API Services could not be loaded.");
+  if (!res.ok) throw new Error("External data could not be loaded.");
   return res.json();
 }
 
 export async function setApiService(
   name: string,
-  values: { enabled: boolean; credential?: string },
+  values: { enabled: boolean; credential?: string; docs_url?: string },
 ): Promise<ApiServiceMutationResult> {
   const res = await fetch(`${httpBase()}/v1/settings/api-services/${encodeURIComponent(name)}`, {
     method: "POST",
@@ -1427,11 +1432,15 @@ export async function setApiService(
 export async function testApiService(
   name: string,
   credential?: string,
+  docsUrl?: string,
 ): Promise<ApiServiceTestResult> {
   const res = await fetch(`${httpBase()}/v1/settings/api-services/${encodeURIComponent(name)}/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(credential === undefined ? {} : { credential }),
+    body: JSON.stringify({
+      ...(credential === undefined ? {} : { credential }),
+      ...(docsUrl === undefined ? {} : { docs_url: docsUrl }),
+    }),
   });
   const body = (await res.json().catch(() => null)) as ApiServiceTestResult | null;
   if (!res.ok) throw new Error(body?.error || "API Service connection test failed.");
