@@ -35,6 +35,72 @@ class QwenCodeRunnerTest(unittest.TestCase):
         ]
         self.assertEqual(_final_qwen_message(json.dumps(payload)), "ALL_COMPLETED")
 
+    def test_extracts_terminal_result_from_json_event_stream(self) -> None:
+        """Qwen Code may emit consecutive JSON event documents, not one array."""
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"content": [{"text": "draft"}]},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "result": "ALL_COMPLETED",
+                    }
+                ),
+            ]
+        )
+
+        self.assertEqual(_final_qwen_message(stdout), "ALL_COMPLETED")
+
+    def test_protocol_error_does_not_reject_a_verified_baseline(self) -> None:
+        """A malformed Qwen receipt must not override a successful run artifact."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def qwen_completion(
+                command: list[str], *, cwd: str, **_: object
+            ) -> CompletedProcess:
+                workspace = Path(cwd)
+                (workspace / "code").mkdir()
+                (workspace / "launcher.sh").write_text(
+                    "#!/usr/bin/env bash\n", encoding="utf-8"
+                )
+                return CompletedProcess(
+                    command, 0, stdout="not a Qwen JSON event", stderr=""
+                )
+
+            def execute_baseline(
+                folder_name: str | Path, run_num: int, **_: object
+            ) -> tuple[int, str, None, None]:
+                run_directory = Path(folder_name) / f"run_{run_num}"
+                run_directory.mkdir()
+                (run_directory / "final_info.json").write_text(
+                    json.dumps({"accuracy": 0.75}), encoding="utf-8"
+                )
+                return 0, "continue", None, None
+
+            with patch(
+                "vegapunk.experiments_utils_qwen_code.subprocess.run",
+                side_effect=qwen_completion,
+            ), patch(
+                "vegapunk.experiments_utils_codex.run_experiment",
+                side_effect=execute_baseline,
+            ):
+                completed = perform_experiments(
+                    {"name": "candidate", "title": "Candidate"},
+                    root,
+                    max_runs=0,
+                    stop_after_baseline=True,
+                )
+
+            self.assertTrue(completed)
+            self.assertTrue((root / "run_0" / "final_info.json").exists())
+
     def test_does_not_treat_model_prose_about_authentication_as_an_error(self) -> None:
         payload = [
             {
@@ -48,6 +114,29 @@ class QwenCodeRunnerTest(unittest.TestCase):
             {"type": "result", "subtype": "success", "result": "done"},
         ]
         self.assertEqual(_final_qwen_message(json.dumps(payload)), "done")
+
+    def test_does_not_treat_authentication_prose_in_an_event_stream_as_an_error(
+        self,
+    ) -> None:
+        stdout = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [
+                                {"text": "The patch handles 401 API key authentication."}
+                            ]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {"type": "result", "subtype": "success", "result": "done"}
+                ),
+            ]
+        )
+
+        self.assertEqual(_final_qwen_message(stdout), "done")
 
     def test_uses_official_headless_flags_and_provider_local_model(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

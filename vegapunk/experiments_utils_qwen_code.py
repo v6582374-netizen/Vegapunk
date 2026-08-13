@@ -41,6 +41,10 @@ class QwenCodeConfigurationError(RuntimeError):
     """Raised when the Launch Qwen credential is not configured."""
 
 
+class QwenCodeProtocolError(RuntimeError):
+    """Raised when a successful Qwen process emits no readable event stream."""
+
+
 def _text_values(value):
     """Yield text leaves from a Qwen Code JSON event tree."""
     if isinstance(value, str):
@@ -77,8 +81,8 @@ def _qwen_authentication_error_text(stdout: str | None, stderr: str | None = Non
         if not isinstance(raw, str) or not raw.strip():
             continue
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
+            payload = _qwen_json_events(raw)
+        except QwenCodeProtocolError:
             candidates.append(raw)
             continue
         candidates.extend(_qwen_structured_error_values(payload))
@@ -106,6 +110,45 @@ def _qwen_authentication_error_text(stdout: str | None, stderr: str | None = Non
     return None
 
 
+def _qwen_json_events(stdout: str) -> list[object]:
+    """Parse Qwen's documented single-document and event-stream encodings.
+
+    Qwen Code can emit either one JSON document or consecutive JSON event
+    documents.  The latter is a protocol stream, not malformed model prose, so
+    it must be decoded as a sequence rather than passed to ``json.loads`` as a
+    single value.
+    """
+    if not isinstance(stdout, str) or not stdout.strip():
+        raise QwenCodeProtocolError("Qwen Code produced no JSON event output")
+
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as single_document_error:
+        decoder = json.JSONDecoder()
+        events: list[object] = []
+        offset = 0
+        length = len(stdout)
+        try:
+            while offset < length:
+                while offset < length and stdout[offset].isspace():
+                    offset += 1
+                if offset == length:
+                    break
+                event, offset = decoder.raw_decode(stdout, offset)
+                events.append(event)
+        except json.JSONDecodeError as stream_error:
+            raise QwenCodeProtocolError(
+                "Qwen Code returned neither a JSON document nor a JSON event stream"
+            ) from stream_error
+        if not events:
+            raise QwenCodeProtocolError(
+                "Qwen Code returned neither a JSON document nor a JSON event stream"
+            ) from single_document_error
+        return events
+
+    return payload if isinstance(payload, list) else [payload]
+
+
 def _final_qwen_message(stdout: str) -> str:
     """Extract the terminal model message from Qwen Code JSON output."""
     auth_error = _qwen_authentication_error_text(stdout)
@@ -115,12 +158,7 @@ def _final_qwen_message(stdout: str) -> str:
             f"API key ({auth_error}). Check the Launch Qwen credential and "
             "DASHSCOPE_API_KEY precedence."
         )
-    try:
-        payload = json.loads(stdout)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Qwen Code returned invalid JSON output") from exc
-
-    events = payload if isinstance(payload, list) else [payload]
+    events = _qwen_json_events(stdout)
     for event in reversed(events):
         if not isinstance(event, dict):
             continue
@@ -221,10 +259,22 @@ class QwenCodeRunner:
                 output=result.stdout,
                 stderr=result.stderr,
             )
-        output = _final_qwen_message(result.stdout)
+        try:
+            output = _final_qwen_message(result.stdout)
+        except QwenCodeProtocolError as exc:
+            # The workspace is the authority for experiment success.  A Qwen
+            # receipt failure may hide an otherwise completed code change, so
+            # let the shared loop execute and validate its run artifacts.
+            logger.warning(
+                "Qwen Code completion receipt was unreadable; proceeding to "
+                "artifact validation: %s",
+                exc,
+            )
+            return ""
         if not output:
-            raise RuntimeError(
-                "Qwen Code succeeded but produced an empty final message"
+            logger.warning(
+                "Qwen Code completed without a terminal message; proceeding "
+                "to artifact validation"
             )
         return output
 
@@ -266,6 +316,7 @@ def perform_experiments(
 __all__ = [
     "QwenCodeAuthenticationError",
     "QwenCodeConfigurationError",
+    "QwenCodeProtocolError",
     "QwenCodeRunner",
     "perform_experiments",
     "extract_idea_info",
