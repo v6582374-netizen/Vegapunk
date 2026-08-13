@@ -22,7 +22,7 @@ The route determines whether and where VLA, world models, and causal models belo
 
 ## Decisions so far
 
-All six tickets are resolved. Version 1 is implemented in `vegapunk/embodied/` as six modules, each refusing a different way a physical run can be wrong, with 116 tests in `tests/embodied/`.
+All six tickets are resolved. Version 1 is implemented in `vegapunk/embodied/` as six governance modules, each refusing a different way a physical run can be wrong, plus `runtime.py`, the deterministic actuation boundary that is the only thing that moves. 135 tests in `tests/embodied/`.
 
 - [Define the initial registered-skill boundary](issues/01-define-first-embodied-skill-and-task-contract.md) — a selectable catalog of already implemented Physical Skills; natural language is not a Version 1 execution input.
 - [Define the registered skill and execution-loop contract](issues/06-define-registered-skill-and-execution-loop-contract.md) — `skill.py`, `loop.py`: revision-identified contracts with closed parameters, definition separated from run, one fixed ordered path to motion, hard failure defined by what it forbids.
@@ -47,7 +47,7 @@ Stated once here because they are the point of the whole profile:
 Version 1 is a governance skeleton, deliberately complete on the reliability axis and deliberately empty on the physical one. What remains is not design work but laboratory work:
 
 - **The real embodiment inventory.** A human must record the actual G1 end effector, camera layout, control authority, and control frequency, and empty `unverified_fields`. Until then every admission correctly refuses.
-- **A `SkillRuntime` implementation.** The actuation boundary is a protocol with no production implementation. A deterministic controller is the right first one; it needs no checkpoint and makes the loop end-to-end testable on hardware.
+- **A hardware `RobotInterface` adapter.** `runtime.py` supplies the first `SkillRuntime`: `DeterministicJointRuntime` drives registered `JointPoseGoal` targets in bounded joint steps, needs no checkpoint, and makes the loop end-to-end testable. What remains is the G1 SDK adapter behind `RobotInterface` (read sensors, command joints, hold) and the reviewed goal poses themselves, which are laboratory measurements rather than design work.
 - **The G1 deployment-validation environment.** The ladder's stages are defined and enforced; which simulator or replay harness supplies `offline_replay` and `shadow_mode` evidence is not.
 - **Threshold calibration.** 10 attempts, 90% success, and an 8-hour approval window are defensible defaults, not measured ones. They should be revisited against the first real evidence, and they are single named constants for exactly that reason.
 - **The MAS candidate-preparation path.** MAS can propose selections and tightening advice today; the agent-facing surface that does so is not built.
