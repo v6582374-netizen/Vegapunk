@@ -58,6 +58,9 @@ import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
 import { SkillsManagerPrototype } from "./components/SkillsManagerPrototype";
 import { AgentsMdPrototype } from "./components/AgentsMdPrototype";
+import { TranslationView } from "./components/TranslationView";
+import { BabelDocPrototype } from "./components/BabelDocPrototype";
+import { BabelDocSettingsPrototype } from "./components/BabelDocSettingsPrototype";
 import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
 import { AgentsMdWorkspace, type AgentsMdFileTarget } from "./components/AgentsMdWorkspace";
 import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
@@ -155,6 +158,8 @@ export function App() {
   const prototype = params?.get("prototype") ?? null;
   if (prototype === "skills-manager") return <SkillsManagerPrototype />;
   if (prototype === "agents-md") return <AgentsMdPrototype />;
+  if (prototype === "babeldoc") return <BabelDocPrototype />;
+  if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
   const app = <OpenWorkerApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }
@@ -216,12 +221,12 @@ function OpenWorkerApp() {
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<
-    "appearance" | "models" | "personas" | "prompts" | "discovery"
+    "appearance" | "models" | "personas" | "prompts" | "discovery" | "translation"
   >(
     "appearance",
   );
   const openSettings = (
-    tab: "appearance" | "models" | "personas" | "prompts" | "discovery" = "appearance",
+    tab: "appearance" | "models" | "personas" | "prompts" | "discovery" | "translation" = "appearance",
   ) => {
     setSettingsTab(tab);
     setSurface("settings");
@@ -243,6 +248,7 @@ function OpenWorkerApp() {
     | "agents-md"
     | "agents-md-editor"
     | "discovery"
+    | "translation"
   >("session");
   const [agentsMdTarget, setAgentsMdTarget] = useState<AgentsMdFileTarget | null>(null);
   // A remembered Scheduled-detail target must not outlive the surface (see the
@@ -1342,9 +1348,11 @@ function OpenWorkerApp() {
           setSurface("agents-md");
         }}
         onOpenDiscovery={() => setSurface("discovery")}
+        onOpenTranslation={() => setSurface("translation")}
         onOpenCamera={() => setSurface("camera")}
         scheduledActive={surface === "scheduled"}
         discoveryActive={surface === "discovery"}
+        translationActive={surface === "translation"}
         cameraActive={surface === "camera"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
@@ -1402,6 +1410,8 @@ function OpenWorkerApp() {
             setSurface("agents-md-editor");
           }}
         />
+      ) : surface === "translation" ? (
+        <TranslationView onOpenSettings={() => openSettings("translation")} />
       ) : surface === "discovery" ? (
         <DiscoveryView />
       ) : (

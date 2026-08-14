@@ -2125,6 +2125,10 @@ export interface ProviderInfo {
   suggested_models: string[]; // bare model-name suggestions for the "add model" datalist
   recommended_model: string | null; // pre-filled default for this provider (e.g. qwen3-coder:30b)
   blurb?: string; // one-line note under the title ("Uses X's OpenAI-compatible API…")
+  // True → reachable over the plain OpenAI-compatible HTTP API, so consumers that only speak
+  // that dialect (Document Translation's BabelDOC engine) can drive it. Native-SDK providers
+  // (Anthropic, Gemini, Bedrock, Vertex) and the Responses-native Relay are false.
+  openai_compatible?: boolean;
   key_set_at?: string | null; // ISO date the key was last (re)saved — absent for env-only config
   last_used_at?: number | null; // epoch secs the provider last served a completion
 }
@@ -2704,5 +2708,255 @@ export class Session {
     this.ws.onmessage = null;
     this.ws.onclose = null;
     this.ws.close();
+  }
+}
+
+/* ------------------------------------------------------------------ document translation
+
+   The BabelDOC-backed translation module. Two channels, mirroring Discovery: a cursor-polled
+   append-only event log for structured progress, and an SSE tail for raw runner output. The
+   stage list and the event shapes below are BabelDOC's own contract (TRANSLATE_STAGES /
+   async_translate), so the visualization is driven by the real stream rather than a reshaping. */
+
+export interface TranslationSettingsValues {
+  lang_in: string;
+  lang_out: string;
+  /** Which configured provider (Settings ▸ Models) supplies the key + endpoint. "" = the
+      OpenAI slot: env OPENAI_API_KEY, else the saved OpenAI key. */
+  provider: string;
+  openai_model: string;
+  openai_base_url: string;
+  qps: number;
+  pool_max_workers: number;
+  ignore_cache: boolean;
+  pages: string;
+  only_include_translated_page: boolean;
+  max_pages_per_part: number;
+  watermark_output_mode: string;
+  no_dual: boolean;
+  no_mono: boolean;
+  use_alternating_pages_dual: boolean;
+  dual_translate_first: boolean;
+  split_short_lines: boolean;
+  short_line_split_factor: number;
+  translate_table_text: boolean;
+  merge_alternating_line_numbers: boolean;
+  remove_non_formula_lines: boolean;
+  skip_form_render: boolean;
+  skip_curve_render: boolean;
+  enhance_compatibility: boolean;
+  skip_clean: boolean;
+  disable_rich_text_translate: boolean;
+  skip_scanned_detection: boolean;
+  auto_enable_ocr_workaround: boolean;
+  ocr_workaround: boolean;
+  primary_font_family: string;
+  formular_font_pattern: string;
+  formular_char_pattern: string;
+  auto_extract_glossary: boolean;
+  save_auto_extracted_glossary: boolean;
+  min_text_length: number;
+  custom_system_prompt: string;
+}
+
+export interface TranslationParameterMeta {
+  type: "boolean" | "integer" | "number" | "string" | "enum";
+  description?: string;
+  values?: string[];
+  minimum?: number;
+  maximum?: number;
+}
+
+export interface TranslationSettingsDocument {
+  schema_version: number;
+  values: TranslationSettingsValues;
+  defaults: TranslationSettingsValues;
+  parameters: Record<string, TranslationParameterMeta>;
+}
+
+export interface TranslationDocument {
+  document_id: string;
+  filename: string;
+  source_path: string;
+  size: number;
+  sha256: string;
+  pages: number | null;
+  bundle_dir: string;
+}
+
+export interface TranslationArtifact {
+  name: string;
+  role: "source" | "mono" | "dual" | "glossary" | "log";
+  size: number;
+  path: string;
+}
+
+export interface TranslationStage {
+  name: string;
+  weight: number;
+}
+
+export type TranslationRunState = "queued" | "running" | "done" | "error" | "cancelled";
+
+export interface TranslationRun {
+  run_id: string;
+  document_id: string;
+  filename: string;
+  source_path: string;
+  bundle_dir: string;
+  state: TranslationRunState;
+  stage: string | null;
+  stage_index: number;
+  stage_total_count: number;
+  stage_current: number;
+  stage_total: number;
+  stage_progress: number;
+  overall_progress: number;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  elapsed_seconds: number;
+  error: string | null;
+  lang_in: string;
+  lang_out: string;
+  stages: TranslationStage[];
+  artifacts: TranslationArtifact[];
+  result: Record<string, unknown> | null;
+}
+
+export interface TranslationRunEvent {
+  sequence: number;
+  at: number;
+  type: string;
+  stage?: string;
+  stage_progress?: number;
+  stage_current?: number;
+  stage_total?: number;
+  overall_progress?: number;
+  message?: string;
+  [key: string]: unknown;
+}
+
+export interface TranslationUploadFile {
+  filename: string;
+  content_base64: string;
+  size: number;
+}
+
+async function translationRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${httpBase()}${path}`, init);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const raw = detail?.detail?.message ?? detail?.detail ?? detail?.message;
+    const message = typeof raw === "string" ? raw : `Translation request failed (${res.status})`;
+    const error = new Error(message) as Error & { status?: number; violations?: unknown };
+    error.status = res.status;
+    error.violations = detail?.detail?.violations;
+    throw error;
+  }
+  return (await res.json()) as T;
+}
+
+const jsonBody = (payload: unknown): RequestInit => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(payload),
+});
+
+export const getTranslationSettings = (): Promise<TranslationSettingsDocument> =>
+  translationRequest<TranslationSettingsDocument>("/v1/translation/settings");
+
+export const setTranslationSettings = (
+  values: Partial<TranslationSettingsValues>,
+): Promise<TranslationSettingsDocument> =>
+  translationRequest<TranslationSettingsDocument>("/v1/translation/settings", {
+    ...jsonBody({ values }),
+    method: "PUT",
+  });
+
+/** Register documents to translate: uploaded bytes, already-local absolute paths, or both. */
+export const registerTranslationDocuments = (payload: {
+  files?: TranslationUploadFile[];
+  paths?: string[];
+}): Promise<{ documents: TranslationDocument[] }> =>
+  translationRequest<{ documents: TranslationDocument[] }>("/v1/translation/documents", jsonBody(payload));
+
+export const listTranslationDocuments = (): Promise<{ documents: TranslationDocument[] }> =>
+  translationRequest<{ documents: TranslationDocument[] }>("/v1/translation/documents");
+
+export const startTranslationRuns = (
+  documentIds: string[],
+  overrides?: Partial<TranslationSettingsValues>,
+): Promise<{ runs: TranslationRun[] }> =>
+  translationRequest<{ runs: TranslationRun[] }>(
+    "/v1/translation/runs",
+    jsonBody({ document_ids: documentIds, ...(overrides ? { overrides } : {}) }),
+  );
+
+export const listTranslationRuns = (): Promise<{ runs: TranslationRun[] }> =>
+  translationRequest<{ runs: TranslationRun[] }>("/v1/translation/runs");
+
+export const getTranslationRun = (runId: string): Promise<TranslationRun> =>
+  translationRequest<TranslationRun>(`/v1/translation/runs/${encodeURIComponent(runId)}`);
+
+export const cancelTranslationRun = (runId: string): Promise<TranslationRun> =>
+  translationRequest<TranslationRun>(`/v1/translation/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+
+export const getTranslationRunEvents = (
+  runId: string,
+  after = 0,
+): Promise<{
+  run_id: string;
+  events: TranslationRunEvent[];
+  oldest_sequence: number | null;
+  latest_sequence: number;
+  truncated_before_sequence: number;
+}> =>
+  translationRequest(`/v1/translation/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, after)}`);
+
+/** Absolute URL of one artifact inside a run's bundle — for preview iframes and downloads. */
+export const translationArtifactUrl = (runId: string, name: string): string =>
+  `${httpBase()}/v1/translation/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(name)}`;
+
+/** Fetch an artifact as a blob URL so authenticated previews work in an <iframe>/<object>. */
+export async function fetchTranslationArtifactBlobUrl(runId: string, name: string): Promise<string> {
+  const res = await fetch(translationArtifactUrl(runId, name));
+  if (!res.ok) throw new Error(`Artifact could not be loaded (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
+
+/** SSE tail of a run's raw log. Mirrors streamDiscoveryLaunchLog's bare `data:` framing. */
+export async function streamTranslationRunLog(
+  runId: string,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${httpBase()}/v1/translation/runs/${encodeURIComponent(runId)}/logs/stream`, { signal });
+  if (!res.ok) throw new Error(`Translation log stream failed (${res.status})`);
+  if (!res.body) return;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const emitBlock = (block: string) => {
+    const dataLines = block.split(/\r?\n/).filter((line) => line.startsWith("data:"));
+    if (dataLines.length) onLine(dataLines.map((line) => line.slice(5).replace(/^ /, "")).join("\n"));
+  };
+  const consume = (chunk: string) => {
+    buffer += chunk;
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) emitBlock(block);
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      consume(decoder.decode(value, { stream: true }));
+    }
+    consume(decoder.decode());
+    if (buffer.trim()) emitBlock(buffer);
+  } finally {
+    reader.releaseLock();
   }
 }

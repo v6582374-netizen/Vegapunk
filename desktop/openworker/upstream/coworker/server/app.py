@@ -222,6 +222,11 @@ from .prompt_library import (
     violation_for,
 )
 from .skills_manager import SkillsManagerError, SkillsManagerService
+from .translation import (
+    TranslationArtifactError,
+    TranslationFacade,
+    TranslationValidationError,
+)
 
 
 def create_app(
@@ -363,6 +368,7 @@ def create_app(
         runner_mode=discovery_runner_mode or ("real" if web_requested else "fake"),
         repository_root=discovery_repository_root,
     )
+    app.state.translation = TranslationFacade(manager._data_base)
 
     if web_enabled and web_root is not None:
         assets_root = web_root / "assets"
@@ -694,6 +700,101 @@ def create_app(
             raise HTTPException(status_code=404, detail="Discovery Launch not found") from exc
         except (ActiveLaunchConflict, IdempotencyConflict, LaunchStateConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/v1/translation/settings")
+    def translation_settings() -> dict[str, Any]:
+        return app.state.translation.settings_document()
+
+    @app.put("/v1/translation/settings")
+    @app.post("/v1/translation/settings")
+    def save_translation_settings(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return app.state.translation.save_settings(body or {})
+        except TranslationValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Translation settings could not be saved. Try again.",
+            ) from exc
+
+    @app.post("/v1/translation/documents")
+    def translation_register_documents(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return app.state.translation.register_documents(body or {})
+        except TranslationValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Translation document could not be stored. Try again.",
+            ) from exc
+
+    @app.get("/v1/translation/documents")
+    def translation_documents() -> dict[str, Any]:
+        return app.state.translation.list_documents()
+
+    @app.post("/v1/translation/runs")
+    def translation_start_runs(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return app.state.translation.start_runs(body or {})
+        except TranslationValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Translation run could not be started. Try again.",
+            ) from exc
+
+    @app.get("/v1/translation/runs")
+    def translation_runs() -> dict[str, Any]:
+        return app.state.translation.list_runs()
+
+    @app.get("/v1/translation/runs/{run_id}")
+    def translation_run(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.translation.run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+
+    @app.get("/v1/translation/runs/{run_id}/events")
+    def translation_run_events(run_id: str, after: int = 0) -> dict[str, Any]:
+        try:
+            return app.state.translation.events(run_id, after=max(after, 0))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+
+    @app.post("/v1/translation/runs/{run_id}/cancel")
+    def translation_cancel_run(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.translation.cancel(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+
+    @app.get("/v1/translation/runs/{run_id}/logs/stream")
+    def translation_run_log_stream(run_id: str) -> StreamingResponse:
+        try:
+            stream = app.state.translation.stream_log(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+        return StreamingResponse(
+            stream,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/v1/translation/runs/{run_id}/artifacts/{name}")
+    def translation_run_artifact(run_id: str, name: str) -> FileResponse:
+        try:
+            path = app.state.translation.artifact_path(run_id, name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+        except TranslationArtifactError as exc:
+            raise HTTPException(
+                status_code=404, detail="translation artifact is not available"
+            ) from exc
+        media_type = "application/pdf" if path.suffix.lower() == ".pdf" else None
+        return FileResponse(path, media_type=media_type, filename=path.name)
 
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:

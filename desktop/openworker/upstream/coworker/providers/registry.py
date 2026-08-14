@@ -87,6 +87,11 @@ class ProviderDescriptor:
     )
     # One-line note under the provider title (e.g. "Connects through X's OpenAI-compatible API").
     blurb: str = ""
+    # True → this provider is reachable over the plain OpenAI-compatible HTTP API with a
+    # (key, base_url) pair, so callers that only speak that dialect can drive it. Native-SDK
+    # providers (Anthropic, Gemini, Bedrock, Vertex) and the Responses-native Relay are False:
+    # they need their own client, which those callers do not have.
+    openai_compatible: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +101,7 @@ class ProviderDescriptor:
             "fields": [f.to_dict() for f in self.fields],
             "recommended_model": self.recommended_model,
             "blurb": self.blurb,
+            "openai_compatible": self.openai_compatible,
         }
 
 
@@ -253,6 +259,7 @@ def _compat(
         recommended_model=recommended_model,
         env_key=env_key,
         blurb=f"Uses {vendor}'s OpenAI-compatible API — the endpoint is prefilled, just add your key.",
+        openai_compatible=True,
     )
 
 
@@ -280,6 +287,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         build=_build_openai,
         recommended_model="gpt-5.6-sol",
         env_key="OPENAI_API_KEY",
+        openai_compatible=True,
     ),
     ProviderDescriptor(
         name="anthropic",
@@ -576,6 +584,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         # Reliable native tool-calling + strong coding quality (verified). Pull with
         # `ollama pull qwen3-coder:30b`.
         recommended_model="qwen3-coder:30b",
+        openai_compatible=True,
     ),
     ProviderDescriptor(
         name="relay",
@@ -646,6 +655,60 @@ def descriptor_configured(d: ProviderDescriptor, profile: dict[str, Any]) -> boo
             d.env_key and os.environ.get(d.env_key)
         )
     return all(profile.get(f.key) for f in d.fields if f.required)
+
+
+def openai_compatible_providers() -> list[ProviderDescriptor]:
+    """Descriptors reachable over the plain OpenAI-compatible HTTP API — the only ones a
+    caller that speaks just that dialect (e.g. BabelDOC's OpenAITranslator) can drive."""
+    return [d for d in DESCRIPTORS if d.openai_compatible]
+
+
+class ProviderNotUsable(RuntimeError):
+    """A provider cannot be driven over the OpenAI-compatible API right now — unknown,
+    native-SDK-only, or configured with no reachable key."""
+
+
+def resolve_openai_compatible(
+    name: str, secrets: Any
+) -> tuple[str, Optional[str], ProviderDescriptor]:
+    """Resolve one configured provider into the ``(api_key, base_url)`` pair an
+    OpenAI-compatible client needs, plus its descriptor.
+
+    Mirrors each provider's own build path so the same credentials the chat router would use
+    are what a non-chat consumer gets: the stored ``provider:<name>`` profile first, then the
+    provider's own env var. Deliberately per-provider — an OpenAI key is never sent to a
+    different vendor's endpoint. Ollama is keyless (placeholder key, normalized /v1 URL).
+    Raises ``ProviderNotUsable`` with a user-facing reason rather than returning a blank key.
+    """
+    d = get_descriptor(name)
+    if d is None:
+        raise ProviderNotUsable(f"Unknown provider: {name}")
+    if not d.openai_compatible:
+        raise ProviderNotUsable(
+            f"{d.title} is not reachable over the OpenAI-compatible API."
+        )
+    profile = dict((secrets.get(f"provider:{name}") if secrets else None) or {})
+
+    if name == "ollama":
+        return "ollama", _normalize_ollama_url(profile.get("base_url")), d
+
+    base_url = (profile.get("base_url") or "").strip() or None
+    if base_url is None:
+        # A compat vendor's endpoint is not optional — fall back to its prefilled default,
+        # which lives on the descriptor's own base_url field.
+        for f in d.fields:
+            if f.key == "base_url" and f.default:
+                base_url = f.default
+                break
+
+    api_key = (profile.get("api_key") or "").strip()
+    if not api_key and d.env_key:
+        api_key = (os.environ.get(d.env_key) or "").strip()
+    if not api_key:
+        raise ProviderNotUsable(
+            f"No {d.title} API key configured — add it in Settings ▸ Models."
+        )
+    return api_key, base_url, d
 
 
 def detect_provider(api_key: str) -> Optional[str]:

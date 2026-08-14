@@ -135,6 +135,7 @@ interface Props {
   // Scheduled-band row click: open the Automations surface ON that automation (UX-023).
   onOpenAutomation: (id: string) => void;
   onOpenDiscovery?: () => void;
+  onOpenTranslation?: () => void;
   onOpenCamera?: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
@@ -143,6 +144,7 @@ interface Props {
   onOpenAgentsMd: () => void;
   scheduledActive: boolean;
   discoveryActive?: boolean;
+  translationActive?: boolean;
   cameraActive?: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
@@ -1041,6 +1043,23 @@ export function Sidebar(props: Props) {
         >
           <Icon name="library" size={15} className="shrink-0" />
           <span className="flex-1">Discovery</span>
+        </button>
+      </div>
+
+      {/* Document Translation: BabelDOC-backed PDF translation. Its run defaults live in
+          Settings › Document Translation, so this row only ever opens the run desk. */}
+      <div className="px-2.5 mt-1">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.translationActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-translation"
+          aria-current={props.translationActive ? "page" : undefined}
+          onClick={() => props.onOpenTranslation?.()}
+        >
+          <Icon name="file" size={15} className="shrink-0" />
+          <span className="flex-1">Translate</span>
         </button>
       </div>
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from coworker.providers import (
     AssistantTurn,
     ModelCapabilities,
@@ -456,3 +458,177 @@ def test_complete_picks_up_reasoning_content():
     provider = OpenAIProvider(client=_FakeClient(SimpleNamespace(choices=[choice])))
     turn = provider.complete(model="deepseek-v4-pro", messages=[{"role": "user", "content": "x"}])
     assert turn.text == "Answer" and turn.reasoning == "deep thought"
+
+
+# -- OpenAI-compatible resolution (non-chat consumers, e.g. BabelDOC translation) ----------
+
+
+class _Secrets:
+    """Minimal SecretStore stand-in: the one method the resolver uses."""
+
+    def __init__(self, profiles: dict | None = None):
+        self._profiles = profiles or {}
+
+    def get(self, key: str):
+        return self._profiles.get(key)
+
+
+def test_openai_compatible_providers_exclude_native_sdk_ones():
+    from coworker.providers.registry import openai_compatible_providers
+
+    names = {d.name for d in openai_compatible_providers()}
+    # Every one of these is reached with a plain (key, base_url) pair.
+    assert {"openai", "deepseek", "qwen", "openrouter", "ollama"} <= names
+    # These need their own SDK/protocol, so they must never be offered.
+    assert names.isdisjoint({"anthropic", "gemini", "bedrock", "vertex", "relay"})
+
+
+def test_resolve_reads_the_providers_own_stored_profile():
+    from coworker.providers.registry import resolve_openai_compatible
+
+    secrets = _Secrets({"provider:deepseek": {"api_key": "sk-ds"}})
+    key, base_url, descriptor = resolve_openai_compatible("deepseek", secrets)
+
+    assert key == "sk-ds"
+    # Endpoint falls back to the descriptor's prefilled default, not None.
+    assert base_url == "https://api.deepseek.com"
+    assert descriptor.name == "deepseek"
+
+
+def test_resolve_prefers_a_stored_custom_endpoint_over_the_default():
+    from coworker.providers.registry import resolve_openai_compatible
+
+    secrets = _Secrets(
+        {"provider:qwen": {"api_key": "sk-q", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}}
+    )
+    key, base_url, _ = resolve_openai_compatible("qwen", secrets)
+
+    assert key == "sk-q"
+    assert base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def test_resolve_falls_back_to_the_providers_own_env_var(monkeypatch):
+    from coworker.providers.registry import resolve_openai_compatible
+
+    monkeypatch.setenv("MISTRAL_API_KEY", "sk-env")
+    key, _, _ = resolve_openai_compatible("mistral", _Secrets())
+    assert key == "sk-env"
+
+
+def test_resolve_never_lends_the_openai_key_to_another_vendor(monkeypatch):
+    """A configured OpenAI key must not be silently sent to a different vendor's endpoint."""
+    from coworker.providers.registry import ProviderNotUsable, resolve_openai_compatible
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    secrets = _Secrets({"provider:openai": {"api_key": "sk-openai-stored"}})
+
+    with pytest.raises(ProviderNotUsable) as caught:
+        resolve_openai_compatible("deepseek", secrets)
+    assert "DeepSeek" in str(caught.value)
+
+
+def test_resolve_rejects_native_sdk_and_unknown_providers():
+    from coworker.providers.registry import ProviderNotUsable, resolve_openai_compatible
+
+    secrets = _Secrets({"provider:anthropic": {"api_key": "sk-ant-x"}})
+    with pytest.raises(ProviderNotUsable) as native:
+        resolve_openai_compatible("anthropic", secrets)
+    assert "OpenAI-compatible" in str(native.value)
+
+    with pytest.raises(ProviderNotUsable):
+        resolve_openai_compatible("not-a-provider", secrets)
+
+
+def test_resolve_treats_ollama_as_keyless_with_a_normalized_url():
+    from coworker.providers.registry import resolve_openai_compatible
+
+    key, base_url, _ = resolve_openai_compatible("ollama", _Secrets())
+    assert key == "ollama"  # the SDK demands a non-empty string; Ollama ignores it
+    assert base_url == "http://localhost:11434/v1"
+
+    _, custom, _ = resolve_openai_compatible(
+        "ollama", _Secrets({"provider:ollama": {"base_url": "http://box:11434"}})
+    )
+    assert custom == "http://box:11434/v1"
+
+
+# -- OpenAI-compatible resolution (Document Translation reuses configured providers) ----
+
+
+class _FakeSecrets:
+    """Minimal SecretStore stand-in: profiles in a dict, same `get(name)` contract."""
+
+    def __init__(self, profiles: dict | None = None):
+        self._profiles = profiles or {}
+
+    def get(self, name: str):
+        return self._profiles.get(name)
+
+
+def test_openai_compatible_providers_exclude_native_sdk_ones():
+    from coworker.providers.registry import openai_compatible_providers
+
+    names = {d.name for d in openai_compatible_providers()}
+    # OpenAI, its compat vendors, and Ollama speak plain OpenAI HTTP.
+    assert {"openai", "deepseek", "qwen", "openrouter", "ollama"} <= names
+    # These need their own SDK/dialect, so a caller with only an OpenAI client cannot drive them.
+    assert names.isdisjoint({"anthropic", "gemini", "bedrock", "vertex", "relay"})
+
+
+def test_resolve_reads_each_providers_own_profile_never_the_openai_key(monkeypatch):
+    from coworker.providers.registry import resolve_openai_compatible
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-should-not-leak")
+    secrets = _FakeSecrets({"provider:deepseek": {"api_key": "sk-deepseek"}})
+
+    key, base_url, descriptor = resolve_openai_compatible("deepseek", secrets)
+
+    assert key == "sk-deepseek"
+    # The vendor's prefilled endpoint applies without the user retyping it.
+    assert base_url == "https://api.deepseek.com"
+    assert descriptor.name == "deepseek"
+
+
+def test_resolve_falls_back_to_the_providers_own_env_var(monkeypatch):
+    from coworker.providers.registry import resolve_openai_compatible
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-from-env")
+    key, _, _ = resolve_openai_compatible("deepseek", _FakeSecrets())
+    assert key == "sk-from-env"
+
+
+def test_resolve_prefers_a_stored_custom_endpoint(monkeypatch):
+    from coworker.providers.registry import resolve_openai_compatible
+
+    secrets = _FakeSecrets(
+        {"provider:openai": {"api_key": "sk-x", "base_url": "https://gateway.internal/openai/v1"}}
+    )
+    key, base_url, _ = resolve_openai_compatible("openai", secrets)
+    assert (key, base_url) == ("sk-x", "https://gateway.internal/openai/v1")
+
+
+def test_resolve_gives_ollama_a_placeholder_key_and_normalized_v1_url():
+    from coworker.providers.registry import resolve_openai_compatible
+
+    key, base_url, _ = resolve_openai_compatible(
+        "ollama", _FakeSecrets({"provider:ollama": {"base_url": "http://box:11434"}})
+    )
+    assert key == "ollama" and base_url == "http://box:11434/v1"
+
+
+def test_resolve_refuses_native_sdk_providers_and_unconfigured_ones(monkeypatch):
+    from coworker.providers.registry import ProviderNotUsable, resolve_openai_compatible
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with pytest.raises(ProviderNotUsable, match="not reachable over the OpenAI-compatible API"):
+        resolve_openai_compatible("anthropic", _FakeSecrets({"provider:anthropic": {"api_key": "sk-ant-x"}}))
+
+    with pytest.raises(ProviderNotUsable, match="No DeepSeek API key configured"):
+        resolve_openai_compatible("deepseek", _FakeSecrets())
+
+    with pytest.raises(ProviderNotUsable, match="Unknown provider"):
+        resolve_openai_compatible("nope", _FakeSecrets())
