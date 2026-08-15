@@ -111,43 +111,45 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const queue = () => screen.getByRole("region", { name: "Document queue" });
+const library = () => screen.getByRole("region", { name: "Translation library" });
+const card = (filename: string) => screen.getByRole("button", { name: `Open ${filename}` });
 const runPanel = () => screen.getByRole("region", { name: "Current run" });
 const artifactPanel = () => screen.getByRole("region", { name: "Artifacts" });
 
-it("states plainly that the queue is empty, and offers both ways in", async () => {
+it("states plainly that the library is empty, and offers both ways in", async () => {
   render(<TranslationView />);
 
-  await waitFor(() => expect(screen.getByText(/No documents yet/i)).toBeTruthy());
-  expect(within(queue()).getByLabelText(/Add PDF documents/i)).toBeTruthy();
-  expect(within(queue()).getByLabelText(/Register a local document by absolute path/i)).toBeTruthy();
-  expect(within(runPanel()).getByText(/Add a document to start a translation run/i)).toBeTruthy();
+  await waitFor(() => expect(screen.getByText(/Nothing translated yet/i)).toBeTruthy());
+  expect(within(library()).getByLabelText(/Add PDF documents/i)).toBeTruthy();
+  expect(within(library()).getByLabelText(/Register a local document by absolute path/i)).toBeTruthy();
+  // Nothing is focused, so neither the run nor the artifacts column is competing for attention.
+  expect(screen.queryByRole("region", { name: "Current run" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Artifacts" })).toBeNull();
   expect(startTranslationRuns).not.toHaveBeenCalled();
 });
 
-it("registers a local absolute path and shows the document in the queue", async () => {
+it("registers a local absolute path and shows the document in the library", async () => {
   registerTranslationDocuments.mockResolvedValue({ documents: [DOC] });
   render(<TranslationView />);
-  await waitFor(() => expect(screen.getByText(/No documents yet/i)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText(/Nothing translated yet/i)).toBeTruthy());
 
-  fireEvent.change(within(queue()).getByLabelText(/Register a local document by absolute path/i), {
+  fireEvent.change(within(library()).getByLabelText(/Register a local document by absolute path/i), {
     target: { value: DOC.source_path },
   });
-  fireEvent.click(within(queue()).getByRole("button", { name: "Add path" }));
+  fireEvent.click(within(library()).getByRole("button", { name: "Add path" }));
 
   await waitFor(() => expect(registerTranslationDocuments).toHaveBeenCalledWith({ paths: [DOC.source_path] }));
-  expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy();
-  expect(screen.getByRole("progressbar", { name: new RegExp(`Overall translation progress for ${DOC.filename}`) })).toBeTruthy();
+  expect(within(library()).getByTitle(DOC.filename)).toBeTruthy();
 });
 
 it("registers dropped PDF bytes as base64 and ignores everything that is not a PDF", async () => {
   registerTranslationDocuments.mockResolvedValue({ documents: [DOC] });
   render(<TranslationView />);
-  await waitFor(() => expect(screen.getByText(/No documents yet/i)).toBeTruthy());
+  await waitFor(() => expect(screen.getByText(/Nothing translated yet/i)).toBeTruthy());
 
   const pdf = new File(["%PDF-1.7 body"], DOC.filename, { type: "application/pdf" });
   const notes = new File(["nope"], "notes.txt", { type: "text/plain" });
-  fireEvent.drop(within(queue()).getByLabelText(/Add PDF documents/i), { dataTransfer: { files: [pdf, notes] } });
+  fireEvent.drop(within(library()).getByLabelText(/Add PDF documents/i), { dataTransfer: { files: [pdf, notes] } });
 
   await waitFor(() => expect(registerTranslationDocuments).toHaveBeenCalledTimes(1));
   const payload = registerTranslationDocuments.mock.calls[0][0];
@@ -161,10 +163,12 @@ it("starts a run for the queued document and advances progress from the event lo
   listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
   startTranslationRuns.mockResolvedValue({ runs: [run()] });
   render(<TranslationView />);
-  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
+  await waitFor(() => expect(within(library()).getByTitle(DOC.filename)).toBeTruthy());
 
-  fireEvent.click(within(queue()).getByRole("button", { name: /^Translate$/ }));
+  fireEvent.click(within(library()).getByRole("button", { name: `Translate ${DOC.filename}` }));
   await waitFor(() => expect(startTranslationRuns).toHaveBeenCalledWith([DOC.document_id]));
+  // Starting takes the user into the run, which is the only moment focus moves on its own.
+  await waitFor(() => expect(screen.getByRole("region", { name: "Current run" })).toBeTruthy());
 
   const overall = () => screen.getByRole("progressbar", { name: new RegExp(`Overall translation progress`) });
   await waitFor(() => expect(overall().getAttribute("aria-valuenow")).toBe("0"));
@@ -210,6 +214,7 @@ it("shows the artifacts and the bundle directory once the run finishes", async (
   });
 
   render(<TranslationView />);
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
 
   await waitFor(() => expect(within(artifactPanel()).getByText("attention.zh.dual.pdf")).toBeTruthy(), { timeout: 3000 });
   const panel = artifactPanel();
@@ -221,7 +226,9 @@ it("shows the artifacts and the bundle directory once the run finishes", async (
   expect(within(panel).getByText(/Bundled beside the original/i)).toBeTruthy();
   expect(screen.getByTestId("translation-bundle-dir").textContent).toContain(DOC.bundle_dir);
   expect(within(panel).getAllByRole("link", { name: "Download" }).length).toBe(4);
-  expect(screen.getByRole("progressbar", { name: /Overall translation progress/ }).getAttribute("aria-valuenow")).toBe("100");
+  // Opened from the library, so this is a review: the bundle and its files are the point,
+  // not a progress bar reporting a finish the user did not just watch.
+  expect(screen.getByTestId("translation-run-phase").textContent).toBe("Translated");
 });
 
 it("cancels the active run and reflects the cancelled state", async () => {
@@ -230,6 +237,7 @@ it("cancels the active run and reflects the cancelled state", async () => {
   cancelTranslationRun.mockResolvedValue(run({ state: "cancelled", overall_progress: 22, finished_at: 1_760_000_050 }));
 
   render(<TranslationView />);
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
   const cancelButton = await waitFor(() => within(runPanel()).getByRole("button", { name: /Cancel run/i }));
   fireEvent.click(cancelButton);
 
@@ -246,6 +254,7 @@ it("surfaces a failed run's message, and a dead service as one dismissible alert
   });
 
   render(<TranslationView />);
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
   await waitFor(() => expect(screen.getByTestId("translation-run-phase").textContent).toBe("Failed"));
   expect(within(runPanel()).getByText(/no OpenAI credentials/i)).toBeTruthy();
   expect(within(artifactPanel()).getByText(/failed before writing artifacts/i)).toBeTruthy();
@@ -260,18 +269,18 @@ it("surfaces a failed run's message, and a dead service as one dismissible alert
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
 
-it("removes a queue entry, dropping its runs and telling the user the file stayed put", async () => {
+it("removes a library entry, dropping its runs and telling the user the file stayed put", async () => {
   listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
   listTranslationRuns.mockResolvedValue({ runs: [run({ state: "done" })] });
 
   render(<TranslationView />);
-  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
+  await waitFor(() => expect(within(library()).getByTitle(DOC.filename)).toBeTruthy());
 
-  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+  fireEvent.click(within(library()).getByRole("button", { name: `Remove ${DOC.filename} from the library` }));
 
   await waitFor(() => expect(forgetTranslationDocument).toHaveBeenCalledWith(DOC.document_id));
   // The row goes, and so does the run that belonged to it.
-  await waitFor(() => expect(within(queue()).queryByTitle(DOC.filename)).toBeNull());
+  await waitFor(() => expect(within(library()).queryByTitle(DOC.filename)).toBeNull());
   expect(await screen.findByText(/left in place/i)).toBeTruthy();
 });
 
@@ -287,10 +296,10 @@ it("says so plainly when removing also deleted the staged upload", async () => {
   });
 
   render(<TranslationView />);
-  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
-  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+  await waitFor(() => expect(within(library()).getByTitle(DOC.filename)).toBeTruthy());
+  fireEvent.click(within(library()).getByRole("button", { name: `Remove ${DOC.filename} from the library` }));
 
-  await waitFor(() => expect(within(queue()).queryByTitle(DOC.filename)).toBeNull());
+  await waitFor(() => expect(within(library()).queryByTitle(DOC.filename)).toBeNull());
   expect(screen.queryByText(/left in place/i)).toBeNull();
 });
 
@@ -299,10 +308,233 @@ it("keeps the row and reports why when removal fails", async () => {
   forgetTranslationDocument.mockRejectedValue(new Error("document is still being written"));
 
   render(<TranslationView />);
-  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
-  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+  await waitFor(() => expect(within(library()).getByTitle(DOC.filename)).toBeTruthy());
+  fireEvent.click(within(library()).getByRole("button", { name: `Remove ${DOC.filename} from the library` }));
 
   const alert = await waitFor(() => screen.getByRole("alert"));
   expect(alert.textContent).toContain("document is still being written");
-  expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy();
+  expect(within(library()).getByTitle(DOC.filename)).toBeTruthy();
+});
+
+/* ------------------------------------------------------------------ active restrictions */
+
+it("says out loud when a page restriction will leave most of the document untranslated", async () => {
+  // A page filter is the one setting that makes a fully successful run return a document whose
+  // other pages are still in the source language. Silent partial output is worse than an error.
+  getTranslationSettings.mockResolvedValue({ values: { lang_in: "en", lang_out: "zh", pages: "1" } });
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  render(<TranslationView />);
+
+  const notice = await waitFor(() => screen.getByTestId("translation-pages-restriction"));
+  expect(notice.textContent).toContain("1");
+  expect(notice.textContent).toMatch(/only/i);
+});
+
+it("stays quiet when every page is translated", async () => {
+  getTranslationSettings.mockResolvedValue({ values: { lang_in: "en", lang_out: "zh", pages: "" } });
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  render(<TranslationView />);
+
+  await waitFor(() => expect(within(library()).getByTitle(DOC.filename)).toBeTruthy());
+  expect(screen.queryByTestId("translation-pages-restriction")).toBeNull();
+});
+
+/* ------------------------------------------------------------------ library home (B) */
+
+const DONE_DOC: TranslationDocument = {
+  document_id: "doc-past",
+  filename: "scaling-laws-revisited.pdf",
+  source_path: "/home/loongge/papers/scaling/scaling-laws-revisited.pdf",
+  size: 4_400_000,
+  sha256: "b".repeat(64),
+  pages: 22,
+  bundle_dir: "/home/loongge/papers/scaling/scaling-laws-revisited",
+};
+
+const DONE_RUN: TranslationRun = run({
+  run_id: "run-past",
+  document_id: DONE_DOC.document_id,
+  filename: DONE_DOC.filename,
+  source_path: `${DONE_DOC.bundle_dir}/${DONE_DOC.filename}`,
+  bundle_dir: DONE_DOC.bundle_dir,
+  state: "done",
+  stage: null,
+  stage_index: STAGES.length,
+  overall_progress: 100,
+  created_at: 1_759_000_000,
+  started_at: 1_759_000_001,
+  finished_at: 1_759_000_064,
+  elapsed_seconds: 63.8,
+  artifacts: [
+    { name: "scaling-laws-revisited.zh.mono.pdf", role: "mono", size: 4_000_000, path: `${DONE_DOC.bundle_dir}/scaling-laws-revisited.zh.mono.pdf` },
+  ],
+});
+
+it("opens on the library of finished translations, not on an upload form", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  await waitFor(() => expect(card(DONE_DOC.filename)).toBeTruthy());
+  // The bundle path is the point of the module, so the library states it per entry.
+  expect(within(library()).getByText(DONE_DOC.bundle_dir, { exact: false })).toBeTruthy();
+  // Nothing is focused, so no run panel is competing for attention.
+  expect(screen.queryByRole("region", { name: "Current run" })).toBeNull();
+});
+
+it("reviews a past translation without looking like a run about to start", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+
+  const panel = await waitFor(() => screen.getByRole("region", { name: "Translation record" }));
+  expect(within(panel).queryByRole("progressbar")).toBeNull();
+  expect(within(artifactPanel()).getByTestId("translation-artifact-mono")).toBeTruthy();
+});
+
+it("returns to the library without discarding a finished translation", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+  fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Back to library/i })));
+
+  expect(await waitFor(() => card(DONE_DOC.filename))).toBeTruthy();
+  expect(forgetTranslationDocument).not.toHaveBeenCalled();
+});
+
+it("keeps a running translation reachable from the library after leaving it", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [run({ state: "running", overall_progress: 37 })] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+  fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Leave it running/i })));
+
+  const inFlight = await waitFor(() => screen.getByRole("region", { name: "In progress" }));
+  expect(within(inFlight).getByRole("button", { name: `Open ${DOC.filename}` })).toBeTruthy();
+  expect(cancelTranslationRun).not.toHaveBeenCalled();
+});
+
+it("keeps a reviewed translation free of progress even after its events replay", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  // A finished run's log is not empty — opening it replays every event it ever emitted.
+  getTranslationRunEvents.mockResolvedValue({
+    run_id: DONE_RUN.run_id,
+    events: [
+      { sequence: 1, at: 1_759_000_002, type: "progress_start", stage: "Translate Paragraphs", stage_current: 0, stage_total: 88, overall_progress: 30.6 },
+      { sequence: 2, at: 1_759_000_064, type: "finish", overall_progress: 100, message: "bundle written" },
+    ],
+    oldest_sequence: 1,
+    latest_sequence: 2,
+    truncated_before_sequence: 0,
+  });
+
+  render(<TranslationView />);
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+
+  const panel = await waitFor(() => screen.getByRole("region", { name: "Translation record" }));
+  await waitFor(() => expect(getTranslationRunEvents).toHaveBeenCalled());
+  // Reviewing stays a review: the replayed history must not resurrect the live run surface.
+  await waitFor(() => expect(within(panel).queryByRole("progressbar")).toBeNull());
+  expect(within(panel).queryByText(/Segment width/i)).toBeNull();
+});
+
+it("keeps the intake compact once the library has entries", async () => {
+  // The module's subject is the library. An empty shelf may advertise how to fill it, but once
+  // something is on it the big dropzone must not outweigh the translations themselves.
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  await waitFor(() => expect(card(DONE_DOC.filename)).toBeTruthy());
+  expect(screen.queryByTestId("translation-dropzone")).toBeNull();
+  // Both ways in stay reachable, just folded away.
+  expect(screen.getByRole("button", { name: /Add documents/i })).toBeTruthy();
+});
+
+it("advertises the dropzone while the library is still empty", async () => {
+  render(<TranslationView />);
+
+  await waitFor(() => expect(screen.getByText(/Nothing translated yet/i)).toBeTruthy());
+  expect(screen.getByTestId("translation-dropzone")).toBeTruthy();
+});
+
+it("reviews a past translation without celebrating it", async () => {
+  // The largest thing on screen for a week-old translation must not be "100%" and a duration:
+  // that is a finish line, and the user did not just cross it. State when, and what exists.
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+  const panel = await waitFor(() => screen.getByRole("region", { name: "Translation record" }));
+
+  expect(panel.textContent).not.toMatch(/100\s*%/);
+  expect(screen.getByTestId("translation-run-phase").textContent).toBe("Translated");
+  expect(panel.textContent).toMatch(/ago|yesterday|just now/i);
+});
+
+it("treats a re-opened run as a review, not as a live run", async () => {
+  // `witnessed` must mean "watching it finish", not "saw it once". Coming back to a translation
+  // later in the same session is a review like any other.
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [run({ state: "running", overall_progress: 40 })] });
+  const finished = run({ state: "done", overall_progress: 100, finished_at: 1_760_000_120, elapsed_seconds: 61 });
+  getTranslationRun.mockResolvedValue(finished);
+  getTranslationRunEvents.mockResolvedValue({
+    ...noEvents,
+    latest_sequence: 3,
+    events: [{ sequence: 3, at: 1_760_000_120, type: "finish", overall_progress: 100, message: "bundle written" }],
+  });
+
+  render(<TranslationView />);
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+  // Watched it finish: this is the celebration, and it is earned.
+  await waitFor(() => expect(screen.getByRole("region", { name: "Current run" })).toBeTruthy());
+
+  listTranslationRuns.mockResolvedValue({ runs: [finished] });
+  fireEvent.click(screen.getByRole("button", { name: /Back to library/i }));
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+
+  // Re-opened later: a review, so the live chrome must not come back.
+  const panel = await waitFor(() => screen.getByRole("region", { name: "Translation record" }));
+  expect(within(panel).queryByRole("progressbar")).toBeNull();
+});
+
+it("tells the truth when restricted pages are dropped rather than passed through", async () => {
+  // `only_include_translated_page` changes the fact this notice exists to convey: the other
+  // pages are not in the output at all. Saying they are "copied through" would be a lie.
+  getTranslationSettings.mockResolvedValue({
+    values: { lang_in: "en", lang_out: "zh", pages: "1-3", only_include_translated_page: true },
+  });
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  render(<TranslationView />);
+
+  const notice = await waitFor(() => screen.getByTestId("translation-pages-restriction"));
+  expect(notice.textContent).toMatch(/pages 1-3 are/);
+  expect(notice.textContent).not.toMatch(/copied through/i);
+  expect(notice.textContent).toMatch(/no other page|not appear|left out/i);
+});
+
+it("orders the library newest first", async () => {
+  const older: TranslationDocument = { ...DONE_DOC, document_id: "doc-older", filename: "older.pdf" };
+  listTranslationDocuments.mockResolvedValue({ documents: [older, DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({
+    runs: [
+      run({ run_id: "run-older", document_id: older.document_id, filename: older.filename, state: "done", finished_at: 1_000_000 }),
+      { ...DONE_RUN, finished_at: 9_000_000 },
+    ],
+  });
+  render(<TranslationView />);
+
+  await waitFor(() => expect(card(DONE_DOC.filename)).toBeTruthy());
+  const names = within(library())
+    .getAllByRole("button", { name: /^Open / })
+    .map((node) => node.getAttribute("aria-label"));
+  expect(names).toEqual([`Open ${DONE_DOC.filename}`, `Open ${older.filename}`]);
 });

@@ -12,6 +12,10 @@
 
 import { useEffect, useRef, useState } from "react";
 
+/** The prototype and the production surface must read time identically, so there is one
+ *  implementation of it and the prototype borrows it rather than keeping a second copy. */
+export { relativeTime } from "./translationOptions";
+
 export type StageDef = { name: string; weight: number };
 
 /** BabelDOC TRANSLATE_STAGES, verbatim (name, weight). */
@@ -82,17 +86,56 @@ export type DocState = {
   log: LogLine[];
   result: TranslateResult | null;
   error: string | null;
+  /** Epoch ms the run reached `done`. A finished translation is a durable thing the user
+   *  comes back to look at, so it carries its own timestamp rather than only a duration. */
+  finishedAt: number | null;
 };
 
 export type LogLine = { t: number; kind: "start" | "update" | "end" | "finish" | "error"; stage: string; detail: string };
 
-export const SAMPLE_DOCS: Array<Omit<DocState, "status" | "overall" | "stageIndex" | "stageProgress" | "stageCurrent" | "stageTotal" | "elapsed" | "log" | "result" | "error">> = [
+/** The immutable facts about a document; every run-derived field is added by `newDoc`. */
+export type DocSeed = Pick<DocState, "id" | "name" | "sourcePath" | "pages" | "sizeMb">;
+
+export const SAMPLE_DOCS: DocSeed[] = [
   { id: "d1", name: "attention-is-all-you-need.pdf", sourcePath: "/home/loongge/papers/transformer/attention-is-all-you-need.pdf", pages: 15, sizeMb: 2.1 },
   { id: "d2", name: "sparse-autoencoders-2025.pdf", sourcePath: "/home/loongge/papers/interp/sparse-autoencoders-2025.pdf", pages: 34, sizeMb: 8.7 },
   { id: "d3", name: "pdf-reference-1.7.pdf", sourcePath: "/home/loongge/refs/pdf-reference-1.7.pdf", pages: 1310, sizeMb: 31.4 },
 ];
 
-export function newDoc(seed: (typeof SAMPLE_DOCS)[number]): DocState {
+/** Documents that were translated BEFORE this session. A finished translation outlives the run
+ *  that produced it, so the module has to be able to show them without re-running anything. */
+export const HISTORY_SEEDS: DocSeed[] = [
+  { id: "h1", name: "spacetime-composability.pdf", sourcePath: "/home/loongge/papers/vegapunk/spacetime-composability.pdf", pages: 88, sizeMb: 12.6 },
+  { id: "h2", name: "scaling-laws-revisited.pdf", sourcePath: "/home/loongge/papers/scaling/scaling-laws-revisited.pdf", pages: 22, sizeMb: 4.4 },
+  { id: "h3", name: "il-typesetting-notes.pdf", sourcePath: "/home/loongge/notes/il-typesetting-notes.pdf", pages: 6, sizeMb: 0.8 },
+];
+
+/** A run that already reached `done`, reconstructed from its seed — what the sidecar would
+ *  hand back for a past run: a bundle on disk, a result, and the moment it finished. */
+export function finishedDoc(seed: DocSeed, finishedAgoMs: number, seconds: number): DocState {
+  const bundle = bundleDirFor(seed);
+  const stem = stemOf(seed.name);
+  return {
+    ...newDoc(seed),
+    status: "done",
+    overall: 100,
+    stageIndex: BABELDOC_STAGES.length - 1,
+    stageProgress: 100,
+    elapsed: seconds,
+    finishedAt: Date.now() - finishedAgoMs,
+    result: {
+      original_pdf_path: `${bundle}/${seed.name}`,
+      total_seconds: seconds,
+      mono_pdf_path: `${bundle}/${stem}.zh.mono.pdf`,
+      dual_pdf_path: `${bundle}/${stem}.zh.dual.pdf`,
+      auto_extracted_glossary_path: `${bundle}/${stem}.glossary.csv`,
+      total_valid_character_count: Math.round(seed.pages * 2480),
+      bundle_dir: bundle,
+    },
+  };
+}
+
+export function newDoc(seed: DocSeed): DocState {
   return {
     ...seed,
     status: "queued",
@@ -105,6 +148,7 @@ export function newDoc(seed: (typeof SAMPLE_DOCS)[number]): DocState {
     log: [],
     result: null,
     error: null,
+    finishedAt: null,
   };
 }
 
@@ -218,7 +262,7 @@ export function runDoc(
           total_valid_character_count: Math.round(doc.pages * 2480),
           bundle_dir: bundle,
         };
-        opts.onEvent(doc.id, { type: "finish", translate_result: result }, { status: "done", overall: 100, result, elapsed: seconds });
+        opts.onEvent(doc.id, { type: "finish", translate_result: result }, { status: "done", overall: 100, result, elapsed: seconds, finishedAt: Date.now() });
         return;
       }
     }

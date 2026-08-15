@@ -14,6 +14,7 @@
   --okLine: var(--ok-line);
   --warnInk: var(--warn-ink);
   --warnSoft: var(--warn-soft);
+  --dangerSoft: var(--danger-soft);
 }
 
 .bd {
@@ -196,6 +197,33 @@
 .bd-focus-drop { width: 100%; padding: 44px 24px; }
 .bd-focus-sheet { width: 100%; padding: 18px; text-align: left; }
 .bd-focus-detail { display: flex; width: 100%; flex-direction: column; gap: 8px; text-align: left; }
+
+/* Library: the home state of variant B. A finished translation is a durable object, so the list
+ * reads like a shelf — calm rows, relative time, the bundle path as the subtitle. */
+.bd-focus-inner--wide { max-width: 720px; text-align: left; align-items: stretch; }
+.bd-lib-head { display: flex; align-items: flex-start; gap: 16px; }
+.bd-lib-head h1 { font-size: 24px; }
+.bd-lib-head > div { min-width: 0; flex: 1; }
+.bd-lib-head button { flex: 0 0 auto; }
+.bd-lib-section { display: flex; flex-direction: column; gap: 7px; }
+.bd-lib-label { display: flex; align-items: center; gap: 6px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; color: var(--faint); }
+.bd-lib-card { position: relative; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); }
+.bd-lib-card.is-running { border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+.bd-lib-hit { display: flex; min-width: 0; flex: 1; align-items: center; gap: 11px; padding: 12px 13px; text-align: left; border-radius: 13px; }
+.bd-lib-glyph { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 auto; border-radius: 9px; background: var(--paper); color: var(--muted); }
+.bd-lib-card.is-running .bd-lib-glyph { background: var(--accentSoft); color: var(--accent); }
+.bd-lib-text { min-width: 0; flex: 1; }
+.bd-lib-text strong { display: block; overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.bd-lib-text small { display: block; overflow: hidden; color: var(--faint); text-overflow: ellipsis; white-space: nowrap; }
+.bd-lib-meta { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 1px; }
+.bd-lib-meta em { font-size: 11px; font-style: normal; color: var(--muted); }
+.bd-lib-pct { font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--faint); }
+.bd-lib-forget { flex: 0 0 auto; padding: 12px 13px 12px 4px; color: var(--faint); border-radius: 13px; }
+.bd-lib-forget:hover { color: var(--danger); background: var(--dangerSoft); }
+.bd-lib-progress { position: absolute; right: 13px; bottom: 6px; left: 54px; }
+/* Leaving the flow is an escape hatch, so it sits above the step rail and reads as secondary. */
+.bd-focus-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px 4px 4px; border-radius: 9px; font-size: 11.5px; color: var(--muted); }
+.bd-focus-back:hover { color: var(--ink); background: var(--panel); }
 
 /* ---------- variant C: batch monitor ---------- */
 .bd-batch { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }

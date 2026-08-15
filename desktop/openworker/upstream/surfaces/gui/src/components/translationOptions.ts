@@ -210,6 +210,23 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/**
+ * Coarse relative time, for the library of finished translations. A past translation is read at
+ * a glance ("yesterday"), not audited to the second — precision here would be noise.
+ *
+ * Takes epoch MILLISECONDS. The run API reports seconds, so those callers scale at the call site:
+ * one unit convention here beats two near-identical functions.
+ */
+export function relativeTime(epochMs: number, now = Date.now()): string {
+  const mins = Math.max(0, Math.round((now - epochMs) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
   if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;

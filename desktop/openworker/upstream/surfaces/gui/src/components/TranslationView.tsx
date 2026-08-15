@@ -1,6 +1,7 @@
-// The BabelDOC document-translation surface: prototype variant A ("Run desk") raised to
-// production. Three resident columns — queue · live run · artifacts — so a translation is
-// started, watched, and collected without ever navigating away.
+// The BabelDOC document-translation surface: prototype variant B ("Library home") raised to
+// production. The module's home is the LIBRARY of finished translations — a translation outlives
+// the run that made it, and the module is opened to look at past work at least as often as to
+// start new work. Opening one document splits the surface into library · run · artifacts.
 //
 // Everything on screen comes from the real endpoints in ../api. Progress is driven by the
 // server's own append-only event log (getTranslationRunEvents, cursor-polled); the run's own
@@ -38,6 +39,7 @@ import {
   dirOf,
   formatBytes,
   formatDuration,
+  relativeTime,
   shortStage,
 } from "./translationOptions";
 
@@ -262,6 +264,110 @@ function BundlePath({ path, pending, onCopy }: { path: string; pending?: boolean
   );
 }
 
+/**
+ * One entry in the library. A finished translation is the thing the user came back for, so the
+ * card leads with the bundle folder that holds it — not with the source path, which is where the
+ * document merely came from.
+ */
+function LibraryCard({
+  doc,
+  run: docRun,
+  live,
+  focused,
+  removing,
+  starting,
+  onOpen,
+  onRemove,
+  onRun,
+}: {
+  doc: TranslationDocument;
+  run: TranslationRun | null;
+  live?: number;
+  focused: boolean;
+  removing: boolean;
+  starting?: boolean;
+  onOpen: () => void;
+  onRemove: () => void;
+  onRun?: () => void;
+}) {
+  const done = docRun?.state === "done";
+  const active = isActive(docRun);
+  const pct = active ? live ?? docRun?.overall_progress ?? 0 : null;
+  // A translated document is located by its bundle; an untranslated one by where it sits now.
+  const where = done ? docRun?.bundle_dir || doc.bundle_dir : dirOf(doc.source_path);
+
+  return (
+    <div
+      className={
+        "flex items-center gap-2 rounded-lg border px-2 py-2 transition-colors " +
+        (focused ? "border-accent bg-accentSoft/40" : "border-line bg-panel hover:bg-paper")
+      }
+    >
+      <span
+        className={
+          "grid h-7 w-7 shrink-0 place-items-center rounded-lg " +
+          (done ? "bg-okSoft text-ok" : "bg-paper text-muted")
+        }
+      >
+        <Icon name={done ? "library" : "file"} size={13} />
+      </span>
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        aria-current={focused}
+        aria-label={`Open ${doc.filename}`}
+        onClick={onOpen}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[12.5px] font-medium text-ink" title={doc.filename}>
+            {doc.filename}
+          </span>
+          <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted" title={where}>
+            {where}
+          </span>
+          <span className="mt-0.5 block truncate text-[10.5px] text-faint">
+            {done && docRun?.finished_at
+              ? relativeTime(docRun.finished_at * 1000)
+              : active
+                ? docRun?.stage
+                  ? shortStage(docRun.stage)
+                  : "starting"
+                : doc.pages != null
+                  ? `${doc.pages} pages`
+                  : formatBytes(doc.size)}
+          </span>
+        </span>
+        {active ? (
+          <span className="shrink-0 font-mono text-[11px] tabular-nums text-accent">{(pct ?? 0).toFixed(0)}%</span>
+        ) : docRun && docRun.state !== "done" ? (
+          <Pill tone={stateTone(docRun.state)}>{STATE_LABEL[docRun.state]}</Pill>
+        ) : null}
+      </button>
+      {onRun && !active && (
+        <button
+          type="button"
+          className="shrink-0 rounded-md border border-line px-1.5 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink disabled:opacity-40"
+          aria-label={`Translate ${doc.filename}`}
+          disabled={starting}
+          onClick={onRun}
+        >
+          <Icon name="sparkle" size={12} />
+        </button>
+      )}
+      <button
+        type="button"
+        className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-dangerSoft hover:text-danger disabled:opacity-40"
+        aria-label={`Remove ${doc.filename} from the library`}
+        title="Remove from the library"
+        disabled={removing}
+        onClick={onRemove}
+      >
+        <Icon name="trash" size={13} />
+      </button>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ the view */
 
 export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
@@ -270,8 +376,13 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   const [feed, setFeed] = useState<Record<string, FeedLine[]>>({});
   const [focusedDocId, setFocusedDocId] = useState<string | null>(null);
-  const [checked, setChecked] = useState<string[]>([]);
   const [langPair, setLangPair] = useState<string | null>(null);
+  // A non-empty `pages` setting silently narrows every run: the document finishes at 100% with
+  // its other pages still in the source language. The surface has to say so.
+  const [pagesLimit, setPagesLimit] = useState<string>("");
+  // `only_include_translated_page` changes WHAT the restriction does: the pages outside the range
+  // are not passed through, they are absent from the output. Different fact, different sentence.
+  const [pagesDropped, setPagesDropped] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -280,6 +391,9 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
 
   const [pathDraft, setPathDraft] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // Expanded only on request. An empty library expands it implicitly, because then the intake
+  // IS the content and there is nothing for it to overshadow.
+  const [intakeExpanded, setIntakeExpanded] = useState(false);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const [logOpen, setLogOpen] = useState(false);
@@ -306,7 +420,11 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
   useEffect(() => {
     void reload();
     getTranslationSettings()
-      .then((doc) => setLangPair(`${doc.values.lang_in || "auto"} → ${doc.values.lang_out || "zh"}`))
+      .then((doc) => {
+        setLangPair(`${doc.values.lang_in || "auto"} → ${doc.values.lang_out || "zh"}`);
+        setPagesLimit(String(doc.values.pages ?? "").trim());
+        setPagesDropped(doc.values.only_include_translated_page === true);
+      })
       .catch(() => setLangPair(null));
   }, [reload]);
 
@@ -318,13 +436,59 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     return map;
   }, [runs]);
 
+  // Strictly what the user opened. There is deliberately NO fallback to `documents[0]`: the
+  // module's home is the LIBRARY of finished translations, and "nothing focused" is a first-class
+  // state. Opening this module to look at a past translation is at least as common as starting a
+  // new one, so the library — not a run — is what the surface shows first.
   const focusedDoc = useMemo(
-    () => documents.find((doc) => doc.document_id === focusedDocId) ?? documents[0] ?? null,
+    () => documents.find((doc) => doc.document_id === focusedDocId) ?? null,
     [documents, focusedDocId],
   );
   const serverRun = focusedDoc ? runsByDoc.get(focusedDoc.document_id) ?? null : null;
   const runId = serverRun?.run_id ?? null;
   const runActive = isActive(serverRun);
+
+  const intakeOpen = documents.length === 0 || intakeExpanded;
+
+  // The one run this surface is WATCHING right now. A run that crosses the finish line in front
+  // of the user earns the live treatment (progress, stages, events); one that was already over
+  // when opened does not. Deliberately a single id, not a set: leaving the run and coming back
+  // later is a review like any other, so the memory dies with the visit.
+  const [watchedRunId, setWatchedRunId] = useState<string | null>(null);
+  useEffect(() => {
+    if (runId && runActive) setWatchedRunId(runId);
+  }, [runId, runActive]);
+  useEffect(() => {
+    setWatchedRunId(null);
+  }, [focusedDocId]);
+
+  /* ---- the library: what the module shows when nothing is focused ----
+   * A finished translation outlives the run that produced it, so the three groups below are the
+   * home state. Newest first, because a library is read from the top. */
+
+  // One pairing of document → its latest run, shared by all three groups: the grouping is a
+  // filter over the same list, not three separate derivations of it.
+  const entries = useMemo(
+    () => documents.map((doc) => ({ doc, run: runsByDoc.get(doc.document_id) ?? null })),
+    [documents, runsByDoc],
+  );
+
+  const translated = useMemo(
+    () =>
+      entries
+        .filter((entry) => entry.run?.state === "done")
+        .sort((a, b) => (b.run?.finished_at ?? 0) - (a.run?.finished_at ?? 0)),
+    [entries],
+  );
+
+  const inFlight = useMemo(() => entries.filter((entry) => isActive(entry.run)), [entries]);
+
+  // Everything else: never run, or run to a non-`done` end (cancelled, failed). Both are waiting
+  // on the user, so they share one group rather than being split by a distinction they do not feel.
+  const waiting = useMemo(
+    () => entries.filter((entry) => !isActive(entry.run) && entry.run?.state !== "done"),
+    [entries],
+  );
 
   /* ---- authoritative snapshots while anything is in flight ---- */
 
@@ -442,14 +606,14 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
 
   const announce = (message: string) => setStatus(message);
 
-  /** Newly registered documents join the queue, pre-checked, and take focus. */
+  /** A newly registered document joins the library and takes focus, so the next thing the user
+   *  sees is the confirmation for the document they just added. */
   function mergeDocuments(added: TranslationDocument[]) {
     if (!added.length) return;
     setDocuments((prev) => {
       const seen = new Set(prev.map((doc) => doc.document_id));
       return [...prev, ...added.filter((doc) => !seen.has(doc.document_id))];
     });
-    setChecked((prev) => [...new Set([...prev, ...added.map((doc) => doc.document_id)])]);
     setFocusedDocId(added[0].document_id);
   }
 
@@ -471,7 +635,7 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
       );
       const { documents: added } = await registerTranslationDocuments({ files: payload });
       mergeDocuments(added);
-      announce(`${added.length} document${added.length === 1 ? "" : "s"} added to the queue.`);
+      announce(`${added.length} document${added.length === 1 ? "" : "s"} added to the library.`);
     } catch (caught) {
       setError(errText(caught, "Those documents could not be registered."));
     } finally {
@@ -523,7 +687,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
         return next;
       });
       if (started[0]) setFocusedDocId(started[0].document_id);
-      setChecked([]);
       announce(`Started ${started.length} translation run${started.length === 1 ? "" : "s"}.`);
     } catch (caught) {
       setError(errText(caught, "The run could not be started."));
@@ -545,7 +708,7 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     }
   };
 
-  // Removing a queue entry drops this module's own bookkeeping (the registry entry and every
+  // Removing a library entry drops this module's own bookkeeping (the registry entry and every
   // run folder) and cancels anything still running for it. The server decides whether the
   // document's bytes go too: a staged upload's copy is ours to delete, a path the user
   // registered never is, and a folder holding finished translations is left alone.
@@ -557,7 +720,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
       const goneRunIds = new Set(runs.filter((run) => run.document_id === doc.document_id).map((run) => run.run_id));
       setDocuments((prev) => prev.filter((item) => item.document_id !== doc.document_id));
       setRuns((prev) => prev.filter((run) => run.document_id !== doc.document_id));
-      setChecked((prev) => prev.filter((id) => id !== doc.document_id));
       // Drop the per-run projections too, or a re-registered document would inherit them.
       for (const runId of goneRunIds) cursors.current.delete(runId);
       const drop = <T,>(map: Record<string, T>): Record<string, T> =>
@@ -632,6 +794,12 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
   const artifacts = serverRun?.artifacts ?? [];
   const bundleDir = serverRun?.bundle_dir || focusedDoc?.bundle_dir || (focusedDoc ? bundleDirFor(focusedDoc.source_path) : "");
 
+  // A finished run the user OPENED, versus one that finished in front of them. The judge is
+  // whether this surface ever SAW the run in flight — not whether events exist, because a past
+  // run's log is replayed in full the moment it is opened. They deserve different surfaces: a
+  // review shows what exists, not a 100% progress bar celebrating something long over.
+  const reviewing = serverRun?.state === "done" && runId != null && watchedRunId !== runId;
+
   const runLabel = serverRun
     ? `${STATE_LABEL[serverRun.state]} · ${overall.toFixed(0)}% overall${currentStageName ? ` · ${shortStage(currentStageName)}` : ""}`
     : "No run yet";
@@ -682,47 +850,63 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
             </div>
           )}
 
-          <div className="grid min-h-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_minmax(280px,340px)]">
-            {/* ---------------------------------------------------------- queue */}
-            <section className="flex min-w-0 flex-col" aria-label="Document queue">
+          {/* A page filter is the one setting whose effect a successful run does NOT report: every
+              stage completes, the bundle is written, and the pages outside the range are still in
+              the source language. So the restriction is stated up front, next to the library it
+              silently applies to, rather than being discovered by reading the output. */}
+          {pagesLimit && (
+            <div
+              className="mb-4 flex items-start gap-2 rounded-xl2 border border-line bg-warnSoft px-3 py-2.5 text-[12px] text-warnInk"
+              data-testid="translation-pages-restriction"
+            >
+              <Icon name="sliders" size={14} className="mt-0.5 shrink-0" />
+              <span className="min-w-0 flex-1">
+                Only {/^\d+$/.test(pagesLimit) ? `page ${pagesLimit} is` : `pages ${pagesLimit} are`} translated.{" "}
+                {pagesDropped
+                  ? "No other page appears in the output at all."
+                  : "Every other page is copied through in its original language."}
+              </span>
+              {onOpenSettings && (
+                <button type="button" className="shrink-0 text-[11px] underline" onClick={onOpenSettings}>
+                  Change
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* The library is the home state and owns the full width there. Opening a document is
+              what splits the surface into the three resident columns. */}
+          <div
+            className={
+              "grid min-h-0 grid-cols-1 items-start gap-4 " +
+              (focusedDoc
+                ? "lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_minmax(280px,340px)]"
+                : "mx-auto w-full max-w-[720px]")
+            }
+          >
+            {/* ---------------------------------------------------------- library */}
+            <section className="flex min-w-0 flex-col" aria-label="Translation library">
               <ColumnHead
-                title="Queue"
+                title="Library"
                 icon="library"
-                right={<Pill tone="neutral">{documents.length}</Pill>}
+                right={
+                  <span className="ml-auto flex items-center gap-2">
+                    <Pill tone="neutral">{documents.length}</Pill>
+                    {documents.length > 0 && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                        aria-expanded={intakeExpanded}
+                        onClick={() => setIntakeExpanded((prev) => !prev)}
+                      >
+                        <Icon name={intakeExpanded ? "x" : "folderPlus"} size={12} />
+                        {intakeExpanded ? "Close" : "Add documents"}
+                      </button>
+                    )}
+                  </span>
+                }
               />
 
-              <div
-                className={
-                  "flex flex-col items-center gap-1.5 rounded-xl2 border border-dashed px-3 py-5 text-center transition-colors duration-200 " +
-                  (dragOver ? "border-accent bg-accentSoft" : "border-lineStrong bg-panel/40")
-                }
-                role="button"
-                tabIndex={0}
-                aria-label="Add PDF documents: drop files here, or activate to choose files"
-                onClick={() => fileInput.current?.click()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    fileInput.current?.click();
-                  }
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDragOver(false);
-                  void registerFiles(Array.from(event.dataTransfer?.files ?? []));
-                }}
-              >
-                <Icon name="folderPlus" size={20} className="text-muted" />
-                <strong className="text-[12.5px] font-medium text-ink">Drop PDFs, or click to choose</strong>
-                <small className="text-[11px] leading-[1.45] text-muted">
-                  Outputs stay next to each source file
-                </small>
-              </div>
               <input
                 ref={fileInput}
                 type="file"
@@ -736,144 +920,164 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                 }}
               />
 
-              <div className="mt-2 flex items-center gap-1.5">
-                <input
-                  className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2 py-1.5 font-mono text-[11px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
-                  placeholder="/absolute/path/paper.pdf"
-                  aria-label="Register a local document by absolute path"
-                  value={pathDraft}
-                  onChange={(event) => setPathDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void registerPaths();
-                  }}
-                />
-                <button
-                  type="button"
-                  className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
-                  disabled={!pathDraft.trim() || busy === "register"}
-                  onClick={() => void registerPaths()}
-                >
-                  Add path
-                </button>
-              </div>
+              {/* The intake is loud only while there is nothing to read. Once the library holds
+                  entries, the translations themselves are the page and adding another is one
+                  button — a drop target the size of a hero would outrank the very thing the
+                  user opened this module to see. */}
+              {intakeOpen && (
+                <>
+                  <div
+                    className={
+                      "flex flex-col items-center gap-1.5 rounded-xl2 border border-dashed px-3 py-5 text-center transition-colors duration-200 " +
+                      (dragOver ? "border-accent bg-accentSoft" : "border-lineStrong bg-panel/40")
+                    }
+                    role="button"
+                    tabIndex={0}
+                    data-testid="translation-dropzone"
+                    aria-label="Add PDF documents: drop files here, or activate to choose files"
+                    onClick={() => fileInput.current?.click()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        fileInput.current?.click();
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDragOver(false);
+                      void registerFiles(Array.from(event.dataTransfer?.files ?? []));
+                    }}
+                  >
+                    <Icon name="folderPlus" size={20} className="text-muted" />
+                    <strong className="text-[12.5px] font-medium text-ink">Drop PDFs, or click to choose</strong>
+                    <small className="text-[11px] leading-[1.45] text-muted">
+                      Outputs stay next to each source file
+                    </small>
+                  </div>
 
-              <div className="mt-3 flex flex-col gap-1.5">
-                {loading ? (
-                  <p className="px-1 text-[12px] text-muted">Loading the queue…</p>
-                ) : documents.length === 0 ? (
-                  <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11.5px] leading-[1.5] text-muted">
-                    No documents yet. Drop a PDF above, or paste a path that already lives on this machine.
-                  </p>
-                ) : (
-                  documents.map((doc) => {
-                    const docRun = runsByDoc.get(doc.document_id) ?? null;
-                    const focused = focusedDoc?.document_id === doc.document_id;
-                    const pct = docRun
-                      ? docRun.state === "done"
-                        ? 100
-                        : progress[docRun.run_id]?.overall_progress ?? docRun.overall_progress
-                      : null;
-                    return (
-                      <div
-                        key={doc.document_id}
-                        className={
-                          "flex items-center gap-2 rounded-lg border px-2 py-2 transition-colors " +
-                          (focused ? "border-accent bg-accentSoft/40" : "border-line bg-panel hover:bg-paper")
-                        }
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 shrink-0 accent-accent"
-                          aria-label={`Include ${doc.filename} in the next run`}
-                          checked={checked.includes(doc.document_id)}
-                          onChange={(event) =>
-                            setChecked((prev) =>
-                              event.target.checked
-                                ? [...new Set([...prev, doc.document_id])]
-                                : prev.filter((id) => id !== doc.document_id),
-                            )
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          aria-current={focused}
-                          onClick={() => setFocusedDocId(doc.document_id)}
-                        >
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[12.5px] font-medium text-ink" title={doc.filename}>
-                              {doc.filename}
-                            </span>
-                            <span className="mt-0.5 block truncate font-mono text-[10.5px] text-muted" title={doc.source_path}>
-                              {dirOf(doc.source_path)}
-                            </span>
-                          </span>
-                          {docRun ? (
-                            docRun.state === "running" || docRun.state === "queued" ? (
-                              <span className="shrink-0 font-mono text-[11px] tabular-nums text-accent">
-                                {(pct ?? 0).toFixed(0)}%
-                              </span>
-                            ) : (
-                              <Pill tone={stateTone(docRun.state)}>{STATE_LABEL[docRun.state]}</Pill>
-                            )
-                          ) : (
-                            <Pill tone="neutral">Ready</Pill>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-dangerSoft hover:text-danger disabled:opacity-40"
-                          aria-label={`Remove ${doc.filename} from the queue`}
-                          title="Remove from queue"
-                          disabled={busy === `remove:${doc.document_id}`}
-                          onClick={() => void remove(doc)}
-                        >
-                          <Icon name="trash" size={13} />
-                        </button>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2 py-1.5 font-mono text-[11px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+                      placeholder="/absolute/path/paper.pdf"
+                      aria-label="Register a local document by absolute path"
+                      value={pathDraft}
+                      onChange={(event) => setPathDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void registerPaths();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
+                      disabled={!pathDraft.trim() || busy === "register"}
+                      onClick={() => void registerPaths()}
+                    >
+                      Add path
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {loading ? (
+                <p className="mt-3 px-1 text-[12px] text-muted">Loading your translations…</p>
+              ) : documents.length === 0 ? (
+                <p className="mt-3 rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11.5px] leading-[1.5] text-muted">
+                  Nothing translated yet. Drop a PDF above, or paste a path that already lives on this machine.
+                </p>
+              ) : (
+                <>
+                  {inFlight.length > 0 && (
+                    <section className="mt-3" aria-label="In progress">
+                      <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+                        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                        In progress
                       </div>
-                    );
-                  })
-                )}
-              </div>
+                      <div className="flex flex-col gap-1.5">
+                        {inFlight.map(({ doc, run: docRun }) => (
+                          <LibraryCard
+                            key={doc.document_id}
+                            doc={doc}
+                            run={docRun}
+                            live={docRun ? progress[docRun.run_id]?.overall_progress : undefined}
+                            focused={focusedDoc?.document_id === doc.document_id}
+                            removing={busy === `remove:${doc.document_id}`}
+                            onOpen={() => setFocusedDocId(doc.document_id)}
+                            onRemove={() => void remove(doc)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
 
-              {/* The Run column already owns the primary call to action for the focused document, so this
-                  one only claims accent weight when it does something that card cannot: start a batch. */}
-              {documents.length > 0 && (
-                <button
-                  type="button"
-                  className={
-                    checked.length > 1
-                      ? "mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-medium text-onSolid transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-                      : "mt-3 inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[12.5px] font-medium text-ink transition-colors duration-200 hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
-                  }
-                  disabled={busy === "start" || (checked.length === 0 && !focusedDoc)}
-                  onClick={() => void start(checked.length ? checked : focusedDoc ? [focusedDoc.document_id] : [])}
-                >
-                  <Icon name="sparkle" size={14} />
-                  {busy === "start"
-                    ? "Starting…"
-                    : checked.length > 1
-                      ? `Translate ${checked.length} documents`
-                      : "Translate"}
-                </button>
+                  <section className="mt-3" aria-label="Translated documents">
+                    {translated.length > 0 && (
+                      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+                        Translated
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      {translated.map(({ doc, run: docRun }) => (
+                        <LibraryCard
+                          key={doc.document_id}
+                          doc={doc}
+                          run={docRun}
+                          focused={focusedDoc?.document_id === doc.document_id}
+                          removing={busy === `remove:${doc.document_id}`}
+                          onOpen={() => setFocusedDocId(doc.document_id)}
+                          onRemove={() => void remove(doc)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+
+                  {waiting.length > 0 && (
+                    <section className="mt-3" aria-label="Not translated yet">
+                      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+                        Not translated yet
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {waiting.map(({ doc, run: docRun }) => (
+                          <LibraryCard
+                            key={doc.document_id}
+                            doc={doc}
+                            run={docRun}
+                            focused={focusedDoc?.document_id === doc.document_id}
+                            removing={busy === `remove:${doc.document_id}`}
+                            onOpen={() => setFocusedDocId(doc.document_id)}
+                            onRemove={() => void remove(doc)}
+                            onRun={() => void start([doc.document_id])}
+                            starting={busy === "start"}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
             </section>
 
             {/* ---------------------------------------------------------- live run */}
-            <section className="flex min-w-0 flex-col" aria-label="Current run">
+            {focusedDoc && (
+            <section className="flex min-w-0 flex-col" aria-label={reviewing ? "Translation record" : "Current run"}>
               <ColumnHead
-                title="Run"
+                title={reviewing ? "Record" : "Run"}
                 icon="sparkle"
                 right={serverRun && <Pill tone={stateTone(serverRun.state)}>{STATE_LABEL[serverRun.state]}</Pill>}
               />
 
-              {!focusedDoc ? (
-                <div className={`${CARD} flex flex-col items-center gap-2 px-6 py-14 text-center`}>
-                  <Icon name="file" size={24} className="text-faint" />
-                  <p className="text-[12.5px] text-muted">Add a document to start a translation run.</p>
-                </div>
-              ) : (
-                <>
+              <button
+                type="button"
+                className="mb-2 inline-flex items-center gap-1.5 self-start rounded-lg border border-line px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                onClick={() => setFocusedDocId(null)}
+              >
+                <Icon name="arrowLeft" size={12} />
+                {runActive ? "Leave it running" : "Back to library"}
+              </button>
                   <div className={`${CARD} p-4`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -883,7 +1087,7 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                         >
                           {serverRun
                             ? serverRun.state === "done"
-                              ? "Complete"
+                              ? reviewing ? "Translated" : "Complete"
                               : serverRun.state === "error"
                                 ? "Failed"
                                 : serverRun.state === "cancelled"
@@ -900,17 +1104,28 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                           {serverRun && ` · ${serverRun.lang_in} → ${serverRun.lang_out}`}
                         </p>
                       </div>
+                      {/* A run in flight is measured; a translation on disk is dated. Showing a
+                          finish line for something finished last week is a category error. */}
                       <div className="text-right">
-                        <div className="font-mono text-[28px] font-medium leading-none tabular-nums tracking-[-0.03em] text-ink">
-                          {overall.toFixed(0)}
-                          <span className="text-[15px] font-normal text-muted">%</span>
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted">
-                          {serverRun ? formatDuration(serverRun.elapsed_seconds) : "not started"}
-                        </div>
+                        {reviewing ? (
+                          <div className="text-[12px] text-muted">
+                            {serverRun?.finished_at ? relativeTime(serverRun.finished_at * 1000) : "on disk"}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="font-mono text-[28px] font-medium leading-none tabular-nums tracking-[-0.03em] text-ink">
+                              {overall.toFixed(0)}
+                              <span className="text-[15px] font-normal text-muted">%</span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-muted">
+                              {serverRun ? formatDuration(serverRun.elapsed_seconds) : "not started"}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 
+                    {!reviewing && (
                     <div className="mt-3.5">
                       <ProgressBar
                         pct={overall}
@@ -938,6 +1153,7 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                         )}
                       </p>
                     </div>
+                    )}
 
                     <div className="mt-3.5 flex flex-wrap items-center gap-2">
                       {runActive ? (
@@ -967,6 +1183,7 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                     </div>
                   </div>
 
+                  {!reviewing && (
                   <div className={`${CARD} mt-3 p-4`}>
                     <div className="mb-2.5 flex items-center gap-2">
                       <h4 className="text-[12.5px] font-semibold text-ink">Stages</h4>
@@ -1033,7 +1250,9 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                       })}
                     </ol>
                   </div>
+                  )}
 
+                  {!reviewing && (
                   <div className={`${CARD} mt-3 p-4`}>
                     <div className="mb-2 flex items-center gap-2">
                       <h4 className="text-[12.5px] font-semibold text-ink">Events</h4>
@@ -1080,11 +1299,12 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                       </pre>
                     )}
                   </div>
-                </>
-              )}
+                  )}
             </section>
+            )}
 
             {/* ---------------------------------------------------------- artifacts */}
+            {focusedDoc && (
             <section className="flex min-w-0 flex-col" aria-label="Artifacts">
               <ColumnHead
                 title="Artifacts"
@@ -1092,12 +1312,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                 right={artifacts.length > 0 && <Pill tone="ok">{artifacts.length}</Pill>}
               />
 
-              {!focusedDoc ? (
-                <div className={`${CARD} px-4 py-10 text-center text-[12px] text-muted`}>
-                  Nothing to collect yet.
-                </div>
-              ) : (
-                <>
                   {bundleDir && (
                     <BundlePath path={bundleDir} pending={serverRun?.state !== "done"} onCopy={copyPath} />
                   )}
@@ -1200,9 +1414,8 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                       The original document moved in beside its translations, so the pair never drifts apart on disk.
                     </p>
                   )}
-                </>
-              )}
             </section>
+            )}
           </div>
         </div>
       </div>

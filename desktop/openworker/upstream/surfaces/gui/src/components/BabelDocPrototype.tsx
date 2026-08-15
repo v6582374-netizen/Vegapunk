@@ -2,7 +2,8 @@
 // module, on ?prototype=babeldoc, switchable via ?variant=A|B|C.
 //
 //   A — Run desk        three columns: queue · live run · artifacts. Nothing ever navigates away.
-//   B — Focus flow      one document at a time, a single big radial, staged reveal.
+//   B — Focus flow      a library of past translations; entering one document gives it the
+//                       whole screen: a single big radial and a staged reveal.
 //   C — Batch monitor   a table of runs with inline expansion; built for many documents.
 //
 // All three drive the SAME simulated event stream (babeldocPrototypeModel.ts), whose stages,
@@ -16,13 +17,16 @@ import { Icon, type IconName } from "./Icon";
 import {
   BABELDOC_STAGES,
   DEFAULT_OPTIONS,
+  HISTORY_SEEDS,
   SAMPLE_DOCS,
   STAGE_SHORT,
   bundleDirFor,
   bundleFilesFor,
   changedKeys,
   dirOf,
+  finishedDoc,
   newDoc,
+  relativeTime,
   runDoc,
   useSpringValue,
   type DocState,
@@ -34,7 +38,7 @@ import "./babeldoc-prototype.css";
 type VariantKey = "A" | "B" | "C";
 const VARIANTS: Array<{ key: VariantKey; name: string; description: string }> = [
   { key: "A", name: "Run desk", description: "Queue · live run · artifacts, all resident" },
-  { key: "B", name: "Focus flow", description: "One document, one radial, staged reveal" },
+  { key: "B", name: "Focus flow", description: "Library home, then one document at a time" },
   { key: "C", name: "Batch monitor", description: "Run table with inline expansion" },
 ];
 
@@ -84,8 +88,25 @@ function useRuns() {
     setDocs((prev) => prev.map((d) => (d.id === id ? { ...newDoc(d), id: d.id } : d)));
   }, []);
 
+  /** Drop a document and its run entirely. Distinct from `reset`, which keeps the document and
+   *  only clears its run — a library needs both "run it again" and "I am done with this". */
+  const forget = useCallback((id: string) => {
+    stops.current.get(id)?.();
+    stops.current.delete(id);
+    setDocs((prev) => prev.filter((d) => d.id !== id));
+  }, []);
+
+  /** Load runs that completed before this session. The module is opened to LOOK at these at
+   *  least as often as to start a new one, so they exist from the first frame. */
+  const seed = useCallback((entries: DocState[]) => {
+    setDocs((prev) => {
+      const have = new Set(prev.map((d) => d.id));
+      return [...prev, ...entries.filter((e) => !have.has(e.id))];
+    });
+  }, []);
+
   useEffect(() => () => stops.current.forEach((stop) => stop()), []);
-  return { docs, push, start, reset };
+  return { docs, push, start, reset, forget, seed };
 }
 
 function logLineFor(ev: ProgressEvent): LogLine | null {
@@ -388,32 +409,180 @@ function Radial({ pct, done }: { pct: number; done: boolean }) {
   );
 }
 
+/**
+ * B — Focus flow, rebuilt around a Library home.
+ *
+ * The original B was one document at a time and nothing else, which quietly asserted that the
+ * module IS a run in progress. A finished translation outlives its run: the common visit is
+ * "show me what I translated last week", not "start something new". So B now has two states,
+ * and only one of them is the flow:
+ *
+ *   Library  — the resident home. Past bundles, newest first, plus anything running right now.
+ *              Reachable at every step, so the flow is a place you enter and leave, not a trap.
+ *   Flow     — Confirm → Translate → Collect for ONE document, which is what B is good at.
+ *
+ * Focus is preserved by making it a *destination* rather than the only room. Everything else
+ * (staged reveal, single radial, one decision per screen) is unchanged.
+ */
+
+function HistoryCard({
+  doc,
+  onOpen,
+  onForget,
+}: {
+  doc: DocState;
+  onOpen: () => void;
+  onForget: () => void;
+}) {
+  const running = doc.status === "running";
+  return (
+    <div className={`bd-lib-card${running ? " is-running" : ""}`}>
+      <button className="bd-lib-hit" data-press onClick={onOpen} aria-label={`Open ${doc.name}`}>
+        <span className="bd-lib-glyph">
+          <Icon name={running ? "refresh" : "library"} size={14} />
+        </span>
+        <span className="bd-lib-text">
+          <strong>{doc.name}</strong>
+          <small className="bd-mono">{running ? dirOf(doc.sourcePath) : `${bundleDirFor(doc)}/`}</small>
+        </span>
+        <span className="bd-lib-meta">
+          {running ? (
+            <>
+              <em>{short(BABELDOC_STAGES[Math.max(0, doc.stageIndex)].name)}</em>
+              <span className="bd-lib-pct">{doc.overall.toFixed(0)}%</span>
+            </>
+          ) : (
+            <>
+              <em>{doc.finishedAt ? relativeTime(doc.finishedAt) : "ready"}</em>
+              <span className="bd-lib-pct">{doc.pages} pages</span>
+            </>
+          )}
+        </span>
+      </button>
+      {running ? (
+        <div className="bd-lib-progress"><Bar pct={doc.overall} thin /></div>
+      ) : (
+        <button className="bd-lib-forget" data-press onClick={onForget} aria-label={`Forget ${doc.name}`}>
+          <Icon name="trash" size={13} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function VariantB({ runs, onAction }: { runs: ReturnType<typeof useRuns>; onAction: (m: string) => void }) {
-  const { docs, push, start, reset } = runs;
-  const doc = docs[0] ?? null;
-  const step = !doc ? 0 : doc.status === "queued" ? 1 : doc.status === "running" ? 2 : 3;
+  const { docs, push, start, reset, forget, seed } = runs;
+  // Which document the flow is focused on. `null` means the Library is showing — the home
+  // state, and where the module opens.
+  const [focusId, setFocusId] = useState<string | null>(null);
+
+  // Past translations exist before the user does anything, because that is the case this
+  // variant was missing: opening the module to LOOK at a translation, not to start one.
+  useEffect(() => {
+    seed([
+      finishedDoc(HISTORY_SEEDS[0], 42 * 60_000, 41.2),
+      finishedDoc(HISTORY_SEEDS[1], 26 * 60 * 60_000, 63.8),
+      finishedDoc(HISTORY_SEEDS[2], 6 * 24 * 60 * 60_000, 18.4),
+    ]);
+  }, [seed]);
+
+  const doc = docs.find((d) => d.id === focusId) ?? null;
+  const running = docs.filter((d) => d.status === "running");
+  const library = useMemo(
+    () =>
+      docs
+        .filter((d) => d.status === "done")
+        .sort((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0)),
+    [docs],
+  );
+
+  // Leaving the flow is navigation, nothing more. It never destroys a run: the whole point of a
+  // library home is that a translation outlives the moment you were looking at it. Discarding is
+  // its own explicit act, on the card ("forget"), never a side effect of pressing Back.
+  const leave = () => setFocusId(null);
+
+  const add = () => {
+    const next = SAMPLE_DOCS.find((s) => !docs.some((d) => d.id === s.id));
+    if (!next) return onAction("Every sample document is already in the library");
+    push([next]);
+    setFocusId(next.id);
+  };
+
+  if (!doc) {
+    return (
+      <div className="bd-focus">
+        <div className="bd-focus-inner bd-focus-inner--wide">
+          <div className="bd-lib-head">
+            <div>
+              <h1>Document Translation</h1>
+              <p style={{ margin: "4px 0 0" }}>
+                {library.length === 0
+                  ? "Nothing translated yet. Every finished translation stays here, beside its original."
+                  : `${library.length} translated ${library.length === 1 ? "document" : "documents"}, newest first. Each one is a folder beside its original.`}
+              </p>
+            </div>
+            <button className="bd-btn bd-btn--primary bd-btn--lg" data-press onClick={add}>
+              <Icon name="sparkle" size={15} /> Translate a document
+            </button>
+          </div>
+
+          {running.length > 0 && (
+            <section className="bd-lib-section">
+              <div className="bd-lib-label">
+                <span className="bd-dot bd-dot--live" /> In progress
+              </div>
+              {running.map((d) => (
+                <HistoryCard key={d.id} doc={d} onOpen={() => setFocusId(d.id)} onForget={() => forget(d.id)} />
+              ))}
+            </section>
+          )}
+
+          <section className="bd-lib-section">
+            {library.length > 0 && <div className="bd-lib-label">Translated</div>}
+            {library.map((d) => (
+              <HistoryCard key={d.id} doc={d} onOpen={() => setFocusId(d.id)} onForget={() => forget(d.id)} />
+            ))}
+            {library.length === 0 && running.length === 0 && (
+              <DropZone big className="bd-focus-drop" onAdd={add} />
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // A finished document opened from the Library lands directly on Collect — reviewing a past
+  // translation must not look like a run that is about to start.
+  const step = doc.status === "queued" ? 1 : doc.status === "running" ? 2 : 3;
+  // A run watched here leaves its event log behind; one loaded from the library has none.
+  // That distinction decides whether this screen is a finish line or a record.
+  const reviewing = doc.status === "done" && doc.log.length === 0;
 
   return (
     <div className="bd-focus">
       <div className="bd-focus-inner">
-        <div className="bd-focus-steps">
-          {["Choose", "Confirm", "Translate", "Collect"].map((label, i) => (
-            <span key={label} style={{ display: "flex", alignItems: "center", gap: 6, color: i === step ? "var(--ink)" : undefined }}>
-              {label}
-              {i < 3 && <i className={i < step ? "is-on" : undefined} />}
-            </span>
-          ))}
-        </div>
+        <button className="bd-focus-back" data-press onClick={leave}>
+          <Icon name="arrowLeft" size={13} /> Library
+        </button>
 
-        {step === 0 && (
-          <>
-            <h1>Translate a document</h1>
-            <p>One PDF at a time. The translation is written into a folder beside the original, so the pair stays together on disk.</p>
-            <DropZone big className="bd-focus-drop" onAdd={() => push([SAMPLE_DOCS[0]])} />
-          </>
+        {/* The step trail belongs to a translation in flight. Reviewing a finished document is
+            not a step in that sequence, so it gets a plain heading instead. */}
+        {reviewing ? (
+          <div className="bd-lib-label" style={{ alignSelf: "center" }}>
+            Translated {doc.finishedAt ? relativeTime(doc.finishedAt) : ""}
+          </div>
+        ) : (
+          <div className="bd-focus-steps">
+            {["Choose", "Confirm", "Translate", "Collect"].map((label, i) => (
+              <span key={label} style={{ display: "flex", alignItems: "center", gap: 6, color: i === step ? "var(--ink)" : undefined }}>
+                {label}
+                {i < 3 && <i className={i < step ? "is-on" : undefined} />}
+              </span>
+            ))}
+          </div>
         )}
 
-        {doc && step === 1 && (
+        {step === 1 && (
           <>
             <h1>{doc.name}</h1>
             <p>{doc.pages} pages · {doc.sizeMb.toFixed(1)} MB · English → Chinese</p>
@@ -428,12 +597,11 @@ function VariantB({ runs, onAction }: { runs: ReturnType<typeof useRuns>; onActi
             <div style={{ display: "flex", gap: 8 }}>
               <button className="bd-btn bd-btn--primary bd-btn--lg" data-press onClick={() => start(doc.id)}><Icon name="sparkle" size={15} /> Run translation</button>
               <button className="bd-btn bd-btn--lg" data-press onClick={() => start(doc.id, 6)}>Fast-forward</button>
-              <button className="bd-btn bd-btn--ghost bd-btn--lg" data-press onClick={() => reset(doc.id)}>Choose another</button>
             </div>
           </>
         )}
 
-        {doc && step === 2 && (
+        {step === 2 && (
           <>
             <Radial pct={doc.overall} done={false} />
             <div className="bd-radial-cap">
@@ -446,19 +614,30 @@ function VariantB({ runs, onAction }: { runs: ReturnType<typeof useRuns>; onActi
             <div className="bd-card bd-focus-detail" style={{ padding: 10, minHeight: 130, display: "flex" }}>
               <EventLog doc={doc} />
             </div>
-            <button className="bd-btn bd-btn--ghost" data-press onClick={() => reset(doc.id)}>Cancel run</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="bd-btn bd-btn--ghost" data-press onClick={() => reset(doc.id)}>Cancel run</button>
+              <button className="bd-btn bd-btn--ghost" data-press onClick={() => setFocusId(null)}>Leave it running</button>
+            </div>
           </>
         )}
 
-        {doc && step === 3 && (
+        {step === 3 && (
           <>
-            <Radial pct={100} done />
-            <h1 style={{ fontSize: 22 }}>Bundled beside the original</h1>
-            <p>Finished in {doc.elapsed.toFixed(1)}s · {doc.result?.total_valid_character_count.toLocaleString()} characters translated.</p>
+            {/* The ring reports a run in flight reaching its end. Reviewing a translation from
+                last week has no progress to report, so it is simply absent. */}
+            {!reviewing && <Radial pct={100} done />}
+            <h1 style={{ fontSize: 22 }}>{reviewing ? doc.name : "Bundled beside the original"}</h1>
+            <p>
+              {doc.finishedAt ? `${relativeTime(doc.finishedAt)} · ` : ""}
+              {doc.elapsed.toFixed(1)}s · {doc.result?.total_valid_character_count.toLocaleString()} characters translated.
+            </p>
             <div className="bd-card bd-focus-detail" style={{ padding: 14 }}>
               <BundlePanel doc={doc} onAction={onAction} />
             </div>
-            <button className="bd-btn bd-btn--ghost" data-press onClick={() => reset(doc.id)}>Translate another document</button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="bd-btn" data-press onClick={() => start(doc.id, 6)}><Icon name="refresh" size={14} /> Translate again</button>
+              <button className="bd-btn bd-btn--ghost" data-press onClick={() => setFocusId(null)}>Back to library</button>
+            </div>
           </>
         )}
       </div>
