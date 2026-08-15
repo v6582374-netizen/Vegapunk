@@ -22,7 +22,18 @@ The route determines whether and where VLA, world models, and causal models belo
 
 ## Decisions so far
 
-All six tickets are resolved. Version 1 is implemented in `vegapunk/embodied/` as six governance modules, each refusing a different way a physical run can be wrong, plus `runtime.py`, the deterministic actuation boundary that is the only thing that moves. 135 tests in `tests/embodied/`.
+All six tickets are resolved. Version 1 is implemented in `vegapunk/embodied/` as six governance modules, each refusing a different way a physical run can be wrong, plus `runtime.py`, the deterministic actuation boundary that is the only thing that moves.
+
+Four further modules supply what the ladder demanded but could not invent -- an environment to run in, a check that the environment is what it claims, a measurement of how fast this robot may be commanded, and an iteration driver -- and one composes them into something a person can run:
+
+- `simulation.py` -- a welded-base MuJoCo G1 presented as a `RobotInterface`, with the three GUI camera views rendered from the model. It measures what physics can measure and refuses to invent the room facts a supervisor checks.
+- `fidelity.py` -- whether an environment is the configuration its evidence would be scoped to. A cadence, joint set, end effector, control authority or camera key that disagrees makes the environment unusable rather than merely suspect.
+- `calibration.py` -- the command rate is a measurement, not a setting. A probe commands one fixed motion at each candidate rate and reports the peak velocity, the servo's tracking lag, and its resting droop; the ladder admits the fastest rate whose measured peak fits the envelope.
+- `campaign.py` -- turns varied, seeded, bounded-perturbation runs into one stage's evidence, and tallies nothing itself: the trajectory ledger counts the outcomes and `admission` decides what they opened.
+- `bench.py` -- the assembly. Measure, fix the goal tolerance from that measurement, then iterate `policy_evaluation` and `offline_replay` in ladder order, halting at the first result that makes the next step meaningless.
+- `preview.py` -- streams the simulated cameras over the GUI's existing unauthenticated WebRTC camera contract, so a simulated run is watched with the same panel that watches a real G1.
+
+`scripts/run_embodied_bench.py` runs the inner loop end to end on the real MJCF scene and prints what still blocks hardware; `--watch` streams the cameras while it runs. 323 tests in `tests/embodied/`.
 
 - [Define the initial registered-skill boundary](issues/01-define-first-embodied-skill-and-task-contract.md) — a selectable catalog of already implemented Physical Skills; natural language is not a Version 1 execution input.
 - [Define the registered skill and execution-loop contract](issues/06-define-registered-skill-and-execution-loop-contract.md) — `skill.py`, `loop.py`: revision-identified contracts with closed parameters, definition separated from run, one fixed ordered path to motion, hard failure defined by what it forbids.
@@ -48,10 +59,12 @@ Version 1 is a governance skeleton, deliberately complete on the reliability axi
 
 - **The real embodiment inventory.** A human must record the actual G1 end effector, camera layout, control authority, and control frequency, and empty `unverified_fields`. Until then every admission correctly refuses.
 - **A hardware `RobotInterface` adapter.** `runtime.py` supplies the first `SkillRuntime`: `DeterministicJointRuntime` drives registered `JointPoseGoal` targets in bounded joint steps, needs no checkpoint, and makes the loop end-to-end testable. What remains is the G1 SDK adapter behind `RobotInterface` (read sensors, command joints, hold) and the reviewed goal poses themselves, which are laboratory measurements rather than design work.
-- **The G1 deployment-validation environment.** The ladder's stages are defined and enforced; which simulator or replay harness supplies `offline_replay` and `shadow_mode` evidence is not.
-- **Threshold calibration.** 10 attempts, 90% success, and an 8-hour approval window are defensible defaults, not measured ones. They should be revisited against the first real evidence, and they are single named constants for exactly that reason.
+- **The `shadow_mode` environment.** `offline_replay` now has one: the MuJoCo G1, checked against the scope it reports into. `shadow_mode` does not, and it cannot be simulated by construction -- it replays real observations beside a real robot that is not being commanded, so it needs the hardware adapter first.
+- **Threshold calibration.** 10 attempts, 90% success, and an 8-hour approval window are defensible defaults, not measured ones. They should be revisited against the first real evidence, and they are single named constants for exactly that reason. The command rate is no longer among them: `calibration.py` measures it, and the velocity margin and tolerance margin that remain are the two named constants left to move.
 - **The MAS candidate-preparation path.** MAS can propose selections and tightening advice today; the agent-facing surface that does so is not built.
 - **Fine-tuning execution.** `TrainingManifest` defines what a training run may cite. Nothing trains, evaluates, or promotes a model.
+- **A policy runtime.** `bench.py` drives the deterministic runtime and refuses a VLA skill outright, because substituting one controller for another would file evidence about this controller under a checkpoint's digest. A `SkillRuntime` that consults a checkpoint is the next component the ladder has room for, and it changes nothing above it.
+- **A task with contact.** The reviewed goal is a free-space joint pose, so no evidence collected so far says anything about grasping. The contact facts `fidelity.py` lists as unrepresentable are exactly the ones a manipulation skill would depend on.
 
 ## Out of scope
 

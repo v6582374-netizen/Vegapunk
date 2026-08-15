@@ -15,6 +15,7 @@ from vegapunk.embodied.admission import (
 from vegapunk.embodied.embodiment import EmbodimentProfile
 from vegapunk.embodied.loop import ExecutionLoop
 from vegapunk.embodied.runtime import (
+    CommandRateCalibration,
     DeterministicJointRuntime,
     JointPoseGoal,
     RobotState,
@@ -111,14 +112,27 @@ class FakeRobot:
         self.moving = False
 
 
-def _runtime(robot: FakeRobot, goal: JointPoseGoal, clock=None):
-    return DeterministicJointRuntime(
+# A unit-test double has no servo, so it tracks its setpoints exactly: the
+# measured peak equals the commanded rate. Anything with real dynamics is
+# measured by ``vegapunk.embodied.calibration``.
+_EXACT_TRACKING = CommandRateCalibration(
+    commanded_rate_rps=1.5,
+    peak_joint_velocity_rps=1.5,
+    control_frequency_hz=30.0,
+    measured_on="FakeRobot",
+)
+
+
+def _runtime(robot: FakeRobot, goal: JointPoseGoal, clock=None, **overrides):
+    fields = dict(
         robot=robot,
         goals=(goal,),
-        control_frequency_hz=30.0,
-        max_joint_velocity_rps=1.5,
+        command_rate=_EXACT_TRACKING,
+        envelope=_ENVELOPE,
         clock=clock,
     )
+    fields.update(overrides)
+    return DeterministicJointRuntime(**fields)
 
 
 def _goal(**overrides: object) -> JointPoseGoal:
@@ -442,6 +456,192 @@ class RuntimeUnderTheGovernedLoopTests(unittest.TestCase):
         )
         self.assertEqual(robot.commands, [])
         self.assertFalse(report.succeeded)
+
+
+class CommandRateCalibrationTests(unittest.TestCase):
+    """A calibration is a measured pair, and it refuses to be anything less."""
+
+    def test_a_commanded_rate_must_be_positive(self) -> None:
+        with self.assertRaises(ValueError):
+            CommandRateCalibration(
+                commanded_rate_rps=0.0,
+                peak_joint_velocity_rps=1.0,
+                control_frequency_hz=30.0,
+                measured_on="sim g1",
+            )
+
+    def test_a_probe_that_never_moved_is_not_a_measurement(self) -> None:
+        with self.assertRaises(ValueError):
+            CommandRateCalibration(
+                commanded_rate_rps=1.0,
+                peak_joint_velocity_rps=0.0,
+                control_frequency_hz=30.0,
+                measured_on="sim g1",
+            )
+
+    def test_an_unattributed_measurement_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            CommandRateCalibration(
+                commanded_rate_rps=1.0,
+                peak_joint_velocity_rps=1.5,
+                control_frequency_hz=30.0,
+                measured_on="",
+            )
+
+    def test_the_step_bound_follows_the_commanded_rate(self) -> None:
+        calibration = CommandRateCalibration(
+            commanded_rate_rps=0.6,
+            peak_joint_velocity_rps=0.9,
+            control_frequency_hz=30.0,
+            measured_on="sim g1 at 30Hz",
+        )
+        self.assertAlmostEqual(calibration.max_step_rad, 0.6 / 30.0)
+        self.assertAlmostEqual(calibration.overshoot_ratio, 1.5)
+
+
+class CommandRateAgainstEnvelopeTests(unittest.TestCase):
+    """The runtime refuses a configuration it knows will breach the envelope.
+
+    A position servo peaks above the rate its setpoint spacing implies, so a
+    runtime handed the envelope's limit as its command rate breaches that
+    envelope. The check belongs at construction: finding out by abort costs a
+    human's supervised run and quarantines the configuration.
+    """
+
+    def test_a_rate_whose_measured_peak_exceeds_the_envelope_is_refused(
+        self,
+    ) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = CommandRateCalibration(
+            commanded_rate_rps=1.0,
+            peak_joint_velocity_rps=2.5,
+            control_frequency_hz=30.0,
+            measured_on="sim g1 at 30Hz",
+        )
+        with self.assertRaises(ValueError) as caught:
+            _runtime(robot, _goal(), command_rate=calibration)
+        message = str(caught.exception)
+        self.assertIn("2.5", message)
+        self.assertIn(str(_ENVELOPE.max_joint_velocity_rps), message)
+        self.assertIn("sim g1 at 30Hz", message)
+
+    def test_the_envelope_limit_itself_is_not_a_safe_command_rate(
+        self,
+    ) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = CommandRateCalibration(
+            commanded_rate_rps=_ENVELOPE.max_joint_velocity_rps,
+            peak_joint_velocity_rps=_ENVELOPE.max_joint_velocity_rps * 1.5,
+            control_frequency_hz=30.0,
+            measured_on="sim g1 at 30Hz",
+        )
+        with self.assertRaises(ValueError):
+            _runtime(robot, _goal(), command_rate=calibration)
+
+    def test_a_rate_whose_measured_peak_fits_is_accepted(self) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = CommandRateCalibration(
+            commanded_rate_rps=_ENVELOPE.max_joint_velocity_rps / 1.5,
+            peak_joint_velocity_rps=_ENVELOPE.max_joint_velocity_rps,
+            control_frequency_hz=30.0,
+            measured_on="sim g1 at 30Hz",
+        )
+        runtime = _runtime(robot, _goal(), command_rate=calibration)
+        self.assertAlmostEqual(
+            runtime.max_step_rad,
+            (_ENVELOPE.max_joint_velocity_rps / 1.5) / 30.0,
+        )
+
+    def test_the_runtime_reports_the_measurement_it_rests_on(self) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        runtime = _runtime(robot, _goal())
+        self.assertEqual(runtime.command_rate.measured_on, "FakeRobot")
+
+
+class GoalToleranceAgainstCalibrationTests(unittest.TestCase):
+    """A goal tighter than the measured resting droop is refused up front.
+
+    A position servo settles a little short of its final setpoint, holding the
+    joint against gravity with a standing error. A goal whose tolerance is
+    tighter than that residue can never be reported as reached, so every run
+    would end in failed verification while the robot sat exactly where it was
+    told to go. The measurement knows this before anything moves.
+    """
+
+    def _drooping(self, settled_error_rad: float) -> CommandRateCalibration:
+        return CommandRateCalibration(
+            commanded_rate_rps=0.5,
+            peak_joint_velocity_rps=0.75,
+            control_frequency_hz=30.0,
+            measured_on="sim g1 at 30Hz",
+            tracking_error_rad=0.02,
+            settled_error_rad=settled_error_rad,
+        )
+
+    def test_a_goal_tighter_than_the_measured_droop_is_refused(self) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = self._drooping(0.02)
+        with self.assertRaises(ValueError) as caught:
+            _runtime(
+                robot,
+                _goal(tolerance_rad=0.001),
+                command_rate=calibration,
+            )
+        message = str(caught.exception)
+        self.assertIn("home_arm@1", message)
+        self.assertIn("0.001", message)
+        self.assertIn("sim g1 at 30Hz", message)
+
+    def test_the_droop_itself_is_not_a_reachable_tolerance(self) -> None:
+        """The floor carries the margin, because the goal is not the probe's pose."""
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = self._drooping(0.02)
+        self.assertGreater(calibration.minimum_goal_tolerance_rad, 0.02)
+        with self.assertRaises(ValueError):
+            _runtime(
+                robot,
+                _goal(tolerance_rad=0.02),
+                command_rate=calibration,
+            )
+
+    def test_a_goal_above_the_floor_is_accepted(self) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = self._drooping(0.02)
+        floor = calibration.minimum_goal_tolerance_rad
+        runtime = _runtime(
+            robot,
+            _goal(tolerance_rad=floor),
+            command_rate=calibration,
+        )
+        self.assertAlmostEqual(runtime.minimum_goal_tolerance_rad, floor)
+
+    def test_every_registered_goal_is_checked_not_just_the_first(self) -> None:
+        robot = FakeRobot(positions=(0.0, 0.0))
+        calibration = self._drooping(0.02)
+        reachable = _goal(tolerance_rad=0.1)
+        unreachable = _goal(
+            skill_version_id="reach_shelf@1", tolerance_rad=0.001
+        )
+        with self.assertRaises(ValueError) as caught:
+            DeterministicJointRuntime(
+                robot=robot,
+                goals=(reachable, unreachable),
+                command_rate=calibration,
+                envelope=_ENVELOPE,
+            )
+        self.assertIn("reach_shelf@1", str(caught.exception))
+
+    def test_a_probe_that_measured_no_droop_constrains_nothing(self) -> None:
+        """An unmeasured droop must not silently become a permissive floor.
+
+        ``settled_error_rad`` defaults to zero, which is what a calibration
+        taken before the settle measurement existed reports. Such a
+        calibration imposes no floor -- it has no evidence to impose one with
+        -- and the tolerance stays the caller's declared choice.
+        """
+        robot = FakeRobot(positions=(0.0, 0.0))
+        runtime = _runtime(robot, _goal(tolerance_rad=0.0001))
+        self.assertEqual(runtime.minimum_goal_tolerance_rad, 0.0)
 
 
 if __name__ == "__main__":

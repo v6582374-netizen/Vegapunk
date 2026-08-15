@@ -38,6 +38,11 @@ from vegapunk.embodied.embodiment import (
     EmbodimentProfile,
     assess_policy_compatibility,
 )
+from vegapunk.embodied.fidelity import (
+    FidelityAssessment,
+    SimulatedConfiguration,
+    assess_simulation_fidelity,
+)
 from vegapunk.embodied.safety import (
     ABORT_TIME_LIMIT,
     AbortDirective,
@@ -131,6 +136,40 @@ class ExecutionLoop:
         self._supervisor = supervisor
         self._admission = admission
         self._trajectories = trajectories
+
+    @property
+    def embodiment(self) -> EmbodimentProfile:
+        """The configuration every run of this loop is evidence about."""
+        return self._embodiment
+
+    def assess_environment(
+        self,
+        selection: SkillSelection,
+        configuration: SimulatedConfiguration,
+    ) -> FidelityAssessment:
+        """Judge whether ``configuration`` may produce evidence about a run here.
+
+        The comparison lives on the loop rather than in whatever drives it,
+        because the loop is what holds the embodiment and the skill's policy
+        contract. A driver that assessed fidelity itself would be choosing which
+        facts its own evidence is checked against.
+
+        This is not called from ``run``. A single run's honesty is already
+        established by the ledger's scope, and the loop cannot see whether its
+        ``runtime`` is a simulator at all. What the assessment protects is the
+        act of *accumulating* evidence in one environment, which is a driver's
+        decision -- so the driver asks, and refuses.
+        """
+        skill_id, _, revision = selection.skill_version_id.rpartition("@")
+        skill = self._registry.get(skill_id, int(revision))
+        policy_camera_keys = (
+            None if skill.policy is None else skill.policy.expected_camera_keys
+        )
+        return assess_simulation_fidelity(
+            embodiment=self._embodiment,
+            environment=configuration,
+            policy_camera_keys=policy_camera_keys,
+        )
 
     def run(
         self,
