@@ -46,7 +46,7 @@ export const STAGE_SHORT: Record<string, string> = {
 
 export const shortStage = (stage: string): string => STAGE_SHORT[stage] ?? stage;
 
-export type OptionKind = "toggle" | "number" | "text" | "choice" | "provider";
+export type OptionKind = "toggle" | "number" | "text" | "choice" | "provider" | "model";
 export type OptionGroup = "engine" | "pages" | "output" | "layout" | "scanned" | "fonts" | "glossary" | "advanced";
 
 export type OptionDef = {
@@ -60,8 +60,9 @@ export type OptionDef = {
   group: OptionGroup;
   /** Advanced options stay collapsed until asked for — most runs never touch them. */
   advanced?: boolean;
-  /** Static choices. The "provider" kind ignores these: its options are the live, configured
-      providers reported by /v1/providers, so the catalog cannot go stale against Settings. */
+  /** Static choices. The "provider" and "model" kinds ignore these: their options are the
+      live, configured providers reported by /v1/providers (and each provider's own model
+      list), so the catalog cannot go stale against Settings. */
   choices?: string[];
   choiceLabels?: Record<string, string>;
   min?: number;
@@ -77,7 +78,7 @@ export const OPTION_DEFS: OptionDef[] = [
   { key: "provider", cli: "--openai-base-url/--openai-api-key", label: "Provider", help: "Reuses a provider you already set up in Settings \u25b8 Models \u2014 its key and endpoint are read at run time. Only providers that speak the OpenAI-compatible API can drive BabelDOC.", kind: "provider", group: "engine" },
   { key: "lang_in", cli: "--lang-in", label: "Source language", help: "BCP-47-ish code BabelDOC passes to the model, e.g. en, ja, auto.", kind: "text", group: "engine", placeholder: "en" },
   { key: "lang_out", cli: "--lang-out", label: "Target language", help: "The language documents are translated into.", kind: "text", group: "engine", placeholder: "zh" },
-  { key: "openai_model", cli: "--openai-model", label: "Model", help: "The OpenAI-compatible model used for translation and term extraction.", kind: "text", group: "engine", placeholder: "gpt-4o-mini" },
+  { key: "openai_model", cli: "--openai-model", label: "Model", help: "Translates paragraphs and extracts terms. The list follows the provider above \u2014 a model the provider does not serve fails every paragraph.", kind: "model", group: "engine", placeholder: "gpt-4o-mini" },
   { key: "openai_base_url", cli: "--openai-base-url", label: "Base URL", help: "Point at any OpenAI-compatible endpoint. Empty uses the official API.", kind: "text", group: "engine", placeholder: "https://api.openai.com/v1" },
   { key: "qps", cli: "--qps", label: "Requests per second", help: "Upper bound on translation requests. Raise it if your provider allows more.", kind: "number", group: "engine", min: 1, max: 100, step: 1 },
   { key: "pool_max_workers", cli: "--pool-max-workers", label: "Worker threads", help: "Parallel translation workers. Automatic derives this from the QPS limit.", kind: "number", group: "engine", min: 0, max: 64, step: 1, zeroLabel: "auto", advanced: true },
@@ -135,15 +136,6 @@ export const GROUP_META: Record<OptionGroup, GroupMeta> = {
 export const GROUP_ORDER: OptionGroup[] = ["engine", "pages", "output", "layout", "scanned", "fonts", "glossary", "advanced"];
 
 export const optionsInGroup = (group: OptionGroup): OptionDef[] => OPTION_DEFS.filter((d) => d.group === group);
-
-export type PresetKey = "balanced" | "fast" | "compatible" | "scanned";
-
-export const PRESETS: Array<{ key: PresetKey; label: string; blurb: string; patch: Partial<TranslationSettingsValues> }> = [
-  { key: "balanced", label: "Balanced", blurb: "BabelDOC defaults with glossary extraction on. Best for papers.", patch: {} },
-  { key: "fast", label: "Fast draft", blurb: "Skip detection and glossary work. Roughly half the wall time.", patch: { skip_scanned_detection: true, auto_extract_glossary: false, no_dual: true } },
-  { key: "compatible", label: "Maximum compatibility", blurb: "For PDFs that come out mangled — plain runs, no cleaning.", patch: { enhance_compatibility: true, skip_clean: true, disable_rich_text_translate: true, dual_translate_first: true } },
-  { key: "scanned", label: "Scanned / OCR", blurb: "Black-on-white scans: cover the original text and force black.", patch: { auto_enable_ocr_workaround: true, ocr_workaround: true, translate_table_text: false } },
-];
 
 /** Keys whose value differs from the server-reported defaults. */
 export function changedKeys(

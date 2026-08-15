@@ -61,6 +61,7 @@ import { AgentsMdPrototype } from "./components/AgentsMdPrototype";
 import { TranslationView } from "./components/TranslationView";
 import { BabelDocPrototype } from "./components/BabelDocPrototype";
 import { BabelDocSettingsPrototype } from "./components/BabelDocSettingsPrototype";
+import { EmbodiedPrototype } from "./components/EmbodiedPrototype";
 import { SkillsManagerWorkspace } from "./components/SkillsManagerWorkspace";
 import { AgentsMdWorkspace, type AgentsMdFileTarget } from "./components/AgentsMdWorkspace";
 import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
@@ -160,6 +161,7 @@ export function App() {
   if (prototype === "agents-md") return <AgentsMdPrototype />;
   if (prototype === "babeldoc") return <BabelDocPrototype />;
   if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
+  if (prototype === "embodied") return <EmbodiedPrototype />;
   const app = <OpenWorkerApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }

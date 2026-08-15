@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
@@ -33,6 +35,12 @@ from .translation import (
     stage_index,
     unique_path,
 )
+
+# Closing an engine generator is best-effort: a third-party teardown that blocks must not be
+# able to hold a finished run open.
+ENGINE_CLOSE_TIMEOUT = 10.0
+# How long a progress wait blocks before re-checking whether the pipeline returned.
+PROGRESS_POLL_SECONDS = 0.1
 
 # One engine call: given the run's values, source document, and bundle directory, yield
 # BabelDOC's own progress events (``progress_start`` / ``progress_update`` /
@@ -199,14 +207,24 @@ def run_translation(run_dir: str | Path, engine: TranslationEngine) -> dict[str,
                     journal.update_state(**changes)
                     journal.events.append(kind, {**changes, "stage": event.get("stage")})
                 elif kind == "finish":
+                    # A finish IS the terminal fact, so stop reading here rather than waiting
+                    # for the engine's generator to end on its own. BabelDOC's async_translate
+                    # keeps its own bookkeeping alive past the last event, and a run that has
+                    # already produced its result must not be hostage to that teardown.
                     result = event.get("translate_result")
+                    journal.log("[run] engine reported finish")
+                    break
                 elif kind == "error":
                     failure = str(event.get("error") or "translation failed")
                     break
         finally:
+            # Closing the engine is best-effort and time-boxed. The result above is already
+            # the terminal fact; a third-party generator whose teardown blocks (BabelDOC waits
+            # on its own finish bookkeeping) must not be able to hold a finished run open.
             aclose = getattr(stream, "aclose", None)
             if aclose is not None:
-                await aclose()
+                with contextlib.suppress(Exception, asyncio.TimeoutError):
+                    await asyncio.wait_for(aclose(), timeout=ENGINE_CLOSE_TIMEOUT)
 
         if failure == "__cancelled__" or journal.cancelled():
             journal.events.append("run.cancelled", {"message": "cancelled during execution"})
@@ -279,6 +297,7 @@ async def babeldoc_engine(
         TranslationConfig,
         WatermarkOutputMode,
     )
+    from babeldoc.progress_monitor import ProgressMonitor
     from babeldoc.translator.translator import OpenAITranslator, set_translate_rate_limiter
 
     from ..providers.openai_provider import resolve_api_key
@@ -334,6 +353,22 @@ async def babeldoc_engine(
         api_key=api_key,
         ignore_cache=bool(values.get("ignore_cache")),
     )
+
+    # Preflight: one real round trip before the pipeline starts.
+    #
+    # BabelDOC treats a per-paragraph translation failure as non-fatal — it logs the error and
+    # keeps the source text — so a bad key or a model the vendor does not serve produces a run
+    # that reports 100% success and returns the untranslated original. That silent outcome is
+    # worse than a hard failure, so we spend one request to turn it into one.
+    try:
+        # ignore_cache: a cached probe answer would defeat the point of asking.
+        translator.translate("ok", ignore_cache=True)
+    except Exception as exc:  # vendor errors are the whole point of asking
+        yield {
+            "type": "error",
+            "error": f"{translator.model} rejected a test request: {exc}",
+        }
+        return
 
     table_model = None
     if values.get("translate_table_text"):
@@ -398,8 +433,56 @@ async def babeldoc_engine(
         use_rich_pbar=False,
     )
 
-    async for event in high_level.async_translate(config):
-        yield event
+    # Drive BabelDOC's own pipeline function directly instead of its async_translate
+    # wrapper.
+    #
+    # async_translate reports completion through a cross-thread handshake (an
+    # AsyncCallback whose `finished` flag and an asyncio finish_event, both set from the
+    # worker thread). When that handshake does not fire — observed on real runs that had
+    # already written their output — the generator never ends and the run stays `running`
+    # forever with a finished document on disk.
+    #
+    # A function call has no such failure mode: `do_translate` returning IS the result and
+    # raising IS the error. Progress still comes from BabelDOC's own ProgressMonitor, so
+    # the event stream we yield is unchanged; only the terminal fact changed hands.
+    loop = asyncio.get_running_loop()
+    events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def on_progress(**event: Any) -> None:
+        loop.call_soon_threadsafe(events.put_nowait, event)
+
+    monitor = ProgressMonitor(
+        high_level.get_translation_stage(config),
+        progress_change_callback=on_progress,
+        # BabelDOC calls this on completion and again while tearing down; we take the
+        # function's own outcome as authoritative, so these are deliberately dropped.
+        finish_callback=lambda **_: None,
+        report_interval=config.report_interval,
+    )
+    config.progress_monitor = monitor
+    if monitor.cancel_event is None:
+        monitor.cancel_event = threading.Event()
+
+    pipeline = loop.run_in_executor(None, high_level.do_translate, monitor, config)
+    try:
+        while not pipeline.done():
+            try:
+                yield await asyncio.wait_for(events.get(), timeout=PROGRESS_POLL_SECONDS)
+            except (TimeoutError, asyncio.TimeoutError):
+                continue
+        while not events.empty():
+            yield events.get_nowait()
+        try:
+            result = pipeline.result()
+        except Exception as exc:
+            yield {"type": "error", "error": str(exc)}
+            return
+        yield {"type": "finish", "translate_result": result}
+    finally:
+        # A consumer that stops reading (a cancelled run) must not leave the pipeline
+        # thread translating a document nobody will collect.
+        if not pipeline.done():
+            monitor.cancel()
 
 
 def spawn_worker(run_dir: str | Path) -> subprocess.Popen:

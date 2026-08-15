@@ -48,6 +48,10 @@ messaging = ["python-telegram-bot>=21", "slack-bolt>=1.18", "aiohttp>=3.9"]
 browser = ["playwright>=1.44"]
 # AWS Bedrock provider (lazy-imported; desktop builds bundle it, pip users opt in).
 bedrock = ["boto3>=1.34"]
+# Document translation (BabelDOC). Lazy-imported by the translation worker and NOT bundled:
+# BabelDOC is AGPL-3.0, so it must stay an opt-in install the user makes, never something we
+# redistribute — the same license line that keeps PyMuPDF out of the DMG.
+translation = ["babeldoc>=0.6.4"]
 
 [project.scripts]
 openworker = "coworker.cli:main"

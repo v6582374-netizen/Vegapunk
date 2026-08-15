@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getTranslationRun: vi.fn(),
   getTranslationRunEvents: vi.fn(),
   cancelTranslationRun: vi.fn(),
+  forgetTranslationDocument: vi.fn(),
   streamTranslationRunLog: vi.fn(),
   translationArtifactUrl: vi.fn(),
   fetchTranslationArtifactBlobUrl: vi.fn(),
@@ -32,6 +33,7 @@ const {
   getTranslationRun,
   getTranslationRunEvents,
   cancelTranslationRun,
+  forgetTranslationDocument,
   streamTranslationRunLog,
   translationArtifactUrl,
 } = mocks;
@@ -92,6 +94,14 @@ beforeEach(() => {
   getTranslationRun.mockResolvedValue(run());
   getTranslationRunEvents.mockResolvedValue(noEvents);
   cancelTranslationRun.mockResolvedValue(run({ state: "cancelled" }));
+  forgetTranslationDocument.mockResolvedValue({
+    document_id: DOC.document_id,
+    filename: DOC.filename,
+    removed_runs: 1,
+    cancelled_runs: [],
+    source_deleted: false,
+    bundle_dir: "",
+  });
   streamTranslationRunLog.mockResolvedValue(undefined);
   translationArtifactUrl.mockImplementation((runId: string, name: string) => `http://local/${runId}/${name}`);
 });
@@ -248,4 +258,51 @@ it("surfaces a failed run's message, and a dead service as one dismissible alert
   expect(alert.textContent).toContain("translation service is not running");
   fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+});
+
+it("removes a queue entry, dropping its runs and telling the user the file stayed put", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [run({ state: "done" })] });
+
+  render(<TranslationView />);
+  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
+
+  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+
+  await waitFor(() => expect(forgetTranslationDocument).toHaveBeenCalledWith(DOC.document_id));
+  // The row goes, and so does the run that belonged to it.
+  await waitFor(() => expect(within(queue()).queryByTitle(DOC.filename)).toBeNull());
+  expect(await screen.findByText(/left in place/i)).toBeTruthy();
+});
+
+it("says so plainly when removing also deleted the staged upload", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  forgetTranslationDocument.mockResolvedValue({
+    document_id: DOC.document_id,
+    filename: DOC.filename,
+    removed_runs: 0,
+    cancelled_runs: [],
+    source_deleted: true,
+    bundle_dir: "",
+  });
+
+  render(<TranslationView />);
+  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
+  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+
+  await waitFor(() => expect(within(queue()).queryByTitle(DOC.filename)).toBeNull());
+  expect(screen.queryByText(/left in place/i)).toBeNull();
+});
+
+it("keeps the row and reports why when removal fails", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  forgetTranslationDocument.mockRejectedValue(new Error("document is still being written"));
+
+  render(<TranslationView />);
+  await waitFor(() => expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy());
+  fireEvent.click(within(queue()).getByRole("button", { name: `Remove ${DOC.filename} from the queue` }));
+
+  const alert = await waitFor(() => screen.getByRole("alert"));
+  expect(alert.textContent).toContain("document is still being written");
+  expect(within(queue()).getByTitle(DOC.filename)).toBeTruthy();
 });

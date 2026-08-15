@@ -665,6 +665,73 @@ def test_cancelling_a_queued_run_never_starts_it(tmp_path):
     assert facade.run(queued)["state"] == "cancelled"
 
 
+def _dead_pid() -> int:
+    """A pid that is certainly not running: spawn a process, then reap it."""
+    import subprocess
+
+    process = subprocess.Popen(["true"])
+    process.wait()
+    return process.pid
+
+
+def _abandoning_runner(cancel: bool):
+    """A runner that dies the way SIGKILL does: `running` on disk, no terminal state."""
+
+    def runner(run_dir: Path) -> None:
+        state = json.loads((run_dir / "state.json").read_text(encoding="utf-8"))
+        state.update(state="running", pid=_dead_pid(), started_at=time.time())
+        (run_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+        if cancel:
+            (run_dir / "cancel").write_text(str(time.time()), encoding="utf-8")
+
+    return runner
+
+
+def test_a_run_whose_worker_died_is_reported_as_failed_not_running(tmp_path):
+    """Only the worker writes state, so a worker killed mid-run would otherwise leave the run
+    reading `running` forever — unfinishable, uncancellable, and never reporting a result."""
+    facade = TranslationFacade(tmp_path / "data", runner=_abandoning_runner(cancel=False))
+    document, _ = _register_upload(facade)
+
+    run_id = facade.start_runs({"document_ids": [document["document_id"]]})["runs"][0]["run_id"]
+    snapshot = _await_state(facade, run_id, TERMINAL)
+
+    assert snapshot["state"] == "error"
+    assert snapshot["error"] == "the translation worker stopped without finishing"
+    assert snapshot["finished_at"] is not None
+    assert snapshot["stage"] is None
+    # Settled once and for all — the projection must not keep rewriting it.
+    assert facade.events(run_id)["events"][-1]["type"] == "error"
+    settled = facade.events(run_id)["latest_sequence"]
+    assert facade.run(run_id)["state"] == "error"
+    assert facade.events(run_id)["latest_sequence"] == settled
+
+
+def test_a_cancelled_run_whose_worker_died_is_reported_as_cancelled(tmp_path):
+    facade = TranslationFacade(tmp_path / "data", runner=_abandoning_runner(cancel=True))
+    document, _ = _register_upload(facade)
+
+    run_id = facade.start_runs({"document_ids": [document["document_id"]]})["runs"][0]["run_id"]
+    snapshot = _await_state(facade, run_id, TERMINAL)
+
+    assert snapshot["state"] == "cancelled"
+    assert snapshot["error"] is None
+    assert facade.events(run_id)["events"][-1]["type"] == "run.cancelled"
+
+
+def test_an_abandoned_run_can_still_be_deleted_with_its_document(tmp_path):
+    facade = TranslationFacade(tmp_path / "data", runner=_abandoning_runner(cancel=False))
+    document, _ = _register_upload(facade)
+    run_id = facade.start_runs({"document_ids": [document["document_id"]]})["runs"][0]["run_id"]
+    _await_state(facade, run_id, TERMINAL)
+
+    removed = facade.forget_document(document["document_id"])
+
+    assert removed["removed_runs"] == 1
+    assert removed["source_deleted"] is True
+    assert facade.list_documents()["documents"] == []
+
+
 # -- artifacts -------------------------------------------------------------------
 
 
@@ -881,3 +948,117 @@ def test_provider_setting_accepts_openai_compatible_names_and_rejects_the_rest(t
 
     # The last valid save is what survives a rejected one.
     assert facade.settings_document()["values"]["provider"] == "ollama"
+
+
+# -- removing a queue entry ------------------------------------------------------
+
+
+def test_forgetting_an_upload_drops_its_runs_and_its_staged_copy(tmp_path):
+    facade = _facade(tmp_path)
+    document, _ = _register_upload(facade)
+    finished = _run_to_completion(facade, document["document_id"])
+    assert finished["state"] == "done"
+    staged_dir = Path(document["source_path"]).parent
+
+    removal = facade.forget_document(document["document_id"])
+
+    assert removal["filename"] == "paper.pdf"
+    assert removal["removed_runs"] == 1
+    # A finished run bundled artifacts beside the copy, so the folder holding the user's
+    # translations survives even though the bookkeeping is gone.
+    assert removal["source_deleted"] is False
+    assert staged_dir.exists()
+    assert facade.list_documents()["documents"] == []
+    assert facade.list_runs()["runs"] == []
+    with pytest.raises(KeyError):
+        facade.run(finished["run_id"])
+
+
+def test_forgetting_an_unrun_upload_deletes_the_copy_this_module_made(tmp_path):
+    facade = _facade(tmp_path)
+    document, _ = _register_upload(facade)
+    staged_dir = Path(document["source_path"]).parent
+    assert staged_dir.is_dir()
+
+    removal = facade.forget_document(document["document_id"])
+
+    # Nothing was ever produced beside it, so the staged copy is this module's alone to drop.
+    assert removal["source_deleted"] is True
+    assert removal["removed_runs"] == 0
+    assert not staged_dir.exists()
+    assert facade.list_documents()["documents"] == []
+
+
+def test_forgetting_a_path_registered_document_never_touches_the_users_file(tmp_path):
+    facade = _facade(tmp_path)
+    original = tmp_path / "library" / "thesis.pdf"
+    original.parent.mkdir(parents=True, exist_ok=True)
+    original.write_bytes(_pdf_bytes(3))
+    registered = facade.register_documents({"paths": [str(original)]})["documents"][0]
+
+    removal = facade.forget_document(registered["document_id"])
+
+    assert removal["source_deleted"] is False
+    assert original.is_file(), "a document the user keeps elsewhere is never deleted"
+    assert facade.list_documents()["documents"] == []
+
+
+def test_forgetting_a_document_cancels_a_run_still_working_on_it(tmp_path):
+    facade = _facade(tmp_path, streaming_engine)
+    document, _ = _register_upload(facade)
+    run_id = facade.start_runs({"document_ids": [document["document_id"]]})["runs"][0]["run_id"]
+    _await_state(facade, run_id, {"running"})
+
+    removal = facade.forget_document(document["document_id"])
+
+    assert removal["cancelled_runs"] == [run_id]
+    assert removal["removed_runs"] == 1
+    assert facade.list_documents()["documents"] == []
+    assert not (tmp_path / "data" / "translation" / "runs" / run_id).exists()
+
+
+def test_forgetting_leaves_other_documents_and_their_runs_alone(tmp_path):
+    facade = _facade(tmp_path)
+    keep, _ = _register_upload(facade, filename="keep.pdf")
+    drop, _ = _register_upload(facade, filename="drop.pdf")
+    kept_run = _run_to_completion(facade, keep["document_id"])
+    _run_to_completion(facade, drop["document_id"])
+
+    facade.forget_document(drop["document_id"])
+
+    remaining = facade.list_documents()["documents"]
+    assert [item["document_id"] for item in remaining] == [keep["document_id"]]
+    assert facade.run(kept_run["run_id"])["state"] == "done"
+
+
+def test_forgetting_an_unknown_document_is_a_lookup_failure(tmp_path):
+    facade = _facade(tmp_path)
+    with pytest.raises(KeyError):
+        facade.forget_document("2" * 32)
+
+
+def test_the_delete_route_removes_one_queue_entry_and_404s_on_the_rest(client, tmp_path):
+    content = _pdf_bytes(1)
+    registered = client.post(
+        "/v1/translation/documents",
+        headers=_headers(),
+        json={
+            "files": [
+                {
+                    "filename": "route.pdf",
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                    "size": len(content),
+                }
+            ]
+        },
+    ).json()["documents"][0]
+    document_id = registered["document_id"]
+
+    removed = client.delete(f"/v1/translation/documents/{document_id}", headers=_headers())
+    assert removed.status_code == 200
+    assert removed.json()["document_id"] == document_id
+    assert client.get("/v1/translation/documents", headers=_headers()).json()["documents"] == []
+
+    # Gone means gone: a second delete, and any unknown id, are both 404.
+    assert client.delete(f"/v1/translation/documents/{document_id}", headers=_headers()).status_code == 404
+    assert client.delete(f"/v1/translation/documents/{'3' * 32}", headers=_headers()).status_code == 404

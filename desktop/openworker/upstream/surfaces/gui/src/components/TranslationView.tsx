@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelTranslationRun,
   fetchTranslationArtifactBlobUrl,
+  forgetTranslationDocument,
   getTranslationRun,
   getTranslationRunEvents,
   getTranslationSettings,
@@ -544,6 +545,35 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     }
   };
 
+  // Removing a queue entry drops this module's own bookkeeping (the registry entry and every
+  // run folder) and cancels anything still running for it. The server decides whether the
+  // document's bytes go too: a staged upload's copy is ours to delete, a path the user
+  // registered never is, and a folder holding finished translations is left alone.
+  const remove = async (doc: TranslationDocument) => {
+    setBusy(`remove:${doc.document_id}`);
+    setError(null);
+    try {
+      const removal = await forgetTranslationDocument(doc.document_id);
+      const goneRunIds = new Set(runs.filter((run) => run.document_id === doc.document_id).map((run) => run.run_id));
+      setDocuments((prev) => prev.filter((item) => item.document_id !== doc.document_id));
+      setRuns((prev) => prev.filter((run) => run.document_id !== doc.document_id));
+      setChecked((prev) => prev.filter((id) => id !== doc.document_id));
+      // Drop the per-run projections too, or a re-registered document would inherit them.
+      for (const runId of goneRunIds) cursors.current.delete(runId);
+      const drop = <T,>(map: Record<string, T>): Record<string, T> =>
+        Object.fromEntries(Object.entries(map).filter(([key]) => !goneRunIds.has(key)));
+      setProgress((prev) => drop(prev));
+      setFeed((prev) => drop(prev));
+      setFocusedDocId((prev) => (prev === doc.document_id ? null : prev));
+      const kept = removal.source_deleted ? "" : " The file itself was left in place.";
+      announce(`Removed ${removal.filename}.${kept}`);
+    } catch (caught) {
+      setError(errText(caught, "That document could not be removed."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const copyPath = (path: string) => {
     navigator.clipboard?.writeText?.(path).catch(() => {});
     announce(`Copied ${path}`);
@@ -789,6 +819,16 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                           ) : (
                             <Pill tone="neutral">Ready</Pill>
                           )}
+                        </button>
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-md p-1 text-muted transition-colors hover:bg-dangerSoft hover:text-danger disabled:opacity-40"
+                          aria-label={`Remove ${doc.filename} from the queue`}
+                          title="Remove from queue"
+                          disabled={busy === `remove:${doc.document_id}`}
+                          onClick={() => void remove(doc)}
+                        >
+                          <Icon name="trash" size={13} />
                         </button>
                       </div>
                     );

@@ -2884,6 +2884,26 @@ export const registerTranslationDocuments = (payload: {
 export const listTranslationDocuments = (): Promise<{ documents: TranslationDocument[] }> =>
   translationRequest<{ documents: TranslationDocument[] }>("/v1/translation/documents");
 
+/** What removing one queue entry actually deleted, so the UI can say it plainly. */
+export interface TranslationDocumentRemoval {
+  document_id: string;
+  filename: string;
+  removed_runs: number;
+  cancelled_runs: string[];
+  /** True → an uploaded copy this module staged was deleted. A path-registered document,
+      and any bundle holding finished artifacts, is always left alone. */
+  source_deleted: boolean;
+  bundle_dir: string;
+}
+
+/** Forget one queued document: cancels its active run, drops its run history, and deletes
+    only the staged copy this module created. Never touches a user's own file on disk. */
+export const forgetTranslationDocument = (documentId: string): Promise<TranslationDocumentRemoval> =>
+  translationRequest<TranslationDocumentRemoval>(
+    `/v1/translation/documents/${encodeURIComponent(documentId)}`,
+    { method: "DELETE" },
+  );
+
 export const startTranslationRuns = (
   documentIds: string[],
   overrides?: Partial<TranslationSettingsValues>,

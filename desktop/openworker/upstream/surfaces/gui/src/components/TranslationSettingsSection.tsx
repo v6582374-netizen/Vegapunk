@@ -21,7 +21,6 @@ import {
   GROUP_META,
   GROUP_ORDER,
   OPTION_DEFS,
-  PRESETS,
   buildCli,
   changedKeys,
   optionsInGroup,
@@ -40,7 +39,13 @@ const BTN_BORDERED =
 
 type Values = TranslationSettingsValues;
 
-export type ProviderChoice = { name: string; title: string };
+export type ProviderChoice = {
+  name: string;
+  title: string;
+  /** The models this provider actually serves — the Model field's options once it is chosen. */
+  models: string[];
+  recommended: string | null;
+};
 
 /**
  * The providers this module can actually drive: already configured in Settings ▸ Models AND
@@ -48,11 +53,32 @@ export type ProviderChoice = { name: string; title: string };
  * dialect, so listing a native-SDK provider (Claude, Gemini, Bedrock, Vertex) would offer a
  * choice that cannot run. `openai_compatible` is absent on older sidecars — treat that as false
  * rather than guessing, so the list is never optimistic.
+ *
+ * Each choice carries its own model list, because a provider and a model that belong to
+ * different vendors is the one misconfiguration BabelDOC does not survive: it rejects every
+ * paragraph and still finishes, leaving an untranslated document behind.
  */
 export function usableProviders(providers: ProviderInfo[]): ProviderChoice[] {
   return providers
     .filter((p) => p.configured && p.openai_compatible === true)
-    .map((p) => ({ name: p.name, title: p.title }));
+    .map((p) => ({
+      name: p.name,
+      title: p.title,
+      models: p.suggested_models ?? [],
+      recommended: p.recommended_model ?? null,
+    }));
+}
+
+/** The model the Model field should hold when a provider is picked: its own recommendation,
+ *  else its first served model, else leave the current value for the user to type. */
+export function modelForProvider(
+  providers: ProviderChoice[],
+  name: string,
+  fallback: string,
+): string {
+  const chosen = providers.find((p) => p.name === name);
+  if (!chosen) return fallback;
+  return chosen.recommended || chosen.models[0] || fallback;
 }
 
 /** A toggle that reads as a switch, and marks itself when it departs from the server default. */
@@ -98,14 +124,58 @@ function Control({
   value,
   disabled,
   providers,
+  provider,
   onChange,
 }: {
   def: OptionDef;
   value: Values[keyof Values];
   disabled: boolean;
   providers: ProviderChoice[];
+  provider: string;
   onChange: (v: Values[keyof Values]) => void;
 }) {
+  if (def.kind === "model") {
+    const current = String(value ?? "");
+    const chosen = providers.find((p) => p.name === provider);
+    // No provider chosen means no authoritative list (the OpenAI slot resolves its key from the
+    // environment), so the field stays free text rather than pretending to know the catalog.
+    if (!chosen || chosen.models.length === 0) {
+      return (
+        <input
+          className={INPUT + " w-[220px]"}
+          aria-label={def.label}
+          value={current}
+          placeholder={def.placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
+    }
+    const foreign = current && !chosen.models.includes(current);
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <select
+          className={INPUT + " w-[220px]"}
+          aria-label={def.label}
+          value={current}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {chosen.models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+          {foreign && <option value={current}>{current} (not served)</option>}
+        </select>
+        {foreign && (
+          <span className="text-[11.5px] text-danger">{chosen.title} does not serve this model.</span>
+        )}
+      </div>
+    );
+  }
   if (def.kind === "provider") {
     const current = String(value ?? "");
     // A saved provider that is no longer usable (key removed) stays selectable so the stored
@@ -223,6 +293,7 @@ function Field({
           value={values[def.key]}
           disabled={disabled}
           providers={providers}
+          provider={String(values.provider ?? "")}
           onChange={(v) => onChange(def.key, v)}
         />
       </div>
@@ -381,7 +452,16 @@ export function TranslationSettingsSection() {
 
   const set = (key: keyof Values, value: Values[keyof Values]) => {
     setNotice(null);
-    setDraft((prev) => (prev ? ({ ...prev, [key]: value } as Values) : prev));
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, [key]: value } as Values;
+      // Picking a provider also picks its model. Leaving the previous vendor's model behind is
+      // the failure mode this field exists to prevent, so the choice is made atomically.
+      if (key === "provider") {
+        next.openai_model = modelForProvider(providers, String(value ?? ""), prev.openai_model);
+      }
+      return next;
+    });
   };
 
   const save = async () => {
@@ -460,23 +540,6 @@ export function TranslationSettingsSection() {
           {buildCli(draft, doc.defaults)}
         </pre>
       )}
-
-      <div className="mb-4 flex flex-wrap gap-2">
-        {PRESETS.map((preset) => (
-          <button
-            key={preset.key}
-            className={BTN_BORDERED + " text-left"}
-            disabled={saving}
-            onClick={() => {
-              setNotice(null);
-              setDraft((prev) => (prev ? ({ ...doc.defaults, ...preset.patch } as Values) : prev));
-            }}
-            title={preset.blurb}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
 
       <DestinationCard />
 

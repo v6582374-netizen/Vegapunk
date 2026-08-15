@@ -786,6 +786,110 @@ class TranslationFacade:
             ]
         }
 
+    def forget_document(self, document_id: str) -> dict[str, Any]:
+        """Remove one document from the queue, with its runs, and report what was deleted.
+
+        Deletion is deliberately asymmetric about whose bytes they are.  This module owns its
+        own bookkeeping (the registry entry and the per-run folders: state, events, raw log),
+        so those always go.  The user's documents are another matter:
+
+        * a document registered BY PATH is never deleted — it lives wherever the user keeps it,
+          and forgetting a queue entry must not reach outside this module's storage;
+        * an UPLOAD's staged copy is ours, so it goes — unless a finished run already bundled
+          artifacts beside it, in which case the folder holds translations the user has not
+          seen yet and only the bookkeeping is dropped.
+
+        An active run for the document is cancelled first, so nothing keeps writing into a
+        folder that is being removed.
+        """
+        with self._lock:
+            stored = self._load_documents()
+            record = next(
+                (item for item in stored if item["document_id"] == document_id), None
+            )
+        if record is None:
+            raise KeyError(document_id)
+
+        # Stop the work before removing what it writes into.
+        cancelled: list[str] = []
+        for run_id in self._runs_for_document(document_id):
+            run_dir = self._runs_root / run_id
+            state = self._reconcile_dead_run(run_dir, _read_json(run_dir / "state.json") or {})
+            if state.get("state") not in TERMINAL_RUN_STATES:
+                self.cancel(run_id)
+                cancelled.append(run_id)
+        # A cancelled worker needs a moment to observe the marker and stop touching its run
+        # directory; removing it underneath a live process would only strand files.
+        for run_id in cancelled:
+            self._await_terminal(run_id)
+
+        bundled = self._bundled_sources().get(document_id)
+        removed_runs = 0
+        for run_id in self._runs_for_document(document_id):
+            shutil.rmtree(self._runs_root / run_id, ignore_errors=True)
+            removed_runs += 1
+
+        with self._lock:
+            remaining = [
+                item for item in self._load_documents() if item["document_id"] != document_id
+            ]
+            self._store_documents(remaining)
+
+        source_deleted = self._discard_staged_upload(record, bundled)
+        return {
+            "document_id": document_id,
+            "filename": record["filename"],
+            "removed_runs": removed_runs,
+            "cancelled_runs": cancelled,
+            "source_deleted": source_deleted,
+            "bundle_dir": (bundled or {}).get("bundle_dir") or "",
+        }
+
+    def _runs_for_document(self, document_id: str) -> list[str]:
+        matched: list[str] = []
+        for run_id in self._run_ids():
+            request = _read_json(self._runs_root / run_id / "request.json") or {}
+            if request.get("document_id") == document_id:
+                matched.append(run_id)
+        return matched
+
+    def _await_terminal(self, run_id: str, timeout: float = 5.0) -> None:
+        """Wait briefly for a cancelled run to actually stop writing."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            run_dir = self._runs_root / run_id
+            state = self._reconcile_dead_run(run_dir, _read_json(run_dir / "state.json") or {})
+            if state.get("state") in TERMINAL_RUN_STATES:
+                return
+            time.sleep(0.05)
+
+    def _discard_staged_upload(
+        self, record: Mapping[str, Any], bundled: Mapping[str, str] | None
+    ) -> bool:
+        """Delete an upload's staged copy when it is ours alone to delete.
+
+        Returns whether anything was removed.  The guard is containment: only paths inside
+        this module's own inbox qualify, which is exactly the set of copies uploads created.
+        A bundle beside the copy means a finished run produced translations there, so the
+        folder stays and the user keeps their artifacts.
+        """
+        if bundled is not None:
+            return False
+        try:
+            staged = Path(record["source_path"]).resolve()
+            inbox = self._inbox_root.resolve()
+        except OSError:
+            return False
+        if not staged.is_relative_to(inbox):
+            return False  # registered by path: the user's own file, never ours to delete
+        # One staging directory per upload (see _document_from_upload), so the parent is a
+        # folder this module created and nothing else lives in it.
+        target = staged.parent if staged.parent != inbox else staged
+        if not target.exists():
+            return False
+        shutil.rmtree(target, ignore_errors=True)
+        return not target.exists()
+
     def _document_from_upload(self, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, Mapping):
             raise TranslationValidationError(
@@ -1058,7 +1162,7 @@ class TranslationFacade:
     def cancel(self, run_id: str) -> dict[str, Any]:
         validated = self._validated_run_id(run_id)
         run_dir = self._runs_root / validated
-        state = _read_json(run_dir / "state.json") or {}
+        state = self._reconcile_dead_run(run_dir, _read_json(run_dir / "state.json") or {})
         current = state.get("state")
         if current in TERMINAL_RUN_STATES:
             return self._snapshot(validated)
@@ -1104,7 +1208,8 @@ class TranslationFacade:
         position = 0
         pending = ""
         while True:
-            state = _read_json(self._runs_root / validated / "state.json") or {}
+            run_dir = self._runs_root / validated
+            state = self._reconcile_dead_run(run_dir, _read_json(run_dir / "state.json") or {})
             active = state.get("state") in ACTIVE_RUN_STATES
             if log_path.is_file():
                 with log_path.open("r", encoding="utf-8", errors="replace") as stream:
@@ -1176,10 +1281,46 @@ class TranslationFacade:
     def _write_state(self, run_dir: Path, state: Mapping[str, Any]) -> None:
         _atomic_write_json(run_dir / "state.json", dict(state))
 
+    def _reconcile_dead_run(self, run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+        """Turn an abandoned run into a terminal one.
+
+        Only the worker writes `state.json`, so a worker that dies without reaching a terminal
+        state (SIGKILL, a crash, a machine that went down mid-run) leaves the run reading
+        `running` forever — it can never be cancelled again and never reports a result. The
+        liveness of the recorded pid is the fact that settles it, so every projection checks it.
+        """
+        if state.get("state") not in ACTIVE_RUN_STATES:
+            return state
+        pid = state.get("pid")
+        if not isinstance(pid, int) or pid <= 0 or pid == os.getpid():
+            return state
+        try:
+            os.kill(pid, 0)
+            return state
+        except PermissionError:  # alive, just not ours to signal
+            return state
+        except OSError:
+            pass
+        cancelled = (run_dir / "cancel").is_file()
+        settled = {
+            **state,
+            "state": "cancelled" if cancelled else "error",
+            "finished_at": time.time(),
+            "stage": None,
+        }
+        if not cancelled:
+            settled["error"] = "the translation worker stopped without finishing"
+        self._write_state(run_dir, settled)
+        RunEventLog(run_dir / "events.jsonl").append(
+            "run.cancelled" if cancelled else "error",
+            {"message": "worker stopped"} if cancelled else {"error": settled["error"]},
+        )
+        return settled
+
     def _snapshot(self, run_id: str) -> dict[str, Any]:
         run_dir = self._runs_root / run_id
         request = _read_json(run_dir / "request.json") or {}
-        state = _read_json(run_dir / "state.json") or {}
+        state = self._reconcile_dead_run(run_dir, _read_json(run_dir / "state.json") or {})
         values = request.get("values") or {}
         result = state.get("result") if isinstance(state.get("result"), dict) else None
         run_state = state.get("state")

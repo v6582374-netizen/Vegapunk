@@ -734,6 +734,18 @@ def create_app(
     def translation_documents() -> dict[str, Any]:
         return app.state.translation.list_documents()
 
+    @app.delete("/v1/translation/documents/{document_id}")
+    def translation_forget_document(document_id: str) -> dict[str, Any]:
+        try:
+            return app.state.translation.forget_document(document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation document not found") from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Translation document could not be removed. Try again.",
+            ) from exc
+
     @app.post("/v1/translation/runs")
     def translation_start_runs(body: dict | None = None) -> dict[str, Any]:
         try:
