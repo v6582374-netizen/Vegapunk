@@ -184,7 +184,7 @@ datasets
 demo*/
 
 logs/
-traj*
+traj*/
 tasks/AutoScale_DL/*
 tasks/AutoScale2/*
 IA15_traj/
