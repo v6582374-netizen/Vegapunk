@@ -15,6 +15,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -776,6 +777,71 @@ def test_an_artifact_of_another_run_is_not_reachable_through_this_one(tmp_path):
         facade.artifact_path(my_run["run_id"], "theirs.zh.mono.pdf")
 
 
+# -- revealing the bundle --------------------------------------------------------
+
+
+def _popen_recorder(monkeypatch) -> list[list[str]]:
+    """Record what would have been launched instead of opening a real file manager."""
+    import subprocess
+
+    launched: list[list[str]] = []
+
+    def fake_popen(args, **kwargs):
+        del kwargs
+        launched.append(list(args))
+        return object()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    return launched
+
+
+def test_revealing_a_finished_run_opens_its_own_bundle_folder(tmp_path, monkeypatch):
+    facade = _facade(tmp_path)
+    document, _ = _register_upload(facade)
+    snapshot = _run_to_completion(facade, document["document_id"])
+    bundle = Path(snapshot["bundle_dir"])
+    launched = _popen_recorder(monkeypatch)
+
+    revealed = facade.reveal_bundle(snapshot["run_id"])
+
+    assert revealed == {"ok": True, "path": str(bundle)}
+    assert bundle.is_dir()
+    # Whatever the platform's verb is, the bundle directory itself is what gets handed over.
+    assert launched and any(str(bundle) in part for part in launched[-1])
+
+
+def test_revealing_an_unknown_run_is_a_lookup_failure(tmp_path):
+    facade = _facade(tmp_path)
+    for run_id in ["", "nope", "0" * 32, "../etc"]:
+        with pytest.raises(KeyError):
+            facade.reveal_bundle(run_id)
+
+
+def test_a_bundle_the_user_moved_away_is_reported_not_raised(tmp_path, monkeypatch):
+    facade = _facade(tmp_path)
+    document, _ = _register_upload(facade)
+    snapshot = _run_to_completion(facade, document["document_id"])
+    shutil.rmtree(snapshot["bundle_dir"])
+    launched = _popen_recorder(monkeypatch)
+
+    revealed = facade.reveal_bundle(snapshot["run_id"])
+
+    assert revealed["ok"] is False
+    assert revealed["error"]
+    assert not launched  # nothing is launched at a path that is gone
+
+
+def test_an_unknown_mode_still_shows_the_folder(tmp_path, monkeypatch):
+    facade = _facade(tmp_path)
+    document, _ = _register_upload(facade)
+    snapshot = _run_to_completion(facade, document["document_id"])
+    launched = _popen_recorder(monkeypatch)
+
+    for mode in ["open", "reveal", "launch-a-shell", ""]:
+        assert facade.reveal_bundle(snapshot["run_id"], mode)["ok"] is True
+    assert len(launched) == 4
+
+
 # -- HTTP surface ----------------------------------------------------------------
 
 
@@ -1062,3 +1128,46 @@ def test_the_delete_route_removes_one_queue_entry_and_404s_on_the_rest(client, t
     # Gone means gone: a second delete, and any unknown id, are both 404.
     assert client.delete(f"/v1/translation/documents/{document_id}", headers=_headers()).status_code == 404
     assert client.delete(f"/v1/translation/documents/{'3' * 32}", headers=_headers()).status_code == 404
+
+
+def test_the_reveal_route_shows_the_runs_own_bundle_and_ignores_a_caller_path(
+    client, monkeypatch
+):
+    content = _pdf_bytes(1)
+    document = client.post(
+        "/v1/translation/documents",
+        headers=_headers(),
+        json={
+            "files": [
+                {
+                    "filename": "reveal.pdf",
+                    "content_base64": base64.b64encode(content).decode("ascii"),
+                    "size": len(content),
+                }
+            ]
+        },
+    ).json()["documents"][0]
+    run_id = client.post(
+        "/v1/translation/runs",
+        headers=_headers(),
+        json={"document_ids": [document["document_id"]]},
+    ).json()["runs"][0]["run_id"]
+    snapshot = _await_state(client.app.state.translation, run_id, TERMINAL)
+    bundle = snapshot["bundle_dir"]
+    launched = _popen_recorder(monkeypatch)
+
+    # A caller-supplied path is not part of the contract: the server derives the folder.
+    revealed = client.post(
+        f"/v1/translation/runs/{run_id}/reveal",
+        headers=_headers(),
+        json={"path": "/etc", "mode": "open"},
+    )
+    assert revealed.status_code == 200
+    assert revealed.json() == {"ok": True, "path": bundle}
+    assert launched and not any("/etc" in part for part in launched[-1])
+
+    assert client.post(f"/v1/translation/runs/{run_id}/reveal").status_code == 401
+    assert (
+        client.post(f"/v1/translation/runs/{'0' * 32}/reveal", headers=_headers()).status_code
+        == 404
+    )

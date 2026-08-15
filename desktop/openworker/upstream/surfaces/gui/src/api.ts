@@ -2934,6 +2934,17 @@ export const getTranslationRunEvents = (
 }> =>
   translationRequest(`/v1/translation/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, after)}`);
 
+/** Show the run's bundle folder in the OS file manager. The server derives the folder from
+    the run itself, so there is no path to pass — and none to forge. */
+export const revealTranslationBundle = (
+  runId: string,
+  mode: "reveal" | "open" = "reveal",
+): Promise<{ ok: boolean; error?: string; path?: string }> =>
+  translationRequest<{ ok: boolean; error?: string; path?: string }>(
+    `/v1/translation/runs/${encodeURIComponent(runId)}/reveal`,
+    jsonBody({ mode }),
+  );
+
 /** Absolute URL of one artifact inside a run's bundle — for preview iframes and downloads. */
 export const translationArtifactUrl = (runId: string, name: string): string =>
   `${httpBase()}/v1/translation/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(name)}`;

@@ -139,7 +139,9 @@ it("registers a local absolute path and shows the document in the library", asyn
   fireEvent.click(within(library()).getByRole("button", { name: "Add path" }));
 
   await waitFor(() => expect(registerTranslationDocuments).toHaveBeenCalledWith({ paths: [DOC.source_path] }));
-  expect(within(library()).getByTitle(DOC.filename)).toBeTruthy();
+  // Adding a document is step "Choose", so the flow advances to Confirm for that document.
+  const sheet = await waitFor(() => screen.getByTestId("translation-confirm"));
+  expect(sheet.textContent).toContain(DOC.source_path);
 });
 
 it("registers dropped PDF bytes as base64 and ignores everything that is not a PDF", async () => {
@@ -454,7 +456,7 @@ it("keeps the intake compact once the library has entries", async () => {
   await waitFor(() => expect(card(DONE_DOC.filename)).toBeTruthy());
   expect(screen.queryByTestId("translation-dropzone")).toBeNull();
   // Both ways in stay reachable, just folded away.
-  expect(screen.getByRole("button", { name: /Add documents/i })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Translate a document/i })).toBeTruthy();
 });
 
 it("advertises the dropzone while the library is still empty", async () => {
@@ -537,4 +539,131 @@ it("orders the library newest first", async () => {
     .getAllByRole("button", { name: /^Open / })
     .map((node) => node.getAttribute("aria-label"));
   expect(names).toEqual([`Open ${DONE_DOC.filename}`, `Open ${older.filename}`]);
+});
+
+/* ------------------------------------------------------------------ prototype B fidelity
+ * The prototype is a staged single-column flow, not three resident columns. These tests pin the
+ * shape itself: one screen per step, a Confirm step that states where the bundle will land
+ * BEFORE anything runs, a single radial while it runs, and a folder tree when it is done. */
+
+const stepRail = () => screen.getByTestId("translation-steps");
+const flow = () => screen.getByTestId("translation-flow");
+
+it("opens the library as one wide column, with no run scaffolding beside it", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  await waitFor(() => expect(card(DONE_DOC.filename)).toBeTruthy());
+  // The library is the whole surface at home: no step rail, no flow, no resident columns.
+  expect(screen.queryByTestId("translation-steps")).toBeNull();
+  expect(screen.queryByTestId("translation-flow")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Artifacts" })).toBeNull();
+  // One primary way forward, stated as an action rather than a dropzone.
+  expect(screen.getByRole("button", { name: /Translate a document/i })).toBeTruthy();
+});
+
+it("stops at Confirm before running, and states where the bundle will land", async () => {
+  // The prototype's whole reason for a Confirm step: the bundle directory is this integration's
+  // one added semantic, and the user should see it BEFORE committing, not discover it after.
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+
+  const sheet = await waitFor(() => screen.getByTestId("translation-confirm"));
+  expect(sheet.textContent).toContain(DOC.source_path);
+  expect(sheet.textContent).toContain(DOC.bundle_dir);
+  // Arriving at Confirm must not have started anything.
+  expect(startTranslationRuns).not.toHaveBeenCalled();
+  // The step rail says where we are.
+  expect(stepRail().getAttribute("data-step")).toBe("confirm");
+  // And the commit is explicit.
+  fireEvent.click(screen.getByRole("button", { name: /Run translation/i }));
+  await waitFor(() => expect(startTranslationRuns).toHaveBeenCalledWith([DOC.document_id]));
+});
+
+it("shows one radial while translating, and only the stages that matter", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [run({ state: "running", overall_progress: 54 })] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+
+  await waitFor(() => expect(stepRail().getAttribute("data-step")).toBe("translate"));
+  const radial = await waitFor(() => screen.getByTestId("translation-radial"));
+  expect(radial.getAttribute("aria-valuenow")).toBe("54");
+  // The radial IS the progress report: no second linear overall bar competing with it.
+  expect(within(flow()).queryByTestId("translation-overall-bar")).toBeNull();
+  expect(screen.getByRole("button", { name: /Leave it running/i })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Cancel run/i })).toBeTruthy();
+});
+
+it("collects the bundle as a folder tree once the run is done", async () => {
+  const finished = run({
+    state: "done",
+    overall_progress: 100,
+    finished_at: 1_760_000_120,
+    artifacts: [
+      { name: "attention.zh.dual.pdf", role: "dual", size: 5_018_112, path: `${DOC.bundle_dir}/attention.zh.dual.pdf` },
+      { name: "glossary.csv", role: "glossary", size: 2_048, path: `${DOC.bundle_dir}/glossary.csv` },
+    ],
+  });
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [finished] });
+  getTranslationRun.mockResolvedValue(finished);
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+
+  const tree = await waitFor(() => screen.getByTestId("translation-bundle-tree"));
+  // The tree shows the nesting the bundle actually has on disk.
+  expect(tree.textContent).toContain("attention.zh.dual.pdf");
+  expect(tree.textContent).toContain("glossary.csv");
+  expect(screen.getByTestId("translation-bundle-dir").textContent).toContain(DOC.bundle_dir);
+  expect(screen.getByRole("button", { name: /Reveal folder/i })).toBeTruthy();
+});
+
+it("walks Confirm to Translate to Collect on one document without ever leaving the flow", async () => {
+  // The flow is a sequence, and each step replaces the last rather than accumulating panels.
+  listTranslationDocuments.mockResolvedValue({ documents: [DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [] });
+  const started = run({ state: "running", overall_progress: 4 });
+  startTranslationRuns.mockResolvedValue({ runs: [started] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DOC.filename)));
+  await waitFor(() => expect(stepRail().getAttribute("data-step")).toBe("confirm"));
+
+  listTranslationRuns.mockResolvedValue({ runs: [started] });
+  getTranslationRun.mockResolvedValue(started);
+  fireEvent.click(screen.getByRole("button", { name: /Run translation/i }));
+
+  await waitFor(() => expect(stepRail().getAttribute("data-step")).toBe("translate"));
+  // Confirm is gone, not merely scrolled past.
+  expect(screen.queryByTestId("translation-confirm")).toBeNull();
+
+  const finished = run({ state: "done", overall_progress: 100, finished_at: 1_760_000_200, artifacts: [] });
+  listTranslationRuns.mockResolvedValue({ runs: [finished] });
+  getTranslationRun.mockResolvedValue(finished);
+
+  await waitFor(() => expect(stepRail().getAttribute("data-step")).toBe("collect"), { timeout: 3000 });
+  // Watched to the end, so the ring stays and reads 100: this finish line was actually crossed.
+  expect(screen.getByTestId("translation-radial").getAttribute("aria-valuenow")).toBe("100");
+});
+
+it("skips the rail entirely when reviewing a past translation", async () => {
+  // Reviewing is not a step in the sequence: it is a record, so the rail is replaced by a
+  // plain heading that states when.
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+
+  await waitFor(() => expect(screen.getByTestId("translation-bundle-tree")).toBeTruthy());
+  expect(screen.queryByTestId("translation-steps")).toBeNull();
+  expect(screen.queryByTestId("translation-radial")).toBeNull();
+  expect(screen.getByTestId("translation-record-when").textContent).toMatch(/ago|yesterday|just now/i);
 });

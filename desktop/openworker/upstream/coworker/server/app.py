@@ -808,6 +808,16 @@ def create_app(
         media_type = "application/pdf" if path.suffix.lower() == ".pdf" else None
         return FileResponse(path, media_type=media_type, filename=path.name)
 
+    @app.post("/v1/translation/runs/{run_id}/reveal")
+    def translation_run_reveal(run_id: str, body: dict | None = None) -> dict[str, Any]:
+        """Show the run's own bundle folder. The path is never taken from the body."""
+        try:
+            return app.state.translation.reveal_bundle(
+                run_id, str((body or {}).get("mode") or "reveal")
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="translation run not found") from exc
+
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}

@@ -21,6 +21,7 @@ import {
   listTranslationDocuments,
   listTranslationRuns,
   registerTranslationDocuments,
+  revealTranslationBundle,
   startTranslationRuns,
   streamTranslationRunLog,
   translationArtifactUrl,
@@ -31,7 +32,7 @@ import {
   type TranslationStage,
   type TranslationUploadFile,
 } from "../api";
-import { Icon, type IconName } from "./Icon";
+import { Icon } from "./Icon";
 import {
   ARTIFACT_ROLE_LABEL,
   TRANSLATE_STAGES,
@@ -165,31 +166,57 @@ function ProgressBar({
   );
 }
 
-/** One weight-proportional segment. Its own component so the spring hook never runs in a loop. */
-function StageSegment({ stage, weight, frac }: { stage: TranslationStage; weight: number; frac: number }) {
+/**
+ * One ring, one number. The prototype's Translate step reports progress with a single radial
+ * rather than a stack of bars: while a run is in flight there is exactly one question ("how far
+ * along?"), and one answer should occupy the middle of the screen. Per-stage bars live in the
+ * stage list below it, where they are detail rather than headline.
+ */
+function Radial({
+  pct,
+  label,
+  valueText,
+  done,
+}: {
+  pct: number;
+  label: string;
+  valueText: string;
+  done?: boolean;
+}) {
   const reduced = usePrefersReducedMotion();
-  const shown = useSmoothed(Math.max(0, Math.min(1, frac)), reduced);
+  const clamped = Math.max(0, Math.min(100, pct));
+  const shown = useSmoothed(clamped, reduced);
+  const radius = 104;
+  const circumference = 2 * Math.PI * radius;
   return (
-    <span
-      className="relative block h-full overflow-hidden rounded-[2px] bg-paper"
-      style={{ flex: weight }}
-      title={`${shortStage(stage.name)} · ${weight.toFixed(1)}% of the work`}
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(clamped)}
+      aria-valuetext={valueText}
+      data-testid="translation-radial"
+      className="relative grid h-[232px] w-[232px] place-items-center"
     >
-      <i
-        className={`absolute inset-0 origin-left rounded-[2px] ${shown >= 0.999 ? "bg-ok" : "bg-accent"}`}
-        style={{ transform: `scaleX(${shown.toFixed(4)})` }}
-      />
-    </span>
-  );
-}
-
-/** Segment widths are BabelDOC's stage weights: the bar itself teaches where the time goes. */
-function WeightedTrack({ stages, fracs }: { stages: TranslationStage[]; fracs: number[] }) {
-  return (
-    <div className="flex h-2 gap-[2px]" aria-hidden="true">
-      {stages.map((stage, index) => (
-        <StageSegment key={`${stage.name}-${index}`} stage={stage} weight={stage.weight} frac={fracs[index] ?? 0} />
-      ))}
+      <svg viewBox="0 0 232 232" className="absolute inset-0 -rotate-90" aria-hidden="true">
+        <circle cx="116" cy="116" r={radius} fill="none" strokeWidth="9" className="stroke-faint/20" />
+        <circle
+          cx="116"
+          cy="116"
+          r={radius}
+          fill="none"
+          strokeWidth="9"
+          strokeLinecap="round"
+          className={done ? "stroke-ok" : "stroke-accent"}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - shown / 100)}
+        />
+      </svg>
+      <div className="font-mono text-[44px] font-semibold leading-none tabular-nums tracking-[-0.035em] text-ink">
+        {Math.round(shown)}
+        <span className="text-[20px] font-medium text-muted">%</span>
+      </div>
     </div>
   );
 }
@@ -226,17 +253,6 @@ const STATE_LABEL: Record<TranslationRun["state"], string> = {
   error: "Failed",
   cancelled: "Cancelled",
 };
-
-function ColumnHead({ title, icon, right }: { title: string; icon: IconName; right?: React.ReactNode }) {
-  return (
-    <div className="mb-3 flex min-h-7 items-center gap-2">
-      <Icon name={icon} size={15} />
-      <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-ink">{title}</h2>
-      <span className="ml-auto flex items-center gap-1.5">{right}</span>
-    </div>
-  );
-}
-
 /** The absolute path of the folder holding source + translations. The added semantic, made loud. */
 function BundlePath({ path, pending, onCopy }: { path: string; pending?: boolean; onCopy: (path: string) => void }) {
   return (
@@ -364,6 +380,142 @@ function LibraryCard({
       >
         <Icon name="trash" size={13} />
       </button>
+    </div>
+  );
+}
+
+/** The four-beat trail of the flow. Reviewing a past translation is not one of the beats. */
+function StepRail({ step }: { step: "confirm" | "translate" | "collect" }) {
+  const order = ["choose", "confirm", "translate", "collect"] as const;
+  const at = order.indexOf(step);
+  return (
+    <div
+      className="flex items-center gap-1.5 text-[10.5px] text-faint"
+      data-testid="translation-steps"
+      data-step={step}
+    >
+      {["Choose", "Confirm", "Translate", "Collect"].map((label, index) => (
+        <span key={label} className="flex items-center gap-1.5">
+          <span className={index === at ? "text-ink" : undefined}>{label}</span>
+          {index < 3 && (
+            <i className={`block h-[3px] w-[22px] rounded-full ${index < at ? "bg-accent" : "bg-faint/25"}`} />
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * BabelDOC's stages, as a list. `compact` keeps the horizon short: everything finished, the one
+ * running, and the next two. A thirteen-row table of things that have not happened yet is not
+ * progress information.
+ */
+function StageRows({
+  stages,
+  stageIndex,
+  stageFrac,
+  stageCurrent,
+  stageTotal,
+  running,
+  compact,
+}: {
+  stages: TranslationStage[];
+  stageIndex: number;
+  stageFrac: number;
+  stageCurrent: number;
+  stageTotal: number;
+  running: boolean;
+  compact?: boolean;
+}) {
+  const weightTotal = stages.reduce((sum, stage) => sum + stage.weight, 0) || 1;
+  return (
+    <ol className="flex flex-col">
+      {stages.map((stage, index) => {
+        const done = stageIndex > index;
+        const active = stageIndex === index && running;
+        if (compact && !done && !active && index > (stageIndex < 0 ? 1 : stageIndex + 2)) return null;
+        return (
+          <li
+            key={`${stage.name}-${index}`}
+            className="grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-line/70 py-2 first:border-t-0"
+          >
+            <span
+              className={
+                "grid h-5 w-5 place-items-center rounded-full border text-[9.5px] font-bold " +
+                (done
+                  ? "border-transparent bg-okSoft text-ok"
+                  : active
+                    ? "border-accent text-accent"
+                    : "border-line text-faint")
+              }
+            >
+              {done ? <Icon name="sparkle" size={11} /> : index + 1}
+            </span>
+            <div className="min-w-0">
+              <div
+                className={
+                  "truncate text-[12.5px] " +
+                  (active ? "font-semibold text-ink" : done ? "text-ink" : "text-muted")
+                }
+              >
+                {shortStage(stage.name)}
+              </div>
+              {active && (
+                <>
+                  <div className="mt-1.5">
+                    <ProgressBar
+                      pct={stageFrac * 100}
+                      label={`${shortStage(stage.name)} progress`}
+                      valueText={
+                        stageTotal > 0 ? `${stageCurrent} of ${stageTotal}` : `${(stageFrac * 100).toFixed(0)} percent`
+                      }
+                    />
+                  </div>
+                  {stageTotal > 0 && (
+                    <div className="mt-1 text-[10.5px] text-faint">
+                      <span className="font-mono tabular-nums">
+                        {stageCurrent}/{stageTotal}
+                      </span>{" "}
+                      items
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <span className="font-mono text-[10px] tabular-nums text-faint">
+              {((stage.weight / weightTotal) * 100).toFixed(1)}%
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** The bundle as it sits on disk. One folder, beside the original — drawn rather than described. */
+function BundleTree({ bundleDir, names }: { bundleDir: string; names: string[] }) {
+  const leaf = bundleDir.split("/").filter(Boolean).pop() ?? bundleDir;
+  return (
+    <div
+      className="flex flex-col gap-px font-mono text-[11px] leading-[1.6] text-muted"
+      data-testid="translation-bundle-tree"
+    >
+      <div>
+        <b className="font-semibold text-ink">{dirOf(bundleDir)}/</b>
+      </div>
+      <div>
+        └─ <em className="not-italic text-accent">{leaf}/</em>
+      </div>
+      {names.length === 0 ? (
+        <div className="pl-[22px] text-faint">(nothing written yet)</div>
+      ) : (
+        names.map((name, index) => (
+          <div key={name} className="pl-[22px]">
+            {index === names.length - 1 ? "└─" : "├─"} {name}
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -736,6 +888,19 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     }
   };
 
+  /** Hand the bundle folder to the OS file manager. The server derives the folder from the run,
+   *  so there is no path to pass; a failure is reported rather than swallowed. */
+  const revealBundle = async () => {
+    if (!runId) return;
+    try {
+      const outcome = await revealTranslationBundle(runId);
+      announce(outcome.ok ? `Revealed ${outcome.path ?? bundleDir}` : outcome.error || "That folder could not be opened.");
+      if (!outcome.ok) setError(outcome.error || "That folder could not be opened.");
+    } catch (caught) {
+      setError(errText(caught, "That folder could not be opened."));
+    }
+  };
+
   const copyPath = (path: string) => {
     navigator.clipboard?.writeText?.(path).catch(() => {});
     announce(`Copied ${path}`);
@@ -759,7 +924,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
 
   const stages: TranslationStage[] = serverRun?.stages?.length ? serverRun.stages : TRANSLATE_STAGES;
   const live = runId ? progress[runId] : undefined;
-  const terminal = serverRun != null && !isActive(serverRun);
 
   const stageIndex = (() => {
     if (!serverRun) return -1;
@@ -788,7 +952,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     return Math.max(0, Math.min(100, fromEvents ?? serverRun.overall_progress ?? 0));
   })();
 
-  const fracs = stages.map((_, index) => (index < stageIndex ? 1 : index === stageIndex ? stageFrac : 0));
   const currentStageName = stageIndex >= 0 && stageIndex < stages.length ? stages[stageIndex].name : null;
   const runFeed = runId ? feed[runId] ?? [] : [];
   const artifacts = serverRun?.artifacts ?? [];
@@ -799,6 +962,15 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
   // run's log is replayed in full the moment it is opened. They deserve different surfaces: a
   // review shows what exists, not a 100% progress bar celebrating something long over.
   const reviewing = serverRun?.state === "done" && runId != null && watchedRunId !== runId;
+
+  // Which step the flow is on. Derived from the run's own state rather than stored: the server
+  // is the authority on whether a translation is pending, in flight, or finished, and a stored
+  // step could disagree with it after a reload.
+  const step: "confirm" | "translate" | "collect" = runActive
+    ? "translate"
+    : serverRun && !isActive(serverRun)
+      ? "collect"
+      : "confirm";
 
   const runLabel = serverRun
     ? `${STATE_LABEL[serverRun.state]} · ${overall.toFixed(0)}% overall${currentStageName ? ` · ${shortStage(currentStageName)}` : ""}`
@@ -874,509 +1046,334 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
             </div>
           )}
 
-          {/* The library is the home state and owns the full width there. Opening a document is
-              what splits the surface into the three resident columns. */}
-          <div
-            className={
-              "grid min-h-0 grid-cols-1 items-start gap-4 " +
-              (focusedDoc
-                ? "lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)_minmax(280px,340px)]"
-                : "mx-auto w-full max-w-[720px]")
-            }
-          >
-            {/* ---------------------------------------------------------- library */}
-            <section className="flex min-w-0 flex-col" aria-label="Translation library">
-              <ColumnHead
-                title="Library"
-                icon="library"
-                right={
-                  <span className="ml-auto flex items-center gap-2">
-                    <Pill tone="neutral">{documents.length}</Pill>
-                    {documents.length > 0 && (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
-                        aria-expanded={intakeExpanded}
-                        onClick={() => setIntakeExpanded((prev) => !prev)}
-                      >
-                        <Icon name={intakeExpanded ? "x" : "folderPlus"} size={12} />
-                        {intakeExpanded ? "Close" : "Add documents"}
-                      </button>
-                    )}
-                  </span>
-                }
-              />
-
-              <input
-                ref={fileInput}
-                type="file"
-                accept="application/pdf,.pdf"
-                multiple
-                className="sr-only"
-                aria-label="Choose PDF documents"
-                onChange={(event) => {
-                  void registerFiles(Array.from(event.target.files ?? []));
-                  event.target.value = "";
-                }}
-              />
-
-              {/* The intake is loud only while there is nothing to read. Once the library holds
-                  entries, the translations themselves are the page and adding another is one
-                  button — a drop target the size of a hero would outrank the very thing the
-                  user opened this module to see. */}
-              {intakeOpen && (
-                <>
-                  <div
-                    className={
-                      "flex flex-col items-center gap-1.5 rounded-xl2 border border-dashed px-3 py-5 text-center transition-colors duration-200 " +
-                      (dragOver ? "border-accent bg-accentSoft" : "border-lineStrong bg-panel/40")
-                    }
-                    role="button"
-                    tabIndex={0}
-                    data-testid="translation-dropzone"
-                    aria-label="Add PDF documents: drop files here, or activate to choose files"
-                    onClick={() => fileInput.current?.click()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        fileInput.current?.click();
-                      }
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setDragOver(true);
-                    }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      setDragOver(false);
-                      void registerFiles(Array.from(event.dataTransfer?.files ?? []));
-                    }}
-                  >
-                    <Icon name="folderPlus" size={20} className="text-muted" />
-                    <strong className="text-[12.5px] font-medium text-ink">Drop PDFs, or click to choose</strong>
-                    <small className="text-[11px] leading-[1.45] text-muted">
-                      Outputs stay next to each source file
-                    </small>
-                  </div>
-
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <input
-                      className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2 py-1.5 font-mono text-[11px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
-                      placeholder="/absolute/path/paper.pdf"
-                      aria-label="Register a local document by absolute path"
-                      value={pathDraft}
-                      onChange={(event) => setPathDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void registerPaths();
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-lg border border-line px-2 py-1.5 text-[11px] text-muted transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
-                      disabled={!pathDraft.trim() || busy === "register"}
-                      onClick={() => void registerPaths()}
-                    >
-                      Add path
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {loading ? (
-                <p className="mt-3 px-1 text-[12px] text-muted">Loading your translations…</p>
-              ) : documents.length === 0 ? (
-                <p className="mt-3 rounded-lg border border-dashed border-line px-3 py-4 text-center text-[11.5px] leading-[1.5] text-muted">
-                  Nothing translated yet. Drop a PDF above, or paste a path that already lives on this machine.
-                </p>
-              ) : (
-                <>
-                  {inFlight.length > 0 && (
-                    <section className="mt-3" aria-label="In progress">
-                      <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
-                        <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                        In progress
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {inFlight.map(({ doc, run: docRun }) => (
-                          <LibraryCard
-                            key={doc.document_id}
-                            doc={doc}
-                            run={docRun}
-                            live={docRun ? progress[docRun.run_id]?.overall_progress : undefined}
-                            focused={focusedDoc?.document_id === doc.document_id}
-                            removing={busy === `remove:${doc.document_id}`}
-                            onOpen={() => setFocusedDocId(doc.document_id)}
-                            onRemove={() => void remove(doc)}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
-                  <section className="mt-3" aria-label="Translated documents">
-                    {translated.length > 0 && (
-                      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
-                        Translated
-                      </div>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                      {translated.map(({ doc, run: docRun }) => (
-                        <LibraryCard
-                          key={doc.document_id}
-                          doc={doc}
-                          run={docRun}
-                          focused={focusedDoc?.document_id === doc.document_id}
-                          removing={busy === `remove:${doc.document_id}`}
-                          onOpen={() => setFocusedDocId(doc.document_id)}
-                          onRemove={() => void remove(doc)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-
-                  {waiting.length > 0 && (
-                    <section className="mt-3" aria-label="Not translated yet">
-                      <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
-                        Not translated yet
-                      </div>
-                      <div className="flex flex-col gap-1.5">
-                        {waiting.map(({ doc, run: docRun }) => (
-                          <LibraryCard
-                            key={doc.document_id}
-                            doc={doc}
-                            run={docRun}
-                            focused={focusedDoc?.document_id === doc.document_id}
-                            removing={busy === `remove:${doc.document_id}`}
-                            onOpen={() => setFocusedDocId(doc.document_id)}
-                            onRemove={() => void remove(doc)}
-                            onRun={() => void start([doc.document_id])}
-                            starting={busy === "start"}
-                          />
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                </>
-              )}
-            </section>
-
-            {/* ---------------------------------------------------------- live run */}
-            {focusedDoc && (
-            <section className="flex min-w-0 flex-col" aria-label={reviewing ? "Translation record" : "Current run"}>
-              <ColumnHead
-                title={reviewing ? "Record" : "Run"}
-                icon="sparkle"
-                right={serverRun && <Pill tone={stateTone(serverRun.state)}>{STATE_LABEL[serverRun.state]}</Pill>}
-              />
-
+          {focusedDoc ? (
+            /* ---------------------------------------------------------------- the flow.
+               One document, one screen per step. The prototype's shape: a narrow centred
+               column so the single decision in front of the user has nothing to compete
+               with. Each step REPLACES the last rather than accumulating panels. */
+            <div
+              className="mx-auto flex w-full max-w-[560px] flex-col items-center gap-5 text-center"
+              data-testid="translation-flow"
+            >
               <button
                 type="button"
-                className="mb-2 inline-flex items-center gap-1.5 self-start rounded-lg border border-line px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                className="self-start inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
                 onClick={() => setFocusedDocId(null)}
               >
-                <Icon name="arrowLeft" size={12} />
-                {runActive ? "Leave it running" : "Back to library"}
+                <Icon name="arrowLeft" size={13} />
+                Back to library
               </button>
-                  <div className={`${CARD} p-4`}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div
-                          className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted"
-                          data-testid="translation-run-phase"
-                        >
-                          {serverRun
-                            ? serverRun.state === "done"
-                              ? reviewing ? "Translated" : "Complete"
-                              : serverRun.state === "error"
-                                ? "Failed"
-                                : serverRun.state === "cancelled"
-                                  ? "Cancelled"
-                                  : `Stage ${Math.max(0, stageIndex) + 1} of ${stages.length}`
-                            : "Ready"}
-                        </div>
-                        <h3 className="mt-1 truncate text-[17px] font-medium tracking-[-0.02em] text-ink" title={focusedDoc.filename}>
-                          {focusedDoc.filename}
-                        </h3>
-                        <p className="mt-1 text-[11.5px] text-muted">
-                          {focusedDoc.pages != null && <span className="font-mono tabular-nums">{focusedDoc.pages} pages · </span>}
-                          <span className="font-mono tabular-nums">{formatBytes(focusedDoc.size)}</span>
-                          {serverRun && ` · ${serverRun.lang_in} → ${serverRun.lang_out}`}
-                        </p>
-                      </div>
-                      {/* A run in flight is measured; a translation on disk is dated. Showing a
-                          finish line for something finished last week is a category error. */}
-                      <div className="text-right">
-                        {reviewing ? (
-                          <div className="text-[12px] text-muted">
-                            {serverRun?.finished_at ? relativeTime(serverRun.finished_at * 1000) : "on disk"}
-                          </div>
-                        ) : (
-                          <>
-                            <div className="font-mono text-[28px] font-medium leading-none tabular-nums tracking-[-0.03em] text-ink">
-                              {overall.toFixed(0)}
-                              <span className="text-[15px] font-normal text-muted">%</span>
-                            </div>
-                            <div className="mt-1 text-[11px] text-muted">
-                              {serverRun ? formatDuration(serverRun.elapsed_seconds) : "not started"}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
 
-                    {!reviewing && (
-                    <div className="mt-3.5">
-                      <ProgressBar
-                        pct={overall}
-                        label={`Overall translation progress for ${focusedDoc.filename}`}
-                        valueText={
-                          currentStageName
-                            ? `${overall.toFixed(0)} percent · ${shortStage(currentStageName)}`
-                            : `${overall.toFixed(0)} percent`
-                        }
-                        tone={serverRun?.state === "error" ? "danger" : serverRun?.state === "done" ? "ok" : "accent"}
-                      />
-                      <div className="mt-2">
-                        <WeightedTrack stages={stages} fracs={fracs} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-muted">
-                        Segment width is BabelDOC's own stage weight
-                        {stageTotal > 0 && serverRun?.state === "running" && (
-                          <>
-                            {" · "}
-                            <span className="font-mono tabular-nums text-ink">
-                              {stageCurrent}/{stageTotal}
-                            </span>{" "}
-                            in {currentStageName ? shortStage(currentStageName) : "stage"}
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    )}
+              {/* The rail belongs to a translation in flight. Reviewing a finished document is
+                  not a step in that sequence, so it gets a plain heading that states when. */}
+              {reviewing ? (
+                <div
+                  className="text-[10px] font-semibold uppercase tracking-[0.13em] text-faint"
+                  data-testid="translation-record-when"
+                >
+                  Translated {serverRun?.finished_at ? relativeTime(serverRun.finished_at * 1000) : ""}
+                </div>
+              ) : (
+                <StepRail step={step} />
+              )}
 
-                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
-                      {runActive ? (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[12px] text-ink transition-colors hover:bg-paper disabled:opacity-40"
-                          disabled={busy === "cancel"}
-                          onClick={() => serverRun && void cancel(serverRun.run_id)}
-                        >
-                          <Icon name="x" size={13} /> Cancel run
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-onSolid transition-opacity duration-200 hover:opacity-90 disabled:opacity-40"
-                          disabled={busy === "start"}
-                          onClick={() => void start([focusedDoc.document_id])}
-                        >
-                          <Icon name="sparkle" size={13} /> {terminal ? "Run again" : "Run translation"}
-                        </button>
-                      )}
-                      {serverRun?.state === "error" && serverRun.error && (
-                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-danger" title={serverRun.error}>
-                          {serverRun.error}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+              <section
+                className="flex w-full flex-col items-center gap-4"
+                aria-label={reviewing ? "Translation record" : "Current run"}
+              >
+                <div className="sr-only" data-testid="translation-run-phase">
+                  {!serverRun
+                    ? "Ready"
+                    : serverRun.state === "done"
+                      ? reviewing
+                        ? "Translated"
+                        : "Complete"
+                      : serverRun.state === "error"
+                        ? "Failed"
+                        : serverRun.state === "cancelled"
+                          ? "Cancelled"
+                          : `Stage ${Math.max(0, stageIndex) + 1} of ${stages.length}`}
+                </div>
 
-                  {!reviewing && (
-                  <div className={`${CARD} mt-3 p-4`}>
-                    <div className="mb-2.5 flex items-center gap-2">
-                      <h4 className="text-[12.5px] font-semibold text-ink">Stages</h4>
-                      <Pill tone="neutral">{stages.length}</Pill>
+                {step === "confirm" && (
+                  <>
+                    <h2 className="text-[27px] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
+                      {focusedDoc.filename}
+                    </h2>
+                    <p className="max-w-[420px] text-[13px] text-muted">
+                      {focusedDoc.pages != null && `${focusedDoc.pages} pages · `}
+                      {formatBytes(focusedDoc.size)}
+                      {langPair ? ` · ${langPair}` : ""}
+                    </p>
+                    {/* The bundle directory is this integration's one added semantic, so it is
+                        stated BEFORE the run rather than discovered by reading the output. */}
+                    <div className={`${CARD} w-full p-[18px] text-left`} data-testid="translation-confirm">
+                      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11.5px]">
+                        <dt className="text-faint">Source</dt>
+                        <dd className="m-0 break-all font-mono text-ink">{focusedDoc.source_path}</dd>
+                        <dt className="text-faint">Bundle</dt>
+                        <dd className="m-0 break-all font-mono text-accent">{bundleDir}/</dd>
+                        <dt className="text-faint">Outputs</dt>
+                        <dd className="m-0 text-ink">Bilingual + translated-only, plus the extracted glossary</dd>
+                        <dt className="text-faint">Engine</dt>
+                        <dd className="m-0 text-ink">BabelDOC, locally — nothing is copied elsewhere</dd>
+                      </dl>
                     </div>
-                    <ol className="flex flex-col">
-                      {stages.map((stage, index) => {
-                        const done = index < stageIndex;
-                        const active = index === stageIndex && runActive;
-                        return (
-                          <li
-                            key={`${stage.name}-${index}`}
-                            className={
-                              "flex items-start gap-2.5 rounded-lg px-1.5 py-1.5 " +
-                              (active ? "bg-accentSoft/50" : "")
-                            }
-                          >
-                            <span
-                              className={
-                                "mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border font-mono text-[9px] tabular-nums " +
-                                (done
-                                  ? "border-okLine bg-okSoft text-ok"
-                                  : active
-                                    ? "border-accent text-accent"
-                                    : "border-line text-faint")
-                              }
-                            >
-                              {done ? <Icon name="sparkle" size={8} /> : index + 1}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span
-                                className={
-                                  "block truncate text-[12px] " +
-                                  (done ? "text-muted" : active ? "font-medium text-ink" : "text-muted")
-                                }
-                                title={stage.name}
-                              >
-                                {shortStage(stage.name)}
-                              </span>
-                              {active && (
-                                <span className="mt-1 block">
-                                  <ProgressBar
-                                    pct={stageFrac * 100}
-                                    label={`${shortStage(stage.name)} progress`}
-                                    valueText={
-                                      stageTotal > 0
-                                        ? `${stageCurrent} of ${stageTotal}`
-                                        : `${(stageFrac * 100).toFixed(0)} percent`
-                                    }
-                                  />
-                                  {stageTotal > 0 && (
-                                    <span className="mt-1 block font-mono text-[10.5px] tabular-nums text-muted">
-                                      {stageCurrent}/{stageTotal}
-                                    </span>
-                                  )}
-                                </span>
-                              )}
-                            </span>
-                            <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-faint">
-                              {stage.weight.toFixed(1)}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </div>
-                  )}
-
-                  {!reviewing && (
-                  <div className={`${CARD} mt-3 p-4`}>
-                    <div className="mb-2 flex items-center gap-2">
-                      <h4 className="text-[12.5px] font-semibold text-ink">Events</h4>
-                      <Pill tone="neutral">{runFeed.length}</Pill>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
                       <button
                         type="button"
-                        className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
-                        aria-expanded={logOpen}
-                        onClick={() => setLogOpen((prev) => !prev)}
+                        className="inline-flex items-center gap-1.5 rounded-xl2 bg-accent px-[18px] py-2.5 text-[13.5px] font-medium text-onSolid transition-opacity hover:opacity-90 disabled:opacity-40"
+                        disabled={busy === "start"}
+                        onClick={() => void start([focusedDoc.document_id])}
                       >
-                        <Icon name={logOpen ? "chevronDown" : "chevronRight"} size={12} /> Raw log
+                        <Icon name="sparkle" size={15} /> Run translation
+                      </button>
+                      {onOpenSettings && (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 rounded-xl2 border border-line px-[18px] py-2.5 text-[13.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                          onClick={onOpenSettings}
+                        >
+                          <Icon name="sliders" size={14} /> Options
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {step === "translate" && (
+                  <>
+                    <Radial
+                      pct={overall}
+                      label={`Overall translation progress for ${focusedDoc.filename}`}
+                      valueText={
+                        currentStageName
+                          ? `${overall.toFixed(0)} percent · ${shortStage(currentStageName)}`
+                          : `${overall.toFixed(0)} percent`
+                      }
+                    />
+                    <div className="max-w-[220px] text-[11.5px] text-muted">
+                      <strong className="block text-[13px] font-medium text-ink">
+                        {currentStageName ? shortStage(currentStageName) : "starting"}
+                      </strong>
+                      stage {Math.max(0, stageIndex) + 1} of {stages.length}
+                      {stageTotal > 0 && (
+                        <>
+                          {" · "}
+                          <span className="font-mono tabular-nums">
+                            {stageCurrent}/{stageTotal}
+                          </span>{" "}
+                          items
+                        </>
+                      )}
+                      {serverRun && ` · ${formatDuration(serverRun.elapsed_seconds)}`}
+                    </div>
+                    <div className={`${CARD} w-full p-3.5 text-left`}>
+                      <StageRows
+                        stages={stages}
+                        stageIndex={stageIndex}
+                        stageFrac={stageFrac}
+                        stageCurrent={stageCurrent}
+                        stageTotal={stageTotal}
+                        running
+                        compact
+                      />
+                    </div>
+                    <div className={`${CARD} w-full p-2.5 text-left`}>
+                      <div className="mb-1.5 flex items-center gap-2 px-1">
+                        <h4 className="text-[12px] font-semibold text-ink">Events</h4>
+                        <Pill tone="neutral">{runFeed.length}</Pill>
+                        <button
+                          type="button"
+                          className="ml-auto inline-flex items-center gap-1 rounded-lg border border-line px-1.5 py-0.5 text-[10.5px] text-muted transition-colors hover:bg-paper hover:text-ink"
+                          aria-expanded={logOpen}
+                          onClick={() => setLogOpen((prev) => !prev)}
+                        >
+                          <Icon name={logOpen ? "chevronDown" : "chevronRight"} size={11} /> Raw log
+                        </button>
+                      </div>
+                      {runFeed.length === 0 ? (
+                        <p className="px-1 pb-1 font-mono text-[10.5px] text-faint">waiting for the first event…</p>
+                      ) : (
+                        <div className="flex max-h-[150px] flex-col gap-0.5 overflow-y-auto rounded-lg bg-paper px-2 py-1.5 hairline-scroll">
+                          {[...runFeed].reverse().map((line) => (
+                            <div key={line.seq} className="flex items-baseline gap-2 font-mono text-[10.5px] leading-[1.55]">
+                              <span className="shrink-0 tabular-nums text-faint">{clockOf(line.at)}</span>
+                              <span
+                                className={
+                                  "w-[54px] shrink-0 truncate font-semibold " +
+                                  (line.type === "error" ? "text-danger" : line.type === "finish" ? "text-ok" : "text-accent")
+                                }
+                              >
+                                {line.type}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-muted" title={line.text}>
+                                {line.text}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {logOpen && (
+                        <pre
+                          className="mt-1.5 max-h-[150px] overflow-auto rounded-lg bg-paper p-2 font-mono text-[10.5px] leading-[1.5] text-muted"
+                          data-testid="translation-raw-log"
+                        >
+                          {log.length ? log.join("\n") : "No raw output yet."}
+                        </pre>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] text-muted transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
+                        disabled={busy === "cancel"}
+                        onClick={() => serverRun && void cancel(serverRun.run_id)}
+                      >
+                        <Icon name="x" size={13} /> Cancel run
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                        onClick={() => setFocusedDocId(null)}
+                      >
+                        Leave it running
                       </button>
                     </div>
-                    {runFeed.length === 0 ? (
-                      <p className="text-[11.5px] text-muted">
-                        {serverRun ? "Waiting for the first event…" : "Events appear once a run starts."}
-                      </p>
-                    ) : (
-                      <div className="flex max-h-[190px] flex-col gap-0.5 overflow-y-auto hairline-scroll">
-                        {[...runFeed].reverse().map((line) => (
-                          <div key={line.seq} className="flex items-baseline gap-2 font-mono text-[11px] leading-[1.5]">
-                            <span className="shrink-0 tabular-nums text-faint">{clockOf(line.at)}</span>
-                            <span
-                              className={
-                                "w-[68px] shrink-0 truncate " +
-                                (line.type === "error" ? "text-danger" : line.type === "finish" ? "text-ok" : "text-muted")
-                              }
-                            >
-                              {line.type}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-ink" title={line.text}>
-                              {line.text}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {logOpen && (
-                      <pre
-                        className="mt-2 max-h-[170px] overflow-auto rounded-lg border border-line bg-paper p-2 font-mono text-[10.5px] leading-[1.5] text-muted"
-                        data-testid="translation-raw-log"
-                      >
-                        {log.length ? log.join("\n") : "No raw output yet."}
-                      </pre>
-                    )}
-                  </div>
-                  )}
-            </section>
-            )}
+                  </>
+                )}
 
-            {/* ---------------------------------------------------------- artifacts */}
-            {focusedDoc && (
-            <section className="flex min-w-0 flex-col" aria-label="Artifacts">
-              <ColumnHead
-                title="Artifacts"
-                icon="folder"
-                right={artifacts.length > 0 && <Pill tone="ok">{artifacts.length}</Pill>}
-              />
+                {step === "collect" && (
+                  <>
+                    {/* The ring reports a run in flight reaching its end. A translation from last
+                        week has no finish line to cross here, so it is simply absent. */}
+                    {!reviewing && serverRun?.state === "done" && (
+                      <Radial
+                        pct={100}
+                        done
+                        label={`Overall translation progress for ${focusedDoc.filename}`}
+                        valueText="100 percent · complete"
+                      />
+                    )}
+                    <h2 className="text-[22px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink">
+                      {serverRun?.state === "error"
+                        ? "The run failed"
+                        : serverRun?.state === "cancelled"
+                          ? "Cancelled"
+                          : reviewing
+                            ? focusedDoc.filename
+                            : "Bundled beside the original"}
+                    </h2>
+                    <p className="max-w-[420px] text-[13px] text-muted">
+                      {serverRun?.state === "done"
+                        ? `${serverRun.finished_at ? `${relativeTime(serverRun.finished_at * 1000)} · ` : ""}${formatDuration(serverRun.elapsed_seconds)} · ${artifacts.length} file${artifacts.length === 1 ? "" : "s"}`
+                        : "Nothing was written."}
+                    </p>
+                    {serverRun?.state === "error" && serverRun.error && (
+                      <p className="max-w-[420px] text-[12px] text-danger">{serverRun.error}</p>
+                    )}
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-ink transition-colors hover:bg-panel disabled:opacity-40"
+                      disabled={busy === "start"}
+                      onClick={() => void start([focusedDoc.document_id])}
+                    >
+                      <Icon name="refresh" size={14} /> Run again
+                    </button>
+                  </>
+                )}
+              </section>
 
-                  {bundleDir && (
-                    <BundlePath path={bundleDir} pending={serverRun?.state !== "done"} onCopy={copyPath} />
-                  )}
+              {step === "collect" && (
+                <section className="flex w-full flex-col gap-2.5 text-left" aria-label="Artifacts">
+                  <BundlePath path={bundleDir} pending={serverRun?.state !== "done"} onCopy={copyPath} />
 
                   {artifacts.length === 0 ? (
-                    <p className="mt-3 rounded-lg border border-dashed border-line px-3 py-4 text-[11.5px] leading-[1.5] text-muted">
+                    <p className="rounded-xl2 border border-dashed border-line px-3 py-4 text-center text-[11.5px] leading-[1.5] text-muted">
                       {serverRun?.state === "error"
                         ? "The run failed before writing artifacts."
                         : serverRun?.state === "cancelled"
                           ? "Cancelled before any artifact was written."
-                          : runActive
-                            ? "Translated documents appear here as soon as the run finishes."
-                            : "Run the translation to produce the bilingual, translated-only, and glossary files."}
+                          : "Nothing was written to the bundle."}
                     </p>
                   ) : (
-                    <div className="mt-3 flex flex-col gap-1.5">
-                      {artifacts.map((artifact) => (
-                        <div
-                          key={artifact.name}
-                          className={`${CARD} flex items-center gap-2 p-2`}
-                          data-testid={`translation-artifact-${artifact.role}`}
-                        >
-                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-paper text-muted">
-                            <Icon name={artifact.role === "glossary" ? "table" : artifact.role === "log" ? "fileCode" : "file"} size={13} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-[12px] font-medium text-ink" title={artifact.name}>
-                              {artifact.name}
+                    <>
+                      <div className={`${CARD} p-3.5`}>
+                        <BundleTree bundleDir={bundleDir} names={artifacts.map((artifact) => artifact.name)} />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        {artifacts.map((artifact) => (
+                          <div
+                            key={artifact.name}
+                            className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-panel"
+                            data-testid={`translation-artifact-${artifact.role}`}
+                          >
+                            <span className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] bg-panel text-muted">
+                              <Icon
+                                name={artifact.role === "glossary" ? "table" : artifact.role === "log" ? "fileCode" : "file"}
+                                size={13}
+                              />
                             </span>
-                            <span className="mt-0.5 block truncate text-[10.5px] text-muted">
-                              {ARTIFACT_ROLE_LABEL[artifact.role] ?? artifact.role} ·{" "}
-                              <span className="font-mono tabular-nums">{formatBytes(artifact.size)}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[12px] font-medium text-ink" title={artifact.name}>
+                                {artifact.name}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[10.5px] text-faint">
+                                {ARTIFACT_ROLE_LABEL[artifact.role] ?? artifact.role} ·{" "}
+                                <span className="font-mono tabular-nums">{formatBytes(artifact.size)}</span>
+                              </span>
                             </span>
-                          </span>
-                          {/\.pdf$/i.test(artifact.name) && (
-                            <button
-                              type="button"
-                              className="shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
-                              onClick={() => void openPreview(artifact)}
-                            >
-                              Preview
-                            </button>
-                          )}
-                          {runId && (
-                            <a
-                              className="shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
-                              href={translationArtifactUrl(runId, artifact.name)}
-                              download={artifact.name}
-                            >
-                              Download
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                            {/\.pdf$/i.test(artifact.name) && (
+                              <button
+                                type="button"
+                                className="shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
+                                onClick={() => void openPreview(artifact)}
+                              >
+                                Preview
+                              </button>
+                            )}
+                            {runId && (
+                              <a
+                                className="shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
+                                href={translationArtifactUrl(runId, artifact.name)}
+                                download={artifact.name}
+                              >
+                                Download
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </>
                   )}
 
+                  <div className="flex flex-wrap items-center gap-2">
+                    {runId && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-medium text-onSolid transition-opacity hover:opacity-90"
+                        onClick={() => void revealBundle()}
+                      >
+                        <Icon name="folder" size={14} /> Reveal folder
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-muted transition-colors hover:bg-panel hover:text-ink"
+                      onClick={() => copyPath(bundleDir)}
+                    >
+                      <Icon name="copy" size={14} /> Copy path
+                    </button>
+                  </div>
+
                   {previewError && (
-                    <p className="mt-2 text-[11px] text-danger" role="alert">
+                    <p className="text-[11px] text-danger" role="alert">
                       {previewError}
                     </p>
                   )}
 
                   {preview && (
-                    <div className={`${CARD} mt-3 overflow-hidden`}>
+                    <div className={`${CARD} overflow-hidden`}>
                       <div className="flex items-center gap-2 border-b border-line px-3 py-2">
                         <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink" title={preview.name}>
                           {preview.name}
@@ -1408,15 +1405,175 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                       </object>
                     </div>
                   )}
+                </section>
+              )}
+            </div>
+          ) : (
+            /* ---------------------------------------------------------------- the library.
+               The resident home, and the whole surface while it is showing: a translation
+               outlives the run that made it, so past bundles are the subject here — not an
+               upload form, and not scaffolding for a run that has not been asked for. */
+            <section
+              className="mx-auto flex w-full max-w-[720px] min-w-0 flex-col gap-4"
+              aria-label="Translation library"
+            >
+              <div className="flex flex-wrap items-start gap-4">
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink">Library</h2>
+                  <p className="mt-1 text-[13px] leading-[1.5] text-muted">
+                    {loading
+                      ? "Loading your translations…"
+                      : translated.length === 0
+                        ? "Nothing translated yet. Every finished translation stays here, beside its original."
+                        : `${translated.length} translated ${translated.length === 1 ? "document" : "documents"}, newest first. Each one is a folder beside its original.`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl2 bg-accent px-[18px] py-2.5 text-[13.5px] font-medium text-onSolid transition-opacity hover:opacity-90"
+                  onClick={() => {
+                    setIntakeExpanded(true);
+                    fileInput.current?.click();
+                  }}
+                >
+                  <Icon name="sparkle" size={15} /> Translate a document
+                </button>
+              </div>
 
-                  {serverRun?.state === "done" && (
-                    <p className="mt-3 text-[11px] leading-[1.5] text-faint">
-                      The original document moved in beside its translations, so the pair never drifts apart on disk.
-                    </p>
-                  )}
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/pdf,.pdf"
+                multiple
+                className="sr-only"
+                aria-label="Choose PDF documents"
+                onChange={(event) => {
+                  void registerFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+
+              {/* An empty shelf may advertise how to fill it. Once something is on it, the intake
+                  folds away rather than outweighing the translations themselves. */}
+              {intakeOpen && (
+                <div className="flex flex-col gap-2">
+                  <div
+                    className={
+                      "grid place-items-center gap-2 rounded-xl2 border-[1.5px] border-dashed px-4 py-6 text-center transition-colors duration-200 " +
+                      (dragOver ? "border-accent bg-accentSoft text-accent" : "border-lineStrong bg-panel/60 text-muted")
+                    }
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Add PDF documents: drop files here, or activate to choose files"
+                    data-testid="translation-dropzone"
+                    onClick={() => fileInput.current?.click()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        fileInput.current?.click();
+                      }
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragOver(true);
+                    }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDragOver(false);
+                      void registerFiles(Array.from(event.dataTransfer?.files ?? []));
+                    }}
+                  >
+                    <Icon name="folderPlus" size={26} />
+                    <strong className="block text-[13px] font-medium text-ink">
+                      Drop PDFs here, or click to choose
+                    </strong>
+                    <small className="text-[11px] leading-[1.45] text-faint">
+                      Outputs land next to each source file — nothing is copied elsewhere
+                    </small>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border border-line bg-panel px-2.5 py-2 font-mono text-[11px] text-ink placeholder:text-faint focus:border-accent focus:outline-none"
+                      placeholder="/absolute/path/paper.pdf"
+                      aria-label="Register a local document by absolute path"
+                      value={pathDraft}
+                      onChange={(event) => setPathDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void registerPaths();
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg border border-line px-2.5 py-2 text-[11px] text-muted transition-colors hover:bg-panel hover:text-ink disabled:opacity-40"
+                      disabled={!pathDraft.trim() || busy === "register"}
+                      onClick={() => void registerPaths()}
+                    >
+                      Add path
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {inFlight.length > 0 && (
+                <section className="flex flex-col gap-1.5" aria-label="In progress">
+                  <div className="flex items-center gap-1.5 px-1 text-[9.5px] font-bold uppercase tracking-[0.13em] text-faint">
+                    <span className="h-[7px] w-[7px] rounded-full bg-accent" /> In progress
+                  </div>
+                  {inFlight.map(({ doc, run: docRun }) => (
+                    <LibraryCard
+                      key={doc.document_id}
+                      doc={doc}
+                      run={docRun}
+                      live={docRun ? progress[docRun.run_id]?.overall_progress : undefined}
+                      focused={false}
+                      removing={busy === `remove:${doc.document_id}`}
+                      onOpen={() => setFocusedDocId(doc.document_id)}
+                      onRemove={() => void remove(doc)}
+                    />
+                  ))}
+                </section>
+              )}
+
+              {translated.length > 0 && (
+                <section className="flex flex-col gap-1.5" aria-label="Translated documents">
+                  <div className="px-1 text-[9.5px] font-bold uppercase tracking-[0.13em] text-faint">Translated</div>
+                  {translated.map(({ doc, run: docRun }) => (
+                    <LibraryCard
+                      key={doc.document_id}
+                      doc={doc}
+                      run={docRun}
+                      focused={false}
+                      removing={busy === `remove:${doc.document_id}`}
+                      onOpen={() => setFocusedDocId(doc.document_id)}
+                      onRemove={() => void remove(doc)}
+                    />
+                  ))}
+                </section>
+              )}
+
+              {waiting.length > 0 && (
+                <section className="flex flex-col gap-1.5" aria-label="Not translated yet">
+                  <div className="px-1 text-[9.5px] font-bold uppercase tracking-[0.13em] text-faint">
+                    Not translated yet
+                  </div>
+                  {waiting.map(({ doc, run: docRun }) => (
+                    <LibraryCard
+                      key={doc.document_id}
+                      doc={doc}
+                      run={docRun}
+                      focused={false}
+                      removing={busy === `remove:${doc.document_id}`}
+                      onOpen={() => setFocusedDocId(doc.document_id)}
+                      onRemove={() => void remove(doc)}
+                      onRun={() => void start([doc.document_id])}
+                      starting={busy === "start"}
+                    />
+                  ))}
+                </section>
+              )}
             </section>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </main>

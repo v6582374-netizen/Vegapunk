@@ -1261,6 +1261,45 @@ class TranslationFacade:
                 break
         raise TranslationArtifactError("translation artifact is not available")
 
+    def reveal_bundle(self, run_id: str, mode: str = "reveal") -> dict[str, Any]:
+        """Show one run's bundle folder in the OS file manager.
+
+        The target is derived from the run's own snapshot, never from the caller: a
+        caller-supplied path would turn this into an arbitrary-path launcher.  Any ``mode``
+        other than ``open`` is treated as ``reveal`` so a stale client can never fail here.
+        The server runs on the user's machine in both desktop and browser builds, so this is
+        local, and it mirrors ``SessionManager.reveal_artifact``'s platform handling.
+        """
+        import os
+        import subprocess
+        import sys
+
+        validated = self._validated_run_id(run_id)
+        target = Path(self._snapshot(validated)["bundle_dir"] or "")
+        if not target.is_dir():
+            return {"ok": False, "error": "translation bundle folder is not available"}
+        try:
+            if sys.platform == "darwin":
+                args = ["open", str(target)] if mode == "open" else ["open", "-R", str(target)]
+                subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif sys.platform == "win32":
+                if mode == "open":
+                    os.startfile(str(target))  # type: ignore[attr-defined]  # open in default app
+                else:
+                    # Explorer wants the path glued to the switch: /select,<path>
+                    subprocess.Popen(["explorer", f"/select,{target}"])
+            else:  # Linux/BSD
+                # The target is already a directory, so revealing and opening it collapse to
+                # the same act — unlike a file, there is no parent to select it in.
+                subprocess.Popen(
+                    ["xdg-open", str(target)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "path": str(target)}
+
     # -- run projection ----------------------------------------------------------
 
     def _run_ids(self) -> list[str]:
