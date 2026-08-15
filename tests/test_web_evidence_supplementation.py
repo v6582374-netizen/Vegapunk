@@ -171,12 +171,9 @@ class WebEvidenceAgentTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Water permeability by salinity.", prompt)
             self.assertIn("Partial coverage: no salt measurements.", prompt)
             self.assertIn("NREL", prompt)
-            self.assertIn("Continue research freely", prompt)
-            self.assertIn(
-                "Continue research freely without applying Connector-specific search",
-                prompt,
-            )
-            self.assertIn("restrictions: prefer authoritative public sources", prompt)
+            self.assertIn("请自由地继续研究", prompt)
+            self.assertIn("不必套用 Connector 专属的检索限制", prompt)
+            self.assertIn("优先选择权威公开来源", prompt)
 
 
 class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
