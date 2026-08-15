@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import tempfile
 import types
 import unittest
@@ -12,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import launch_discovery
+from tests.module_stubs import stub_modules
 
 
 class DiscoveryPaperHandoffTest(unittest.TestCase):
@@ -55,7 +55,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             runtime = object()
             logger = logging.getLogger("experience-runtime-test")
 
-            with patch.dict(sys.modules, {"vegapunk.mas.memory.long_memory": long_memory_stub}):
+            with stub_modules({"vegapunk.mas.memory.long_memory": long_memory_stub}):
                 result = launch_discovery._generate_experiences_for_round(
                     args,
                     Memory(),
@@ -180,7 +180,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
+                with stub_modules({"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",
@@ -248,7 +248,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
+                with stub_modules({"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",
@@ -322,7 +322,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
+                with stub_modules({"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",
@@ -379,7 +379,7 @@ class DiscoveryPaperHandoffTest(unittest.TestCase):
             previous_directory = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(sys.modules, {"vegapunk.stage": stage_stub}), patch(
+                with stub_modules({"vegapunk.stage": stage_stub}), patch(
                     "launch_discovery.parse_arguments", return_value=arguments
                 ), patch(
                     "launch_discovery.setup_logging",

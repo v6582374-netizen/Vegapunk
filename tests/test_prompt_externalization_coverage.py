@@ -59,7 +59,7 @@ def _module_level_prompts(path: Path) -> list[tuple[str, int]]:
             continue
         for target in node.targets:
             if isinstance(target, ast.Name):
-                found.append((target.name, node.lineno))
+                found.append((target.id, node.lineno))
     return found
 
 

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import unittest
-import importlib
 import os
 from pathlib import Path
 import subprocess
 import sys
-import warnings
 from types import SimpleNamespace
 
 from vegapunk.mas.agents.dr_agents.models import get_model
@@ -51,10 +49,34 @@ class _Runtime:
 
 
 class DeepResearchRuntimeTest(unittest.TestCase):
-    def test_tool_manager_uses_the_runtime_configured_integration_module(self):
-        """Tool loading must not re-import integration under a second module name."""
+    def _run_in_dr_agents_path(
+        self, script: str
+    ) -> subprocess.CompletedProcess[str]:
+        """Run ``script`` with the vendored dr_agents tree on ``sys.path``.
+
+        The vendored tree owns top-level ``camel``, ``tools`` and ``utils``
+        packages. Adding it to this interpreter's path would shadow the
+        identically named packages other suites import, so anything needing it
+        runs in its own interpreter.
+        """
         repository_root = Path(__file__).parents[2]
         dr_agents_root = repository_root / "vegapunk" / "mas" / "agents" / "dr_agents"
+        environment = os.environ.copy()
+        inherited_path = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = os.pathsep.join(
+            part for part in (str(dr_agents_root), inherited_path) if part
+        )
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=repository_root,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    def test_tool_manager_uses_the_runtime_configured_integration_module(self):
+        """Tool loading must not re-import integration under a second module name."""
         script = """
 import importlib
 from unittest.mock import patch
@@ -72,19 +94,7 @@ assert construct.call_count == 1, (
     "ToolManager bypassed the runtime-configured tools.tool_integration module"
 )
 """
-        environment = os.environ.copy()
-        inherited_path = environment.get("PYTHONPATH")
-        environment["PYTHONPATH"] = os.pathsep.join(
-            part for part in (str(dr_agents_root), inherited_path) if part
-        )
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=repository_root,
-            env=environment,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
+        result = self._run_in_dr_agents_path(script)
 
         self.assertEqual(
             result.returncode,
@@ -93,23 +103,41 @@ assert construct.call_count == 1, (
         )
 
     def test_camel_config_imports_without_pydantic_instance_field_warnings(self):
-        modules = (
-            "camel.configs.cohere_config",
-            "camel.configs.mistral_config",
-            "camel.configs.reka_config",
-            "camel.configs.samba_config",
-        )
-        with warnings.catch_warnings(record=True) as captured:
-            warnings.simplefilter("always")
-            for module_name in modules:
-                importlib.reload(importlib.import_module(module_name))
+        """The vendored CAMEL configs resolve only with dr_agents on the path.
 
-        deprecated = [
-            warning
-            for warning in captured
-            if "model_fields" in str(warning.message)
-        ]
-        self.assertEqual(deprecated, [])
+        Injecting that directory into this process would shadow the sibling
+        ``utils`` and ``tools`` packages other suites import, so the import runs
+        in a subprocess exactly as the tool-manager test above does.
+        """
+        script = """
+import importlib
+import warnings
+
+modules = (
+    "camel.configs.cohere_config",
+    "camel.configs.mistral_config",
+    "camel.configs.reka_config",
+    "camel.configs.samba_config",
+)
+with warnings.catch_warnings(record=True) as captured:
+    warnings.simplefilter("always")
+    for module_name in modules:
+        importlib.reload(importlib.import_module(module_name))
+
+deprecated = [
+    str(warning.message)
+    for warning in captured
+    if "model_fields" in str(warning.message)
+]
+assert not deprecated, "pydantic instance-field access: " + "; ".join(deprecated)
+"""
+        result = self._run_in_dr_agents_path(script)
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
 
     def test_get_model_requires_explicit_runtime_and_canonical_identity(self):
         runtime = _Runtime()

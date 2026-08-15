@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import yaml
+
+from tests.module_stubs import stub_modules
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -50,7 +50,7 @@ def _load_long_memory_module() -> types.ModuleType:
         "vegapunk.mas.agents.agent_factory": agent_factory,
         module_name: module,
     }
-    with patch.dict(sys.modules, stubs):
+    with stub_modules(stubs):
         spec.loader.exec_module(module)
 
     return module

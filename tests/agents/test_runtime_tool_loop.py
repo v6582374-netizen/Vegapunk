@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import unittest
-import sys
 from types import ModuleType
 from types import SimpleNamespace
-from unittest.mock import patch
 
+from tests.module_stubs import stub_modules
 from vegapunk.mas.agents.tool_loop import ModelToolLoop
 from vegapunk.mas.models.runtime import (
     FunctionCall,
@@ -21,7 +20,7 @@ from vegapunk.mas.models.runtime import (
 def _load_codeview_runtime():
     easydict = ModuleType("easydict")
     easydict.EasyDict = lambda **values: SimpleNamespace(**values)
-    with patch.dict(sys.modules, {"easydict": easydict}):
+    with stub_modules({"easydict": easydict}):
         from vegapunk.mas.agents.codeview_agent import _generate_runtime_text
 
     return _generate_runtime_text
