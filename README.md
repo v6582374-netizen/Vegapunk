@@ -224,9 +224,11 @@ Vegapunk/
 ├── vegapunk/
 │   ├── mas/                    # Agent、工作流、模型、工具与记忆
 │   ├── paper_orchestra/        # 候选、原料、Runtime 与上游子进程适配
+│   ├── embodied/               # G1 物理执行治理、仿真验证与相机预览
 │   ├── stage.py                # Idea、实验与报告阶段适配
 │   └── experiments_utils_*     # 各实验执行后端
 ├── third_party/paper_orchestra/ # 固定上游完整源码及最小兼容改动
+├── third_party/mujoco_menagerie/ # G1 MJCF 场景子模块（仿真验证环境）
 ├── tasks/                      # 算法发现任务
 ├── sci_tasks/                  # 科学论文复现任务子模块
 ├── config/                     # 系统配置

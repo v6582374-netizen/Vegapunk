@@ -1,3 +1,6 @@
 [submodule "sci_tasks"]
 	path = sci_tasks
 	url = https://github.com/InternScience/ResearchClawBench.git
+[submodule "third_party/mujoco_menagerie"]
+	path = third_party/mujoco_menagerie
+	url = https://github.com/google-deepmind/mujoco_menagerie.git

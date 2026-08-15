@@ -385,3 +385,10 @@ redis
 ffmpeg-python==0.2.0
 astor
 firecrawl
+
+# Embodied Execution Profile. The MuJoCo G1 supplies offline_replay evidence and
+# aiortc/av stream its simulated cameras over the GUI's existing WebRTC contract.
+# The MJCF scene itself is the third_party/mujoco_menagerie submodule.
+mujoco==3.2.7
+aiortc==1.15.0
+av==17.1.0
