@@ -15,7 +15,7 @@ providers:
     timeout: 600
     stream_idle_timeout: 1800
     reasoning:
-      effort: xhigh
+      effort: medium
       context: auto
       mode: standard
     store: true
