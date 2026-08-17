@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
@@ -49,6 +50,7 @@ def prepare_launch_environment(
     base_environment: Mapping[str, str] | None = None,
     external_data: Mapping[str, Any] | None = None,
     required_modules: Sequence[str] = ("fastmcp", "json_repair"),
+    exp_backend: str | None = None,
 ) -> PreparedRuntimeEnvironment:
     """Resolve and validate everything required before ``launch_discovery.py``.
 
@@ -188,6 +190,8 @@ def prepare_launch_environment(
             + ", ".join(sorted(set(missing_modules)))
         )
 
+    _require_experiment_backend(exp_backend, environment, issues)
+
     if issues:
         raise DiscoveryRuntimePreflightError("; ".join(issues))
 
@@ -324,6 +328,48 @@ def _required_providers(catalog: Mapping[str, Any], issues: list[str]) -> tuple[
         if provider not in providers:
             providers.append(provider)
     return tuple(providers)
+
+
+# The experiment backend is an independently installed coding-agent CLI named by
+# the Launch snapshot, exactly like a Provider or an external-data source. It is
+# resolved here so a Launch whose only executable step cannot run is refused at
+# admission instead of spending a full research round to discover it.
+_BACKEND_EXECUTABLES: Mapping[str, tuple[str, str]] = {
+    # backend -> (default executable, environment variable that may override it)
+    "codex": ("codex", "CODEX_BIN"),
+    "qwen_code": ("qwen", "QWEN_CODE_BIN"),
+    # OpenHands is reached over a WebSocket URI, so it has no local executable.
+    "openhands": ("", ""),
+}
+
+
+def _require_experiment_backend(
+    exp_backend: str | None,
+    environment: Mapping[str, str],
+    issues: list[str],
+) -> None:
+    """Record an issue when the selected backend's CLI is not on the child PATH."""
+
+    if exp_backend is None:
+        return
+    backend = exp_backend.strip()
+    binding = _BACKEND_EXECUTABLES.get(backend)
+    if binding is None:
+        issues.append(f"Unsupported Discovery experiment backend {backend!r}")
+        return
+    default_command, override_variable = binding
+    if not default_command:
+        return
+    command = default_command
+    if override_variable:
+        configured = environment.get(override_variable, "")
+        if isinstance(configured, str) and configured.strip():
+            command = configured.strip()
+    if shutil.which(command, path=environment.get("PATH")) is None:
+        issues.append(
+            f"Experiment backend {backend!r} requires the {command!r} executable, "
+            "which is not on the Launch PATH"
+        )
 
 
 def _module_available(module_name: str) -> bool:

@@ -17,6 +17,16 @@ if [[ ! -x "$RUNTIME_VENV/bin/openworker-server" ]]; then
 fi
 SIDECAR_BIN="$RUNTIME_VENV/bin/openworker-server"
 GUI_DIST="$GUI_DIR/dist"
+
+# Discovery experiment backends (codex, qwen) are user-installed CLIs that live in
+# the per-user bin directory.  A desktop session launches this script with a PATH
+# that omits it, and the Sidecar passes its own PATH to every Launch child, so
+# without this the only executable step of a Launch cannot resolve its backend.
+USER_BIN="${XDG_BIN_HOME:-$HOME/.local/bin}"
+if [[ -d "$USER_BIN" && ":$PATH:" != *":$USER_BIN:"* ]]; then
+  PATH="$USER_BIN:$PATH"
+  export PATH
+fi
 SIDECAR_URL="http://127.0.0.1:8765"
 PREVIEW_URL="http://127.0.0.1:1420"
 

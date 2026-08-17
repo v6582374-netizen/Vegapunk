@@ -570,6 +570,7 @@ def run(
             launch_dir / ".execution" / "model_catalog.yaml",
             secret_store=secret_store,
             external_data=configuration_snapshot.get("external_data"),
+            exp_backend=exp_backend,
         )
         if not catalog_was_frozen:
             apply_provider_overrides(

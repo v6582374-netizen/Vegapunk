@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -340,6 +341,105 @@ def test_preflight_reports_missing_production_dependency(tmp_path, monkeypatch):
         )
 
 
+def _admitted_secrets() -> MemorySecrets:
+    return MemorySecrets(
+        {
+            "provider:qwen": {"api_key": "qwen-secret"},
+            "provider:relay": {"api_key": "relay-secret"},
+        }
+    )
+
+
+def test_preflight_refuses_a_launch_whose_backend_cli_is_not_on_path(
+    tmp_path, monkeypatch
+):
+    """The only executable step of a Launch must be verified at admission."""
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.delenv("QWEN_CODE_BIN", raising=False)
+
+    with pytest.raises(DiscoveryRuntimePreflightError, match="qwen"):
+        prepare_launch_environment(
+            catalog_path,
+            secret_store=_admitted_secrets(),
+            required_modules=(),
+            exp_backend="qwen_code",
+        )
+
+
+def test_preflight_accepts_a_backend_cli_named_by_its_override_variable(
+    tmp_path, monkeypatch
+):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setenv("QWEN_CODE_BIN", sys.executable)
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=_admitted_secrets(),
+        required_modules=(),
+        exp_backend="qwen_code",
+    )
+
+    assert prepared.required_providers == ("qwen", "relay")
+
+
+def test_preflight_admits_openhands_without_a_local_executable(tmp_path, monkeypatch):
+    """OpenHands is reached over a WebSocket URI, so it owns no local binary."""
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+
+    prepared = prepare_launch_environment(
+        catalog_path,
+        secret_store=_admitted_secrets(),
+        required_modules=(),
+        exp_backend="openhands",
+    )
+
+    assert prepared.required_external_data == ()
+
+
+def test_preflight_rejects_an_undeclared_experiment_backend(tmp_path):
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+
+    with pytest.raises(DiscoveryRuntimePreflightError, match="not-a-backend"):
+        prepare_launch_environment(
+            catalog_path,
+            secret_store=_admitted_secrets(),
+            required_modules=(),
+            exp_backend="not-a-backend",
+        )
+
+
+def test_preflight_reports_a_missing_backend_alongside_missing_credentials(
+    tmp_path, monkeypatch
+):
+    """Admission reports every unmet precondition in one verdict."""
+    catalog_path = tmp_path / "model_catalog.yaml"
+    catalog_path.write_text(yaml.safe_dump(_catalog()), encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("QWEN_CODE_BIN", raising=False)
+
+    with pytest.raises(DiscoveryRuntimePreflightError) as failure:
+        prepare_launch_environment(
+            catalog_path,
+            secret_store=MemorySecrets(),
+            required_modules=(),
+            exp_backend="qwen_code",
+        )
+
+    message = str(failure.value)
+    assert "DASHSCOPE_API_KEY" in message
+    assert "OPENAI_API_KEY" in message
+    assert "qwen" in message
+
+
 def test_worker_does_not_project_running_before_preflight(tmp_path, monkeypatch):
     repository_root = tmp_path / "repo"
     (repository_root / "config").mkdir(parents=True)
@@ -383,6 +483,9 @@ def test_worker_does_not_project_running_before_preflight(tmp_path, monkeypatch)
     )["current_attempt_id"]
 
     monkeypatch.undo()
+    # The backend CLI is a host fact. Pin it to an executable that always exists
+    # so these assertions describe the worker, not this machine's PATH.
+    monkeypatch.setenv("CODEX_BIN", sys.executable)
     result = discovery_worker_module.run(
         launcher_entry=repository_root / "launch_discovery.py",
         launch_dir=launch_dir,
@@ -451,6 +554,7 @@ def test_worker_projects_known_launcher_error_into_launch_record(tmp_path, monke
     )["current_attempt_id"]
 
     monkeypatch.undo()
+    monkeypatch.setenv("CODEX_BIN", sys.executable)
     result = discovery_worker_module.run(
         launcher_entry=launcher,
         launch_dir=launch_dir,
