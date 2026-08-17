@@ -19,6 +19,10 @@ from models import get_model
 from datetime import datetime
 
 
+class PlanGenerationError(RuntimeError):
+    """规划无法产出可用图。失败必须有出口，而不是被静默吞掉。"""
+
+
 class GlobalPlannerAgent(BaseAgent):
     """
     全局规划器 Agent，用于将自然语言任务拆解为子任务并构建依赖关系图
@@ -57,6 +61,7 @@ class GlobalPlannerAgent(BaseAgent):
         self.max_iter = self.config.get('max_iter', 5)
         self.max_retries = self.config.get('max_retries', 3)
         self.max_nodes = self.config.get('max_nodes', 8)
+        self.max_rebuilds = self.config.get('max_rebuilds', 3)
     
     def build_graph_from_plan(self, plan_result: Dict[str, Any]) -> DirectedGraph:
         """
@@ -188,51 +193,59 @@ class GlobalPlannerAgent(BaseAgent):
             tool_info = self.tool_manager.get_simple_tool_info(tool)
             tool_info_list.append(tool_info)
 
-        while True:  # 检查生成的图中是否存在环，如果存在环，则重新构建图
+        # 有环时重新构建，但次数有界：一个无法失败的循环不是健壮，而是失控。
+        for rebuild_attempt in range(1, self.max_rebuilds + 1):
             idx = 1
+            last_response = None
             while idx <= max_iter:
-                # 添加重试机制
+                # 单步重试：模型可能返回无法解析的内容
                 max_retries = self.max_retries
                 retry_count = 0
-                response = None
-                
+                step_response = None
+
                 while retry_count < max_retries:
                     try:
-                        response = self.execute_one_step(json.dumps(graph), input_data, current_iter=idx, max_iter=max_iter, additional_info=additional_info, tools=tool_info_list)
-                        if response is not None:
+                        step_response = self.execute_one_step(json.dumps(graph), input_data, current_iter=idx, max_iter=max_iter, additional_info=additional_info, tools=tool_info_list)
+                        if step_response is not None:
                             break  # 成功获得响应，跳出重试循环
                     except Exception as e:
                         self.logger.warning(f"Global Planner Attempt {retry_count + 1} failed: {e}")
-                    
+
                     retry_count += 1
                     if retry_count < max_retries:
                         self.logger.info(f"Global Planner Retrying... (attempt {retry_count + 1}/{max_retries})")
-                
-                if response is None:
+
+                if step_response is None:
+                    # 放弃继续细化，改用目前已经细化出的图；若一步都没成功则向上抛出。
                     self.logger.error(f"Failed to get response after {max_retries} attempts in iteration {idx}")
                     break
-                
-                self.logger.info(f"global planner graph in {idx} iteration: {response}")
-                if response == "end":
-                    self.logger.info("globa planner graph构建完成")
-                    break
-                elif response == graph:
+
+                last_response = step_response
+                self.logger.info(f"global planner graph in {idx} iteration: {last_response}")
+                if last_response == "end" or last_response == graph:
                     self.logger.info("global planner graph构建完成")
                     break
-                graph = response
-                
-                idx += 1
-            
-            # 构建图结构
-            if response:
-                graph = self.build_graph_from_plan(graph)
-                if graph is None:
-                    self.logger.warning("global planner graph存在环，重新构建")
-                    continue
-                else:
-                    break
+                graph = last_response
 
-        return response
+                idx += 1
+
+            if last_response is None:
+                raise PlanGenerationError(
+                    "Global planner obtained no usable plan: "
+                    f"{self.max_retries} attempts failed in iteration 1"
+                )
+
+            if self.build_graph_from_plan(graph) is not None:
+                return last_response
+
+            self.logger.warning(
+                "global planner graph存在环，重新构建 "
+                f"({rebuild_attempt}/{self.max_rebuilds})"
+            )
+
+        raise PlanGenerationError(
+            f"Global planner graph still cyclic after {self.max_rebuilds} rebuilds"
+        )
     
     def _generate_plan(self, prompt: str) -> Dict[str, Any]:
         """

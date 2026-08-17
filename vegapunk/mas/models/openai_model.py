@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import copy
 import asyncio
+import inspect
 import json
 import logging
 import os
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Union
 
+import httpx
 from openai import AsyncOpenAI
 
-from .base_model import BaseModel, ModelRunTerminalError
+from .base_model import (
+    BaseModel,
+    ModelRunTerminalError,
+    ServiceUnavailableError,
+)
 from .runtime import (
     FunctionCall,
     FunctionCallOutput,
@@ -26,6 +32,34 @@ from .runtime import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _StreamAssembledResponse:
+    """A terminal response whose output items were recovered from the stream.
+
+    Some Responses gateways deliver each assembled item exactly once, in
+    ``response.output_item.done``, and leave ``output`` empty on the terminal
+    snapshot.  For those gateways the stream — not the snapshot — is the
+    authoritative record of what the model produced, so this view republishes
+    the streamed items under ``output`` and delegates every other field to the
+    original response.  Result projection and replay state then read the same
+    truth without either of them knowing how it was transported.
+    """
+
+    __slots__ = ("_response", "output")
+
+    def __init__(self, response: Any, output: List[Any]) -> None:
+        self._response = response
+        self.output = output
+
+    def __getattr__(self, name: str) -> Any:
+        source = self._response
+        if isinstance(source, dict):
+            try:
+                return source[name]
+            except KeyError:
+                raise AttributeError(name) from None
+        return getattr(source, name)
 
 
 class OpenAIModel(BaseModel):
@@ -46,13 +80,14 @@ class OpenAIModel(BaseModel):
         "reasoning",
         "store",
         "prompt_cache",
-        "request_timeout",
+        "stream_idle_timeout",
         "response_state",
         "provider_name",
         "api_key_env",
     }
     _OBSOLETE_CONFIG_KEYS = {
         "max_tokens": "max_output_tokens",
+        "request_timeout": "stream_idle_timeout",
         "prompt_cache_retention": "prompt_cache.ttl",
         "reasoning_effort": "reasoning.effort",
         "reasoning_context": "reasoning.context",
@@ -78,7 +113,7 @@ class OpenAIModel(BaseModel):
         prompt_cache_mode: str = "explicit",
         prompt_cache_ttl: str = "30m",
         prompt_cache_supports_options: bool = False,
-        request_timeout: float = 3600.0,
+        stream_idle_timeout: float = 1800.0,
         response_state_mode: str = "server",
         response_state_max_entries: int = 128,
         client: Optional[Any] = None,
@@ -117,7 +152,9 @@ class OpenAIModel(BaseModel):
         if prompt_cache_mode not in {"implicit", "explicit"}:
             raise ValueError("Unsupported OpenAI prompt_cache.mode")
         self.prompt_cache_supports_options = False
-        self.request_timeout = request_timeout
+        if stream_idle_timeout <= 0:
+            raise ValueError("OpenAI stream_idle_timeout must be positive")
+        self.stream_idle_timeout = stream_idle_timeout
         if response_state_mode not in {"server", "replay"}:
             raise ValueError("OpenAI response state mode must be server or replay")
         if response_state_max_entries < 1:
@@ -139,7 +176,17 @@ class OpenAIModel(BaseModel):
             client_kwargs: Dict[str, Any] = {
                 "api_key": self.api_key,
                 "base_url": self.base_url,
-                "timeout": self.timeout,
+                # Reading a streamed response may legitimately idle for as long
+                # as the model reasons; connecting and writing may not.
+                "timeout": httpx.Timeout(
+                    connect=float(self.timeout),
+                    read=self.stream_idle_timeout,
+                    write=float(self.timeout),
+                    pool=float(self.timeout),
+                ),
+                # Attempt accounting belongs to the Runtime, which is the only
+                # layer that can weigh the cost of repeating a long request.
+                "max_retries": 0,
             }
             if self.default_headers:
                 client_kwargs["default_headers"] = self.default_headers
@@ -147,16 +194,7 @@ class OpenAIModel(BaseModel):
 
     async def _run(self, request: ModelRunRequest) -> ModelRunResult:
         request_params = self._build_request_params(request)
-        try:
-            response = await asyncio.wait_for(
-                self.client.responses.create(**request_params),
-                timeout=self.request_timeout,
-            )
-        except asyncio.TimeoutError as error:
-            raise ModelRunTerminalError(
-                f"{self.provider_name} response exceeded request timeout "
-                f"of {self.request_timeout} seconds"
-            ) from error
+        response = await self._stream_response(request_params)
 
         result = self._response_to_run_result(response)
         self._raise_for_terminal_status(response, result)
@@ -168,6 +206,75 @@ class OpenAIModel(BaseModel):
                 response=response,
             )
         return result
+
+    async def _stream_response(self, request_params: Dict[str, Any]) -> Any:
+        """Await one streamed run, bounding silence rather than total duration.
+
+        A reasoning model has no predictable answer time, so no wall-clock
+        deadline on the whole request can be anything but arbitrary. Event
+        arrival, however, distinguishes a model that is still working from a
+        connection that has died — and only the latter deserves a verdict.
+        """
+
+        stream = await self.client.responses.create(**request_params, stream=True)
+        events = stream.__aiter__()
+        response: Any = None
+        failure: Any = None
+        streamed_items: Dict[int, Any] = {}
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        events.__anext__(), timeout=self.stream_idle_timeout
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as error:
+                    raise ServiceUnavailableError(
+                        f"{self.provider_name} sent no response event for "
+                        f"{self.stream_idle_timeout} seconds; treating the "
+                        "connection as lost"
+                    ) from error
+                event_type = self._field(event, "type")
+                if event_type == "response.output_item.done":
+                    item = self._field(event, "item")
+                    if item is not None:
+                        index = self._field(event, "output_index")
+                        if not isinstance(index, int):
+                            index = len(streamed_items)
+                        streamed_items[index] = item
+                candidate = self._field(event, "response")
+                if candidate is not None:
+                    response = candidate
+                elif event_type == "error":
+                    failure = event
+        finally:
+            await self._close_stream(stream)
+
+        if response is None:
+            detail = self._field(failure, "message") or self._field(failure, "code")
+            raise ModelRunTerminalError(
+                f"{self.provider_name} stream ended without a response"
+                + (f": {detail}" if detail else "")
+            )
+        if streamed_items and not (self._field(response, "output", []) or []):
+            response = _StreamAssembledResponse(
+                response,
+                [streamed_items[index] for index in sorted(streamed_items)],
+            )
+        return response
+
+    @staticmethod
+    async def _close_stream(stream: Any) -> None:
+        close = getattr(stream, "close", None)
+        if not callable(close):
+            return
+        try:
+            outcome = close()
+            if inspect.isawaitable(outcome):
+                await outcome
+        except Exception as error:  # pragma: no cover - transport teardown
+            logger.debug("Ignoring response stream close failure: %s", error)
 
     def _build_request_params(self, request: ModelRunRequest) -> Dict[str, Any]:
         reasoning = {
@@ -437,7 +544,7 @@ class OpenAIModel(BaseModel):
             prompt_cache_supports_options=prompt_cache.get(
                 "supports_options", False
             ),
-            request_timeout=config.get("request_timeout", 3600),
+            stream_idle_timeout=config.get("stream_idle_timeout", 1800),
             response_state_mode=response_state.get("mode", "server"),
             response_state_max_entries=response_state.get("max_entries", 128),
         )

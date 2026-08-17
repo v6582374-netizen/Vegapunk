@@ -13,7 +13,7 @@ providers:
     - base_url
     api_key_env: OPENAI_API_KEY
     timeout: 600
-    request_timeout: 3600
+    stream_idle_timeout: 1800
     reasoning:
       effort: xhigh
       context: auto
@@ -32,7 +32,7 @@ providers:
     native_base_url: https://dashscope.aliyuncs.com
     api_key_env: DASHSCOPE_API_KEY
     timeout: 600
-    request_timeout: 3600
+    stream_idle_timeout: 1800
     reasoning:
       effort: xhigh
       context: auto
@@ -103,7 +103,7 @@ models:
     - embedding
     protocol: local_embedding
 retry:
-  max_attempts: 8
+  max_attempts: 3
   max_elapsed_seconds: 3600
   initial_backoff_seconds: 2
   max_backoff_seconds: 60

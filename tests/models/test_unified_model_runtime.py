@@ -246,10 +246,14 @@ class UnifiedModelRuntimeTest(unittest.IsolatedAsyncioTestCase):
         for provider in catalog.providers.values():
             if provider.protocol == "local_embedding":
                 continue
-            request_timeout = provider.settings["request_timeout"]
-            self.assertEqual(request_timeout, 3600)
-            self.assertLessEqual(request_timeout, catalog.retry.max_elapsed_seconds)
+            # What is bounded is silence, not the length of a think.
+            self.assertNotIn("request_timeout", provider.settings)
+            self.assertEqual(provider.settings["stream_idle_timeout"], 1800)
             self.assertNotIn("max_output_tokens", provider.settings)
+
+        # Attempts and per-attempt patience multiply, so a generous allowance
+        # has to be paid for with a small attempt count.
+        self.assertLessEqual(catalog.retry.max_attempts, 3)
 
     def test_default_catalog_disables_prompt_cache_options(self) -> None:
         catalog_path = (

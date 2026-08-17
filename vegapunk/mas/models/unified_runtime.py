@@ -23,6 +23,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import yaml
+from openai import APIConnectionError
 
 from .base_model import (
     AuthenticationError,
@@ -67,8 +68,17 @@ class ModelDefinition:
 
 @dataclass(frozen=True)
 class RetryPolicy:
-    max_attempts: int = 8
-    max_elapsed_seconds: float = 900.0
+    """How many times, and for how long, one logical call may be reattempted.
+
+    Attempts and elapsed time multiply, so a generous per-attempt allowance
+    demands a small attempt count. Reasoning work that takes an hour does not
+    become likelier to succeed by being asked for eight times; it only costs
+    eight hours. This is the only layer that can see both numbers, so it is the
+    only layer permitted to retry.
+    """
+
+    max_attempts: int = 3
+    max_elapsed_seconds: float = 3600.0
     initial_backoff_seconds: float = 2.0
     max_backoff_seconds: float = 60.0
 
@@ -165,13 +175,27 @@ class ModelCatalog:
         retry_raw = raw.get("retry", {})
         if not isinstance(retry_raw, Mapping):
             raise ValueError("Model catalog retry must be a mapping")
+        _retry_defaults = RetryPolicy()
         retry = RetryPolicy(
-            max_attempts=int(retry_raw.get("max_attempts", 8)),
-            max_elapsed_seconds=float(retry_raw.get("max_elapsed_seconds", 900)),
-            initial_backoff_seconds=float(
-                retry_raw.get("initial_backoff_seconds", 2)
+            max_attempts=int(
+                retry_raw.get("max_attempts", _retry_defaults.max_attempts)
             ),
-            max_backoff_seconds=float(retry_raw.get("max_backoff_seconds", 60)),
+            max_elapsed_seconds=float(
+                retry_raw.get(
+                    "max_elapsed_seconds", _retry_defaults.max_elapsed_seconds
+                )
+            ),
+            initial_backoff_seconds=float(
+                retry_raw.get(
+                    "initial_backoff_seconds",
+                    _retry_defaults.initial_backoff_seconds,
+                )
+            ),
+            max_backoff_seconds=float(
+                retry_raw.get(
+                    "max_backoff_seconds", _retry_defaults.max_backoff_seconds
+                )
+            ),
         )
         concurrency_raw = raw.get("concurrency", {})
         if not isinstance(concurrency_raw, Mapping):
@@ -821,7 +845,18 @@ def _is_retryable(error: Exception) -> bool:
         ),
     ):
         return False
-    if isinstance(error, (RateLimitError, ServiceUnavailableError, TimeoutError, OSError)):
+    if isinstance(
+        error,
+        (
+            RateLimitError,
+            ServiceUnavailableError,
+            TimeoutError,
+            OSError,
+            # The SDK's transport failures descend from none of the above, so
+            # naming them is the only way this layer can see them.
+            APIConnectionError,
+        ),
+    ):
         return True
     status_code = getattr(error, "status_code", None)
     return status_code in {408, 409, 425, 429, 500, 502, 503, 504}

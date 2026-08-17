@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import unittest
 from types import SimpleNamespace
+
+import httpx
 
 from vegapunk.mas.models.openai_model import OpenAIModel
 from vegapunk.mas.models.runtime import (
@@ -15,14 +19,45 @@ from vegapunk.mas.models.runtime import (
 )
 
 
+class _FakeEventStream:
+    """Async-iterable stand-in for one streamed Responses run."""
+
+    def __init__(self, events: list[object]) -> None:
+        self._events = list(events)
+        self.closed = False
+
+    def __aiter__(self) -> "_FakeEventStream":
+        return self
+
+    async def __anext__(self) -> object:
+        if not self._events:
+            raise StopAsyncIteration
+        event = self._events.pop(0)
+        if callable(event):
+            return await event()
+        return event
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _completed(response: object) -> SimpleNamespace:
+    return SimpleNamespace(type="response.completed", response=response)
+
+
+def _delta(text: str) -> SimpleNamespace:
+    return SimpleNamespace(type="response.output_text.delta", delta=text)
+
+
 class _FakeResponses:
     def __init__(self, *, text: str = "The runtime preserved every Responses item.") -> None:
         self.requests: list[dict[str, object]] = []
         self.text = text
+        self.streams: list[_FakeEventStream] = []
 
-    async def create(self, **request: object) -> SimpleNamespace:
+    async def create(self, **request: object) -> _FakeEventStream:
         self.requests.append(request)
-        return SimpleNamespace(
+        response = SimpleNamespace(
             id="resp_test",
             status="completed",
             model="gpt-5.6-sol",
@@ -56,6 +91,9 @@ class _FakeResponses:
             ),
             reasoning=SimpleNamespace(context="all_turns"),
         )
+        stream = _FakeEventStream([_delta(self.text), _completed(response)])
+        self.streams.append(stream)
+        return stream
 
 
 class _FakeOpenAIClient:
@@ -64,15 +102,21 @@ class _FakeOpenAIClient:
 
 
 class _FailedResponses:
-    async def create(self, **_: object) -> SimpleNamespace:
-        return SimpleNamespace(
-            id="resp_failed",
-            status="failed",
-            model="gpt-5.6-sol",
-            output=[],
-            usage=None,
-            reasoning=None,
-            error={"code": "server_error", "message": "failed"},
+    async def create(self, **_: object) -> _FakeEventStream:
+        return _FakeEventStream(
+            [
+                _completed(
+                    SimpleNamespace(
+                        id="resp_failed",
+                        status="failed",
+                        model="gpt-5.6-sol",
+                        output=[],
+                        usage=None,
+                        reasoning=None,
+                        error={"code": "server_error", "message": "failed"},
+                    )
+                )
+            ]
         )
 
 
@@ -81,11 +125,89 @@ class _FailedOpenAIClient:
         self.responses = _FailedResponses()
 
 
+class _SilentResponses:
+    """A stream that connects and then never says anything again."""
+
+    async def create(self, **_: object) -> _FakeEventStream:
+        async def never() -> object:
+            await asyncio.sleep(3600)
+            raise AssertionError("unreachable")
+
+        self.stream = _FakeEventStream([never])
+        return self.stream
+
+
+class _SilentOpenAIClient:
+    def __init__(self) -> None:
+        self.responses = _SilentResponses()
+
+
+class _HeartbeatResponses:
+    """Slow but alive: many quiet gaps, none of them longer than the bound."""
+
+    def __init__(self, *, beats: int, gap: float, text: str) -> None:
+        self.beats = beats
+        self.gap = gap
+        self.text = text
+
+    async def create(self, **_: object) -> _FakeEventStream:
+        async def beat() -> object:
+            await asyncio.sleep(self.gap)
+            return _delta("...")
+
+        async def final() -> object:
+            await asyncio.sleep(self.gap)
+            return _completed(
+                SimpleNamespace(
+                    id="resp_slow",
+                    status="completed",
+                    model="gpt-5.6-sol",
+                    output=[
+                        SimpleNamespace(
+                            type="message",
+                            content=[
+                                SimpleNamespace(
+                                    type="output_text", text=self.text
+                                )
+                            ],
+                        )
+                    ],
+                    usage=None,
+                    reasoning=None,
+                )
+            )
+
+        return _FakeEventStream([beat] * self.beats + [final])
+
+
+class _HeartbeatOpenAIClient:
+    def __init__(self, *, beats: int, gap: float, text: str) -> None:
+        self.responses = _HeartbeatResponses(beats=beats, gap=gap, text=text)
+
+
+class _ErrorEventResponses:
+    async def create(self, **_: object) -> _FakeEventStream:
+        return _FakeEventStream(
+            [
+                SimpleNamespace(
+                    type="error",
+                    code="upstream_gone",
+                    message="upstream closed the connection",
+                )
+            ]
+        )
+
+
+class _ErrorEventOpenAIClient:
+    def __init__(self) -> None:
+        self.responses = _ErrorEventResponses()
+
+
 class _ReplayResponses:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
 
-    async def create(self, **request: object) -> SimpleNamespace:
+    async def create(self, **request: object) -> _FakeEventStream:
         self.requests.append(request)
         if len(self.requests) == 1:
             output = [
@@ -106,19 +228,89 @@ class _ReplayResponses:
                     ],
                 )
             ]
-        return SimpleNamespace(
-            id=f"resp_replay_{len(self.requests)}",
-            status="completed",
-            model="gpt-5.6-sol",
-            output=output,
-            usage=None,
-            reasoning=SimpleNamespace(context="all_turns"),
+        return _FakeEventStream(
+            [
+                _completed(
+                    SimpleNamespace(
+                        id=f"resp_replay_{len(self.requests)}",
+                        status="completed",
+                        model="gpt-5.6-sol",
+                        output=output,
+                        usage=None,
+                        reasoning=SimpleNamespace(context="all_turns"),
+                    )
+                )
+            ]
         )
 
 
 class _ReplayOpenAIClient:
     def __init__(self) -> None:
         self.responses = _ReplayResponses()
+
+
+def _item_done(index: int, item: object) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="response.output_item.done", output_index=index, item=item
+    )
+
+
+class _EmptyTerminalSnapshotResponses:
+    """A gateway that delivers items only in the stream.
+
+    Some Responses gateways treat ``response.output_item.done`` as the single
+    delivery of an assembled item and leave ``output`` empty on the terminal
+    snapshot.  For them the stream is the authoritative record of the run.
+    """
+
+    def __init__(self, *, text: str = "Only the stream carried this.") -> None:
+        self.text = text
+        self.requests: list[dict[str, object]] = []
+
+    async def create(self, **request: object) -> _FakeEventStream:
+        self.requests.append(request)
+        message = SimpleNamespace(
+            type="message",
+            role="assistant",
+            status="completed",
+            content=[SimpleNamespace(type="output_text", text=self.text)],
+        )
+        call = SimpleNamespace(
+            type="function_call",
+            call_id="call_stream",
+            name="search_papers",
+            arguments='{"query":"streamed only"}',
+            status="completed",
+        )
+        terminal = SimpleNamespace(
+            id="resp_stream_only",
+            status="completed",
+            model="gpt-5.6-sol",
+            output=[],
+            usage=SimpleNamespace(
+                input_tokens=11,
+                output_tokens=7,
+                total_tokens=18,
+                input_tokens_details=SimpleNamespace(
+                    cached_tokens=0, cache_write_tokens=0
+                ),
+                output_tokens_details=SimpleNamespace(reasoning_tokens=0),
+            ),
+            reasoning=SimpleNamespace(context="current_turn"),
+        )
+        return _FakeEventStream(
+            [
+                _delta(self.text),
+                _item_done(0, call),
+                _item_done(1, message),
+                _completed(terminal),
+            ]
+        )
+
+
+class _EmptyTerminalSnapshotClient:
+    def __init__(self, *, text: str = "Only the stream carried this.") -> None:
+        self.responses = _EmptyTerminalSnapshotResponses(text=text)
 
 
 class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
@@ -496,7 +688,12 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_null_usage_details_are_normalized_to_zero(self) -> None:
         client = _FakeOpenAIClient()
-        response = await client.responses.create()
+        stream = await client.responses.create()
+        response = [
+            event.response
+            async for event in stream
+            if getattr(event, "response", None) is not None
+        ][-1]
         response.usage.input_tokens_details.cache_write_tokens = None
         response.usage.output_tokens_details.reasoning_tokens = None
 
@@ -504,6 +701,127 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.usage.cache_write_tokens, 0)
         self.assertEqual(result.usage.reasoning_tokens, 0)
+
+    async def test_requests_are_streamed_so_progress_is_observable(self) -> None:
+        client = _FakeOpenAIClient()
+        model = OpenAIModel(api_key="test-key", client=client)
+
+        await model.run(
+            ModelRunRequest(input=(Message.user("Stream this."),))
+        )
+
+        self.assertIs(client.responses.requests[0]["stream"], True)
+        self.assertTrue(client.responses.streams[0].closed)
+
+    async def test_a_slow_but_speaking_model_is_never_cut_off(self) -> None:
+        """Total duration far exceeds the bound; no single silence does."""
+
+        client = _HeartbeatOpenAIClient(
+            beats=20, gap=0.01, text="Finished after a long think."
+        )
+        model = OpenAIModel(
+            api_key="test-key",
+            stream_idle_timeout=0.05,
+            client=client,
+        )
+
+        result = await model.run(
+            ModelRunRequest(input=(Message.user("Think for a long time."),))
+        )
+
+        self.assertEqual(result.text, "Finished after a long think.")
+
+    async def test_silence_past_the_bound_is_declared_dead(self) -> None:
+        client = _SilentOpenAIClient()
+        model = OpenAIModel(
+            api_key="test-key",
+            stream_idle_timeout=0.05,
+            client=client,
+        )
+
+        with self.assertRaisesRegex(Exception, "no response event"):
+            await model.run(
+                ModelRunRequest(input=(Message.user("Go quiet forever."),))
+            )
+        self.assertTrue(client.responses.stream.closed)
+
+    async def test_a_stream_that_only_errors_does_not_look_successful(self) -> None:
+        model = OpenAIModel(
+            api_key="test-key",
+            client=_ErrorEventOpenAIClient(),
+        )
+
+        with self.assertRaisesRegex(Exception, "upstream closed the connection"):
+            await model.run(
+                ModelRunRequest(input=(Message.user("Fail mid-stream."),))
+            )
+
+    def test_transport_does_not_silently_multiply_one_attempt(self) -> None:
+        model = OpenAIModel(api_key="test-key", stream_idle_timeout=1800)
+
+        self.assertEqual(model.client.max_retries, 0)
+
+    def test_only_reading_is_allowed_to_idle_as_long_as_the_model_thinks(
+        self,
+    ) -> None:
+        model = OpenAIModel(
+            api_key="test-key", timeout=600, stream_idle_timeout=1800
+        )
+
+        timeout = model.client.timeout
+        self.assertIsInstance(timeout, httpx.Timeout)
+        self.assertEqual(timeout.read, 1800)
+        self.assertEqual(timeout.connect, 600)
+
+    def test_the_obsolete_total_duration_bound_is_rejected_by_name(self) -> None:
+        with self.assertRaisesRegex(ValueError, "request_timeout"):
+            OpenAIModel.from_config({"request_timeout": 3600})
+
+
+    async def test_items_delivered_only_in_the_stream_are_not_lost(self) -> None:
+        """An empty terminal snapshot must not erase what the model produced."""
+
+        client = _EmptyTerminalSnapshotClient(text="Recovered from the stream.")
+        model = OpenAIModel(api_key="test-key", client=client)
+
+        result = await model.run(
+            ModelRunRequest(input=(Message.user("Say something."),))
+        )
+
+        self.assertEqual(result.text, "Recovered from the stream.")
+        self.assertEqual(len(result.tool_calls), 1)
+        self.assertEqual(result.tool_calls[0].name, "search_papers")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.usage.total_tokens, 18)
+
+    async def test_streamed_items_reach_replay_state(self) -> None:
+        """Replay must record the same output the caller was given."""
+
+        client = _EmptyTerminalSnapshotClient(text="Durable across turns.")
+        model = OpenAIModel(
+            api_key="test-key",
+            client=client,
+            response_state_mode="replay",
+        )
+
+        first = await model.run(
+            ModelRunRequest(input=(Message.user("Remember this."),))
+        )
+        await model.run(
+            ModelRunRequest(
+                input=(Message.user("Continue."),),
+                previous_response_id=first.response_id,
+            )
+        )
+
+        replayed = client.responses.requests[1]["input"]
+        self.assertTrue(
+            any(
+                "Durable across turns." in json.dumps(item, default=str)
+                for item in replayed
+            ),
+            "replayed turn lost the streamed assistant message",
+        )
 
 
 if __name__ == "__main__":
