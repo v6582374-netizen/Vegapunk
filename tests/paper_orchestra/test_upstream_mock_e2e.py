@@ -218,37 +218,53 @@ class _MockResponsesRelay:
                     relay.requests.append(request)
                     text = relay._response_text(request)
                     response_number = len(relay.requests)
-                body = json.dumps(
-                    {
-                        "id": f"resp_{response_number}",
-                        "object": "response",
-                        "created_at": 0,
-                        "status": "completed",
-                        "model": request.get("model", "mock-model"),
-                        "output": [
-                            {
-                                "id": f"msg_{response_number}",
-                                "type": "message",
-                                "status": "completed",
-                                "role": "assistant",
-                                "content": [
-                                    {
-                                        "type": "output_text",
-                                        "text": text,
-                                        "annotations": [],
-                                    }
-                                ],
-                            }
-                        ],
-                        "usage": {
-                            "input_tokens": 1,
-                            "output_tokens": 1,
-                            "total_tokens": 2,
-                            "input_tokens_details": {"cached_tokens": 0},
-                            "output_tokens_details": {"reasoning_tokens": 0},
-                        },
-                    }
-                ).encode("utf-8")
+                message = {
+                    "id": f"msg_{response_number}",
+                    "type": "message",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": text,
+                            "annotations": [],
+                        }
+                    ],
+                }
+                response = {
+                    "id": f"resp_{response_number}",
+                    "object": "response",
+                    "created_at": 0,
+                    "status": "completed",
+                    "model": request.get("model", "mock-model"),
+                    "output": [message],
+                    "usage": {
+                        "input_tokens": 1,
+                        "output_tokens": 1,
+                        "total_tokens": 2,
+                        "input_tokens_details": {"cached_tokens": 0},
+                        "output_tokens_details": {"reasoning_tokens": 0},
+                    },
+                }
+                if request.get("stream"):
+                    # The Runtime streams, so a stand-in relay has to speak the
+                    # event protocol rather than a single JSON body.
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/event-stream")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    events = [
+                        ("response.created", {"response": dict(response, status="in_progress", output=[])}),
+                        ("response.output_text.delta", {"delta": text, "output_index": 0}),
+                        ("response.output_item.done", {"item": message, "output_index": 0}),
+                        ("response.completed", {"response": response}),
+                    ]
+                    for name, payload in events:
+                        frame = f"event: {name}\ndata: {json.dumps(dict(payload, type=name))}\n\n"
+                        self.wfile.write(frame.encode("utf-8"))
+                        self.wfile.flush()
+                    return
+                body = json.dumps(response).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
