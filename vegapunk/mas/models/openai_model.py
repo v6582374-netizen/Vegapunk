@@ -187,9 +187,22 @@ class OpenAIModel(BaseModel):
                 # Attempt accounting belongs to the Runtime, which is the only
                 # layer that can weigh the cost of repeating a long request.
                 "max_retries": 0,
+                # A streamed body is compressed as it is produced, and gateways
+                # that fan many concurrent streams through one zstd context
+                # interleave frames that no decoder can then separate.  The
+                # damage surfaces as unreadable bytes far from here, so the
+                # encoding is negotiated down to codecs that frame each response
+                # independently.  Compression stays on; only the codec that
+                # cannot survive concurrency is declined.
+                "default_headers": {"Accept-Encoding": "gzip, deflate"},
             }
             if self.default_headers:
-                client_kwargs["default_headers"] = self.default_headers
+                # An explicit provider header still wins: this default is a
+                # safeguard, not a policy callers may not override.
+                client_kwargs["default_headers"] = {
+                    **client_kwargs["default_headers"],
+                    **self.default_headers,
+                }
             self.client = AsyncOpenAI(**client_kwargs)
 
     async def _run(self, request: ModelRunRequest) -> ModelRunResult:

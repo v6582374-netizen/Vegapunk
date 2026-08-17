@@ -19,6 +19,24 @@ from vegapunk.mas.models.runtime import (
 )
 
 
+def _accept_encoding_on_the_wire(model: OpenAIModel) -> str:
+    """Read the header the SDK will actually send.
+
+    Per-client overrides are merged when a request is built, not onto the
+    underlying transport's own defaults, so the built request is the only
+    honest place to observe what a Provider will really receive.
+    """
+
+    from openai._models import FinalRequestOptions
+
+    request = model.client._build_request(
+        FinalRequestOptions.construct(
+            method="post", url="/responses", json_data={"model": "m"}
+        )
+    )
+    return request.headers["accept-encoding"]
+
+
 class _FakeEventStream:
     """Async-iterable stand-in for one streamed Responses run."""
 
@@ -760,6 +778,33 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         model = OpenAIModel(api_key="test-key", stream_idle_timeout=1800)
 
         self.assertEqual(model.client.max_retries, 0)
+
+    def test_a_codec_that_cannot_survive_concurrency_is_declined(self) -> None:
+        """Concurrent streams must not share a compression context.
+
+        A streamed body is compressed as it is produced.  Gateways that fan
+        many concurrent streams through one zstd context interleave frames
+        that no decoder can separate afterwards, and the damage surfaces as
+        unreadable bytes far from the transport.  Compression stays on; only
+        the codec that cannot frame each response independently is declined.
+        """
+
+        model = OpenAIModel(api_key="test-key")
+
+        accept_encoding = _accept_encoding_on_the_wire(model)
+        self.assertNotIn("zstd", accept_encoding)
+        # Declining one codec is not declining compression.
+        self.assertIn("gzip", accept_encoding)
+
+    def test_a_provider_may_still_state_its_own_encoding(self) -> None:
+        """The safeguard is a default, not a policy callers may not override."""
+
+        model = OpenAIModel(
+            api_key="test-key",
+            default_headers={"Accept-Encoding": "identity"},
+        )
+
+        self.assertEqual(_accept_encoding_on_the_wire(model), "identity")
 
     def test_only_reading_is_allowed_to_idle_as_long_as_the_model_thinks(
         self,
