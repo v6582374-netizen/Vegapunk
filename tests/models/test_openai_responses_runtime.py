@@ -38,16 +38,22 @@ def _accept_encoding_on_the_wire(model: OpenAIModel) -> str:
 
 
 class _FakeEventStream:
-    """Async-iterable stand-in for one streamed Responses run."""
+    """Async-iterable stand-in for one streamed Responses run.
+
+    The real SDK hands back a distinct async generator from ``__aiter__``,
+    which is what actually holds the open socket, so this stand-in separates
+    the two closes the way the transport does.
+    """
 
     def __init__(self, events: list[object]) -> None:
         self._events = list(events)
         self.closed = False
+        self.iterator_closed = False
 
-    def __aiter__(self) -> "_FakeEventStream":
-        return self
+    def __aiter__(self) -> "_FakeEventIterator":
+        return _FakeEventIterator(self)
 
-    async def __anext__(self) -> object:
+    async def _next(self) -> object:
         if not self._events:
             raise StopAsyncIteration
         event = self._events.pop(0)
@@ -57,6 +63,19 @@ class _FakeEventStream:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _FakeEventIterator:
+    """The generator-like half of a streamed run, which owns the connection."""
+
+    def __init__(self, stream: _FakeEventStream) -> None:
+        self._stream = stream
+
+    async def __anext__(self) -> object:
+        return await self._stream._next()
+
+    async def aclose(self) -> None:
+        self._stream.iterator_closed = True
 
 
 def _completed(response: object) -> SimpleNamespace:
@@ -120,8 +139,11 @@ class _FakeOpenAIClient:
 
 
 class _FailedResponses:
+    def __init__(self) -> None:
+        self.streams: list[_FakeEventStream] = []
+
     async def create(self, **_: object) -> _FakeEventStream:
-        return _FakeEventStream(
+        stream = _FakeEventStream(
             [
                 _completed(
                     SimpleNamespace(
@@ -136,6 +158,8 @@ class _FailedResponses:
                 )
             ]
         )
+        self.streams.append(stream)
+        return stream
 
 
 class _FailedOpenAIClient:
@@ -817,6 +841,31 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(timeout, httpx.Timeout)
         self.assertEqual(timeout.read, 1800)
         self.assertEqual(timeout.connect, 600)
+
+    async def test_an_abandoned_stream_is_finalized_while_its_loop_lives(
+        self,
+    ) -> None:
+        """Whoever drives an async generator owes it an aclose().
+
+        The iterator returned by ``__aiter__`` is what holds the socket.
+        Closing only the wrapper leaves it suspended at a yield; its event
+        loop then dies, and the generator is finalized later with no loop to
+        run its cleanup.  That surfaces as "Exception ignored ... no running
+        event loop" far from the call that caused it.
+        """
+
+        client = _FailedOpenAIClient()
+        model = OpenAIModel(api_key="test-key", client=client)
+
+        with self.assertRaises(Exception):
+            await model.run(
+                ModelRunRequest(input=(Message.user("Abandon this stream."),))
+            )
+
+        stream = client.responses.streams[-1]
+        self.assertTrue(
+            stream.iterator_closed, "the event iterator was left unfinalized"
+        )
 
     def test_the_obsolete_total_duration_bound_is_rejected_by_name(self) -> None:
         with self.assertRaisesRegex(ValueError, "request_timeout"):

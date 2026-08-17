@@ -262,6 +262,12 @@ class OpenAIModel(BaseModel):
                 elif event_type == "error":
                     failure = event
         finally:
+            # We drove the iterator, so we owe it an aclose().  Closing only the
+            # wrapper leaves the underlying byte-stream generator suspended at a
+            # yield; the loop it belonged to then dies, and the generator is
+            # finalized later with no loop to run its cleanup -- surfacing as
+            # "Exception ignored ... no running event loop" long after the call.
+            await self._close_iterator(events)
             await self._close_stream(stream)
 
         if response is None:
@@ -276,6 +282,18 @@ class OpenAIModel(BaseModel):
                 [streamed_items[index] for index in sorted(streamed_items)],
             )
         return response
+
+    @staticmethod
+    async def _close_iterator(events: Any) -> None:
+        """Finalize the event iterator while its event loop is still alive."""
+
+        aclose = getattr(events, "aclose", None)
+        if not callable(aclose):
+            return
+        try:
+            await aclose()
+        except Exception as error:  # pragma: no cover - transport teardown
+            logger.debug("Ignoring response iterator close failure: %s", error)
 
     @staticmethod
     async def _close_stream(stream: Any) -> None:
