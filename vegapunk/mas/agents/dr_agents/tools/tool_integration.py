@@ -71,28 +71,107 @@ def create_models(runtime):
 _models = None
 _runtime = None
 
-_CROSSREF_SYNC_LOCK = threading.Lock()
-_CROSSREF_SYNC_NEXT_REQUEST_AT = 0.0
-_CROSSREF_SYNC_MIN_INTERVAL = 1.0
-_CROSSREF_SYNC_MAX_RETRIES = 3
+class _RateGate:
+    """Serialize synchronous calls to one public API below its published rate.
+
+    Every worker thread shares a single gate per upstream host, so the
+    concurrency of the execution layer can no longer translate into a burst
+    the provider will answer with 429.
+    """
+
+    def __init__(self, name: str, min_interval: float, max_retries: int) -> None:
+        self.name = name
+        self.min_interval = min_interval
+        self.max_retries = max_retries
+        self._lock = threading.Lock()
+        self._next_request_at = 0.0
+
+    def wait(self) -> None:
+        with self._lock:
+            delay = max(0.0, self._next_request_at - time.monotonic())
+            if delay:
+                time.sleep(delay)
+            self._next_request_at = time.monotonic() + self.min_interval
+
+    def backoff(self, retry_after: Any, attempt: int) -> float:
+        """Honour a server-supplied Retry-After, else exponential backoff."""
+        try:
+            return min(max(0.0, float(retry_after)), 30.0)
+        except (TypeError, ValueError):
+            return min(float(2 ** attempt), 30.0)
+
+
+# A tool is only a capability if its credential exists. Declaring the
+# dependency here lets registration withhold the tool instead of advertising it
+# to the planner and failing at call time.
+_TOOL_CREDENTIALS = {
+    "search_tavily": "TAVILY_API_KEY",
+    "search_volc": "VOLC_SEARCH_API_KEY",
+    "search_google": "SERPER_API_KEY",
+}
+
+
+def _missing_credential(tool) -> "Optional[str]":
+    """Return the env var a tool needs but does not have, else None."""
+    func = getattr(tool, "func", None)
+    required = _TOOL_CREDENTIALS.get(getattr(func, "__name__", ""))
+    if required and not os.getenv(required):
+        return required
+    return None
+
+
+_CROSSREF_GATE = _RateGate("CrossRef", min_interval=1.0, max_retries=3)
+# arXiv's terms of use ask for no more than one request every three seconds.
+_ARXIV_GATE = _RateGate("arXiv", min_interval=3.0, max_retries=3)
+
+
+def _arxiv_fetch(url: str) -> str:
+    """Fetch an arXiv API page through the shared gate, retrying transients.
+
+    arXiv answers bursts with 429 and occasionally just stalls; both are
+    transient facts about the connection, not about the query, so they are
+    retried here instead of surfacing as an empty result set.
+    """
+    import urllib.error
+    import urllib.request
+
+    last_error: Optional[BaseException] = None
+    for attempt in range(_ARXIV_GATE.max_retries + 1):
+        _ARXIV_GATE.wait()
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                return resp.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            status = getattr(exc, "code", None)
+            if status is not None and status not in (429, 500, 502, 503, 504):
+                raise
+            if attempt >= _ARXIV_GATE.max_retries:
+                break
+            retry_after = None
+            headers = getattr(exc, "headers", None)
+            if headers is not None:
+                retry_after = headers.get("Retry-After")
+            delay = _ARXIV_GATE.backoff(retry_after, attempt)
+            logger.info(
+                "arXiv unavailable (%s); retrying in %.2fs (attempt %d/%d)",
+                exc,
+                delay,
+                attempt + 1,
+                _ARXIV_GATE.max_retries,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(f"arXiv unreachable after {_ARXIV_GATE.max_retries + 1} attempts: {last_error}")
 
 
 def _wait_for_crossref_slot() -> None:
-    """Serialize synchronous CrossRef calls and keep them below one request/sec."""
-    global _CROSSREF_SYNC_NEXT_REQUEST_AT
-    with _CROSSREF_SYNC_LOCK:
-        delay = max(0.0, _CROSSREF_SYNC_NEXT_REQUEST_AT - time.monotonic())
-        if delay:
-            time.sleep(delay)
-        _CROSSREF_SYNC_NEXT_REQUEST_AT = time.monotonic() + _CROSSREF_SYNC_MIN_INTERVAL
+    _CROSSREF_GATE.wait()
 
 
 def _crossref_retry_delay(response, attempt: int) -> float:
     retry_after = response.headers.get("Retry-After") if response.headers else None
-    try:
-        return min(max(0.0, float(retry_after)), 30.0)
-    except (TypeError, ValueError):
-        return min(float(2**attempt), 30.0)
+    return _CROSSREF_GATE.backoff(retry_after, attempt)
 
 
 def configure_runtime(runtime):
@@ -606,7 +685,7 @@ def search_tavily(query: str, topic: str = "general", time_range: str = "week",
 
     if not TAVILY_API_KEY:
         error_msg = "TAVILY_API_KEY environment variable is not set"
-        logger.error(error_msg)
+        logger.info("%s; tool should not have been registered", error_msg)
         return [{"error": error_msg}]
 
     responses = []
@@ -695,7 +774,7 @@ def search_volc(query: str, search_type: str = "web", count: int = 5,
 
     if not VOLC_SEARCH_API_KEY:
         error_msg = "VOLC_SEARCH_API_KEY environment variable is not set"
-        logger.error(error_msg)
+        logger.info("%s; tool should not have been registered", error_msg)
         return [{"error": error_msg}]
 
     responses = []
@@ -881,8 +960,7 @@ def search_arxiv(query: str, max_results: int = 5,
         url = f"http://export.arxiv.org/api/query?{params}"
         logger.info(f"Searching arXiv: query='{query}', field={search_field}, max_results={max_results}")
 
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            xml_text = resp.read().decode("utf-8")
+        xml_text = _arxiv_fetch(url)
 
         root = ET.fromstring(xml_text)
         idx = 0
@@ -1184,14 +1262,14 @@ def search_crossref(query: str, max_results: int = 5,
         logger.info(f"Searching CrossRef: query='{query}', mode={search_mode}, max_results={max_results}")
 
         data = None
-        for attempt in range(_CROSSREF_SYNC_MAX_RETRIES + 1):
+        for attempt in range(_CROSSREF_GATE.max_retries + 1):
             _wait_for_crossref_slot()
             resp = _requests.get(CROSSREF_URL, params=params, headers=headers, timeout=30)
             if resp.status_code != 429:
                 resp.raise_for_status()
                 data = resp.json()
                 break
-            if attempt >= _CROSSREF_SYNC_MAX_RETRIES:
+            if attempt >= _CROSSREF_GATE.max_retries:
                 raise RuntimeError(
                     f"CrossRef rate limit persisted after {attempt + 1} attempts"
                 )
@@ -1200,7 +1278,7 @@ def search_crossref(query: str, max_results: int = 5,
                 "CrossRef rate limited; retrying in %.2fs (attempt %d/%d)",
                 delay,
                 attempt + 1,
-                _CROSSREF_SYNC_MAX_RETRIES,
+                _CROSSREF_GATE.max_retries,
             )
             time.sleep(delay)
 
@@ -1307,7 +1385,7 @@ def search_google(query: str, num_result_pages: int = 10, time_range: str = "d3"
     
     if not SERPER_API_KEY:
         error_msg = "SERPER_API_KEY environment variable is not set"
-        logger.error(error_msg)
+        logger.info("%s; tool should not have been registered", error_msg)
         return [{"error": error_msg}]
     
     responses = []
@@ -1682,17 +1760,33 @@ def construct_agent_list(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     # 获取启用的工具列表
     enabled_tools = config.get('tools', {}).get('enabled_tools', [])
-    
-    # 如果没有指定enabled_tools，返回所有工具
-    if not enabled_tools:
-        return [tool for _, tool in all_tools]
-    
-    # 过滤工具
+
+    # 未指定 enabled_tools 时视为全部启用
+    selected = [
+        (category, tool)
+        for category, tool in all_tools
+        if not enabled_tools or category in enabled_tools
+    ]
+
+    # 缺少凭据的工具不予注册：不可用的能力不应出现在工具清单里
     filtered_tools = []
-    for tool_category, tool in all_tools:
-        if tool_category in enabled_tools:
-            filtered_tools.append(tool)
-    
-    logger.info(f"根据配置过滤工具: 启用工具类别 {enabled_tools}, 过滤后工具列表: {filtered_tools}, 过滤后工具数量: {len(filtered_tools)}")
-    
+    withheld = []
+    for tool_category, tool in selected:
+        missing = _missing_credential(tool)
+        if missing:
+            withheld.append(f"{tool_category}({missing})")
+            continue
+        filtered_tools.append(tool)
+
+    if withheld:
+        logger.info(
+            "跳过缺少凭据的工具: %s；其余 %d 个工具已注册",
+            ", ".join(withheld),
+            len(filtered_tools),
+        )
+
+    logger.info(
+        f"根据配置过滤工具: 启用工具类别 {enabled_tools}, 过滤后工具数量: {len(filtered_tools)}"
+    )
+
     return filtered_tools

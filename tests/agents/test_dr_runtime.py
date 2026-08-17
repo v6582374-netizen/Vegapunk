@@ -173,6 +173,108 @@ assert not deprecated, "pydantic instance-field access: " + "; ".join(deprecated
         result = model.run(ModelRunRequest(input=(Message.user("hello"),)))
         self.assertEqual(result.text, "OK")
 
+    def test_tools_without_credentials_are_not_registered(self):
+        """A capability the process cannot perform must not enter the tool list.
+
+        Registering a keyless search tool only lets the planner discover the
+        missing key at call time, once per call, as an error.
+        """
+        script = """
+import importlib, os
+
+for name in ("VOLC_SEARCH_API_KEY", "TAVILY_API_KEY", "SERPER_API_KEY"):
+    os.environ.pop(name, None)
+
+integration = importlib.import_module("tools.tool_integration")
+
+# Tool construction only needs the vision adapter to exist; the registry
+# decision under test is about credentials, not about model dispatch.
+from types import SimpleNamespace
+integration._models = {
+    "image_analysis_model": SimpleNamespace(model_type="stub"),
+}
+
+config = {
+    "tools": {"enabled_tools": ["volc_search", "arxiv_search"]},
+    "extraction_model": "qwen/qwen3.7-max",
+    "runtime_model": {},
+}
+
+names = {
+    t.get_function_name()
+    for t in integration.construct_agent_list(config=config)
+}
+assert "search_volc" not in names, names
+assert "search_arxiv" in names, names
+
+os.environ["VOLC_SEARCH_API_KEY"] = "test-key"
+names = {
+    t.get_function_name()
+    for t in integration.construct_agent_list(config=config)
+}
+assert "search_volc" in names, names
+"""
+        result = self._run_in_dr_agents_path(script)
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+
+    def test_arxiv_fetch_retries_rate_limits_through_a_shared_gate(self):
+        """arXiv 429s and stalls are connection facts, so they are retried."""
+        script = """
+import importlib, urllib.error
+
+integration = importlib.import_module("tools.tool_integration")
+integration._ARXIV_GATE.min_interval = 0.0
+
+attempts = []
+
+class _Resp:
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+    def read(self):
+        return b"<feed/>"
+
+def fake_urlopen(url, timeout=None):
+    attempts.append(url)
+    if len(attempts) < 3:
+        raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+    return _Resp()
+
+import urllib.request
+urllib.request.urlopen = fake_urlopen
+
+assert integration._arxiv_fetch("http://example.invalid/q") == "<feed/>"
+assert len(attempts) == 3, attempts
+
+attempts.clear()
+
+def always_429(url, timeout=None):
+    attempts.append(url)
+    raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+
+urllib.request.urlopen = always_429
+try:
+    integration._arxiv_fetch("http://example.invalid/q")
+except RuntimeError as exc:
+    assert "unreachable" in str(exc), exc
+else:
+    raise AssertionError("exhausted retries must surface as a failure")
+assert len(attempts) == integration._ARXIV_GATE.max_retries + 1, attempts
+"""
+        result = self._run_in_dr_agents_path(script)
+
+        self.assertEqual(
+            result.returncode,
+            0,
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
