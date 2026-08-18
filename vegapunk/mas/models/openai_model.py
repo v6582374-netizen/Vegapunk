@@ -34,6 +34,39 @@ from .runtime import (
 logger = logging.getLogger(__name__)
 
 
+# A streamed run can end without a usable answer for two very different reasons.
+# Either the provider judged the request itself -- refused it, hit a limit, ran
+# out of room -- or the transport between the provider and its own upstream
+# broke mid-answer.  Only the first is a verdict on what we asked; the second is
+# a statement about the connection, and re-asking is the correct response.
+# Relays say so explicitly (``upstream_stream_break``, "safe to retry"), so the
+# provider's own words are the authority here rather than our exception naming.
+_TRANSPORT_FAILURE_CODES = frozenset(
+    {
+        "upstream_stream_break",
+        "upstream_error",
+        "stream_error",
+        "server_error",
+        "internal_error",
+    }
+)
+_TRANSPORT_FAILURE_PHRASES = (
+    "safe to retry",
+    "ended prematurely",
+)
+
+
+def _is_transport_interruption(code: Any, message: Any) -> bool:
+    """Report whether a provider blamed the connection rather than the request."""
+
+    if isinstance(code, str) and code.strip().lower() in _TRANSPORT_FAILURE_CODES:
+        return True
+    if isinstance(message, str):
+        lowered = message.lower()
+        return any(phrase in lowered for phrase in _TRANSPORT_FAILURE_PHRASES)
+    return False
+
+
 class _StreamAssembledResponse:
     """A terminal response whose output items were recovered from the stream.
 
@@ -271,8 +304,15 @@ class OpenAIModel(BaseModel):
             await self._close_stream(stream)
 
         if response is None:
-            detail = self._field(failure, "message") or self._field(failure, "code")
-            raise ModelRunTerminalError(
+            failure_error = self._field(failure, "error") or failure
+            detail = self._field(failure_error, "message") or self._field(
+                failure_error, "code"
+            )
+            # Not one event carried a terminal response, so the provider never
+            # reached a verdict on what we asked.  Whatever the error body says,
+            # the run died in transit rather than being refused, and re-asking
+            # is the only reading of that fact that can be correct.
+            raise ServiceUnavailableError(
                 f"{self.provider_name} stream ended without a response"
                 + (f": {detail}" if detail else "")
             )
@@ -525,10 +565,18 @@ class OpenAIModel(BaseModel):
         detail = cls._field(response, "error") or cls._field(
             response, "incomplete_details"
         )
-        raise ModelRunTerminalError(
+        summary = (
             f"OpenAI response {result.response_id} ended with status "
             f"{result.status}: {detail}"
         )
+        # The provider names the cause in the error body.  When it blames the
+        # link to its own upstream -- and relays even say "safe to retry" --
+        # honour that verdict instead of overriding it with a terminal label.
+        if _is_transport_interruption(
+            cls._field(detail, "code"), cls._field(detail, "message")
+        ):
+            raise ServiceUnavailableError(summary)
+        raise ModelRunTerminalError(summary)
 
     @staticmethod
     def _field(value: Any, name: str, default: Any = None) -> Any:

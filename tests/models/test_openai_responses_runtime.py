@@ -7,6 +7,10 @@ from types import SimpleNamespace
 
 import httpx
 
+from vegapunk.mas.models.base_model import (
+    ModelRunTerminalError,
+    ServiceUnavailableError,
+)
 from vegapunk.mas.models.openai_model import OpenAIModel
 from vegapunk.mas.models.runtime import (
     FunctionCallOutput,
@@ -243,6 +247,76 @@ class _ErrorEventResponses:
 class _ErrorEventOpenAIClient:
     def __init__(self) -> None:
         self.responses = _ErrorEventResponses()
+
+
+class _UpstreamBreakResponses:
+    """A relay that accepts the request, then reports its own upstream broke."""
+
+    async def create(self, **_: object) -> _FakeEventStream:
+        return _FakeEventStream(
+            [
+                _completed(
+                    SimpleNamespace(
+                        id="resp_break",
+                        status="failed",
+                        model="gpt-5.6-sol",
+                        output=[],
+                        usage=None,
+                        reasoning=None,
+                        error={
+                            "code": "upstream_stream_break",
+                            "message": "Upstream stream ended prematurely; safe to retry",
+                        },
+                    )
+                )
+            ]
+        )
+
+
+class _UpstreamBreakClient:
+    def __init__(self) -> None:
+        self.responses = _UpstreamBreakResponses()
+
+
+class _RefusedResponses:
+    """A verdict on what we asked: re-asking the same thing cannot help."""
+
+    async def create(self, **_: object) -> _FakeEventStream:
+        return _FakeEventStream(
+            [
+                _completed(
+                    SimpleNamespace(
+                        id="resp_refused",
+                        status="failed",
+                        model="gpt-5.6-sol",
+                        output=[],
+                        usage=None,
+                        reasoning=None,
+                        error={
+                            "code": "content_policy_violation",
+                            "message": "The request was refused.",
+                        },
+                    )
+                )
+            ]
+        )
+
+
+class _RefusedClient:
+    def __init__(self) -> None:
+        self.responses = _RefusedResponses()
+
+
+class _MuteStreamResponses:
+    """Connects, closes, and never carries a verdict either way."""
+
+    async def create(self, **_: object) -> _FakeEventStream:
+        return _FakeEventStream([])
+
+
+class _MuteStreamClient:
+    def __init__(self) -> None:
+        self.responses = _MuteStreamResponses()
 
 
 class _ReplayResponses:
@@ -887,6 +961,46 @@ class OpenAIResponsesRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.tool_calls[0].name, "search_papers")
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.usage.total_tokens, 18)
+
+    async def test_a_broken_upstream_stream_is_a_connection_fault_not_a_verdict(
+        self,
+    ) -> None:
+        """A relay that blames its own upstream must not end the caller's work.
+
+        The provider states the cause in the error body and even says it is safe
+        to retry.  Classifying that as terminal discards a recoverable answer and
+        can fail an entire Launch on one transient break.
+        """
+        model = OpenAIModel(api_key="test-key", client=_UpstreamBreakClient())
+
+        with self.assertRaises(ServiceUnavailableError):
+            await model.run(ModelRunRequest(input=(Message.user("Rank these."),)))
+
+    async def test_a_refusal_of_the_request_stays_terminal(self) -> None:
+        """When the provider judges the request itself, re-asking is pointless."""
+
+        model = OpenAIModel(api_key="test-key", client=_RefusedClient())
+
+        with self.assertRaises(ModelRunTerminalError):
+            await model.run(ModelRunRequest(input=(Message.user("Rank these."),)))
+
+    async def test_a_stream_carrying_no_verdict_at_all_is_a_connection_fault(
+        self,
+    ) -> None:
+        """Silence is not an answer about the request, so it is retryable."""
+
+        model = OpenAIModel(api_key="test-key", client=_MuteStreamClient())
+
+        with self.assertRaises(ServiceUnavailableError):
+            await model.run(ModelRunRequest(input=(Message.user("Rank these."),)))
+
+    async def test_a_mid_stream_transport_error_event_is_retryable(self) -> None:
+        """The pre-existing error-event path must also be classified as transport."""
+
+        model = OpenAIModel(api_key="test-key", client=_ErrorEventOpenAIClient())
+
+        with self.assertRaises(ServiceUnavailableError):
+            await model.run(ModelRunRequest(input=(Message.user("Fail mid-stream."),)))
 
     async def test_streamed_items_reach_replay_state(self) -> None:
         """Replay must record the same output the caller was given."""
