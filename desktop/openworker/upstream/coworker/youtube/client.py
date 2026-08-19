@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import html
 import os
-import secrets as token_secrets
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -118,10 +117,12 @@ class YouTubeClient:
                 "connected": False,
                 "needs_authorization": True,
             }
+        needs_authorization = bool(profile.get("needs_authorization"))
         return {
             "configured": self.configured(),
-            "connected": bool(profile.get("refresh_token") or profile.get("access_token")),
-            "needs_authorization": bool(profile.get("needs_authorization")),
+            "connected": bool(profile.get("refresh_token") or profile.get("access_token"))
+            and not needs_authorization,
+            "needs_authorization": needs_authorization,
             "account_id": profile.get("account_id"),
             "account_title": profile.get("account_title"),
             "connected_at": profile.get("connected_at"),
@@ -161,14 +162,20 @@ class YouTubeClient:
             raise YouTubeAuthError(
                 str(payload.get("error_description") or payload.get("error") or "OAuth exchange failed")
             )
+        previous = self.profile()
+        refresh_token = payload.get("refresh_token") or previous.get("refresh_token")
+        if not refresh_token:
+            raise YouTubeAuthError(
+                "OAuth did not return a refresh token. Reconnect YouTube and grant offline access."
+            )
         profile = {
             "type": "oauth",
             "access_token": payload["access_token"],
-            "refresh_token": payload.get("refresh_token"),
+            "refresh_token": refresh_token,
             "expires": time.time() + float(payload.get("expires_in", 3600)),
             "token_type": payload.get("token_type", "Bearer"),
             "needs_authorization": False,
-            "connected_at": time.time(),
+            "connected_at": previous.get("connected_at") or time.time(),
         }
         self.secrets.put("youtube:default", profile)
         try:
@@ -225,6 +232,15 @@ class YouTubeClient:
         if token and expires > time.time() + 60:
             return str(token)
         return await self.refresh_access_token()
+
+    async def ensure_authorized(self) -> None:
+        """Validate the stored OAuth grant before an automation run starts.
+
+        RSS is intentionally unauthenticated, but this automation must not advance its
+        cursor while the YouTube grant is revoked or expired.  Calling this once before
+        RSS discovery keeps that policy explicit and makes an invalid token fail fast.
+        """
+        await self.access_token()
 
     async def current_channel(self) -> Optional[dict[str, Any]]:
         payload = await self.api_json(
@@ -314,6 +330,8 @@ class YouTubeClient:
                 for track in sorted(tracks, key=lambda item: _caption_rank(item["language_code"], item["track_kind"])):
                     try:
                         body = await self._download_caption(track["id"])
+                    except YouTubeAuthError:
+                        raise
                     except YouTubeClientError as exc:
                         errors.append(str(exc))
                         continue
@@ -325,6 +343,8 @@ class YouTubeClient:
                             source="youtube_api",
                             body=body,
                         )
+        except YouTubeAuthError:
+            raise
         except YouTubeClientError as exc:
             errors.append(str(exc))
 

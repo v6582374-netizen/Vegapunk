@@ -1891,9 +1891,9 @@ def create_app(
         )
         try:
             await manager.youtube_client.exchange_code(code=code, redirect_uri=redirect_uri)
-            await manager.youtube.sync_subscriptions()
             if manager.youtube_store.get_state("authorized_at") is None:
                 manager.youtube_store.set_state("authorized_at", time.time())
+            await manager.youtube.sync_subscriptions()
         except Exception as exc:
             return HTMLResponse(
                 _browser_page(

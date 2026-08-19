@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -66,6 +65,10 @@ class YouTubeAutomationService:
         authorized_at = self.store.get_state("authorized_at")
         last_scan = self.store.get_state("last_scan_at")
         cursor = float(last_scan or authorized_at or 0.0)
+        # RSS is public, but a run is not allowed to proceed without a valid OAuth
+        # grant.  Failing before discovery prevents an expired token from advancing
+        # the local cursor and makes the task visibly recoverable by re-authorizing.
+        await self.client.ensure_authorized()
         channels = self.store.list_channels()
         if not channels:
             await self.sync_subscriptions()
