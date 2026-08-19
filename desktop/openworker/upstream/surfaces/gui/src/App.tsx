@@ -164,12 +164,22 @@ export function App() {
   if (prototype === "babeldoc") return <BabelDocPrototype />;
   if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
   if (prototype === "embodied") return <EmbodiedPrototype />;
-  if (prototype === "youtube") return <YouTubePrototype />;
+  if (prototype === "youtube") {
+    return (
+      <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">
+        <VegapunkApp initialSurface="youtube-prototype" />
+      </div>
+    );
+  }
   const app = <VegapunkApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }
 
-function VegapunkApp() {
+function VegapunkApp({
+  initialSurface = "session",
+}: {
+  initialSurface?: "session" | "youtube-prototype";
+}) {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
   const [showGate, setShowGate] = useState(false);
@@ -255,7 +265,8 @@ function VegapunkApp() {
     | "agents-md-editor"
     | "discovery"
     | "translation"
-  >("session");
+    | "youtube-prototype"
+  >(initialSurface);
   const [agentsMdTarget, setAgentsMdTarget] = useState<AgentsMdFileTarget | null>(null);
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
@@ -1354,7 +1365,7 @@ function VegapunkApp() {
         onOpenTranslation={() => setSurface("translation")}
         onOpenCamera={() => setSurface("camera")}
         onOpenEmbodied={() => setSurface("embodied")}
-        scheduledActive={surface === "scheduled"}
+        scheduledActive={surface === "scheduled" || surface === "youtube-prototype"}
         discoveryActive={surface === "discovery"}
         translationActive={surface === "translation"}
         cameraActive={surface === "camera"}
@@ -1368,7 +1379,9 @@ function VegapunkApp() {
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
       />
-      {surface === "scheduled" ? (
+      {surface === "youtube-prototype" ? (
+        <YouTubePrototype />
+      ) : surface === "scheduled" ? (
         <ScheduledView
           onOpenRun={openRunSession}
           onRunNow={runTaskNow}
