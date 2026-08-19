@@ -7,7 +7,7 @@ import asyncio
 import httpx
 from fastapi.testclient import TestClient
 
-from coworker.connectors import ConnectorSettings, Gateway, TeamAuth
+from coworker.connectors import ConnectorSettings, Gateway
 from coworker.connectors.base import InteractionEvent, MessageEvent, SessionSource
 from coworker.interactions import encode
 from coworker.providers import ModelCapabilities, ProviderClient
@@ -92,52 +92,6 @@ def test_manual_owner_rest_flow_surfaces_identity_and_binding(tmp_path):
         json={"name": "default", "channel": "slack", "target": "C_APPROVALS"},
     ).json()
     assert bound["ok"] is True
-
-
-def test_relay_binding_uses_installer_identity(tmp_path):
-    manager = _manager(tmp_path)
-    manager.secrets.put(
-        "slack:default", {"mode": "relay", "enabled": True, "managed": True}
-    )
-    manager.secrets.put(
-        "slack:team:T1",
-        {
-            "bot_token": "xoxb-team",
-            "managed": True,
-            "slack_user_id": "U_INSTALLER",
-            "allowed_users": ["U_INSTALLER"],
-        },
-    )
-    assert manager.set_inbox_binding(
-        "default", channel="slack", target="T1/C_APPROVALS"
-    )["ok"]
-
-    manager.secrets.put(
-        "slack:team:T2",
-        {"bot_token": "xoxb-team-2", "managed": True},
-    )
-    assert not manager.set_inbox_binding(
-        "default", channel="slack", target="T2/C_APPROVALS"
-    )["ok"]
-
-
-def test_relay_does_not_reuse_dormant_manual_owners_for_bare_target(tmp_path):
-    manager = _manager(tmp_path)
-    manager.secrets.put(
-        "slack:default",
-        {
-            "mode": "relay",
-            "enabled": True,
-            "managed": True,
-            "bot_token": "xoxb-dormant",
-            "app_token": "xapp-dormant",
-            "approval_owner_ids": ["U_OLD_MANUAL_OWNER"],
-        },
-    )
-    assert manager.slack_approval_owner_ids() == set()
-    assert not manager.set_inbox_binding(
-        "default", channel="slack", target="C_AMBIGUOUS"
-    )["ok"]
 
 
 def test_nonowner_cannot_resolve_approval_but_can_answer_question(tmp_path):
@@ -240,7 +194,7 @@ def test_gateway_rejects_interaction_from_unallowed_actor():
             "slack": ConnectorSettings(
                 platform="slack",
                 enabled=True,
-                teams={"T1": TeamAuth(allowed_users={"U_ALLOWED"})},
+                allowed_users={"U_ALLOWED"},
             )
         },
         interaction_handler=handler,
@@ -250,11 +204,10 @@ def test_gateway_rejects_interaction_from_unallowed_actor():
         await gateway._on_interaction(
             InteractionEvent(
                 platform="slack",
-                chat_id="T1/C1",
+                chat_id="C1",
                 message_id="1",
                 value="ignored",
                 user_id="U_OTHER",
-                team_id="T1",
             )
         )
 

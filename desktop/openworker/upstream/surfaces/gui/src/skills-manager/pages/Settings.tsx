@@ -174,7 +174,7 @@ export function Settings() {
           <SectionTitle id="settings-appearance">{t("settings.appearance")}</SectionTitle>
           <SettingsCard>
             <div style={{ padding: "16px 0", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.6 }}>
-              Appearance, typography, and language follow the OpenWorker Desktop Settings surface.
+              Appearance, typography, and language follow the Vegapunk Desktop Settings surface.
               This module does not maintain a second theme, font, or language preference.
             </div>
           </SettingsCard>
@@ -200,7 +200,7 @@ export function Settings() {
           <SectionTitle id="settings-advanced">{t("settings.advanced")}</SectionTitle>
           <SettingsCard>
             <SettingsRow label={t("settings.skillUsageMonitor")} description={t("settings.skillUsageMonitorDesc")} isLast={false}><Toggle checked={preferences.skill_usage_monitor} disabled={usageHookLoading} onChange={handleUsageMonitorChange} /></SettingsRow>
-            <SettingsRow label="Skill analysis provider" description="Translation and deep risk review use the shared OpenWorker Models and Providers configuration." isLast={false}><span style={{ color: "var(--muted-foreground)", fontSize: 12 }}>Managed by Desktop</span></SettingsRow>
+            <SettingsRow label="Skill analysis provider" description="Translation and deep risk review use the shared Vegapunk Models and Providers configuration." isLast={false}><span style={{ color: "var(--muted-foreground)", fontSize: 12 }}>Managed by Desktop</span></SettingsRow>
             <SettingsRow label={t("settings.resetSettings")} description={t("settings.resetSettingsDesc")} isLast><button type="button" onClick={handleReset} disabled={resetting} style={buttonStyle}>{resetting ? t("common.checking") : t("settings.resetSettings")}</button></SettingsRow>
           </SettingsCard>
         </div>

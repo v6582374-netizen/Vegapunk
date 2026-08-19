@@ -105,16 +105,8 @@ function InboxRoutingCard() {
     ? draftAddr.split(":", 2)
     : ["slack", draftAddr];
   const slack = connectors.find((c) => c.name === "slack");
-  const teamId =
-    draftPlatform === "slack" && draftTarget.includes("/")
-      ? draftTarget.split("/", 1)[0]
-      : null;
-  const owners =
-    draftPlatform !== "slack"
-      ? []
-      : teamId
-        ? slack?.workspaces?.find((w) => w.team_id === teamId)?.approval_owner_ids ?? []
-        : slack?.approval_owner_ids ?? [];
+  // Socket Mode is one workspace: approval owners live flat on the connector.
+  const owners = draftPlatform !== "slack" ? [] : slack?.approval_owner_ids ?? [];
   const missingSlackOwner =
     draftPlatform === "slack" && draftTarget.length > 0 && owners.length === 0;
 

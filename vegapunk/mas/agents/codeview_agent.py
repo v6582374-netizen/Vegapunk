@@ -419,7 +419,7 @@ def get_repo_structure(model, project_path, output_dir, output_name, ignore_list
 CODEX_REPO_ANALYSIS_PROMPT = _prompt_library.get("discovery.codeview.codex_repo_analysis")
 
 
-def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settings=None, model='gpt-5.6-sol'):
+def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settings=None):
     """
     Use Codex CLI to analyze repository structure and generate code summary
 
@@ -428,7 +428,6 @@ def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settin
         output_dir: Directory to save the output JSON file
         output_name: Name of the output JSON file
         proxy_settings: Optional dictionary with HTTP_PROXY and HTTPS_PROXY settings
-        model: Model name to use (default: gpt-5.6-sol)
 
     Returns:
         Dictionary with 'summary' and 'key_files' keys containing the analysis
@@ -437,8 +436,8 @@ def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settin
         # Import CodexRunner (assuming it's in experiments_utils_codex)
         from vegapunk.experiments_utils_codex import CodexRunner
 
-        # Initialize Codex CLI runner
-        codex_runner = CodexRunner(proxy_settings, model=model)
+        # The Codex CLI carries its own model and credentials.
+        codex_runner = CodexRunner(proxy_settings)
 
         # Run Codex CLI with the analysis prompt
         print(f"Analyzing repository at {project_path} using Codex CLI...")
@@ -452,7 +451,6 @@ def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settin
             "summary": summary,
             "key_files": key_files,
             "analyzed_with": "codex",
-            "model": model
         }
 
         # Save to output file
@@ -479,13 +477,14 @@ def get_repo_structure_codex(project_path, output_dir, output_name, proxy_settin
 
 
 def get_repo_structure_qwen_code(
-    project_path, output_dir, output_name, proxy_settings=None, model="qwen3.6-plus"
+    project_path, output_dir, output_name, proxy_settings=None
 ):
     """Use the official Qwen Code CLI for the same repository-summary seam."""
     try:
         from vegapunk.experiments_utils_qwen_code import QwenCodeRunner
 
-        qwen_runner = QwenCodeRunner(proxy_settings, model=model)
+        # The Qwen Code CLI carries its own model and credentials.
+        qwen_runner = QwenCodeRunner(proxy_settings)
         print(f"Analyzing repository at {project_path} using Qwen Code...")
         qwen_output = qwen_runner.run(CODEX_REPO_ANALYSIS_PROMPT, cwd=project_path)
         summary, key_files = extract_from_repo_summary(qwen_output)
@@ -493,7 +492,6 @@ def get_repo_structure_qwen_code(
             "summary": summary,
             "key_files": key_files,
             "analyzed_with": "qwen_code",
-            "model": model,
         }
         os.makedirs(output_dir, exist_ok=True)
         if not output_name.endswith(".json"):

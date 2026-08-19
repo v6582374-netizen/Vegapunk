@@ -26,7 +26,7 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
   await expect(page.getByTestId("set-provider-openai")).toBeVisible();
 });
 
-// The launch flag brings the Personas tab back (the gallery/persona suites rely on it).
+// The launch flag brings the Personas tab back (the persona suites rely on it).
 test("Settings: Personas tab returns behind the launch flag", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("ocw.flag.personas", "1"));
   await page.goto("/");

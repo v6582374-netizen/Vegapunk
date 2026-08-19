@@ -85,14 +85,14 @@ def _web_login_page() -> str:
     """
     return """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OpenWorker Web</title><style>
+<title>Vegapunk Web</title><style>
 :root{color-scheme:light;--paper:#f6f5f2;--panel:#fff;--line:#e4e2dc;--ink:#2c2c2a;--muted:#6f6e68;--accent:#3670b2;--bad:#b3423a}
 @media(prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#191918;--panel:#232322;--line:#373633;--ink:#e8e6e1;--muted:#9d9b94;--accent:#6ba3dd;--bad:#d97b74}}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--paper);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px}
 .card{width:min(360px,100%);padding:34px 32px 30px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.06)}
 .mark{display:flex;align-items:center;gap:8px;font-weight:650;margin-bottom:28px}.mark i{width:20px;height:20px;border-radius:6px;background:var(--accent);display:inline-block;position:relative}.mark i:after{content:"";position:absolute;inset:5px;border-radius:2px;background:conic-gradient(from 0deg,#fff 0 25%,transparent 0 50%,#fff 0 75%,transparent 0)}
 h1{font-size:19px;letter-spacing:-.02em;margin:0 0 7px}p{color:var(--muted);font-size:12.5px;margin:0 0 22px}label{display:block;color:var(--muted);font-size:11px;margin-bottom:6px}input{display:block;width:100%;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);padding:10px 11px;font:inherit;outline:none}input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}button{display:block;width:100%;margin-top:14px;border:0;border-radius:9px;background:var(--accent);color:#fff;padding:10px 12px;font:600 13px inherit;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.error{min-height:18px;margin-top:12px;color:var(--bad);font-size:12px}
-</style></head><body><main class="card"><div class="mark"><i></i>OpenWorker</div><h1>Sign in to OpenWorker</h1><p>This Linux Web Counterpart shares the desktop workspace and keeps the server behind a local access token.</p><form id="login"><label for="token">Access token</label><input id="token" name="token" type="password" autocomplete="current-password" autofocus><button id="submit" type="submit">Continue</button><div class="error" id="error" role="alert"></div></form></main><script>
+</style></head><body><main class="card"><div class="mark"><i></i>Vegapunk</div><h1>Sign in to Vegapunk</h1><p>This Linux Web Counterpart shares the desktop workspace and keeps the server behind a local access token.</p><form id="login"><label for="token">Access token</label><input id="token" name="token" type="password" autocomplete="current-password" autofocus><button id="submit" type="submit">Continue</button><div class="error" id="error" role="alert"></div></form></main><script>
 const form=document.getElementById("login"),input=document.getElementById("token"),button=document.getElementById("submit"),error=document.getElementById("error");
 form.addEventListener("submit",async(e)=>{e.preventDefault();error.textContent="";button.disabled=true;try{const r=await fetch("/web/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:input.value})});if(!r.ok)throw new Error("Invalid access token");location.replace("/")}catch(err){error.textContent=err instanceof Error?err.message:"Could not sign in";button.disabled=false;input.select()}});
 </script></body></html>"""
@@ -131,7 +131,7 @@ def _browser_page(
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        f"<title>{_html.escape(title)} — OpenWorker</title><style>"
+        f"<title>{_html.escape(title)} — Vegapunk</title><style>"
         ":root{--paper:#f6f5f2;--panel:#fff;--line:#e4e2dc;--ink:#2c2c2a;--muted:#6f6e68;"
         "--faint:#a3a19a;--accent:#3670b2;--ok:#2e7d4f;--ok-soft:#e3f2e9;--bad:#b3423a;"
         "--bad-soft:#f8e7e5}"
@@ -163,9 +163,9 @@ def _browser_page(
         "padding:7px 10px;margin-top:12px;text-align:left;word-break:break-word}"
         ".foot{font-size:10.5px;color:var(--faint)}"
         "</style></head><body>"
-        '<div class="card"><div class="mark"><i></i>OpenWorker</div>'
+        '<div class="card"><div class="mark"><i></i>Vegapunk</div>'
         f"{icon}<h1>{_html.escape(title)}</h1><p>{_html.escape(detail)}</p>{err}</div>"
-        '<div class="foot">Served locally by OpenWorker on your Mac</div>'
+        '<div class="foot">Served locally by Vegapunk on your Mac</div>'
         "</body></html>"
     )
 
@@ -180,7 +180,7 @@ def _connector_title(name: str) -> str:
 
 _CONNECT_FAILED_DETAIL = (
     "Something went wrong finishing this connection. "
-    "Close this tab and try again from OpenWorker."
+    "Close this tab and try again from Vegapunk."
 )
 
 from ..attachments import (
@@ -220,6 +220,14 @@ from .prompt_library import (
     UnknownPromptError,
     default_prompt_roots,
     violation_for,
+)
+from .embodied import (
+    ActiveRunConflict,
+    CameraRelayError,
+    EmbodiedFacade,
+    EmbodiedValidationError,
+    SimulatorUnavailableError,
+    relay_camera_offer,
 )
 from .skills_manager import SkillsManagerError, SkillsManagerService
 from .translation import (
@@ -275,9 +283,7 @@ def create_app(
     web_auth_token = web_token or api_token
     tokenless_paths = {
         "/v1/health",
-        "/auth/callback",
         "/mcp/oauth/callback",
-        "/oauth/callback",
         "/web/auth",
         "/web/login",
         "/web/logout",
@@ -342,7 +348,7 @@ def create_app(
         ):
             return await call_next(request)
         return JSONResponse(
-            {"error": "missing or invalid OpenWorker sidecar token"},
+            {"error": "missing or invalid Vegapunk sidecar token"},
             status_code=401,
         )
 
@@ -369,6 +375,7 @@ def create_app(
         repository_root=discovery_repository_root,
     )
     app.state.translation = TranslationFacade(manager._data_base)
+    app.state.embodied = EmbodiedFacade(manager._data_base)
 
     if web_enabled and web_root is not None:
         assets_root = web_root / "assets"
@@ -818,6 +825,77 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="translation run not found") from exc
 
+    @app.get("/v1/embodied/environment")
+    def embodied_environment() -> dict[str, Any]:
+        """Describe the bench without building one.
+
+        Constructing a ``SimulatedG1`` compiles the MJCF model and binds a GL
+        context, so the declaration is answered from the plan's own constants and
+        the joint list, and simulator availability is probed rather than proven by
+        a run.
+        """
+        return app.state.embodied.environment()
+
+    @app.post("/v1/embodied/runs", status_code=201)
+    def embodied_start_run(body: dict | None = None) -> dict[str, Any]:
+        try:
+            return {"run": app.state.embodied.start_run(body or {})}
+        except EmbodiedValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_dict()) from exc
+        except SimulatorUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ActiveRunConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="The embodied run could not be started. Try again.",
+            ) from exc
+
+    @app.get("/v1/embodied/runs")
+    def embodied_runs() -> dict[str, Any]:
+        return app.state.embodied.list_runs()
+
+    @app.get("/v1/embodied/runs/{run_id}")
+    def embodied_run(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.embodied.run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="embodied run not found") from exc
+
+    @app.get("/v1/embodied/runs/{run_id}/events")
+    def embodied_run_events(run_id: str, after: int = 0) -> dict[str, Any]:
+        try:
+            return app.state.embodied.events(run_id, after=max(after, 0))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="embodied run not found") from exc
+
+    @app.post("/v1/embodied/runs/{run_id}/cancel")
+    def embodied_cancel_run(run_id: str) -> dict[str, Any]:
+        try:
+            return app.state.embodied.cancel(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="embodied run not found") from exc
+
+    @app.post("/v1/embodied/cameras/{slot_id}/offer")
+    async def embodied_camera_offer(slot_id: str, body: dict | None = None) -> dict[str, Any]:
+        """Exchange one WebRTC offer with a robot camera on the browser's behalf.
+
+        The robot's image service presents a self-signed certificate with no
+        subjectAltName. No browser can be taught to trust such a certificate, so a
+        page can never complete this exchange itself, however many warnings the
+        operator clicks through. The sidecar performs it server-to-server and
+        returns only the answer; the media still flows browser-to-robot over the
+        DTLS connection whose fingerprint this signalling carries.
+        """
+        payload = body or {}
+        try:
+            return await asyncio.to_thread(
+                relay_camera_offer, payload.get("host"), slot_id, payload.get("offer")
+            )
+        except CameraRelayError as exc:
+            raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}
@@ -1002,72 +1080,11 @@ def create_app(
                 summaries = reg.install_from_git(str(body["git_url"]))
             elif body.get("dir"):
                 summaries = reg.install_from_dir(str(body["dir"]))
-            elif body.get("gallery_slug"):
-                # Gallery install = fetch the manifest markdown from the cloud
-                # (sign-in required), verify its hash, then reuse the exact
-                # same parser + consent path as a local/Git install. The
-                # gallery never changes the trust model: no executable code,
-                # lands disabled pending consent.
-                import hashlib
-                import tempfile
-
-                from .. import cloud
-                from ..config import load_config
-
-                slug = str(body["gallery_slug"]).strip()
-                manifest = cloud.gallery_manifest(manager.secrets, load_config(), slug)
-                if manifest is None:
-                    return {
-                        "ok": False,
-                        "error": "gallery requires cloud sign-in (or the cloud is unreachable)",
-                    }
-                markdown = manifest.get("manifest_markdown", "")
-                digest = "sha256:" + hashlib.sha256(markdown.encode()).hexdigest()
-                if (
-                    manifest.get("manifest_hash")
-                    and manifest["manifest_hash"] != digest
-                ):
-                    return {"ok": False, "error": "manifest hash mismatch"}
-                with tempfile.TemporaryDirectory() as td:
-                    (Path(td) / f"{slug}.md").write_text(markdown)
-                    summaries = reg.install_from_dir(td)
-                cloud.gallery_install_event(manager.secrets, load_config(), slug)
             else:
-                return {
-                    "ok": False,
-                    "error": "provide a `dir`, `git_url`, or `gallery_slug`",
-                }
+                return {"ok": False, "error": "provide a `dir` or `git_url`"}
         except Exception as e:  # surface manifest/clone errors to the caller
             return {"ok": False, "error": str(e)}
         return {"ok": True, "consent": summaries, "personas": reg.list_all()}
-
-    @app.get("/v1/cloud/gallery/{slug}")
-    def cloud_gallery_detail(slug: str) -> dict[str, Any]:
-        """Solo page for one gallery coworker: publisher pitch + capabilities
-        derived locally from the manifest (same parser as install)."""
-        from .. import cloud
-        from ..config import load_config
-
-        body = cloud.gallery_detail(manager.secrets, load_config(), slug)
-        if body is None:
-            return {"ok": False, "error": "gallery requires cloud sign-in"}
-        return body
-
-    @app.get("/v1/cloud/gallery")
-    def cloud_gallery() -> dict[str, Any]:
-        """Gallery cards for the GUI. Signed out ⇒ ok:false (the gallery is a
-        signed-in feature by design; local personas are unaffected)."""
-        from .. import cloud
-        from ..config import load_config
-
-        body = cloud.gallery_list(manager.secrets, load_config())
-        if body is None:
-            return {
-                "ok": False,
-                "error": "gallery requires cloud sign-in",
-                "personas": [],
-            }
-        return {"ok": True, "personas": body.get("personas", [])}
 
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
@@ -1335,7 +1352,7 @@ def create_app(
         code: str = "", state: str = "", error: str = ""
     ) -> Any:
         # Loopback landing for the MCP OAuth browser flow (mcp/oauth.py). Browser-facing:
-        # returns the same styled page as the managed-connector callbacks.
+        # returns the same styled loopback page.
         from fastapi.responses import HTMLResponse
 
         from ..mcp import oauth as mcp_oauth
@@ -1344,7 +1361,7 @@ def create_app(
             return HTMLResponse(
                 _browser_page(
                     "Sign-in failed",
-                    "The service reported an error. Return to OpenWorker and try again.",
+                    "The service reported an error. Return to Vegapunk and try again.",
                     ok=False,
                     error=error,
                 ),
@@ -1354,7 +1371,7 @@ def create_app(
             return HTMLResponse(
                 _browser_page(
                     "Nothing waiting for this sign-in",
-                    "The sign-in may have timed out. Return to OpenWorker and start it again.",
+                    "The sign-in may have timed out. Return to Vegapunk and start it again.",
                     ok=False,
                 ),
                 status_code=400,
@@ -1362,7 +1379,7 @@ def create_app(
         return HTMLResponse(
             _browser_page(
                 "Connected",
-                "Sign-in complete. You can close this tab and return to OpenWorker.",
+                "Sign-in complete. You can close this tab and return to Vegapunk.",
                 ok=True,
             )
         )
@@ -1418,55 +1435,15 @@ def create_app(
 
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
-        # Managed profiles: best-effort flip of the cloud metadata record first
-        # (network call → off the loop). Local deletion always proceeds.
-        from .. import cloud
-        from ..config import load_config
-
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(manager.secrets, load_config(), name)
-        )
         result = manager.disconnect_connector(name)
         await _refresh_listeners_if_two_way(name)
         return result
 
-    @app.post("/v1/connectors/slack/workspaces/{team_id}/disconnect")
-    async def slack_workspace_disconnect(team_id: str) -> dict[str, Any]:
-        """Stop relaying one workspace (managed relay). Cloud routing row deleted
-        best-effort, local per-team token removed, gateway hot-reloaded."""
-        return await manager.disconnect_slack_workspace(team_id)
-
-    @app.get("/v1/connectors/slack/status")
-    async def slack_status() -> dict[str, Any]:
-        """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
-        return manager.slack_status()
-
-    @app.post("/v1/connectors/github/installations/{installation_id}/disconnect")
-    async def github_installation_disconnect(installation_id: str) -> dict[str, Any]:
-        """Stop relaying one GitHub App installation (managed relay). Cloud
-        routing rows deleted best-effort, local profile removed, gateway
-        hot-reloaded."""
-        return await manager.disconnect_github_installation(installation_id)
-
-    @app.get("/v1/connectors/github/status")
-    async def github_status() -> dict[str, Any]:
-        """GitHub health: relay socket / cloud sign-in / per-installation tokens."""
-        return manager.github_status()
-
     @app.post("/v1/connectors/gmail/accounts/{email}/disconnect")
-    async def gmail_account_disconnect(email: str) -> dict[str, Any]:
-        """Drop ONE mailbox (cloud metadata best-effort first, like a full
-        disconnect); the default pointer moves to the next account."""
-        from .. import cloud
-        from ..config import load_config
+    def gmail_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE mailbox; the default pointer moves to the next account."""
         from ..connectors import gmail_accounts
 
-        profile_key = gmail_accounts.PREFIX + email.strip().lower()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets, load_config(), "gmail", profile_key=profile_key
-            )
-        )
         return gmail_accounts.disconnect_account(manager.secrets, email)
 
     @app.post("/v1/connectors/gmail/accounts/{email}/default")
@@ -1490,22 +1467,11 @@ def create_app(
         return gmail_accounts.set_filters(manager.secrets, senders, labels)
 
     @app.post("/v1/connectors/google_calendar/accounts/{email}/disconnect")
-    async def gcal_account_disconnect(email: str) -> dict[str, Any]:
-        """Drop ONE Google Calendar account (cloud metadata best-effort first);
-        the default pointer moves to the next account."""
-        from .. import cloud
-        from ..config import load_config
+    def gcal_account_disconnect(email: str) -> dict[str, Any]:
+        """Drop ONE Google Calendar account; the default pointer moves to the
+        next account."""
         from ..connectors import gcal_accounts
 
-        profile_key = gcal_accounts.PREFIX + email.strip().lower()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets,
-                load_config(),
-                "google_calendar",
-                profile_key=profile_key,
-            )
-        )
         return gcal_accounts.disconnect_account(manager.secrets, email)
 
     @app.post("/v1/connectors/google_calendar/accounts/{email}/default")
@@ -1515,17 +1481,9 @@ def create_app(
         return gcal_accounts.set_default(manager.secrets, email)
 
     @app.post("/v1/connectors/hubspot/portals/{hub_id}/disconnect")
-    async def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
-        from .. import cloud
-        from ..config import load_config
+    def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
         from ..connectors import hubspot_portals
 
-        profile_key = hubspot_portals.PREFIX + hub_id.strip()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets, load_config(), "hubspot", profile_key=profile_key
-            )
-        )
         return hubspot_portals.disconnect_portal(manager.secrets, hub_id)
 
     @app.post("/v1/connectors/hubspot/portals/{hub_id}/default")
@@ -1535,22 +1493,13 @@ def create_app(
         return hubspot_portals.set_default(manager.secrets, hub_id)
 
     @app.post("/v1/connectors/{name}/accounts/{account_id}/disconnect")
-    async def account_disconnect(name: str, account_id: str) -> dict[str, Any]:
+    def account_disconnect(name: str, account_id: str) -> dict[str, Any]:
         """Generic per-account disconnect for account-patterned connectors
         (batch 2+). Gmail/Calendar keep their specific email routes."""
-        from .. import cloud
-        from ..config import load_config
         from ..connectors import accounts
 
         if not accounts.is_account_connector(name):
             return {"ok": False, "error": "not a multi-account connector"}
-        _id, profile_key, profile = accounts.resolve(manager.secrets, name, account_id)
-        if profile and profile.get("managed"):
-            await asyncio.to_thread(
-                lambda: cloud.cloud_disconnect(
-                    manager.secrets, load_config(), name, profile_key=profile_key
-                )
-            )
         return accounts.disconnect_account(manager.secrets, name, account_id)
 
     @app.post("/v1/connectors/{name}/accounts/{account_id}/default")
@@ -1580,257 +1529,6 @@ def create_app(
         action = str((body or {}).get("action", "")).strip()
         return await manager.resolve_unauthorized(name, item_id, action)
 
-    # -- OpenWorker Cloud: sign-in + managed one-click connect ---------------
-    # All optional: the app is fully functional signed out (manual token paste
-    # stays available for every connector, before and after sign-in).
-
-    @app.get("/v1/cloud/status")
-    def cloud_status() -> dict[str, Any]:
-        from .. import cloud
-
-        return {
-            **cloud.status(manager.secrets),
-            "telemetry_enabled": cloud.telemetry_enabled(manager.secrets),
-        }
-
-    @app.post("/v1/cloud/telemetry")
-    def cloud_telemetry(body: dict) -> dict[str, Any]:
-        """The Phase 5 opt-out toggle. Local preference only — signed-out users
-        send nothing regardless of this value."""
-        from .. import cloud
-
-        return cloud.set_telemetry_enabled(
-            manager.secrets, bool((body or {}).get("enabled", True))
-        )
-
-    @app.post("/v1/cloud/login")
-    def cloud_login() -> dict[str, Any]:
-        """Start browser sign-in. The sidecar opens the system browser itself
-        (works identically under Tauri and plain-browser dev)."""
-        import webbrowser
-
-        from .. import cloud
-        from ..config import load_config
-
-        out = cloud.begin_login(load_config())
-        webbrowser.open(out["authorize_url"])
-        return {"ok": True, "authorize_url": out["authorize_url"]}
-
-    @app.post("/v1/cloud/logout")
-    def cloud_logout() -> dict[str, Any]:
-        from .. import cloud
-
-        return cloud.logout(manager.secrets)
-
-    @app.get("/auth/callback")
-    async def cloud_auth_callback(code: str = "", state: str = "", error: str = ""):
-        from fastapi.responses import HTMLResponse
-
-        from .. import cloud
-        from ..config import load_config
-
-        signin_failed_detail = (
-            "Close this tab and try signing in again from OpenWorker."
-        )
-        if error:
-            return HTMLResponse(
-                _browser_page(
-                    "Sign-in failed", signin_failed_detail, ok=False, error=error
-                ),
-                status_code=400,
-            )
-        result = await asyncio.to_thread(
-            lambda: cloud.complete_login(manager.secrets, load_config(), code, state)
-        )
-        if not result.get("ok"):
-            return HTMLResponse(
-                _browser_page(
-                    "Sign-in failed",
-                    signin_failed_detail,
-                    ok=False,
-                    error=result.get("error", ""),
-                ),
-                status_code=400,
-            )
-
-        # Restore managed connections in the background: best-effort metadata work
-        # that must not hold the "Signed in" page (or the GUI's signed-in flip)
-        # hostage to another broker round trip. Restored GitHub installs hot-add
-        # the gateway so the relay connects without a restart.
-        async def _restore_connections() -> None:
-            try:
-                out = await asyncio.to_thread(
-                    lambda: cloud.sync_connections(manager.secrets, load_config())
-                )
-                if out.get("restored"):
-                    await manager.refresh_gateway()
-            except Exception:
-                pass  # sign-in stands; the user can still connect by hand
-
-        asyncio.get_running_loop().create_task(_restore_connections())
-        return HTMLResponse(
-            _browser_page(
-                "Signed in",
-                "You're signed in to OpenWorker Cloud. "
-                "You can close this tab and return to OpenWorker.",
-            )
-        )
-
-    @app.post("/v1/connectors/{name}/connect-managed")
-    async def connector_connect_managed(
-        name: str, body: Optional[dict] = None
-    ) -> dict[str, Any]:
-        """One-click managed OAuth (requires cloud sign-in). Opens the provider
-        consent page in the system browser; the broker's callback page will
-        form-POST the tokens to /oauth/callback below. `access` picks a consent
-        tier by NAME (e.g. hubspot read | write) — the broker owns the scopes."""
-        import webbrowser
-
-        from .. import cloud
-        from ..config import load_config
-        from ..connectors.descriptors import get_descriptor
-
-        d = get_descriptor(name)
-        if d is not None and d.managed_paused:
-            # GUI shows the Coming-soon state; this guard covers stale GUIs/API callers.
-            return {
-                "ok": False,
-                "error": f"one-click connect for {d.title} is coming soon — connect manually for now",
-            }
-        access = str((body or {}).get("access") or "")
-        flow = str((body or {}).get("flow") or "")  # github: "" install | "authorize"
-        out = await asyncio.to_thread(
-            lambda: cloud.begin_managed_connect(
-                manager.secrets, load_config(), name, access=access, flow=flow
-            )
-        )
-        if out.get("ok"):
-            webbrowser.open(out["authorize_url"])
-        return out
-
-    @app.post("/oauth/callback")
-    async def managed_oauth_callback(request: Request) -> Any:
-        from fastapi.responses import HTMLResponse
-
-        from .. import cloud
-        from ..connectors.setup import (
-            managed_connect_connector,
-            managed_connect_slack_install,
-        )
-
-        form = await request.form()
-        data = {k: str(v) for k, v in form.items()}
-        connector = data.get("connector", "")
-        if not cloud.consume_managed_state(data.get("app_state", "")):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error="unknown or expired connection attempt",
-                ),
-                status_code=400,
-            )
-        if data.get("error"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error=data["error"],
-                ),
-                status_code=400,
-            )
-        # Managed GitHub deliberately carries NO token fields — the loopback POST
-        # is routing metadata only (installation tokens are minted on demand,
-        # github-relay-spec §4) — so its branch precedes the access_token check.
-        if connector == "github" and data.get("installation_id"):
-            from ..connectors.github_installs import managed_connect_install
-
-            result = managed_connect_install(manager.secrets, data)
-            if result.get("ok"):
-                await manager.refresh_gateway()  # hot-add, like a workspace
-            if not result.get("ok"):
-                return HTMLResponse(
-                    _browser_page(
-                        "Connection failed",
-                        _CONNECT_FAILED_DETAIL,
-                        ok=False,
-                        error=result.get("error", ""),
-                    ),
-                    status_code=400,
-                )
-            return HTMLResponse(
-                _browser_page(
-                    "GitHub connected",
-                    "You can close this tab and return to OpenWorker.",
-                    connector="github",
-                )
-            )
-        if not connector or not data.get("access_token"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error="missing fields",
-                ),
-                status_code=400,
-            )
-        # Managed Slack is multi-workspace + relay: store the per-team bot token
-        # and flip to relay mode, rather than the single-token connector path.
-        if connector == "slack" and data.get("team_id"):
-            result = managed_connect_slack_install(manager.secrets, data)
-            if result.get("ok"):
-                # Hot-add: rebuild the gateway so the new workspace's token loads
-                # (and the relay socket opens on a first-ever install) right away.
-                await manager.refresh_gateway()
-        elif connector == "gmail":
-            # Multi-account: each sign-in lands in its own gmail:account:<email>
-            # profile; the first becomes the default mailbox.
-            from ..connectors import gmail_accounts
-
-            result = gmail_accounts.managed_connect_account(
-                manager.secrets, cloud.managed_profile_from_callback(data)
-            )
-        elif connector == "google_calendar":
-            # Multi-account, same shape as gmail: google_calendar:account:<email>.
-            from ..connectors import gcal_accounts
-
-            result = gcal_accounts.managed_connect_account(
-                manager.secrets, cloud.managed_profile_from_callback(data)
-            )
-        elif connector == "hubspot" and data.get("hub_id"):
-            # Multi-portal: keyed by hub_id (broker sends it like Slack's team_id).
-            from ..connectors import hubspot_portals
-
-            profile = cloud.managed_profile_from_callback(data)
-            profile["hub_id"] = data.get("hub_id", "")
-            if data.get("sandbox"):
-                profile["sandbox"] = True
-            result = hubspot_portals.managed_connect_portal(manager.secrets, profile)
-        else:
-            result = managed_connect_connector(
-                manager.secrets, connector, cloud.managed_profile_from_callback(data)
-            )
-        if not result.get("ok"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error=result.get("error", ""),
-                ),
-                status_code=400,
-            )
-        return HTMLResponse(
-            _browser_page(
-                f"{_connector_title(connector)} connected",
-                "You can close this tab and return to OpenWorker.",
-                connector=connector,
-            )
-        )
-
     @app.patch("/v1/connectors/{name}/tools")
     def connector_tools_patch(name: str, body: dict) -> dict[str, Any]:
         enabled = (body or {}).get("enabled")
@@ -1840,45 +1538,37 @@ def create_app(
 
     @app.post("/v1/connectors/{name}/allow")
     def connector_allow(name: str, body: dict) -> dict[str, Any]:
-        # `team_id` scopes the edit to one workspace (managed relay); absent → flat list.
         # `name` (optional) seeds the people directory so a directory-picked user's
         # chip shows their display name before they've ever sent a message.
         return manager.allow_user(
             name,
             str(body.get("user_id", "")),
-            str(body.get("team_id", "")) or None,
             display_name=str(body.get("name", "")),
         )
 
-    @app.get("/v1/connectors/slack/workspaces/{team_id}/directory")
-    async def slack_directory(
-        team_id: str, q: str = "", limit: int = 25
-    ) -> dict[str, Any]:
-        """Workspace member roster for the people picker (team_id "default" =
-        the manual Socket-Mode workspace). Cached locally; never leaves this machine."""
+    @app.get("/v1/connectors/slack/directory")
+    async def slack_directory(q: str = "", limit: int = 25) -> dict[str, Any]:
+        """Workspace member roster for the people picker. Cached locally; never
+        leaves this machine."""
         from ..connectors import slack_directory as roster
 
         return await asyncio.to_thread(
-            lambda: roster.list_members(manager.secrets, team_id, q, limit)
+            lambda: roster.list_members(manager.secrets, q, limit)
         )
 
-    @app.get("/v1/connectors/slack/workspaces/{team_id}/channels")
-    async def slack_channels(
-        team_id: str, q: str = "", limit: int = 25
-    ) -> dict[str, Any]:
+    @app.get("/v1/connectors/slack/channels")
+    async def slack_channels(q: str = "", limit: int = 25) -> dict[str, Any]:
         """Channel roster for the channel typeahead: all public channels, private
         ones only where the bot is a member (Slack API constraint)."""
         from ..connectors import slack_directory as roster
 
         return await asyncio.to_thread(
-            lambda: roster.list_channels(manager.secrets, team_id, q, limit)
+            lambda: roster.list_channels(manager.secrets, q, limit)
         )
 
     @app.post("/v1/connectors/{name}/disallow")
     def connector_disallow(name: str, body: dict) -> dict[str, Any]:
-        return manager.disallow_user(
-            name, str(body.get("user_id", "")), str(body.get("team_id", "")) or None
-        )
+        return manager.disallow_user(name, str(body.get("user_id", "")))
 
     @app.post("/v1/connectors/slack/approval-owners/add")
     def slack_approval_owner_add(body: dict) -> dict[str, Any]:

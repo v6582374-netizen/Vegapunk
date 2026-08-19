@@ -1,15 +1,15 @@
 // The Automations quickstart (UX-DECISIONS §29): ONE template system — the former onboarding
-// recipe (role templates, connect rows, lazy cloud sign-in, §25 consent) merged into the page's
-// "Start from a template" grid. Cards carry §27's connector-dot vocabulary; picking one expands
-// the configure card. The `ob-*` testids moved here with the machinery.
+// recipe (role templates, connect rows, §25 consent) merged into the page's "Start from a
+// template" grid. Cards carry §27's connector-dot vocabulary; picking one expands the configure
+// card. Connecting itself is NOT done here: each connector takes its own token, so an
+// unconnected row points at the Connectors page and the template stays gated until it lands.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openAutomations(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByTestId("account-menu").getByRole("button", { name: "Automations", exact: true }).click();
-  await expect(page.getByText("Recurring tasks OpenWorker runs on a schedule.")).toBeVisible();
+  await page.getByTestId("nav-automations").click();
+  await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
 }
 
 // The fixtures seed one task, so the quickstart isn't on the bare list — surface it via the
@@ -21,7 +21,7 @@ async function openQuickstart(page) {
   await expect(page.getByText("Start from a template")).toBeVisible();
 }
 
-test("role recipe: connect rows, lazy single sign-in, channel by name, consent mints the grant", async ({
+test("gated template: the unconnected row points at Connectors and blocks Create", async ({
   page,
 }) => {
   await openQuickstart(page);
@@ -38,16 +38,27 @@ test("role recipe: connect rows, lazy single sign-in, channel by name, consent m
   await expect(page.getByTestId("ob-create")).toBeDisabled();
   await expect(page.getByTestId("ob-create-hint")).toContainText("Connect HubSpot");
 
-  // Connect HubSpot while signed out → the ONE cloud pane appears; signing in finishes the
-  // pending connect without another click.
-  await page.getByTestId("ob-connect-hubspot").click();
-  await expect(page.getByTestId("ob-cloudpane")).toBeVisible();
-  await page.getByTestId("ob-cloud-signin").click();
-  await expect(page.getByTestId("ob-recipe")).toBeVisible({ timeout: 15_000 });
+  // HubSpot needs its own token, which lives on the Connectors page — the row says so
+  // instead of pretending a one-click exists here.
+  await expect(page.getByTestId("ob-connect-hubspot")).toContainText(
+    "set it up on the Connectors page",
+  );
+});
+
+test("fully connected template: channel by name, consent mints the standing grant", async ({
+  page,
+}) => {
+  await openQuickstart(page);
+
+  // GitHub digest: both connectors (slack + github) are connected in fixtures, so the
+  // recipe form is live immediately.
+  await page.getByTestId("qs-template-github").click();
+  await expect(page.getByTestId("ob-recipe")).toBeVisible();
 
   // Connected but no channel → the gate names the missing piece (tester catch 2026-07-12).
   await expect(page.getByTestId("ob-create-hint")).toContainText("Pick a channel");
 
+  await page.getByTestId("ob-repo").fill("acme/site");
   // Channel picked BY NAME; §25 consent pre-checked; create lands on the task's detail with
   // the standing grant listed.
   const chan = page.locator('[data-testid="ob-channel"] input');
@@ -58,43 +69,8 @@ test("role recipe: connect rows, lazy single sign-in, channel by name, consent m
   await page.getByTestId("ob-create").click();
 
   await expect(page.getByRole("button", { name: /Run now/ })).toBeVisible();
-  await expect(page.getByText("Pipeline digest").first()).toBeVisible();
+  await expect(page.getByText("GitHub digest").first()).toBeVisible();
   await expect(page.getByTestId("task-grants")).toContainText("send_message");
-});
-
-test("connect narrates itself: Opening browser → waiting strip → Cancel restores the button", async ({
-  page,
-}) => {
-  await openQuickstart(page);
-  // Sign in out-of-band so Connect goes straight to the broker flow (no cloud pane).
-  await page.evaluate(() => fetch("/v1/cloud/login", { method: "POST" }));
-
-  // Hold the connect POST open (§30's 4–5 s of dead air) and never flip the fixture's
-  // connected state — the waiting strip owns the gap until the user acts.
-  let release: (() => void) | undefined;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route(/\/v1\/connectors\/hubspot\/connect-managed$/, async (route) => {
-    await held;
-    await route.fulfill({ json: { ok: true } });
-  });
-
-  await page.getByTestId("qs-template-pipeline").click();
-  // The mount refresh must land the signed-in status before Connect is clicked, or the
-  // click would open the sign-in pane instead of the broker flow.
-  await page.waitForResponse(/\/v1\/cloud\/status/);
-  await page.getByTestId("ob-connect-hubspot").click();
-  await expect(page.getByText("Opening browser…")).toBeVisible();
-
-  release!();
-  await expect(page.getByText("Waiting for HubSpot…")).toBeVisible();
-  await expect(page.getByTestId("ob-connect-wait")).toContainText(
-    "Finish connecting HubSpot in your browser",
-  );
-
-  // Cancel clears only the LOCAL waiting state — the Connect button returns.
-  await page.getByTestId("ob-connect-cancel").click();
-  await expect(page.getByTestId("ob-connect-wait")).toHaveCount(0);
-  await expect(page.getByTestId("ob-connect-hubspot")).toBeVisible();
 });
 
 test("read-only recipe (Morning brief) carries disclosure, not a grant", async ({ page }) => {

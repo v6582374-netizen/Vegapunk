@@ -17,7 +17,10 @@ from ..tools.utils import get_related_tools
 from ..models.base_model import BaseModel
 from .base_agent import BaseAgent, AgentExecutionError
 from .codeview_agent import get_repo_structure
-from ..workflow.data_type import normalize_external_data_requirement
+from ..workflow.data_type import (
+    EXTERNAL_DATA_POLICY_ALLOWED,
+    resolve_external_data_declaration,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -499,31 +502,43 @@ class GenerationAgent(BaseAgent):
                                 "type": "string",
                                 "description": "Reasoning for why this idea is plausible"
                             },
-                            "requires_external_data": {
-                                "type": "boolean",
-                                "description": "Whether this idea needs externally acquired data. This must always be explicit; there is no uncertain state."
-                            },
-                            "external_data_request": {
-                                "type": "string",
-                                "description": "When requires_external_data is true, describe the concrete variables, conditions, units, range, resolution and format needed."
-                            },
-                            "external_data_reason": {
-                                "type": "string",
-                                "description": "When requires_external_data is false, explain why the idea can be evaluated without externally acquired data."
-                            },
-                            "external_data_route": {
-                                "type": "string",
-                                "enum": ["registered_api", "public_web", "none"],
-                                "description": "Use registered_api only for a specifically appropriate configured provider; use public_web for official public sources such as BLS or O*NET; use none when external data is unnecessary."
+                            # The decision is a choice, not a table.  Each branch
+                            # carries only its own payload, so an Idea can no
+                            # longer be forced to invent the other branch's field.
+                            "external_data": {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "required": {"const": True},
+                                            "request": {
+                                                "type": "string",
+                                                "description": "The concrete variables, conditions, units, range, resolution and format needed."
+                                            }
+                                        },
+                                        "required": ["required", "request"],
+                                        "additionalProperties": False
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "required": {"const": False},
+                                            "reason": {
+                                                "type": "string",
+                                                "description": "Why this idea can be evaluated without externally acquired data."
+                                            }
+                                        },
+                                        "required": ["required", "reason"],
+                                        "additionalProperties": False
+                                    }
+                                ],
+                                "description": "Declare exactly one branch: required=true with a request, or required=false with a reason."
                             }
                         },
                         "required": [
                             "text",
                             "rationale",
-                            "requires_external_data",
-                            "external_data_request",
-                            "external_data_reason",
-                            "external_data_route",
+                            "external_data",
                         ]
                     }
                 },
@@ -624,7 +639,12 @@ class GenerationAgent(BaseAgent):
                     base_prompt=base_prompt
                 )
 
-            hypotheses = self._normalize_external_data_hypotheses(hypotheses)
+            hypotheses = self._resolve_external_data_declarations(
+                hypotheses,
+                policy=goal.get(
+                    "external_data_policy", EXTERNAL_DATA_POLICY_ALLOWED
+                ),
+            )
 
             # Add metadata to the response
             result = {
@@ -645,60 +665,54 @@ class GenerationAgent(BaseAgent):
             raise AgentExecutionError(f"Failed to generate hypotheses: {str(e)}")
 
     @staticmethod
-    def _normalize_external_data_hypotheses(
+    def _resolve_external_data_declarations(
         hypotheses: Any,
+        *,
+        policy: str = EXTERNAL_DATA_POLICY_ALLOWED,
     ) -> List[Dict[str, Any]]:
-        """Normalize declarations before they leave the generation boundary."""
-        normalized_hypotheses: List[Dict[str, Any]] = []
+        """Resolve each declaration against the Task policy at this boundary.
+
+        Generation is one of two entrances that can create an Idea.  Both use
+        the same customs house, so an Idea can only narrow what its Task already
+        permits.
+        """
+        resolved_hypotheses: List[Dict[str, Any]] = []
         for index, hypothesis in enumerate(hypotheses or []):
             if not isinstance(hypothesis, dict):
                 logger.warning(
                     "Generation hypothesis %s was not an object; external data acquisition was disabled",
                     index,
                 )
-                normalized_hypotheses.append(
+                declaration, _ = resolve_external_data_declaration(None, policy=policy)
+                resolved_hypotheses.append(
                     {
                         "text": "",
                         "rationale": "",
-                        "requires_external_data": False,
-                        "external_data_request": "",
-                        "external_data_reason": (
-                            "Generation returned an invalid hypothesis object; "
-                            "external data acquisition is disabled by default."
-                        ),
-                        "external_data_route": "none",
+                        "external_data": {
+                            "required": declaration.required,
+                            "request": declaration.request,
+                            "reason": declaration.reason,
+                        },
                     }
                 )
                 continue
 
-            (
-                requires_external_data,
-                external_data_request,
-                external_data_reason,
-                external_data_route,
-                warning,
-            ) = normalize_external_data_requirement(
-                hypothesis.get("requires_external_data"),
-                hypothesis.get("external_data_request"),
-                hypothesis.get("external_data_reason"),
-                hypothesis.get("external_data_route"),
+            declaration, warning = resolve_external_data_declaration(
+                hypothesis.get("external_data"), policy=policy
             )
             if warning:
                 logger.warning("Hypothesis %s external-data declaration: %s", index, warning)
 
-            normalized = dict(hypothesis)
-            normalized.update(
-                {
-                    "requires_external_data": requires_external_data,
-                    "external_data_request": external_data_request,
-                    "external_data_reason": external_data_reason,
-                    "external_data_route": external_data_route,
-                }
-            )
-            normalized_hypotheses.append(normalized)
+            resolved = dict(hypothesis)
+            resolved["external_data"] = {
+                "required": declaration.required,
+                "request": declaration.request,
+                "reason": declaration.reason,
+            }
+            resolved_hypotheses.append(resolved)
 
-        return normalized_hypotheses
-    
+        return resolved_hypotheses
+
     def _build_tool_prompt(self) -> str:
         """
         Build tool usage context prompt.
@@ -953,35 +967,29 @@ class GenerationAgent(BaseAgent):
                         # Import the function when needed
                         from .codeview_agent import get_repo_structure_codex
 
-                        # Get proxy settings and model from config if available
                         proxy_settings = global_config.get("proxy_settings", None)
-                        codex_model = global_config.get("experiment", {}).get("model", "gpt-5.6-sol")
 
-                        logger.info(f"Using Codex CLI backend to generate code summary with model: {codex_model}")
+                        logger.info(
+                            "Using the Codex CLI backend to generate the code summary"
+                        )
                         ref_code = get_repo_structure_codex(
                             project_path=ref_code_path,
                             output_dir=ref_code_path,
                             output_name="code_summary.json",
                             proxy_settings=proxy_settings,
-                            model=codex_model
                         )
                     elif exp_backend == "qwen_code":
                         from .codeview_agent import get_repo_structure_qwen_code
 
                         proxy_settings = global_config.get("proxy_settings", None)
-                        qwen_model = global_config.get("experiment", {}).get(
-                            "model", "qwen3.6-plus"
-                        )
                         logger.info(
-                            "Using Qwen Code backend to generate code summary with model: %s",
-                            qwen_model,
+                            "Using the Qwen Code backend to generate the code summary"
                         )
                         ref_code = get_repo_structure_qwen_code(
                             project_path=ref_code_path,
                             output_dir=ref_code_path,
                             output_name="code_summary.json",
                             proxy_settings=proxy_settings,
-                            model=qwen_model,
                         )
                     else:
                         # Use the shared codeview agent for non-Codex coding backends.

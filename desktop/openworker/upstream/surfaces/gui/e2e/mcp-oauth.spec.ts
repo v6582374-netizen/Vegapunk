@@ -6,8 +6,7 @@ import { test } from "./fixtures";
 
 async function openMcpTab(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
   await page.getByRole("button", { name: "MCP servers", exact: true }).click();
 }
 

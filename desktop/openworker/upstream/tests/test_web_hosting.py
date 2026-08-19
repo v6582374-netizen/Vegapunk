@@ -32,7 +32,7 @@ def test_linux_web_counterpart_serves_desktop_spa_and_cookie_auth(tmp_path, monk
 
     login_page = client.get("/")
     assert login_page.status_code == 200
-    assert "Sign in to OpenWorker" in login_page.text
+    assert "Sign in to Vegapunk" in login_page.text
 
     denied = client.get("/v1/sessions")
     assert denied.status_code == 401

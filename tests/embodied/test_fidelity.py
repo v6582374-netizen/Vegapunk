@@ -6,7 +6,7 @@ import importlib.util
 import unittest
 
 from vegapunk.embodied.embodiment import (
-    UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+    UNIFOLM_VLA_BASE_G1_EE6D,
     EmbodimentProfile,
 )
 from vegapunk.embodied.fidelity import (
@@ -259,7 +259,7 @@ class PolicyObservationTests(unittest.TestCase):
     """A learned policy's observation is a stricter contract than the robot's."""
 
     def _policy_keys(self) -> tuple[str, ...]:
-        return UNIFOLM_VLA_BASE_G1_DEX1_JOINT.expected_camera_keys
+        return UNIFOLM_VLA_BASE_G1_EE6D.expected_camera_keys
 
     def test_a_policy_camera_the_environment_does_not_render_is_refused(
         self,

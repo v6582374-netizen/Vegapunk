@@ -209,3 +209,6 @@ docs/README.md
 # checkouts inside the repository they came from.  Note that .scratch/ is
 # deliberately NOT ignored: its design notes are tracked on purpose.
 .claude/
+
+# Local preview TLS material
+desktop/openworker/upstream/.scratch/embodied-sim-preview/

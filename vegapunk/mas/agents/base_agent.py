@@ -19,7 +19,7 @@ import time
 import json
 from typing import Dict, Any, Optional, List, Union, Callable
 import asyncio
-from ..models.base_model import BaseModel
+from ..models.base_model import BaseModel, ModelError
 from ..models.runtime import FunctionTool, ReasoningConfig
 from .tool_loop import ModelToolLoop
 
@@ -59,7 +59,7 @@ class BaseAgent(abc.ABC):
         name (str): Human-readable name for the agent
         description (str): Brief description of agent's purpose
         system_prompt (str): Default system-level instructions for the model
-        max_retries (int): Maximum number of retry attempts on failures
+        max_retries (int): Attempts at re-asking after an unusable answer
         last_execution_time (float): Duration of most recent execution in seconds
         total_calls (int): Cumulative count of agent invocations
 
@@ -89,7 +89,9 @@ class BaseAgent(abc.ABC):
                 - name (str): Agent's display name
                 - description (str): Purpose and capabilities description
                 - system_prompt (str): Default system-level instructions
-                - max_retries (int): Maximum retry attempts on failures (default: 10)
+                - max_retries (int): Attempts at re-asking after an
+                  unusable *answer* (default: 2). Transport failures are
+                  not counted here; the Runtime owns those.
 
         Returns:
             None
@@ -103,7 +105,7 @@ class BaseAgent(abc.ABC):
         self.name = config.get("name", self.__class__.__name__)
         self.description = config.get("description", "")
         self.system_prompt = config.get("system_prompt", "")
-        self.max_retries = config.get("max_retries", 10)
+        self.max_retries = config.get("max_retries", 2)
         
         # Additional metrics and settings
         self.last_execution_time = 0.0
@@ -293,13 +295,16 @@ class BaseAgent(abc.ABC):
                 - Dict[str, Any]: Structured JSON response when schema is provided
 
         Raises:
-            AgentExecutionError: When model calls fail consistently after exhausting
-                all retry attempts (max_retries). Contains details of the final error.
+            AgentExecutionError: When the model kept returning an unusable answer.
+            ModelError: Propagated untouched when the provider or transport
+                failed. That verdict was already reached under the Runtime's
+                own attempt and time budget, and asking again here would only
+                multiply two budgets that neither layer can see together.
 
         Note:
-            The method sleeps for 1 second between retry attempts to avoid hammering
-            the API and potentially triggering rate limits. Consider this latency when
-            designing time-sensitive operations.
+            This layer can judge one thing only: whether an answer is usable.
+            Retrying is therefore reserved for a malformed or unparseable
+            answer, where a fresh sample plausibly helps.
         """
         system_prompt = system_prompt or self.system_prompt
         remaining_retries = self.max_retries
@@ -322,15 +327,29 @@ class BaseAgent(abc.ABC):
                         agent_role=self.name,
                     )
                     
+            except ModelError:
+                # The provider already had its attempts, under a budget that
+                # weighed both count and elapsed time. Repeating that bet here
+                # buys no extra chance of success, only extra hours.
+                logger.warning(
+                    "Agent %s deferring to the Runtime's verdict on a provider "
+                    "failure; not re-asking",
+                    self.name,
+                )
+                raise
             except Exception as e:
-                # sleep for a short time before retrying, log time count
                 await asyncio.sleep(1)
-                
+
                 remaining_retries -= 1
-                logger.warning(f"Agent {self.name} model call failed: {str(e)}. Retries left: {remaining_retries}")
-                
+                logger.warning(
+                    f"Agent {self.name} received an unusable answer: {str(e)}. "
+                    f"Retries left: {remaining_retries}"
+                )
+
                 if remaining_retries <= 0:
-                    raise AgentExecutionError(f"Agent {self.name} failed after max retries: {str(e)}")
+                    raise AgentExecutionError(
+                        f"Agent {self.name} failed after max retries: {str(e)}"
+                    )
 
     async def _call_model_with_tools(
             self,

@@ -2,7 +2,7 @@
 // row/glance machinery is retired). Contract: the header carries a PERMANENT summary of what
 // the session can touch; expanding edits inline at rail width (no overlay, no dialog).
 // Fixture state: browser + slack + github connected/enabled (github is two_way WITHOUT
-// channels — relay mentions, no subscriptions), gmail recommended-not-connected, one
+// channels — inbound mentions, no subscriptions), gmail recommended-not-connected, one
 // primary root → summary "Browser, Slack +1 · 1 folder".
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
@@ -34,7 +34,7 @@ test("no topbar opener; the Access header IS the ambient glance; expanding edits
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Channels is a chat capability, not a two_way one: Slack gets the drill-down, GitHub
-  // (two_way via the relay, no channel semantics) must NOT (owner report 2026-07-13).
+  // (two_way via inbound mentions, no channel semantics) must NOT (owner report 2026-07-13).
   await expect(body.getByRole("button", { name: /Channels ·/ })).toHaveCount(1);
   await expect(body.getByText("GitHub", { exact: true })).toBeVisible();
 });

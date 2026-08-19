@@ -139,7 +139,8 @@ class VegapunkInterface:
                            domain: str,
                            background: str = "",
                            ref_code_path: str = "",
-                           constraints: List[str] = None) -> str:
+                           constraints: List[str] = None,
+                           external_data_policy: str = "allowed") -> str:
         """
         Create a new research session.
 
@@ -149,6 +150,8 @@ class VegapunkInterface:
             background: Background information for context
             ref_code_path: Path to reference code (optional)
             constraints: List of constraints for the session
+            external_data_policy: Whether this Task permits externally acquired
+                data at all ('allowed' or 'forbidden')
 
         Returns:
             Session ID for the created session
@@ -164,7 +167,8 @@ class VegapunkInterface:
             domain=domain,
             background=background,
             ref_code_path=ref_code_path,
-            constraints=constraints or []
+            constraints=constraints or [],
+            external_data_policy=external_data_policy
         )
 
         # 这里的跟踪信息面向外部调用者，真正完整状态仍由工作流和记忆管理器保存。

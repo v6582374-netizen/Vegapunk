@@ -13,12 +13,12 @@ from vegapunk.embodied.admission import (
     HumanApproval,
     evaluate_admission,
 )
-from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_DEX1_JOINT
+from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_EE6D
 
 _NOW = datetime(2026, 8, 13, 9, 0, tzinfo=timezone.utc)
 _SKILL = "press_physical_button@1"
 _EMBODIMENT = "e0f1a2b3c4d5e6f7"
-_POLICY = UNIFOLM_VLA_BASE_G1_DEX1_JOINT.digest()
+_POLICY = UNIFOLM_VLA_BASE_G1_EE6D.digest()
 
 
 def _evidence(stage: str, **overrides: object) -> EvidenceRecord:

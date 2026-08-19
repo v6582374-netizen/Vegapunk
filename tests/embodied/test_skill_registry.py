@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_DEX1_JOINT
+from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_EE6D
 from vegapunk.embodied.skill import (
     SKILL_KIND_DETERMINISTIC,
     SKILL_KIND_VLA,
@@ -92,7 +92,7 @@ class SkillDefinitionTest(unittest.TestCase):
 
     def test_a_deterministic_skill_must_not_carry_a_policy(self) -> None:
         with self.assertRaises(ValueError):
-            _deterministic_skill(policy=UNIFOLM_VLA_BASE_G1_DEX1_JOINT)
+            _deterministic_skill(policy=UNIFOLM_VLA_BASE_G1_EE6D)
 
     def test_an_unknown_skill_kind_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -216,7 +216,7 @@ class SkillRegistryTest(unittest.TestCase):
             _deterministic_skill(
                 skill_id="place_block",
                 kind=SKILL_KIND_VLA,
-                policy=UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+                policy=UNIFOLM_VLA_BASE_G1_EE6D,
             )
         )
 

@@ -141,7 +141,7 @@ function DesktopRail({ active, onBack }: { active: boolean; onBack: () => void }
   ];
   return (
     <aside className="sm-proto-desktop-rail">
-      <div className="sm-proto-brand"><Icon name="logo" size={17} /><span>OpenWorker</span><em>DESKTOP</em></div>
+      <div className="sm-proto-brand"><Icon name="logo" size={17} /><span>Vegapunk</span><em>DESKTOP</em></div>
       <div className="sm-proto-rail-label">WORKSPACES</div>
       <div className="sm-proto-rail-list">
         {items.map((item) => (
@@ -258,7 +258,7 @@ function ToolsPage({ onAction }: { onAction: (message: string) => void }) {
 }
 
 function SettingsPage({ onAction }: { onAction: (message: string) => void }) {
-  return <PageFrame eyebrow="DESKTOP / SETTINGS" title="Settings" description="Appearance, typography, and language follow the OpenWorker Desktop surface." action={<SourceTag tone="desktop">DESKTOP CONTRACT</SourceTag>}><div className="sm-proto-settings-grid"><article className="sm-proto-setting-card"><span className="sm-proto-card-label">STORAGE</span><h3>Central Skills directory</h3><code>~/.skills-manager/skills</code><p>Local Skills and tool projections remain on this machine.</p><ActionButton onClick={() => onAction("Directory picker opened")}>Choose directory</ActionButton></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">LOCAL CONFIG</span><h3>Configuration</h3><code>~/.skills-manager/config.json</code><p>Atomic writes, migrations, and local tool bindings.</p><StatusPill tone="ok">Writable</StatusPill></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">RISK SCANNING</span><h3>Safety scan</h3><p>Rules, cache, and optional LLM review remain available for local Skills.</p><button type="button" className="sm-proto-toggle is-on" onClick={() => onAction("Risk scan toggle changed in prototype")}><span />Deep scan enabled</button></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">DESKTOP INTEGRATION</span><h3>Shared visual contract</h3><p>Theme, font, and language are owned by the OpenWorker Desktop shell.</p><SourceTag tone="desktop">INHERITED</SourceTag></article></div></PageFrame>;
+  return <PageFrame eyebrow="DESKTOP / SETTINGS" title="Settings" description="Appearance, typography, and language follow the Vegapunk Desktop surface." action={<SourceTag tone="desktop">DESKTOP CONTRACT</SourceTag>}><div className="sm-proto-settings-grid"><article className="sm-proto-setting-card"><span className="sm-proto-card-label">STORAGE</span><h3>Central Skills directory</h3><code>~/.skills-manager/skills</code><p>Local Skills and tool projections remain on this machine.</p><ActionButton onClick={() => onAction("Directory picker opened")}>Choose directory</ActionButton></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">LOCAL CONFIG</span><h3>Configuration</h3><code>~/.skills-manager/config.json</code><p>Atomic writes, migrations, and local tool bindings.</p><StatusPill tone="ok">Writable</StatusPill></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">RISK SCANNING</span><h3>Safety scan</h3><p>Rules, cache, and optional LLM review remain available for local Skills.</p><button type="button" className="sm-proto-toggle is-on" onClick={() => onAction("Risk scan toggle changed in prototype")}><span />Deep scan enabled</button></article><article className="sm-proto-setting-card"><span className="sm-proto-card-label">DESKTOP INTEGRATION</span><h3>Shared visual contract</h3><p>Theme, font, and language are owned by the Vegapunk Desktop shell.</p><SourceTag tone="desktop">INHERITED</SourceTag></article></div></PageFrame>;
 }
 
 function PageFrame({ eyebrow, title, description, action, children }: { eyebrow: string; title: string; description: string; action?: ReactNode; children: ReactNode }) {
@@ -290,7 +290,7 @@ export function SkillsManagerPrototype() {
       <DesktopRail active onBack={() => action("Outer Desktop navigation is represented by this prototype")} />
       <section className="sm-proto-window">
         <header className="sm-proto-window-bar">
-          <div className="sm-proto-window-context"><button type="button" onClick={() => action("Back to OpenWorker requested")}><Icon name="arrowLeft" size={14} /></button><span>OpenWorker</span><b>/</b><strong>Skills Manager</strong></div>
+          <div className="sm-proto-window-context"><button type="button" onClick={() => action("Back to Vegapunk requested")}><Icon name="arrowLeft" size={14} /></button><span>Vegapunk</span><b>/</b><strong>Skills Manager</strong></div>
           <div className="sm-proto-window-state"><span className="sm-proto-live-dot" />Desktop integration prototype <SourceTag tone="desktop">DESKTOP SHELL</SourceTag></div>
         </header>
         <div className="sm-proto-module">

@@ -49,26 +49,15 @@ export function ChannelPicker({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  // Slack workspaces for the roster lookup, learned lazily on first open (relay =
-  // per-team; manual Socket Mode = the "default" flat workspace; [] = not connected).
-  const [teams, setTeams] = useState<{ team_id: string; account: string }[] | null>(null);
+  // Is Slack connected? Socket Mode is ONE workspace, so the roster lookup needs
+  // nothing more than a yes/no (null = not asked yet). Learned lazily on first open.
+  const [slackOn, setSlackOn] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!open || teams !== null) return;
+    if (!open || slackOn !== null) return;
     getConnectors()
-      .then((cs) => {
-        const s = cs.find((c) => c.name === "slack");
-        if (!s?.connected) return setTeams([]);
-        setTeams(
-          s.mode === "relay"
-            ? (s.workspaces || []).map((w) => ({
-                team_id: w.team_id,
-                account: w.account || w.team_id,
-              }))
-            : [{ team_id: "default", account: s.account || "workspace" }],
-        );
-      })
-      .catch(() => setTeams([]));
-  }, [open, teams]);
+      .then((cs) => setSlackOn(!!cs.find((c) => c.name === "slack")?.connected))
+      .catch(() => setSlackOn(false));
+  }, [open, slackOn]);
 
   // Type a NAME → live roster suggestions (debounced; addresses/URLs skip the lookup).
   // `searching` keeps the wait VISIBLE: the first lookup per workspace is a cold
@@ -78,35 +67,33 @@ export function ChannelPicker({
   const [searching, setSearching] = useState(false);
   useEffect(() => {
     const name = value.trim().replace(/^#/, "");
-    if (!open || !teams || teams.length === 0 || !name || name.includes(":") || name.includes("/")) {
+    if (!open || !slackOn || !name || name.includes(":") || name.includes("/")) {
       setRoster([]);
       setSearching(false);
       return;
     }
     setSearching(true);
     const t = setTimeout(async () => {
-      const rows = await Promise.all(
-        teams.map(async (tm) => {
-          try {
-            const r = await getSlackChannels(tm.team_id, name);
-            return (r.ok ? r.channels || [] : []).map((c) => ({
-              address:
-                tm.team_id === "default" ? `slack:${c.id}` : `slack:${tm.team_id}/${c.id}`,
+      try {
+        const r = await getSlackChannels(name);
+        setRoster(
+          (r.ok ? r.channels || [] : [])
+            .map((c) => ({
+              address: `slack:${c.id}`,
               name: c.name,
-              workspace: teams.length > 1 ? tm.account : "",
+              workspace: "",
               is_private: c.is_private,
               is_member: c.is_member,
-            }));
-          } catch {
-            return [] as RosterHit[];
-          }
-        }),
-      );
-      setRoster(rows.flat().slice(0, 12));
+            }))
+            .slice(0, 12),
+        );
+      } catch {
+        setRoster([]);
+      }
       setSearching(false);
     }, 250);
     return () => clearTimeout(t);
-  }, [value, open, teams]);
+  }, [value, open, slackOn]);
 
   // Filter as the user types (name, address, or last-message text); full list on focus.
   const q = value.trim().toLowerCase();

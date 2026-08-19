@@ -15,11 +15,11 @@ import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, TAG_QUIET, TAG_WARN, XB
 // Default/Sandbox tags, the consent tier granted at connect) + Access & privacy
 // (hidden-fields denylist — hides data from the MODEL; HubSpot permission sets
 // are the ACL against humans) + collapsed Tools. Adding a portal goes through
-// the ONE entry point: header button → modal (One click w/ access radios | Manual).
+// the ONE entry point: header button → modal (private-app token paste).
 
 const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
-export function HubSpotDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
+export function HubSpotDetail({ c, onChanged }: DetailProps) {
   const [adding, setAdding] = useState(false);
   const portals = c.portals ?? [];
 
@@ -50,8 +50,8 @@ export function HubSpotDetail({ c, cloud, slack: _slack, onChanged }: DetailProp
       {!c.connected && (
         <div className={GRP}>
           <div className={ROW + " text-[12.5px] text-muted"}>
-            Connect a portal — read-only or read &amp; write is chosen at consent; there are no
-            delete tools either way.
+            Connect a portal with a private-app token — its scopes decide whether agents can
+            write; there are no delete tools either way.
           </div>
         </div>
       )}
@@ -78,7 +78,6 @@ export function HubSpotDetail({ c, cloud, slack: _slack, onChanged }: DetailProp
       {adding && (
         <AddConnectionModal
           c={c}
-          cloud={cloud}
           title="Add a portal"
           onClose={() => setAdding(false)}
           onChanged={onChanged}
@@ -103,7 +102,6 @@ function PortalRow({ p, onChanged }: { p: HubSpotPortal; onChanged: () => void }
             {p.access === "write" ? "read & write" : "read-only"}
           </span>
         )}
-        {!p.managed && <span className={TAG_QUIET}>private app</span>}
       </span>
       {!p.default && (
         <button

@@ -302,12 +302,13 @@ def test_connector_list_descriptors(tmp_path):
         by_name["telegram"]["two_way"] is True
         and by_name["telegram"]["connected"] is False
     )
-    # channels (chat capability) is narrower than two_way: GitHub is two-way via the
-    # relay (inbound mentions) but sessions can't subscribe to "GitHub channels".
+    # channels (chat capability) is narrower than two_way: only chat platforms have
+    # subscribable channels. GitHub is request/response only (PAT), so neither.
     assert by_name["telegram"]["channels"] is True
     assert by_name["slack"]["channels"] is True
     assert (
-        by_name["github"]["two_way"] is True and by_name["github"]["channels"] is False
+        by_name["github"]["two_way"] is False
+        and by_name["github"]["channels"] is False
     )
     assert (
         by_name["gmail"]["available"] is True and by_name["gmail"]["connected"] is False
@@ -1230,15 +1231,39 @@ def test_notion_read_page_flattens_blocks(tmp_path, monkeypatch):
     assert out["account"] == "ws1" and out["url"] == "https://n/x"
 
 
-def test_managed_callback_profile_keys_by_account_id(tmp_path):
+# -- multi-account keying (generic accounts layer) --------------------------------
+def _token_profile(form: dict) -> dict:
+    """A stored OAuth-style connector profile, the shape a token paste lands as."""
+    profile = {
+        'type': 'oauth',
+        'enabled': True,
+        'access_token': form.get('access_token', ''),
+        'scope': form.get('scope', ''),
+        'account': form.get('account', ''),
+    }
+    if form.get('account_id'):
+        profile['account_id'] = form['account_id']
+    return profile
+
+
+def _add_account(secrets, connector: str, profile: dict) -> dict:
+    """Store one account the way the connect path does: the descriptor decides
+    which field names it (account_field), then the generic layer keys by that."""
+    from coworker.connectors import accounts
+    from coworker.connectors.descriptors import get_descriptor
+
+    account_id = accounts.derive_account_id(get_descriptor(connector), profile)
+    out = accounts.add_account(secrets, connector, account_id, profile)
+    return {**out, 'account_id': account_id}
+
+
+def test_account_profile_keys_by_account_id(tmp_path):
     """Managed OAuth on an account-patterned connector: the broker's account_id
     keys the profile; a second workspace is a second account."""
-    from coworker.cloud import managed_profile_from_callback
     from coworker.connectors import accounts
-    from coworker.connectors.setup import managed_connect_connector
 
     secrets = SecretStore(tmp_path / "secrets.json")
-    p1 = managed_profile_from_callback(
+    p1 = _token_profile(
         {
             "access_token": "t1",
             "account": "Rohit's Workspace",
@@ -1247,12 +1272,12 @@ def test_managed_callback_profile_keys_by_account_id(tmp_path):
             "connection_id": "c1",
         }
     )
-    out = managed_connect_connector(secrets, "notion", p1)
+    out = _add_account(secrets, "notion", p1)
     assert out["ok"] and out["account_id"] == "ws-1"
-    p2 = managed_profile_from_callback(
+    p2 = _token_profile(
         {"access_token": "t2", "account": "Ops Space", "account_id": "ws-2"}
     )
-    managed_connect_connector(secrets, "notion", p2)
+    _add_account(secrets, "notion", p2)
     assert [a for a, _ in accounts.list_accounts(secrets, "notion")] == ["ws-1", "ws-2"]
     # display names survive; default stays the first workspace
     rows = accounts.account_rows(secrets, "notion")
@@ -1263,12 +1288,10 @@ def test_google_drive_multi_account_keys_by_email(tmp_path):
     """Managed Drive must add multiple accounts keyed by email — the same way
     Gmail does — not by the opaque Google `sub`. The broker sends both `account`
     (email) and `account_id` (sub); account_field="@identity" makes the email win."""
-    from coworker.cloud import managed_profile_from_callback
     from coworker.connectors import accounts
-    from coworker.connectors.setup import managed_connect_connector
 
     secrets = SecretStore(tmp_path / "secrets.json")
-    p1 = managed_profile_from_callback(
+    p1 = _token_profile(
         {
             "access_token": "t1",
             "account": "rohit@opencoworker.app",
@@ -1277,8 +1300,8 @@ def test_google_drive_multi_account_keys_by_email(tmp_path):
             "connection_id": "c1",
         }
     )
-    managed_connect_connector(secrets, "google_drive", p1)
-    p2 = managed_profile_from_callback(
+    _add_account(secrets, "google_drive", p1)
+    p2 = _token_profile(
         {
             "access_token": "t2",
             "account": "work@acme.com",
@@ -1286,7 +1309,7 @@ def test_google_drive_multi_account_keys_by_email(tmp_path):
             "provider": "google",
         }
     )
-    managed_connect_connector(secrets, "google_drive", p2)
+    _add_account(secrets, "google_drive", p2)
 
     ids = [a for a, _ in accounts.list_accounts(secrets, "google_drive")]
     assert ids == ["rohit@opencoworker.app", "work@acme.com"], ids
@@ -1295,20 +1318,18 @@ def test_google_drive_multi_account_keys_by_email(tmp_path):
     assert prof["access_token"] == "t2"
 
 
-def test_outlook_managed_multi_account_keys_by_email(tmp_path, monkeypatch):
+def test_outlook_multi_account_keys_by_email(tmp_path, monkeypatch):
     """Managed Outlook mirrors Gmail/Drive: broker `account` (email from the
     Microsoft id_token) keys each mailbox; tools take an account param."""
     import coworker.connectors.integration_tools as it
-    from coworker.cloud import managed_profile_from_callback
     from coworker.connectors import accounts
-    from coworker.connectors.setup import managed_connect_connector
 
     secrets = SecretStore(tmp_path / "secrets.json")
     for email, tok in (("rohit@openworker.com", "g1"), ("ops@acme.com", "g2")):
-        managed_connect_connector(
+        _add_account(
             secrets,
             "outlook",
-            managed_profile_from_callback(
+            _token_profile(
                 {"access_token": tok, "account": email, "provider": "microsoft"}
             ),
         )
@@ -1339,14 +1360,12 @@ def test_outlook_calendar_tools_hit_the_right_graph_endpoints(tmp_path, monkeypa
     provided fields, respond posts to the accept/decline/tentativelyAccept
     action endpoints."""
     import coworker.connectors.integration_tools as it
-    from coworker.cloud import managed_profile_from_callback
-    from coworker.connectors.setup import managed_connect_connector
 
     secrets = SecretStore(tmp_path / "secrets.json")
-    managed_connect_connector(
+    _add_account(
         secrets,
         "outlook",
-        managed_profile_from_callback(
+        _token_profile(
             {
                 "access_token": "tok",
                 "account": "rohit@openworker.com",

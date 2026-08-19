@@ -156,7 +156,7 @@ class Gateway:
             "chat_id": s.chat_id,
             "chat_type": s.chat_type,
             "target": s.target,
-            "team_id": s.team_id,  # workspace (managed relay); None for socket mode
+            "team_id": s.team_id,
         }
         while len(self._recent) > _RECENT_CAP:
             self._recent.popitem(last=False)

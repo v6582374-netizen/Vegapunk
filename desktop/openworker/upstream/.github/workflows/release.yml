@@ -143,9 +143,9 @@ jobs:
           BUNDLE=surfaces/gui/src-tauri/target/release/bundle
           cp "$BUNDLE"/dmg/*.dmg out/Vegapunk-${{ matrix.slug }}.dmg
           # The updater artifact is the signed .app archive the installed app swaps in.
-          if [ -f "$BUNDLE"/macos/OpenWorker.app.tar.gz ]; then
-            cp "$BUNDLE"/macos/OpenWorker.app.tar.gz out/Vegapunk-${{ matrix.slug }}.app.tar.gz
-            cp "$BUNDLE"/macos/OpenWorker.app.tar.gz.sig out/Vegapunk-${{ matrix.slug }}.app.tar.gz.sig
+          if [ -f "$BUNDLE"/macos/Vegapunk.app.tar.gz ]; then
+            cp "$BUNDLE"/macos/Vegapunk.app.tar.gz out/Vegapunk-${{ matrix.slug }}.app.tar.gz
+            cp "$BUNDLE"/macos/Vegapunk.app.tar.gz.sig out/Vegapunk-${{ matrix.slug }}.app.tar.gz.sig
           fi
           ls -la out
 

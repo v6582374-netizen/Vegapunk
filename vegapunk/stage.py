@@ -263,6 +263,10 @@ class IdeaGenerator:
         domain = params.get('domain')
         background = params.get('background', "")
         constraints = params.get('constraints', [])
+        # The Task owns whether external data may be acquired at all. Keeping it
+        # an explicit field means a prohibition no longer lives only in prose
+        # that every downstream agent has to re-read correctly.
+        external_data_policy = params.get('external_data_policy', 'allowed')
 
         if not goal or not domain:
             raise ValueError("Task description and domain are required")
@@ -275,7 +279,8 @@ class IdeaGenerator:
             domain=domain,
             background=background,
             ref_code_path=ref_code_path,
-            constraints=constraints
+            constraints=constraints,
+            external_data_policy=external_data_policy
         )
 
         self.logger.info(f"Session created: {self.session_id}")
@@ -945,11 +950,6 @@ class ExperimentRunner:
                     "MCTS deferred until the first measured baseline is established"
                 )
 
-            experiment_model = (
-                self.config.get("experiment", {}).get("model") or
-                "gpt-5.6-sol"
-            )
-
             # 这里是和外部代码修改器的边界：前面只准备工作区，
             # 后面由选定后端实际编辑、运行并写出指标。
             if bootstrap_before_mcts:
@@ -966,7 +966,6 @@ class ExperimentRunner:
                 success = perform_experiments_codex(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     max_runs=self.config.get("experiment", {}).get("max_runs", 5),
                     log_file=log_file,
@@ -977,13 +976,12 @@ class ExperimentRunner:
                 )
                 if success:
                     success = perform_experiments_mcts_codex(
-                        idea, cwd, model=experiment_model, gpu_ids=gpu_ids, log_file=log_file
+                        idea, cwd, gpu_ids=gpu_ids, log_file=log_file
                     )
             elif use_mcts:
                 success = perform_experiments_mcts_codex(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     log_file=log_file
                 )
@@ -1009,7 +1007,6 @@ class ExperimentRunner:
                 success = perform_experiments_codex(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     max_runs=max_runs,
                     log_file=log_file,
@@ -1070,11 +1067,6 @@ class ExperimentRunner:
                     "MCTS deferred until the first measured baseline is established"
                 )
 
-            experiment_model = (
-                self.config.get("experiment", {}).get("model") or
-                "gpt-5.6-sol"
-            )
-
             if bootstrap_before_mcts:
                 self.logger.info(f"Starting Qwen Code baseline bootstrap: {idea_name}")
             elif use_mcts:
@@ -1086,7 +1078,6 @@ class ExperimentRunner:
                 success = perform_experiments_qwen_code(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     max_runs=self.config.get("experiment", {}).get("max_runs", 5),
                     log_file=log_file,
@@ -1097,13 +1088,12 @@ class ExperimentRunner:
                 )
                 if success:
                     success = perform_experiments_mcts_qwen_code(
-                        idea, cwd, model=experiment_model, gpu_ids=gpu_ids, log_file=log_file
+                        idea, cwd, gpu_ids=gpu_ids, log_file=log_file
                     )
             elif use_mcts:
                 success = perform_experiments_mcts_qwen_code(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     log_file=log_file
                 )
@@ -1129,7 +1119,6 @@ class ExperimentRunner:
                 success = perform_experiments_qwen_code(
                     idea,
                     cwd,
-                    model=experiment_model,
                     gpu_ids=gpu_ids,
                     max_runs=max_runs,
                     log_file=log_file,

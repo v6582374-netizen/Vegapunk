@@ -80,20 +80,6 @@ class ConnectorAgent(BaseAgent):
         global_config = self.config.get("_global_config", {})
         if not isinstance(global_config, Mapping):
             global_config = {}
-        runtime = self.config.get("_runtime") or global_config.get("_runtime")
-        if runtime is None:
-            raise ValueError(
-                "Connector requires the process-owned UnifiedModelRuntime"
-            )
-
-        catalog = getattr(runtime, "catalog", None)
-        model = getattr(catalog, "active_text_model", None)
-        if not isinstance(model, str) or not model.strip():
-            raise ValueError(
-                "UnifiedModelRuntime catalog must expose active_text_model"
-            )
-        model = model.strip()
-
         experiment_config = global_config.get("experiment", {})
         if not isinstance(experiment_config, Mapping):
             experiment_config = {}
@@ -101,14 +87,17 @@ class ConnectorAgent(BaseAgent):
             experiment_config.get("backend") or global_config.get("exp_backend")
         )
         proxy_settings = global_config.get("proxy_settings")
+        # The coding-agent backend is an independently installed tool. Its model
+        # and credentials come from the user's own CLI configuration, so nothing
+        # about Discovery's Provider identity is passed down here.
         if backend == "qwen_code":
             from vegapunk.experiments_utils_qwen_code import QwenCodeRunner
 
-            return QwenCodeRunner(proxy_settings, model=model)
+            return QwenCodeRunner(proxy_settings)
         if backend == "codex":
             from vegapunk.experiments_utils_codex import CodexRunner
 
-            return CodexRunner(proxy_settings, model=model)
+            return CodexRunner(proxy_settings)
         raise ValueError(
             "Connector requires Launch experiment.backend to be 'codex' or "
             "'qwen_code'"

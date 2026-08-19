@@ -1028,36 +1028,6 @@ export interface ParkedMessage {
   chat_type: string;
   text: string;
   ts: number;
-  team_id?: string | null; // workspace (managed Slack relay); null on manual Socket Mode
-}
-
-// One connected Slack workspace (managed relay is multi-workspace; ids are workspace-scoped,
-// so each workspace carries its OWN allow-list).
-export interface SlackWorkspace {
-  team_id: string;
-  account: string;
-  domain?: string; // slack.com subdomain — unique even when display names collide
-  allowed_users: string[];
-  allow_all: boolean;
-  allowed_user_names?: Record<string, string | null>;
-  approval_owner_ids?: string[];
-  approval_owner_names?: Record<string, string | null>;
-  // Who installed this workspace (authed_user) — pre-added to the allow-list on
-  // connect (UX-027); the GUI marks their chip "you" and keys the setup card copy.
-  installer_user_id?: string;
-  installer_name?: string;
-}
-
-// One connected GitHub App installation (managed relay is multi-installation;
-// sender logins are global but each installation keeps its OWN allow-list).
-export interface GithubInstallation {
-  installation_id: string;
-  account_login: string; // the org/user the App is installed on
-  account_type: string; // "Organization" | "User"
-  repo_selection: string; // "all" | "selected"
-  github_login: string; // the connecting user's own login
-  allowed_users: string[]; // sender logins allowed to trigger work
-  allow_all: boolean;
 }
 
 // One connected HubSpot portal (multi-portal: `hubspot:portal:<hub_id>` profiles).
@@ -1066,7 +1036,6 @@ export interface HubSpotPortal {
   name: string;
   sandbox: boolean;
   default: boolean;
-  managed: boolean;
   access: "read" | "write" | ""; // consent tier granted ("" = manual token, unknown)
 }
 
@@ -1075,7 +1044,6 @@ export interface HubSpotPortal {
 export interface GmailAccount {
   email: string;
   default: boolean;
-  managed: boolean;
   scopes: string;
   needs_reauth: boolean;
 }
@@ -1094,7 +1062,6 @@ export interface AccountRow {
   account_id: string;
   name: string; // display identity captured at connect (workspace name, email, …)
   default: boolean;
-  managed: boolean;
 }
 
 export interface Connector {
@@ -1119,111 +1086,21 @@ export interface Connector {
   brand_color: string; // hex brand color, e.g. "#611f69" (fallback gray "#6b7280")
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   aliases?: string[]; // extra typeahead terms ("calendar" surfaces Outlook)
-  mcp?: boolean; // MCP-backed one-click (vendor-hosted MCP + local OAuth — no cloud sign-in)
-  allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
+  mcp?: boolean; // MCP-backed one-click (vendor-hosted MCP + local OAuth)
+  allowed_users: string[]; // the allow-list (edited inline in the Connectors tab)
   allowed_user_names?: Record<string, string | null>; // id → display name (people directory)
   approval_owner_ids?: string[]; // Manual Slack: humans allowed to resolve approvals
   approval_owner_names?: Record<string, string | null>;
   recent?: RecentSender[]; // recently-seen senders on a connected two-way connector
   unauthorized?: ParkedMessage[]; // parked messages from unallowed senders (§19)
   tools: ConnectorTool[];
-  managed: boolean; // one-click managed OAuth available (needs cloud sign-in)
-  managed_paused?: boolean; // one-click temporarily off (e.g. Google CASA pending) — badge "Coming soon"
-  managed_profile: boolean; // current profile came from managed OAuth (vs manual paste)
-  mode?: string; // "relay" for the managed cloud path; "" for manual/token connect
-  workspaces?: SlackWorkspace[]; // Slack only: connected workspaces (managed relay)
+  mode?: string; // "mcp" for an MCP-backed profile; "" for manual/token connect
   // Gmail/Calendar: email-keyed rows; generic account connectors (notion,
   // attio, posthog, …): AccountRow. The detail pages narrow by connector.
   accounts?: GmailAccount[] | AccountRow[];
   filters?: GmailFilters; // Gmail only: "Never show agents" senders/labels
   portals?: HubSpotPortal[]; // HubSpot only: connected portals (multi-portal)
   hidden_fields?: string[]; // HubSpot only: properties stripped from agent reads
-  installations?: GithubInstallation[]; // GitHub only: App installations (managed relay)
-}
-
-// --- OpenWorker Cloud (optional sign-in; manual token paste always works) ---
-
-export interface CloudStatus {
-  signed_in: boolean;
-  account: string;
-  user_id: string;
-  telemetry_enabled?: boolean; // Phase 5 opt-out; signed-out users send nothing regardless
-}
-
-/** Flip the product-telemetry preference (local; only meaningful when signed in). */
-export async function setCloudTelemetry(
-  enabled: boolean,
-): Promise<{ ok: boolean; telemetry_enabled?: boolean }> {
-  const res = await fetch(`${httpBase()}/v1/cloud/telemetry`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled }),
-  });
-  return res.json();
-}
-
-export async function getCloudStatus(): Promise<CloudStatus> {
-  const res = await fetch(`${httpBase()}/v1/cloud/status`);
-  return res.json();
-}
-
-export async function cloudLogin(): Promise<{ ok: boolean }> {
-  // The sidecar opens the system browser; the GUI just polls status after.
-  const res = await fetch(`${httpBase()}/v1/cloud/login`, { method: "POST" });
-  return res.json();
-}
-
-/** Poll cloud status until the browser sign-in lands (or the bound runs out).
- *
- * Fast 500ms polls for the first 20s — the moment the user finishes in the
- * browser they're staring at the app waiting for it to flip, and a 2s interval
- * reads as "sign-in is slow" (owner complaint, 2026-07-16) — then relaxes to 2s
- * for the long tail (~2min total). Calls `onDone` with the signed-in status, or
- * null when it timed out. Returns a cancel function (call on unmount). */
-export function waitForCloudSignIn(
-  onDone: (s: CloudStatus | null) => void,
-): () => void {
-  let cancelled = false;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let polls = 0;
-  const tick = async () => {
-    polls += 1;
-    const s = await getCloudStatus().catch(() => null);
-    if (cancelled) return;
-    if (s?.signed_in) return onDone(s);
-    if (polls >= 90) return onDone(null); // 40×500ms + 50×2s ≈ 2min
-    timer = setTimeout(tick, polls < 40 ? 500 : 2000);
-  };
-  timer = setTimeout(tick, 500);
-  return () => {
-    cancelled = true;
-    if (timer) clearTimeout(timer);
-  };
-}
-
-export async function cloudLogout(): Promise<{ ok: boolean }> {
-  const res = await fetch(`${httpBase()}/v1/cloud/logout`, { method: "POST" });
-  return res.json();
-}
-
-export async function connectManaged(
-  name: string,
-  options?: { access?: "read" | "write" },
-): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(
-    `${httpBase()}/v1/connectors/${encodeURIComponent(name)}/connect-managed`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // `access` names a broker-defined consent tier (hubspot read | write).
-      // GitHub needs no flow choice: the broker is authorize-first — one connect
-      // links an existing App installation or redirects on to the install page.
-      body: JSON.stringify({
-        ...(options?.access ? { access: options.access } : {}),
-      }),
-    },
-  );
-  return res.json();
 }
 
 /** One-click connect for an MCP-backed connector (monday, asana, jira): the sidecar
@@ -1618,13 +1495,6 @@ export async function setNavLayout(
   return res.json();
 }
 
-// Fired after a cloud sign-in/out completes so the account row (§26) refreshes without
-// waiting for the next window focus.
-export const CLOUD_CHANGED = "coworker:cloud-changed";
-export function announceCloudChanged() {
-  window.dispatchEvent(new CustomEvent(CLOUD_CHANGED));
-}
-
 // Fired the first time Inbox machinery is engaged (an item parks, or a session goes
 // Unattended) — the account row's inbox chip unlocks stickily on it (§26).
 export const INBOX_UNLOCK = "coworker:inbox-unlock";
@@ -1702,58 +1572,8 @@ export async function deletePersona(
   return out;
 }
 
-// A curated persona card from the cloud gallery (metadata only — the manifest
-// is fetched server-side at install and runs through the normal consent flow).
-export interface GalleryPersona {
-  slug: string;
-  version: number;
-  name: string;
-  icon: string;
-  tagline: string;
-  description: string;
-  family: string;
-  workspace: string;
-  publisher: string;
-  recommended_connectors: string[];
-  risk_summary: string;
-  featured?: boolean; // publisher-flagged for the gallery's featured carousel
-}
-
-export async function getCloudGallery(): Promise<{
-  ok: boolean;
-  personas: GalleryPersona[];
-  error?: string;
-}> {
-  const res = await fetch(`${httpBase()}/v1/cloud/gallery`);
-  return res.json();
-}
-
-// Solo page for one gallery coworker. `capabilities` is the desktop's own
-// consent summary derived from the manifest (same parser as install), so the
-// page shows exactly what installing would ask the user to approve.
-export interface GalleryDetail {
-  ok: boolean;
-  error?: string;
-  card?: GalleryPersona & { pitch_markdown: string };
-  capabilities?: {
-    tools: string[];
-    risk: string[];
-    connectors: boolean;
-    mcp: string[];
-    messaging: boolean;
-    recommended_mode: string;
-    recommended_models: string[];
-  };
-  recommends?: { kind: string; ref: string; reason: string; tier: string }[];
-}
-
-export async function getCloudGalleryDetail(slug: string): Promise<GalleryDetail> {
-  const res = await fetch(`${httpBase()}/v1/cloud/gallery/${encodeURIComponent(slug)}`);
-  return res.json();
-}
-
 export async function installPersona(
-  body: { dir?: string; git_url?: string; gallery_slug?: string },
+  body: { dir?: string; git_url?: string },
 ): Promise<{ ok: boolean; consent?: PersonaConsent[]; personas?: Persona[]; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/personas/install`, {
     method: "POST",
@@ -2190,7 +2010,6 @@ export interface RecentSender {
   chat_type: string;
   target: string;
   authorized: boolean;
-  team_id?: string | null; // workspace (managed relay); null on manual Socket Mode
 }
 
 // -- direct-message routing ---------------------------------------------------
@@ -2358,18 +2177,12 @@ export async function finalizeAutomationRun(id: string, runId: string) {
   return res.json();
 }
 
-export async function allowUser(
-  name: string,
-  userId: string,
-  teamId?: string | null,
-  displayName?: string,
-) {
+export async function allowUser(name: string, userId: string, displayName?: string) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/allow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       user_id: userId,
-      ...(teamId ? { team_id: teamId } : {}),
       // Directory picks carry the display name so the chip is readable at once.
       ...(displayName ? { name: displayName } : {}),
     }),
@@ -2394,24 +2207,22 @@ export interface SlackChannelEntry {
   is_member: boolean;
 }
 
-/** Workspace member roster for the people picker (teamId "default" = manual Socket Mode). */
+/** Workspace member roster for the people picker (Socket Mode = one workspace, "default"). */
 export async function getSlackDirectory(
-  teamId: string,
   q = "",
 ): Promise<{ ok: boolean; error?: string; members?: SlackMember[] }> {
   const res = await fetch(
-    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/directory?q=${encodeURIComponent(q)}`,
+    `${httpBase()}/v1/connectors/slack/directory?q=${encodeURIComponent(q)}`,
   );
   return res.json();
 }
 
 /** Channel roster for the channel typeahead (name → id resolution). */
 export async function getSlackChannels(
-  teamId: string,
   q = "",
 ): Promise<{ ok: boolean; error?: string; channels?: SlackChannelEntry[] }> {
   const res = await fetch(
-    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/channels?q=${encodeURIComponent(q)}`,
+    `${httpBase()}/v1/connectors/slack/channels?q=${encodeURIComponent(q)}`,
   );
   return res.json();
 }
@@ -2433,11 +2244,11 @@ export async function resolveUnauthorized(
   return res.json();
 }
 
-export async function disallowUser(name: string, userId: string, teamId?: string | null) {
+export async function disallowUser(name: string, userId: string) {
   const res = await fetch(`${httpBase()}/v1/connectors/${encodeURIComponent(name)}/disallow`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(teamId ? { user_id: userId, team_id: teamId } : { user_id: userId }),
+    body: JSON.stringify({ user_id: userId }),
   });
   return res.json();
 }
@@ -2465,15 +2276,6 @@ export async function removeSlackApprovalOwner(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId }),
   });
-  return res.json();
-}
-
-/** Stop relaying one managed Slack workspace (the app stays installed in Slack). */
-export async function disconnectSlackWorkspace(teamId: string): Promise<{ ok: boolean; error?: string; remaining_workspaces?: number }> {
-  const res = await fetch(
-    `${httpBase()}/v1/connectors/slack/workspaces/${encodeURIComponent(teamId)}/disconnect`,
-    { method: "POST" },
-  );
   return res.json();
 }
 
@@ -2539,31 +2341,6 @@ export async function setGmailFilters(filters: { senders?: string[]; labels?: st
   return res.json();
 }
 
-// GitHub relay health, the Slack three-layer shape: shared relay socket /
-// cloud sign-in / per-installation token health (+ missed-event counts).
-export interface GithubStatus {
-  ok: boolean;
-  mode: string;
-  relay: { state: string; reconnects: number; last_event_at: number | null; last_error: string };
-  signed_in: boolean;
-  installs: Record<string, { token_ok: boolean }>;
-  missed: Record<string, number>;
-}
-
-export async function getGithubStatus(): Promise<GithubStatus> {
-  const res = await fetch(`${httpBase()}/v1/connectors/github/status`);
-  return res.json();
-}
-
-/** Stop relaying ONE GitHub App installation to this computer. */
-export async function disconnectGithubInstallation(installationId: string): Promise<{ ok: boolean; error?: string; remaining_installs?: number }> {
-  const res = await fetch(
-    `${httpBase()}/v1/connectors/github/installations/${encodeURIComponent(installationId)}/disconnect`,
-    { method: "POST" },
-  );
-  return res.json();
-}
-
 /** Drop ONE HubSpot portal; the default pointer moves to the next portal. */
 export async function disconnectHubSpotPortal(hubId: string): Promise<{ ok: boolean; error?: string; remaining_portals?: number }> {
   const res = await fetch(
@@ -2588,24 +2365,6 @@ export async function setHubSpotHiddenFields(fields: string[]): Promise<{ ok: bo
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ hidden_fields: fields }),
   });
-  return res.json();
-}
-
-/** Slack health, three honest layers: relay socket / cloud sign-in / per-team tokens. */
-export interface SlackStatus {
-  mode: string; // "relay" | "" (manual/off)
-  relay: {
-    state: "live" | "reconnecting" | "offline";
-    reconnects: number;
-    last_event_at: number | null;
-    last_error: string;
-  };
-  signed_in: boolean;
-  teams: Record<string, { token_ok: boolean }>;
-}
-
-export async function getSlackStatus(): Promise<SlackStatus> {
-  const res = await fetch(`${httpBase()}/v1/connectors/slack/status`);
   return res.json();
 }
 
@@ -2991,3 +2750,323 @@ export async function streamTranslationRunLog(
     reader.releaseLock();
   }
 }
+
+/* ------------------------------------------------------------------ embodied execution
+
+   The Physical AI governance bench (`vegapunk/embodied/`) behind the sidecar. Same two channels
+   as document translation: an authoritative run snapshot plus a cursor-polled append-only event
+   log, so a surface can watch a run in flight and re-read a finished one from the same shapes.
+
+   Every number, verdict and refusal string the workbench shows comes from these types. Nothing
+   here carries a client-side default: a value the bench cannot produce must be absent from the
+   surface rather than filled in, because a plausible invented number about a robot is worse than
+   a blank. The refusal strings stay verbatim English where the modules emit identifiers — the
+   surface translates them for a reader and keeps the original beside the translation. */
+
+/** The four room facts an operator DECLARES. Never measured — that is the point of `declared`. */
+export interface EmbodiedSupervision {
+  guardian_present: boolean;
+  estop_engaged: boolean;
+  estop_reachable: boolean;
+  workspace_clear: boolean;
+}
+
+export interface EmbodiedSimulatorStatus {
+  available: boolean;
+  detail: string;
+  scene_path: string | null;
+  /** Why the simulator cannot run here (missing MuJoCo, missing scene). Null when available. */
+  reason: string | null;
+}
+
+export interface EmbodiedEnvelope {
+  max_duration_s: number;
+  max_joint_velocity_rps: number;
+  max_end_effector_force_n: number;
+  max_observation_age_s: number;
+  workspace_bounds_m: Array<[number, number]>;
+}
+
+export interface EmbodiedSkillContract {
+  skill_id: string;
+  revision: number;
+  version_id: string;
+  kind: string;
+  summary: string;
+  preconditions: string[];
+  postconditions: string[];
+  abort_conditions: string[];
+  max_duration_s: number;
+  reviewed_by: string;
+}
+
+/** One admission rung: the stage id, and whether a simulation may earn it at all. The
+    human-facing label and the "why this cannot be simulated" copy belong to the surface. */
+export interface EmbodiedLadderRung {
+  stage: string;
+  simulated: boolean;
+}
+
+export interface EmbodiedCameraSlot {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  port: number;
+}
+
+export interface EmbodiedEnvironment {
+  environment_id: string;
+  simulator: EmbodiedSimulatorStatus;
+  control_frequency_hz: number;
+  joints: string[];
+  joint_count: number;
+  goal_offsets_rad: number[];
+  candidate_rates_rps: number[];
+  velocity_margin: number;
+  velocity_budget_rps: number;
+  envelope: EmbodiedEnvelope;
+  skill: EmbodiedSkillContract;
+  ladder: EmbodiedLadderRung[];
+  minimum_stage_attempts: number;
+  minimum_stage_success_rate: number;
+  approval_validity_hours: number;
+  stage_offsets_rad: Record<string, number>;
+  /** fidelity.py :: UNREPRESENTABLE_IN_SIMULATION — stated unconditionally, never assessed. */
+  unrepresentable: string[];
+  camera_slots: EmbodiedCameraSlot[];
+}
+
+export interface EmbodiedRunRequest {
+  declared_supervision: EmbodiedSupervision;
+  attempts_per_stage: number;
+  control_frequency_hz: number;
+  /** True publishes unauthenticated, self-signed WebRTC camera endpoints for this run. */
+  watch: boolean;
+}
+
+/** One probe: a commanded rate and everything that same probe measured about it. The derived
+    ratios travel with the measurement because a ratio carried apart from the rate it was
+    measured at invites scaling a measurement to a rate nobody ever tried. */
+export interface EmbodiedMeasurement {
+  commanded_rate_rps: number;
+  peak_joint_velocity_rps: number;
+  tracking_error_rad: number;
+  settled_error_rad: number;
+  overshoot_ratio: number;
+  max_step_rad: number;
+  max_lead_rad: number;
+  minimum_goal_tolerance_rad: number;
+  fits: boolean;
+}
+
+export interface EmbodiedCalibration {
+  measured_on: string;
+  control_frequency_hz: number;
+  velocity_limit_rps: number;
+  margin: number;
+  budget_rps: number;
+  measurements: EmbodiedMeasurement[];
+  /** The fastest rate whose measured peak fit the budget, or null — a run with no admitted
+      rate halts, because the bench will not command a rate no probe measured. */
+  admitted: EmbodiedMeasurement | null;
+  findings: string[];
+}
+
+export interface EmbodiedGoal {
+  skill_version_id: string;
+  target_joint_positions_rad: number[];
+  satisfies: string[];
+  tolerance_rad: number;
+}
+
+export type EmbodiedAttemptOutcome = "succeeded" | "refused" | "failed_verification" | "aborted";
+
+export interface EmbodiedAttempt {
+  index: number;
+  run_id: string;
+  outcome: EmbodiedAttemptOutcome;
+  variation_digest: string;
+  findings: string[];
+  abort_cause: string | null;
+}
+
+export interface EmbodiedEvidence {
+  stage: string;
+  attempts: number;
+  successes: number;
+  safety_violations: number;
+  recorded_at: string;
+  notes: string;
+  success_rate: number;
+  skill_version_id: string;
+  embodiment_digest: string;
+  policy_digest: string | null;
+}
+
+export interface EmbodiedFidelity {
+  stage?: string;
+  verdict: "represents" | "misrepresents";
+  environment_id: string;
+  environment_digest: string;
+  embodiment_digest: string;
+  findings: string[];
+  unrepresented: string[];
+  represents: boolean;
+}
+
+export interface EmbodiedStageReport {
+  campaign_id: string;
+  stage: string;
+  /** (skill_version_id, embodiment_digest, policy_digest) — the scope this evidence is about. */
+  scope: [string, string, string | null];
+  planned_attempts: number;
+  executed_attempts: number;
+  successes: number;
+  completed: boolean;
+  attempts: EmbodiedAttempt[];
+  evidence: EmbodiedEvidence;
+  fidelity: EmbodiedFidelity;
+  halted: "completed" | "refused" | "aborted";
+  halt_detail: string;
+  next_stage: string;
+  next_stage_admitted: boolean;
+  next_stage_blocking_reasons: string[];
+}
+
+export interface EmbodiedHardwareDecision {
+  target_stage: string;
+  admitted: boolean;
+  evidence_digest: string;
+  blocking_reasons: string[];
+}
+
+/** What a watched run published. The slot shape is the preview server's, not the GUI's, so the
+    workbench reads only the count from here and takes geometry from `EmbodiedEnvironment`. */
+export type EmbodiedPreviewSlot = string | EmbodiedCameraSlot;
+
+export interface EmbodiedPreview {
+  watching: boolean;
+  host: string | null;
+  camera_slots: EmbodiedPreviewSlot[];
+}
+
+export type EmbodiedRunState = "queued" | "running" | "done" | "error" | "cancelled";
+
+export interface EmbodiedRun {
+  run_id: string;
+  state: EmbodiedRunState;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  request: EmbodiedRunRequest;
+  environment_id: string;
+  skill_version_id: string;
+  embodiment_digest: string;
+  /** bench.py :: HALTED_* — the verdict, or null while the run has not reached one. */
+  halted: string | null;
+  halt_detail: string;
+  completed: boolean;
+  /** What still stands between this configuration and a supervised hardware run. */
+  blocking_hardware: string[];
+  calibration: EmbodiedCalibration | null;
+  goal: EmbodiedGoal | null;
+  required_duration_s: number | null;
+  stages: EmbodiedStageReport[];
+  hardware_decision: EmbodiedHardwareDecision | null;
+  error: string | null;
+  preview: EmbodiedPreview;
+}
+
+/** One entry of the run's append-only log. The payload keys vary by `type`; they are declared
+    optional here rather than as a union so a projection can read them without re-parsing. */
+export interface EmbodiedRunEvent {
+  seq: number;
+  at: string;
+  type: string;
+  measurement?: EmbodiedMeasurement;
+  admitted?: EmbodiedMeasurement | null;
+  budget_rps?: number;
+  goal?: EmbodiedGoal;
+  required_duration_s?: number;
+  allowed_duration_s?: number;
+  stage?: string;
+  planned_attempts?: number;
+  max_offset_rad?: number;
+  index?: number;
+  run_id?: string;
+  outcome?: EmbodiedAttemptOutcome;
+  abort_cause?: string | null;
+  findings?: string[];
+  duration_s?: number;
+  observations?: number;
+  halted?: string | null;
+  halt_detail?: string;
+  successes?: number;
+  executed_attempts?: number;
+  next_stage?: string | null;
+  next_stage_admitted?: boolean;
+  next_stage_blocking_reasons?: string[];
+  decision?: EmbodiedHardwareDecision;
+  completed?: boolean;
+  blocking_hardware?: string[];
+  message?: string;
+  [key: string]: unknown;
+}
+
+async function embodiedRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${httpBase()}${path}`, init);
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    const raw = detail?.detail?.message ?? detail?.detail ?? detail?.message;
+    const message = typeof raw === "string" ? raw : `Embodied request failed (${res.status})`;
+    const error = new Error(message) as Error & { status?: number; violations?: unknown };
+    error.status = res.status;
+    error.violations = detail?.detail?.violations;
+    throw error;
+  }
+  return (await res.json()) as T;
+}
+
+/** The bench's fixed configuration: scope, envelope, ladder, thresholds and simulator health. */
+export const getEmbodiedEnvironment = (): Promise<EmbodiedEnvironment> =>
+  embodiedRequest<EmbodiedEnvironment>("/v1/embodied/environment");
+
+/** Start one bench run. 409 when a run is already active, 422 with `violations`, 503 when the
+    simulator is unavailable. A declaration the SafetySupervisor will refuse is accepted here on
+    purpose: the refusal is the evidence. */
+export const startEmbodiedRun = (request: EmbodiedRunRequest): Promise<{ run: EmbodiedRun }> =>
+  embodiedRequest<{ run: EmbodiedRun }>("/v1/embodied/runs", jsonBody(request));
+
+export const listEmbodiedRuns = (): Promise<{ runs: EmbodiedRun[] }> =>
+  embodiedRequest<{ runs: EmbodiedRun[] }>("/v1/embodied/runs");
+
+export const getEmbodiedRun = (runId: string): Promise<EmbodiedRun> =>
+  embodiedRequest<EmbodiedRun>(`/v1/embodied/runs/${encodeURIComponent(runId)}`);
+
+export const cancelEmbodiedRun = (runId: string): Promise<EmbodiedRun> =>
+  embodiedRequest<EmbodiedRun>(`/v1/embodied/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+
+/** Exchange one WebRTC offer with a robot camera through the sidecar.
+
+    The robot's image service serves HTTPS with a self-signed certificate that carries no
+    subjectAltName, which no browser can be taught to trust: there is nothing for name
+    verification to check against, so the certificate warning is never offered and the page's
+    own `fetch` can only ever fail. The sidecar performs the exchange server-to-server and
+    returns the answer. Only signalling is relayed -- the video itself still flows
+    browser-to-robot over the DTLS connection whose fingerprint this answer carries. */
+export const relayCameraOffer = (
+  slotId: string,
+  host: string,
+  offer: { sdp: string; type: RTCSdpType },
+): Promise<RTCSessionDescriptionInit> =>
+  embodiedRequest<RTCSessionDescriptionInit>(
+    `/v1/embodied/cameras/${encodeURIComponent(slotId)}/offer`,
+    jsonBody({ host, offer }),
+  );
+
+export const getEmbodiedRunEvents = (
+  runId: string,
+  after = 0,
+): Promise<{ events: EmbodiedRunEvent[]; latest_sequence: number }> =>
+  embodiedRequest(`/v1/embodied/runs/${encodeURIComponent(runId)}/events?after=${Math.max(0, after)}`);

@@ -58,7 +58,6 @@ from ..connectors import (
     load_settings,
     make_adapter,
     set_experimental_enabled,
-    slack_split,
     update_connector_tools,
 )
 from ..connectors.browser_automation import (
@@ -481,37 +480,7 @@ class SessionManager:
         if record is not None and record.grants:
             self._apply_grants(engine, record.grants)
         self._engines[session_id] = engine
-        if is_new_session:
-            self._emit_session_created(session_id, agent_name)
         return engine
-
-    def _emit_session_created(self, session_id: str, persona_id: str) -> None:
-        """Phase 5 telemetry, fired once per brand-new session on a background thread
-        (never blocks session start). cloud.emit_session_created is a hard no-op when
-        signed out or opted out, and sends only content-free facts."""
-        import threading
-
-        from .. import cloud
-        from ..config import load_config
-
-        entry = self.personas.get(persona_id)
-        family = entry.family if entry else ""
-        workspace_kind = entry.workspace if entry else ""
-
-        def _send() -> None:
-            try:
-                cloud.emit_session_created(
-                    self.secrets,
-                    load_config(),
-                    session_id=session_id,
-                    persona_id=persona_id,
-                    persona_family=family,
-                    workspace_kind=workspace_kind,
-                )
-            except Exception:
-                pass  # telemetry must never surface as a session error
-
-        threading.Thread(target=_send, daemon=True).start()
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
         """The channel address(es) this session's Inbox routes OUT to — used to warn when a
@@ -1125,17 +1094,9 @@ class SessionManager:
             if not (c.get("two_way") and c.get("connected")):
                 continue
             allowed = set(c.get("allowed_users") or [])
-            # Per-workspace allow-lists (managed relay) — a sender is judged against
-            # ITS workspace's list; the flat list only governs team-less (socket) events.
-            team_allowed = {
-                w["team_id"]: set(w.get("allowed_users") or [])
-                for w in (c.get("workspaces") or [])
-            }
             recent = self.gateway.recent_senders(c["name"]) if self.gateway else []
             for r in recent:
-                team = r.get("team_id")
-                pool = team_allowed.get(team, set()) if team else allowed
-                r["authorized"] = r.get("user_id") in pool
+                r["authorized"] = r.get("user_id") in allowed
                 # Backfill from the people directory (an event may predate name scopes).
                 r["user_name"] = r.get("user_name") or self._people.get(
                     f"{c['name']}:{r.get('user_id')}"
@@ -1152,15 +1113,6 @@ class SessionManager:
                 u: self._people.get(f"{c['name']}:{u}")
                 for u in (c.get("approval_owner_ids") or [])
             }
-            for w in c.get("workspaces") or []:
-                w["allowed_user_names"] = {
-                    u: self._people.get(f"{c['name']}:{u}")
-                    for u in (w.get("allowed_users") or [])
-                }
-                w["approval_owner_names"] = {
-                    u: self._people.get(f"{c['name']}:{u}")
-                    for u in (w.get("approval_owner_ids") or [])
-                }
         return connectors
 
     def connect_connector(
@@ -2040,43 +1992,30 @@ class SessionManager:
 
     # -- gateway + connector allow-list (inbound messaging) ---------------------
     def allow_user(
-        self,
-        name: str,
-        user_id: str,
-        team_id: Optional[str] = None,
-        *,
-        display_name: str = "",
+        self, name: str, user_id: str, *, display_name: str = ""
     ) -> dict[str, Any]:
-        out = self._set_allowed(name, user_id, team_id=team_id, add=True)
+        out = self._set_allowed(name, user_id, add=True)
         # Directory picks arrive with the name in hand — record it so the chip
         # is readable immediately (message-driven allows learn it on arrival).
         if out.get("ok") and display_name:
             self._note_person(name, user_id, display_name)
         return out
 
-    def disallow_user(
-        self, name: str, user_id: str, team_id: Optional[str] = None
-    ) -> dict[str, Any]:
-        if name == "slack" and user_id in self.slack_approval_owner_ids(team_id):
+    def disallow_user(self, name: str, user_id: str) -> dict[str, Any]:
+        if name == "slack" and user_id in self.slack_approval_owner_ids():
             return {
                 "ok": False,
                 "error": "Remove this person as an approval owner first.",
             }
-        return self._set_allowed(name, user_id, team_id=team_id, add=False)
+        return self._set_allowed(name, user_id, add=False)
 
-    def slack_approval_owner_ids(self, team_id: Optional[str] = None) -> set[str]:
+    def slack_approval_owner_ids(self) -> set[str]:
         """Stable Slack user ids allowed to resolve consequential Inbox prompts.
 
-        Managed relay installs are installer-owned. Manual Socket Mode has no
-        human OAuth identity, so its owners are selected explicitly.
+        Socket Mode has no human OAuth identity, so its owners are selected
+        explicitly.
         """
-        key = f"slack:team:{team_id}" if team_id else "slack:default"
-        profile = self.secrets.get(key) or {}
-        if team_id:
-            installer = str(profile.get("slack_user_id") or "").strip()
-            return {installer} if installer else set()
-        if profile.get("mode") == "relay":
-            return set()
+        profile = self.secrets.get("slack:default") or {}
         return {
             str(user_id).strip()
             for user_id in (profile.get("approval_owner_ids") or [])
@@ -2086,29 +2025,23 @@ class SessionManager:
     def set_slack_approval_owner(
         self, user_id: str, *, add: bool, display_name: str = ""
     ) -> dict[str, Any]:
-        """Edit Manual Socket Mode approval owners.
+        """Edit Socket Mode approval owners.
 
-        Owner status implies inbound permission. Relay ownership is derived from
-        the OAuth installer and is intentionally not editable here.
+        Owner status implies inbound permission.
         """
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
         profile = self.secrets.get("slack:default")
         if not profile:
-            return {"ok": False, "error": "Slack is not connected in Manual mode."}
-        if profile.get("mode") == "relay" or profile.get("managed"):
-            return {
-                "ok": False,
-                "error": "Relay approval ownership is set by the Slack installer.",
-            }
+            return {"ok": False, "error": "Slack is not connected."}
 
         owners = self.slack_approval_owner_ids()
         if add:
             owners.add(user_id)
         else:
             owners.discard(user_id)
-            if not owners and self._has_manual_slack_inbox_binding():
+            if not owners and self._has_slack_inbox_binding():
                 return {
                     "ok": False,
                     "error": (
@@ -2134,33 +2067,19 @@ class SessionManager:
             "allowed_users": list(profile.get("allowed_users") or []),
         }
 
-    def _has_manual_slack_inbox_binding(self) -> bool:
-        for raw in self.inbox_routing.bindings():
-            if raw.get("channel") != "slack":
-                continue
-            team_id, _ = slack_split(str(raw.get("target") or ""))
-            if team_id is None:
-                return True
-        return False
+    def _has_slack_inbox_binding(self) -> bool:
+        return any(
+            raw.get("channel") == "slack" for raw in self.inbox_routing.bindings()
+        )
 
-    def _slack_actor_owns_item(
-        self,
-        item,
-        *,
-        actor_id: str,
-        chat_id: str,
-        team_id: Optional[str],
-    ) -> bool:
-        """Authorize a Slack resolution against both its owner and delivery binding."""
-        event_team, event_channel = slack_split(chat_id)
-        event_team = team_id or event_team
+    def _slack_actor_owns_item(self, item, *, actor_id: str, chat_id: str) -> bool:
+        """Authorize a Slack resolution against both its owner and delivery binding:
+        the click must arrive on the channel the item was actually mirrored to, and
+        from a designated approval owner."""
         binding = self.inbox_routing.binding_for(item.inbox)
-        owner_team = event_team
-        if binding.channel == "slack":
-            owner_team, bound_channel = slack_split(binding.target)
-            if owner_team != event_team or bound_channel != event_channel:
-                return False
-        return bool(actor_id) and actor_id in self.slack_approval_owner_ids(owner_team)
+        if binding.channel == "slack" and binding.target != chat_id:
+            return False
+        return bool(actor_id) and actor_id in self.slack_approval_owner_ids()
 
     def set_inbox_binding(
         self, name: str, *, channel: Optional[str], target: str
@@ -2174,16 +2093,9 @@ class SessionManager:
             settings = load_settings(self.secrets).get("slack")
             if settings is None or not settings.enabled:
                 return {"ok": False, "error": "Slack is not connected."}
-            team_id, destination = slack_split(target)
-            if not destination:
+            if not target:
                 return {"ok": False, "error": "Choose a destination channel."}
-            key = f"slack:team:{team_id}" if team_id else "slack:default"
-            if not self.secrets.get(key):
-                return {
-                    "ok": False,
-                    "error": "That Slack workspace is not connected.",
-                }
-            if not self.slack_approval_owner_ids(team_id):
+            if not self.slack_approval_owner_ids():
                 return {
                     "ok": False,
                     "error": (
@@ -2194,177 +2106,23 @@ class SessionManager:
         self.inbox_routing.set_binding(name, channel=channel, target=target)
         return {"ok": True, "bindings": self.inbox_routing.bindings()}
 
-    def _set_allowed(
-        self, name: str, user_id: str, *, team_id: Optional[str] = None, add: bool
-    ) -> dict[str, Any]:
-        """Add/remove a sender on the allow-list. With `team_id` the edit targets that
-        scope's profile — a workspace's `slack:team:<id>`, or a GitHub App
-        installation's `github:install:<id>` (the same per-tenant pattern);
-        without, the flat `<name>:default` list (manual single-workspace mode)."""
+    def _set_allowed(self, name: str, user_id: str, *, add: bool) -> dict[str, Any]:
+        """Add/remove a sender on the connector's allow-list (`<name>:default`)."""
         user_id = str(user_id).strip()
         if not user_id:
             return {"ok": False, "error": "user_id required"}
-        scope = "install" if name == "github" else "team"
-        profile_key = f"{name}:{scope}:{team_id}" if team_id else f"{name}:default"
+        profile_key = f"{name}:default"
         profile = self.secrets.get(profile_key)
         if not profile:
-            return {
-                "ok": False,
-                "error": (
-                    "workspace not connected" if team_id else "connector not connected"
-                ),
-            }
+            return {"ok": False, "error": "connector not connected"}
         allowed = set(profile.get("allowed_users") or [])
         allowed.add(user_id) if add else allowed.discard(user_id)
         profile["allowed_users"] = sorted(allowed)
         self.secrets.put(profile_key, profile)
         # reflect into the live gateway so it takes effect without a restart
         if self.gateway is not None and name in self.gateway.settings:
-            if team_id:
-                from ..connectors import TeamAuth
-
-                teams = self.gateway.settings[name].teams
-                team = teams.setdefault(team_id, TeamAuth())
-                team.allowed_users = set(allowed)
-            else:
-                self.gateway.settings[name].allowed_users = set(allowed)
-        return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
-
-    async def disconnect_slack_workspace(self, team_id: str) -> dict[str, Any]:
-        """Stop relaying ONE workspace: delete the cloud routing row (best-effort),
-        drop the local per-team token, and hot-reload the gateway. Removing the last
-        workspace also clears relay mode on slack:default so the connector reads
-        disconnected (the manual Socket Mode fields, if any, are left untouched)."""
-        team_id = str(team_id).strip()
-        profile_key = f"slack:team:{team_id}"
-        if not team_id or not self.secrets.get(profile_key):
-            return {"ok": False, "error": "workspace not connected"}
-        from .. import cloud
-        from ..config import load_config
-
-        await asyncio.to_thread(
-            lambda: cloud.slack_disconnect_workspace(
-                self.secrets, load_config(), team_id
-            )
-        )
-        self.secrets.delete(profile_key)
-        remaining = [
-            m["profile"]
-            for m in self.secrets.status()
-            if m.get("profile", "").startswith("slack:team:")
-        ]
-        if not remaining:
-            default = self.secrets.get("slack:default") or {}
-            if default.get("mode") == "relay":
-                default.pop("mode", None)
-                default.pop("managed", None)
-                if default.get("bot_token"):
-                    # Manual Socket Mode creds predating the relay switch: keep them
-                    # stored but DISABLED — removing the last workspace must never
-                    # silently start listening with old tokens.
-                    default["type"] = "token"
-                    default["enabled"] = False
-                    self.secrets.put("slack:default", default)
-                else:
-                    default.pop("type", None)
-                    default.pop("enabled", None)
-                    if default:  # e.g. a flat allow-list worth keeping
-                        self.secrets.put("slack:default", default)
-                    else:
-                        self.secrets.delete("slack:default")
-        await self.refresh_gateway()
-        return {"ok": True, "remaining_workspaces": len(remaining)}
-
-    def slack_status(self) -> dict[str, Any]:
-        """Slack connection health in three honest layers (UX-DECISIONS §21):
-        the desktop↔relay socket, the cloud sign-in that authorizes it, and each
-        workspace's bot token. The desktop can't see the Slack↔cloud leg, so no
-        layer here ever claims it — event silence ≠ outage."""
-        from .. import cloud
-
-        default = self.secrets.get("slack:default") or {}
-        mode = default.get("mode") or ""
-        signin = cloud.status(self.secrets)
-
-        relay: dict[str, Any] = {
-            "state": "offline",
-            "reconnects": 0,
-            "last_event_at": None,
-            "last_error": "",
-        }
-        teams: dict[str, Any] = {}
-        adapter = (
-            self.gateway._adapters.get("slack") if self.gateway is not None else None
-        )
-        snapshot = getattr(
-            adapter, "status", None
-        )  # relay adapter only; Socket Mode has none
-        if callable(snapshot):
-            relay = snapshot()
-            teams = relay.pop("teams", {})
-        return {
-            "ok": True,
-            "mode": mode,
-            "relay": relay,
-            "signed_in": bool(signin.get("signed_in")),
-            "teams": teams,
-        }
-
-    async def disconnect_github_installation(
-        self, installation_id: str
-    ) -> dict[str, Any]:
-        """Stop relaying ONE GitHub installation: delete the cloud routing rows
-        (best-effort), drop the local profile, hot-reload the gateway. The Slack
-        per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
-        installation_id = str(installation_id).strip()
-        from .. import cloud
-        from ..config import load_config
-        from ..connectors import github_installs
-
-        if not installation_id or not self.secrets.get(
-            github_installs.PREFIX + installation_id
-        ):
-            return {"ok": False, "error": "installation not connected"}
-        await asyncio.to_thread(
-            lambda: cloud.github_disconnect_installation(
-                self.secrets, load_config(), installation_id
-            )
-        )
-        result = github_installs.disconnect_install(self.secrets, installation_id)
-        await self.refresh_gateway()
-        return result
-
-    def github_status(self) -> dict[str, Any]:
-        """GitHub relay health, same three honest layers as Slack: the shared
-        relay socket, the cloud sign-in, and per-installation token health."""
-        from .. import cloud
-
-        default = self.secrets.get("github:default") or {}
-        signin = cloud.status(self.secrets)
-        relay: dict[str, Any] = {
-            "state": "offline",
-            "reconnects": 0,
-            "last_event_at": None,
-            "last_error": "",
-        }
-        installs: dict[str, Any] = {}
-        missed: dict[str, Any] = {}
-        adapter = (
-            self.gateway._adapters.get("github") if self.gateway is not None else None
-        )
-        snapshot = getattr(adapter, "status", None)
-        if callable(snapshot):
-            relay = snapshot()
-            installs = relay.pop("installs", {})
-            missed = relay.pop("missed", {})
-        return {
-            "ok": True,
-            "mode": default.get("mode") or "",
-            "relay": relay,
-            "signed_in": bool(signin.get("signed_in")),
-            "installs": installs,
-            "missed": missed,
-        }
+            self.gateway.settings[name].allowed_users = set(allowed)
+        return {"ok": True, "allowed_users": sorted(allowed)}
 
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
@@ -2393,46 +2151,11 @@ class SessionManager:
             interaction_handler=self._on_interaction,
             on_unauthorized=self._park_unauthorized,
         )
-        # Managed Slack relay wiring (only used when a connector picks relay mode):
-        # the cloud sign-in JWT authorizes the relay WebSocket, and the relay
-        # endpoint comes from config. Both are lazy — Socket Mode needs neither.
-        from ..cloud import fresh_access_token
-        from ..config import load_config
-
-        cloud_config = load_config()
-
-        def _relay_token() -> str:
-            return fresh_access_token(self.secrets, cloud_config) or ""
-
-        # Every relay-mode platform shares ONE cloud socket; the hub fans frames
-        # out by provider tag. Built lazily on the first relay adapter.
-        relay_ws_url = getattr(cloud_config, "cloud_relay_ws_url", "") or None
-        relay_hub = None
-        if relay_ws_url:
-            from ..connectors.relay_client import RelayHub
-
-            relay_hub = RelayHub(relay_ws_url, _relay_token)
-
-        async def _github_token(installation_id: str) -> str:
-            from ..cloud import github_installation_token
-
-            return await asyncio.to_thread(
-                github_installation_token, self.secrets, cloud_config, installation_id
-            )
-
         for platform, st in settings.items():
             if not st.enabled:
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
-            adapter = make_adapter(
-                platform,
-                profile,
-                secrets=self.secrets,
-                token_provider=_relay_token,
-                relay_url=relay_ws_url,
-                relay_hub=relay_hub,
-                github_token_client=_github_token,
-            )
+            adapter = make_adapter(platform, profile, secrets=self.secrets)
             if adapter is not None:
                 self.gateway.register(adapter)
         return await self.gateway.start()
@@ -2490,7 +2213,7 @@ class SessionManager:
             return {"ok": True}
         if action not in ("allow", "allow_deliver"):
             return {"ok": False, "error": f"unknown action: {action}"}
-        allowed = self._set_allowed(name, item.user_id, team_id=item.team_id, add=True)
+        allowed = self._set_allowed(name, item.user_id, add=True)
         if not allowed.get("ok"):
             return allowed
         if action == "allow_deliver":
@@ -2716,10 +2439,9 @@ class SessionManager:
         if not (binding.channel and self.gateway is not None):
             return
         if binding.channel == "slack":
-            team_id, _ = slack_split(binding.target)
             # Legacy bindings may predate approval ownership. Keep the item
             # available in-app, but never mirror it to an ownerless channel.
-            if not self.slack_approval_owner_ids(team_id):
+            if not self.slack_approval_owner_ids():
                 return
         target = f"{binding.channel}:{binding.target}"
         body = "\n".join(p for p in (item.title, item.body) if p).strip()
@@ -2759,7 +2481,6 @@ class SessionManager:
                 item,
                 actor_id=actor_id,
                 chat_id=getattr(event, "chat_id", "") or "",
-                team_id=getattr(event, "team_id", None),
             ):
                 if self.gateway is not None:
                     await self.gateway.reject_interaction(event)
@@ -2804,7 +2525,6 @@ class SessionManager:
                     item,
                     actor_id=actor_id,
                     chat_id=getattr(event.source, "chat_id", "") or "",
-                    team_id=getattr(event.source, "team_id", None),
                 ):
                     return False
             return self.inbox.resolve(item_id, resolution)

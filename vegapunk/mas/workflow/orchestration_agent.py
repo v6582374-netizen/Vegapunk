@@ -21,11 +21,14 @@ from ..agents.base_agent import BaseAgent
 from ..memory.memory_manager import MemoryManager
 from ..models.unified_runtime import UnifiedModelRuntime
 from .data_type import (
+    EXTERNAL_DATA_POLICIES,
+    EXTERNAL_DATA_POLICY_ALLOWED,
+    ExternalDataDeclaration,
     Idea,
     Task,
     WorkflowSession,
     WorkflowState,
-    normalize_external_data_requirement,
+    resolve_external_data_declaration,
 )
 from .external_data import (
     MANIFEST_FILENAME,
@@ -114,7 +117,8 @@ class OrchestrationAgent:
                            domain: str,
                            background: str = "",
                            ref_code_path: str = None,
-                           constraints: List[str] = None) -> str:
+                           constraints: List[str] = None,
+                           external_data_policy: str = EXTERNAL_DATA_POLICY_ALLOWED) -> str:
         """
         Create new workflow session for research task.
 
@@ -127,6 +131,9 @@ class OrchestrationAgent:
             background (str): Additional context (optional)
             ref_code_path (str): Path to reference code baseline (optional)
             constraints (List[str]): Research constraints (optional)
+            external_data_policy (str): Whether this Task permits externally
+                acquired data at all. An Idea may only narrow this authority,
+                never widen it.
 
         Returns:
             str: Unique session identifier for tracking
@@ -156,13 +163,26 @@ class OrchestrationAgent:
         else:
             logger.info("DR agent disabled in config, skipping background generation")
 
+        policy = (
+            external_data_policy
+            if external_data_policy in EXTERNAL_DATA_POLICIES
+            else EXTERNAL_DATA_POLICY_ALLOWED
+        )
+        if policy != external_data_policy:
+            logger.warning(
+                "Unknown external_data_policy %r; the Task defaults to %s",
+                external_data_policy,
+                EXTERNAL_DATA_POLICY_ALLOWED,
+            )
+
         task = Task(
             id=task_id,
             description=goal_description,
             domain=domain,
             background=background,
             ref_code_path=ref_code_path,
-            constraints=constraints or []
+            constraints=constraints or [],
+            external_data_policy=policy,
         )
 
         session_id = f"session_{int(time.time())}"
@@ -532,14 +552,12 @@ class OrchestrationAgent:
                     id=f"idea_{int(time.time())}_{idx}",
                     text=idea_data.get("text", ""),
                     rationale=idea_data.get("rationale", ""),
-                    requires_external_data=idea_data.get("requires_external_data", False),
-                    external_data_request=idea_data.get("external_data_request", ""),
-                    external_data_reason=idea_data.get("external_data_reason", ""),
-                    external_data_route=idea_data.get("external_data_route", ""),
                     baseline_summary=response.get("baseline_summary", ""),
                     iteration=session.iterations_completed
                 )
-                self.should_acquire_external_data(idea)
+                self.admit_external_data_declaration(
+                    idea, session, idea_data.get("external_data")
+                )
                 session.ideas.append(idea)
 
             logger.info(f"Idea Innovation Agent: Generated {len(response.get('hypotheses', []))} ideas for session {session.id}")
@@ -553,34 +571,35 @@ class OrchestrationAgent:
                 error=f"Generation phase failed: {e}",
             )
 
-    def should_acquire_external_data(self, idea: Idea) -> bool:
-        """Return whether an Idea explicitly authorizes external data acquisition.
+    def admit_external_data_declaration(
+        self,
+        idea: Idea,
+        session: WorkflowSession,
+        raw: Any,
+        *,
+        inherited: Optional[ExternalDataDeclaration] = None,
+    ) -> bool:
+        """Admit one declaration through the single Task-bound customs house.
 
-        This is the Idea-level gate for future Connector and Web Evidence
-        integrations. Scholar retrieval remains independent of this result.
-        Invalid or incomplete declarations are normalized to a closed gate and
-        persisted on the Idea so later phases do not infer a third state.
+        Every entrance that can create an Idea passes through here, so an Idea
+        can only narrow what its Task already permits.  A Task that forbids
+        external data closes the gate regardless of what an Idea claims.
         """
-        (
-            requires_external_data,
-            external_data_request,
-            external_data_reason,
-            external_data_route,
-            warning,
-        ) = normalize_external_data_requirement(
-            getattr(idea, "requires_external_data", False),
-            getattr(idea, "external_data_request", ""),
-            getattr(idea, "external_data_reason", ""),
-            getattr(idea, "external_data_route", ""),
+        policy = getattr(
+            session.task, "external_data_policy", EXTERNAL_DATA_POLICY_ALLOWED
+        )
+        declaration, warning = resolve_external_data_declaration(
+            raw, policy=policy, inherited=inherited
         )
         if warning:
             logger.warning("Idea %s external-data declaration: %s", idea.id, warning)
+        idea.external_data = declaration
+        return declaration.required
 
-        idea.requires_external_data = requires_external_data
-        idea.external_data_request = external_data_request
-        idea.external_data_reason = external_data_reason
-        idea.external_data_route = external_data_route
-        return requires_external_data
+    @staticmethod
+    def should_acquire_external_data(idea: Idea) -> bool:
+        """Read the already-admitted decision without re-deciding it."""
+        return idea.external_data.required
 
     async def _run_reflection_phase(self, session: WorkflowSession) -> None:
         """
@@ -726,30 +745,29 @@ class OrchestrationAgent:
         if not required_ideas:
             return
 
-        connector_ideas = [
-            idea
-            for idea in required_ideas
-            if idea.external_data_route == "registered_api"
-        ]
-        connector = self._get_agent("connector") if connector_ideas else None
-        if connector_ideas and connector is None:
-            logger.warning("Connector is unavailable; structured data acquisition was skipped")
-            for idea in connector_ideas:
-                self._record_acquisition_event(
-                    idea,
-                    acquired_by="connector",
-                    status="unavailable",
-                    message="Connector agent is unavailable; structured data acquisition was skipped.",
-                )
-
         workspace_root = self._external_data_workspace_root()
         api_registry = self._external_data_api_registry()
         semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
+        # Which source can serve a request is decided here, by the Connector that
+        # actually holds the registry -- never guessed upstream by an Idea that
+        # has never seen it.  When the Connector cannot run at all, the public
+        # web remains the only available source.
+        connector = self._get_agent("connector")
+        if connector is None:
+            logger.warning(
+                "Connector is unavailable; external data will be sought from the public web only"
+            )
 
         async def acquire(idea: Idea) -> None:
             workspace = allocate_idea_data_workspace(workspace_root, session.id, idea.id)
             idea.data_workspace = str(workspace)
-            if idea.external_data_route == "public_web":
+            if connector is None:
+                self._record_acquisition_event(
+                    idea,
+                    acquired_by="connector",
+                    status="unavailable",
+                    message="Connector agent is unavailable; structured API acquisition was skipped.",
+                )
                 await self._acquire_web_evidence(
                     session,
                     idea,
@@ -757,7 +775,7 @@ class OrchestrationAgent:
                     workspace,
                     api_registry,
                     set(),
-                    "No registered API was selected; acquire authoritative public-web evidence directly.",
+                    "No registered API could be consulted; acquire authoritative public-web evidence directly.",
                     semaphore,
                 )
                 return
@@ -766,7 +784,7 @@ class OrchestrationAgent:
                 "goal": session.task.to_dict(),
                 "hypothesis": idea.to_dict(),
                 "iteration": current_iter,
-                "external_data_request": idea.external_data_request,
+                "external_data_request": idea.external_data.request,
                 "api_registry": api_registry,
                 "idea_data_workspace": str(workspace),
             }
@@ -775,7 +793,8 @@ class OrchestrationAgent:
                     connector_result = await connector.execute(context, {})
             except Exception as error:
                 logger.warning(
-                    "Connector acquisition failed for Idea %s; no evidence was admitted: %s",
+                    "Connector acquisition failed for Idea %s; falling back to "
+                    "public-web evidence: %s",
                     idea.id,
                     error,
                 )
@@ -784,6 +803,22 @@ class OrchestrationAgent:
                     acquired_by="connector",
                     status="failed",
                     message=str(error),
+                )
+                # A Connector that could not run admitted zero structured
+                # evidence, which is indistinguishable from zero coverage.  The
+                # public web is now the only remaining source, so the gate
+                # opens by construction rather than by Connector judgment.
+                await self._acquire_web_evidence(
+                    session,
+                    idea,
+                    current_iter,
+                    workspace,
+                    api_registry,
+                    set(),
+                    "The Connector failed before completing structured API "
+                    f"acquisition ({error}); acquire authoritative public-web "
+                    "evidence directly.",
+                    semaphore,
                 )
                 return
 
@@ -801,6 +836,14 @@ class OrchestrationAgent:
                     message="; ".join(validation.errors),
                 )
                 connector_artifact_paths: set[str] = set()
+                # A rejected manifest also admitted zero evidence, so whatever
+                # sufficiency the Connector claimed no longer holds.
+                open_web_evidence_gate = True
+                coverage_feedback = (
+                    "The Connector manifest was rejected, so no structured "
+                    "evidence was admitted; acquire authoritative public-web "
+                    "evidence directly."
+                )
             else:
                 connector_artifact_paths = {
                     entry["artifact_path"] for entry in validation.entries
@@ -812,8 +855,12 @@ class OrchestrationAgent:
                     acquired_by="connector",
                     method_phase=session.method_phase,
                 )
+                open_web_evidence_gate = (
+                    connector_result.get("open_web_evidence_gate") is True
+                )
+                coverage_feedback = str(connector_result.get("coverage_feedback", ""))
 
-            if connector_result.get("open_web_evidence_gate") is True:
+            if open_web_evidence_gate:
                 await self._acquire_web_evidence(
                     session,
                     idea,
@@ -821,16 +868,11 @@ class OrchestrationAgent:
                     workspace,
                     api_registry,
                     connector_artifact_paths,
-                    str(connector_result.get("coverage_feedback", "")),
+                    coverage_feedback,
                     semaphore,
                 )
 
-        runnable_ideas = [
-            idea
-            for idea in required_ideas
-            if idea.external_data_route == "public_web" or connector is not None
-        ]
-        await asyncio.gather(*(acquire(idea) for idea in runnable_ideas))
+        await asyncio.gather(*(acquire(idea) for idea in required_ideas))
 
     async def _acquire_web_evidence(
         self,
@@ -843,7 +885,13 @@ class OrchestrationAgent:
         connector_coverage_feedback: str,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """Invoke Web Evidence only when the Connector-owned gate is open."""
+        """Invoke Web Evidence when the gate is open or the Connector admitted nothing.
+
+        The Connector owns the gate only while it can actually vouch for
+        coverage.  When it is unavailable, fails, or its manifest is rejected,
+        no structured evidence exists, so the public web becomes the mandatory
+        fallback source instead of an optional supplement.
+        """
         web_evidence = self._get_agent("web_evidence")
         if web_evidence is None:
             logger.warning("Web Evidence is unavailable for Idea %s", idea.id)
@@ -859,7 +907,7 @@ class OrchestrationAgent:
             "goal": session.task.to_dict(),
             "hypothesis": idea.to_dict(),
             "iteration": current_iter,
-            "external_data_request": idea.external_data_request,
+            "external_data_request": idea.external_data.request,
             "api_registry": api_registry,
             "connector_coverage_feedback": connector_coverage_feedback,
             "idea_data_workspace": str(workspace),
@@ -1014,20 +1062,17 @@ class OrchestrationAgent:
                             text=evolution.get("text", ""),
                             rationale=evolution.get("rationale", ""),
                             baseline_summary=idea.baseline_summary,
-                            requires_external_data=evolution.get(
-                                "requires_external_data", idea.requires_external_data
-                            ),
-                            external_data_request=evolution.get(
-                                "external_data_request", idea.external_data_request
-                            ),
-                            external_data_reason=evolution.get(
-                                "external_data_reason", idea.external_data_reason
-                            ),
-                            external_data_route=evolution.get(
-                                "external_data_route", idea.external_data_route
-                            ),
                             iteration=current_iter + 1,
                             parent_id=idea.id
+                        )
+                        # The second entrance uses the same customs house.  An
+                        # omitted declaration inherits the parent's decision
+                        # whole instead of blending fields nobody chose.
+                        self.admit_external_data_declaration(
+                            evolved_idea,
+                            session,
+                            evolution.get("external_data"),
+                            inherited=idea.external_data,
                         )
                         evolved_list.append(evolved_idea)
                     

@@ -1,250 +1,96 @@
 import { useEffect, useState } from "react";
 import {
   disallowUser,
-  disconnectGithubInstallation,
-  getGithubStatus,
+  disconnectConnector,
   getSubscriptions,
   resolveUnauthorized,
   unsubscribeChannel,
-  type Connector,
-  type GithubInstallation,
-  type GithubStatus,
   type ParkedMessage,
   type Subscription,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
-import { AddConnectionModal } from "./AddConnectionModal";
 import type { DetailProps } from "./ConnectorsSection";
 import { ToolsDisclosure } from "./ToolsDisclosure";
-import { FOOT, GRP, GRP_H, PILL_ACCENT, PILL_LINE, ROW, TAG_WARN, XBTN } from "./ui";
+import { FOOT, GRP, GRP_H, PILL_ACCENT, PILL_LINE, ROW, XBTN } from "./ui";
 
-// The GitHub detail page (github-relay-spec §8), the Slack page's shape: one
-// group per App INSTALLATION (the allow-list scope) — People (sender logins
-// allowed to trigger work) · Waiting (parked mentions) · per-installation
-// disconnect — plus a page-level Listening group (a subscription names a repo
-// thread, which the GUI can't map back to an installation). Adding an
-// installation goes through the ONE entry point: header button → modal.
+// The GitHub detail page: a personal access token, ONE account. People (sender
+// logins allowed to trigger work) · Waiting (parked mentions) · Listening
+// (session ↔ repo thread) · Disconnect. Connecting goes through the ONE entry
+// point: the header button → AddConnectionModal (token paste).
 
 const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
-/** The relay status line, one honest layer at a time (the Slack rule). */
-function relayHealth(gh: GithubStatus | null): { dot: string; text: string } {
-  if (!gh) return { dot: "bg-ok", text: "Live · managed relay" };
-  if (!gh.signed_in)
-    return { dot: "bg-warnInk", text: "Sign-in needed — relaying is paused" };
-  if (gh.relay.state === "offline")
-    return { dot: "bg-faint/60", text: "Offline — can't reach the relay" };
-  if (gh.relay.state === "reconnecting")
-    return { dot: "bg-warnInk", text: "Reconnecting to the relay…" };
-  return { dot: "bg-ok", text: "Live · managed relay" };
-}
-
-export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
-  const [adding, setAdding] = useState(false);
+export function GithubDetail({ c, onChanged }: DetailProps) {
+  const [busy, setBusy] = useState(false);
   const [subs, setSubs] = useState<Subscription[]>([]);
-  const [status, setStatus] = useState<GithubStatus | null>(null);
-  const load = () => {
-    getSubscriptions().then(setSubs).catch(() => setSubs([]));
-    getGithubStatus().then(setStatus).catch(() => setStatus(null));
-  };
+  const load = () => getSubscriptions().then(setSubs).catch(() => setSubs([]));
   useEffect(() => {
     load();
   }, [c.name]);
 
-  const relay = c.mode === "relay";
-  const installations = c.installations ?? [];
   const changed = () => {
     onChanged();
     load();
   };
   const listening = subs.filter((s) => s.channel.startsWith("github:"));
+  const parked = c.unauthorized ?? [];
+
+  const disconnect = async () => {
+    setBusy(true);
+    await disconnectConnector("github");
+    setBusy(false);
+    changed();
+  };
 
   return (
-    <div data-testid="github-installations">
+    <div data-testid="github-detail">
       <div className="flex items-center gap-3.5 mb-5">
         <ConnectorBadge connector={c} size={44} title="GitHub" />
         <div className="min-w-0 flex-1">
           <h2 className="text-[20px] font-semibold tracking-tight leading-tight">GitHub</h2>
           <div className="text-[12.5px] text-muted flex items-center gap-1.5">
-            {c.connected ? (
-              <>
-                <span
-                  className={
-                    "w-2 h-2 rounded-full " + (relay ? relayHealth(status).dot : "bg-ok")
-                  }
-                />
-                <span data-testid="github-mode-badge">
-                  {relay
-                    ? relayHealth(status).text
-                    : "Connected · personal access token"}
-                </span>
-              </>
-            ) : (
-              <span>Not connected</span>
-            )}
+            <span className="w-2 h-2 rounded-full bg-ok" />
+            <span data-testid="github-mode-badge">Connected · personal access token</span>
           </div>
         </div>
-        {(relay || !c.connected) && (
-          <button
-            className={PILL_ACCENT}
-            data-testid="add-installation-btn"
-            onClick={() => setAdding(true)}
-          >
-            ＋ Add installation
-          </button>
-        )}
       </div>
 
-      {!c.connected && (
+      <div data-testid="github-pat-card">
+        <div className={GRP_H}>
+          {c.account || "account"}{" "}
+          <span className="font-normal text-faint">· personal access token</span>
+        </div>
         <div className={GRP}>
-          <div className={ROW + " text-[12.5px] text-muted"}>
-            One @ocw-agent App, installed per account or org — you pick the repos on
-            GitHub; each installation keeps its own allow-list.
-            {cloud?.signed_in ? "" : " One-click needs cloud sign-in; a PAT works without it."}
+          <PeopleRow allowed={c.allowed_users} onChanged={changed} />
+          {parked.map((m) => (
+            <WaitingRow key={m.id} m={m} onChanged={changed} />
+          ))}
+          {listening.length > 0 && <ListeningRows subs={listening} onChanged={changed} />}
+          <div className={ROW}>
+            <span className="flex-1" />
+            <button
+              className="text-[12.5px] text-danger/80 hover:text-danger shrink-0"
+              data-testid="disconnect-github"
+              title="Removes the stored token from this computer."
+              onClick={disconnect}
+              disabled={busy}
+            >
+              {busy ? "Disconnecting…" : "Disconnect GitHub"}
+            </button>
           </div>
         </div>
-      )}
-
-      {relay &&
-        installations.map((inst) => (
-          <InstallationGroup
-            key={inst.installation_id}
-            c={c}
-            inst={inst}
-            tokenOk={status?.installs?.[inst.installation_id]?.token_ok !== false}
-            onChanged={changed}
-          />
-        ))}
-
-      {/* Manual PAT: request/response tools only — no inbound triggers. */}
-      {c.connected && !relay && (
-        <div className={GRP} data-testid="github-manual-card">
-          <div className={ROW + " text-[12.5px] text-muted"}>
-            Personal access token · tools only. Install the GitHub App to let
-            @-mentions and the agent label reach this computer.
-          </div>
-        </div>
-      )}
-
-      {relay && listening.length > 0 && (
-        <>
-          <div className={GRP_H}>Listening</div>
-          <div className={GRP}>
-            <ListeningRows subs={listening} onChanged={changed} />
-          </div>
-        </>
-      )}
+      </div>
 
       <ToolsDisclosure c={c} onChanged={onChanged} />
-      {c.connected && relay && (
-        <div className={FOOT + " mt-2"}>
-          Triggers: @ocw-agent mentions and the “ocw-agent” label. The agent replies as
-          ocw-agent[bot].
-        </div>
-      )}
-
-      {adding && (
-        <AddConnectionModal
-          c={c}
-          cloud={cloud}
-          title="Add an installation"
-          onClose={() => setAdding(false)}
-          onChanged={changed}
-        />
-      )}
-    </div>
-  );
-}
-
-function InstallationGroup({
-  c,
-  inst,
-  tokenOk,
-  onChanged,
-}: {
-  c: Connector;
-  inst: GithubInstallation;
-  tokenOk: boolean;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const parked = (c.unauthorized ?? []).filter((m) => m.team_id === inst.installation_id);
-  const empty = inst.allowed_users.length === 0 && parked.length === 0;
-
-  const disconnect = async () => {
-    setBusy(true);
-    await disconnectGithubInstallation(inst.installation_id);
-    setBusy(false);
-    onChanged();
-  };
-
-  return (
-    <div data-testid={`github-install-${inst.installation_id}`}>
-      <div className={GRP_H + " flex items-center gap-2"}>
-        <span>
-          {inst.account_login}{" "}
-          <span className="font-normal text-faint" title={`installation ${inst.installation_id}`}>
-            · {inst.repo_selection === "all" ? "all repos" : "selected repos"}
-          </span>
-        </span>
-        {!tokenOk && (
-          <span className={TAG_WARN} data-testid={`token-warn-${inst.installation_id}`}>
-            ⚠ Installation revoked — reinstall
-          </span>
-        )}
-      </div>
-      <div className={GRP}>
-        {empty ? (
-          <div className={ROW}>
-            <span className="min-w-0 flex-1 text-[12.5px] text-muted">
-              No one allowed yet — @ocw-agent mentions show up here for your OK.
-            </span>
-            <DisconnectBtn id={inst.installation_id} busy={busy} onClick={disconnect} />
-          </div>
-        ) : (
-          <>
-            <PeopleRow
-              allowed={inst.allowed_users}
-              installationId={inst.installation_id}
-              onChanged={onChanged}
-            />
-            {parked.map((m) => (
-              <WaitingRow key={m.id} m={m} onChanged={onChanged} />
-            ))}
-            <div className={ROW}>
-              <span className="flex-1" />
-              <DisconnectBtn id={inst.installation_id} busy={busy} onClick={disconnect} />
-            </div>
-          </>
-        )}
+      <div className={FOOT + " mt-2"}>
+        Tools act as the token's own user. GitHub logins are the readable identity — no
+        name lookup needed.
       </div>
     </div>
   );
 }
 
-function DisconnectBtn({ id, busy, onClick }: { id: string; busy: boolean; onClick: () => void }) {
-  return (
-    <button
-      className="text-[12.5px] text-danger/80 hover:text-danger shrink-0"
-      data-testid={`disconnect-install-${id}`}
-      title="Stops relaying this installation to this computer. The App stays installed on GitHub."
-      onClick={onClick}
-      disabled={busy}
-    >
-      {busy ? "Disconnecting…" : "Disconnect installation"}
-    </button>
-  );
-}
-
-function PeopleRow({
-  allowed,
-  installationId,
-  onChanged,
-}: {
-  allowed: string[];
-  installationId: string;
-  onChanged: () => void;
-}) {
+function PeopleRow({ allowed, onChanged }: { allowed: string[]; onChanged: () => void }) {
   return (
     <div className={ROW}>
       <span className={LABEL}>People</span>
@@ -262,7 +108,7 @@ function PeopleRow({
             <button
               className={XBTN}
               title="remove"
-              onClick={() => disallowUser("github", login, installationId).then(onChanged)}
+              onClick={() => disallowUser("github", login).then(onChanged)}
             >
               ×
             </button>

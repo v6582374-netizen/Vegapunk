@@ -67,6 +67,7 @@ import { AgentsMdWorkspace, type AgentsMdFileTarget } from "./components/AgentsM
 import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
 import { DiscoveryView } from "./components/DiscoveryView";
 import { CameraView } from "./components/CameraView";
+import { EmbodiedWorkbench } from "./components/EmbodiedWorkbench";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -162,11 +163,11 @@ export function App() {
   if (prototype === "babeldoc") return <BabelDocPrototype />;
   if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
   if (prototype === "embodied") return <EmbodiedPrototype />;
-  const app = <OpenWorkerApp />;
+  const app = <VegapunkApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }
 
-function OpenWorkerApp() {
+function VegapunkApp() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
   const [showGate, setShowGate] = useState(false);
@@ -242,6 +243,7 @@ function OpenWorkerApp() {
     | "scheduled"
     | "integrations"
     | "camera"
+    | "embodied"
     | "audit"
     | "inbox"
     | "persona"
@@ -1195,7 +1197,7 @@ function OpenWorkerApp() {
         {overlay && (
           <div className="titlebar-drag" data-tauri-drag-region>
             <span className="titlebar-brand brand-wordmark">
-              <Icon name="logo" size={13} className="mark" /> OpenWorker<span className="beta-tag">BETA</span>
+              <Icon name="logo" size={13} className="mark" /> Vegapunk<span className="beta-tag">BETA</span>
             </span>
           </div>
         )}
@@ -1204,13 +1206,13 @@ function OpenWorkerApp() {
             <span /><span /><span />
           </div>
         )}
-        {/* The real OpenWorker mark (6-point star, same as the app/tray icon) — the old
+        {/* The real Vegapunk mark (6-point star, same as the app/tray icon) — the old
             ✦ text glyph was a 4-point sparkle that read as another product's logo. */}
         <div className="boot-mark">
           <Icon name="logo" size={38} />
         </div>
         <div className="boot-text">
-          {resumedExisting ? "Restoring your session…" : "Starting OpenWorker…"}
+          {resumedExisting ? "Restoring your session…" : "Starting Vegapunk…"}
           <span className="beta-tag">BETA</span>
         </div>
       </div>
@@ -1301,10 +1303,7 @@ function OpenWorkerApp() {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
-            if (next === "gallery") {
-              // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
-              openSettings("personas");
-            } else if (next === "automations") {
+            if (next === "automations") {
               // "Create your first automation" (§29) lands on the Automations quickstart.
               setSurface("scheduled");
             } else if (next === "work") {
@@ -1352,10 +1351,12 @@ function OpenWorkerApp() {
         onOpenDiscovery={() => setSurface("discovery")}
         onOpenTranslation={() => setSurface("translation")}
         onOpenCamera={() => setSurface("camera")}
+        onOpenEmbodied={() => setSurface("embodied")}
         scheduledActive={surface === "scheduled"}
         discoveryActive={surface === "discovery"}
         translationActive={surface === "translation"}
         cameraActive={surface === "camera"}
+        embodiedActive={surface === "embodied"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
@@ -1373,6 +1374,8 @@ function OpenWorkerApp() {
         />
       ) : surface === "camera" ? (
         <CameraView />
+      ) : surface === "embodied" ? (
+        <EmbodiedWorkbench />
       ) : surface === "integrations" ? (
         <IntegrationsView />
       ) : surface === "settings" ? (

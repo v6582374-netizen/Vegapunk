@@ -3,7 +3,7 @@
 When @OpenWorker is tagged in a channel with no subscribed session, the router spawns a
 coworker session that OWNS that thread and replies into it. This store is the
 dedupe map: one durable record per thread, keyed by the thread target string
-(``"slack:C0123:1700….000100"``; relay: ``"slack:T…/C…:ts"``) — byte-identical to
+(``"slack:C0123:1700….000100"``) — byte-identical to
 what the session passes to ``send_message`` and to the standing-grant target, so
 one string serves lookup, delivery, and permission.
 

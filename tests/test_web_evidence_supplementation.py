@@ -10,7 +10,13 @@ from unittest.mock import AsyncMock
 from vegapunk.mas.agents.connector_agent import ConnectorAgent
 from vegapunk.mas.agents.web_evidence_agent import WebEvidenceAgent
 from vegapunk.mas.memory.memory_manager import InMemoryMemoryManager
-from vegapunk.mas.workflow.data_type import Idea, Task, WorkflowSession, WorkflowState
+from vegapunk.mas.workflow.data_type import (
+    ExternalDataDeclaration,
+    Idea,
+    Task,
+    WorkflowSession,
+    WorkflowState,
+)
 from vegapunk.mas.workflow.external_data import MANIFEST_FILENAME
 from vegapunk.mas.workflow.orchestration_agent import OrchestrationAgent
 from vegapunk.prompt_library import prompts
@@ -182,9 +188,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
             idea = Idea(
                 id="idea-1",
                 text="Measure membrane transport.",
-                requires_external_data=True,
-                external_data_request="Water and salt permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water and salt permeability by salinity."),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -205,7 +209,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                                     "source": "NREL",
                                     "api_id": "nrel-example",
                                     "docs_url": "https://developer.nrel.gov/docs/",
-                                    "request": idea.external_data_request,
+                                    "request": idea.external_data.request,
                                     "retrieved_at": "2026-08-06T10:00:00+00:00",
                                 }
                             ]
@@ -224,7 +228,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                     context["connector_coverage_feedback"],
                     "Partial coverage: salt permeability is unavailable.",
                 )
-                self.assertEqual(context["external_data_request"], idea.external_data_request)
+                self.assertEqual(context["external_data_request"], idea.external_data.request)
                 self.assertEqual(context["api_registry"], API_REGISTRY)
                 (workspace / "web.csv").write_text("salt,permeability\nNaCl,0.2\n", encoding="utf-8")
                 manifest = json.loads((workspace / MANIFEST_FILENAME).read_text(encoding="utf-8"))
@@ -233,7 +237,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                         "artifact_path": "web.csv",
                         "source": "Official supplementary dataset",
                         "api_id": "non_api",
-                        "request": idea.external_data_request,
+                        "request": idea.external_data.request,
                         "retrieved_at": "2026-08-06T10:01:00+00:00",
                     }
                 )
@@ -273,9 +277,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
             idea = Idea(
                 id="idea-1",
                 text="Measure membrane transport.",
-                requires_external_data=True,
-                external_data_request="Water permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -296,7 +298,7 @@ class WebEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                                     "source": "NREL",
                                     "api_id": "nrel-example",
                                     "docs_url": "https://developer.nrel.gov/docs/",
-                                    "request": idea.external_data_request,
+                                    "request": idea.external_data.request,
                                     "retrieved_at": "2026-08-06T10:00:00+00:00",
                                 }
                             ]

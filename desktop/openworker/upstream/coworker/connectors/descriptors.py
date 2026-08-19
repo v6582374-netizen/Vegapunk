@@ -2,9 +2,7 @@
 
 Adding a connector is (mostly) data, not UI code: a descriptor declares its auth method,
 the fields the user pastes, step-by-step instructions, and a `validate` that confirms the
-token by a real API call (and returns the bot identity to show back). Designed so a managed
-one-click OAuth (`auth="oauth"`) can slot in later for the cloud product without changing the
-data model — only the connect action differs.
+token by a real API call (and returns the bot identity to show back).
 """
 
 from __future__ import annotations
@@ -54,8 +52,7 @@ class ConnectorDescriptor:
     instructions: list[str]
     available: bool = True  # False → shown as "soon"
     # Chat-platform capability, narrower than two_way: sessions can SUBSCRIBE to this
-    # connector's channels (Sources ▸ Channels, listening-sessions block). GitHub is
-    # two_way via the relay (inbound mentions) but has no channel semantics.
+    # connector's channels (Sources ▸ Channels, listening-sessions block).
     channels: bool = False
     validate: Optional[Callable[[dict], ValidationResult]] = None
     # Registry metadata (UI-Refresh §1): the connector's brand color (hex; fallback gray) and a
@@ -77,15 +74,6 @@ class ConnectorDescriptor:
     # (connectors/experimental/) that release builds exclude entirely.
     experimental: bool = False
     risk_notice: str = ""
-    # One-click managed OAuth via OpenWorker Cloud (requires cloud sign-in).
-    # Manual token paste ALWAYS remains available — signed out or in — managed
-    # is an extra path, never a replacement (local-only open-source flow is
-    # sacred).
-    managed: bool = False
-    # One-click temporarily unavailable (e.g. Google pending CASA verification):
-    # the GUI shows a disabled button with a "Coming soon" badge, the server
-    # refuses begin_managed_connect, and the manual path is unaffected.
-    managed_paused: bool = False
     # Multi-account (accounts.py generic layer): the creds field that names an
     # account (e.g. "project_id"), or "@identity" = the validator's identity
     # string. Non-empty → profiles live at `<name>:account:<id>` and the
@@ -450,17 +438,12 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="slack",
         title="Slack",
         icon="💬",
-        blurb="Two-way messaging — one-click via OpenWorker Cloud, or a manual Slack app (Socket Mode).",
+        blurb="Two-way messaging via your own Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
         channels=True,
         brand_color="#611f69",
         logo="slack",
-        # One-click managed OAuth (the cloud relay): signed in, the GUI shows
-        # "Connect Slack with one click" (no tokens). The manual Socket-Mode
-        # fields below stay as the always-available fallback (slack → slack in
-        # PROVIDER_FOR_CONNECTOR drives the broker start).
-        managed=True,
         fields=[
             Field(
                 "bot_token",
@@ -561,9 +544,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Paste the access token below.",
         ],
         available=True,
-        managed=True,
-        # Google OAuth verification (CASA) pending — one-click off until it clears.
-        managed_paused=True,
     ),
     ConnectorDescriptor(
         name="google_calendar",
@@ -587,8 +567,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Paste the access token below.",
         ],
         available=True,
-        managed=True,
-        managed_paused=True,  # same Google app as Gmail — paused until CASA clears
     ),
     ConnectorDescriptor(
         name="browser",
@@ -611,10 +589,9 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         icon="⌘",
         blurb="Work with issues, pull requests, repository files, and CI status.",
         auth="token",
-        # Managed relay makes GitHub two-way: @-mentions and the agent label
-        # reach the desktop through the cloud relay (github-relay-spec §2.3);
-        # the manual PAT path stays request/response only.
-        two_way=True,
+        # The PAT path is request/response only: GitHub is never a gateway
+        # listener, so it carries no inbound allow-list.
+        two_way=False,
         brand_color="#1f2328",
         logo="github",
         fields=[
@@ -630,8 +607,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "For write actions, include Issues or Pull Requests write permissions as needed.",
         ],
         available=True,
-        # One-click managed path: install the GitHub App — no tokens typed.
-        managed=True,
     ),
     ConnectorDescriptor(
         name="outlook",
@@ -653,12 +628,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via OpenWorker Cloud (recommended).",
-            "Manual: paste a Microsoft Graph access token with Mail and Calendar scopes.",
+            "Paste a Microsoft Graph access token with Mail and Calendar scopes.",
         ],
         validate=_validate_outlook,
         available=True,
-        managed=True,
         # Key each connected mailbox by its email (the broker's `account` field,
         # from the Microsoft id_token) — same multi-account shape as Gmail/Drive.
         account_field="@identity",
@@ -686,7 +659,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "One click connects via Atlassian sign-in in your browser (recommended).",
-            "Manual: create an Atlassian API token and paste your site URL, account email, and token below.",
+            "Or create an Atlassian API token and paste your site URL, account email, and token below.",
         ],
         available=True,
     ),
@@ -913,7 +886,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             "Copy the access token and paste it below.",
         ],
         validate=_validate_hubspot,
-        managed=True,
     ),
     ConnectorDescriptor(
         name="dropbox",
@@ -934,7 +906,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "Create an app in the Dropbox App Console with files.metadata.read and files.content.read scopes.",
-            "Generate an access token and paste it below. Managed sign-in will replace this manual step later.",
+            "Generate an access token and paste it below.",
         ],
         validate=_validate_dropbox,
     ),
@@ -957,7 +929,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         instructions=[
             "Create a Box app at app.box.com/developers/console.",
-            "Generate a developer token (or OAuth access token) and paste it below. Managed sign-in will replace this manual step later.",
+            "Generate a developer token (or OAuth access token) and paste it below.",
         ],
         validate=_validate_box,
     ),
@@ -1023,7 +995,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         instructions=[
             "Create an app at developer.intuit.com and authorize it against your company (the OAuth playground works for testing).",
             "Copy the access token and the company ID (realm ID) and paste them below.",
-            "Intuit access tokens expire after about an hour. Managed sign-in will replace this manual step later.",
+            "Intuit access tokens expire after about an hour.",
         ],
         validate=_validate_quickbooks,
     ),
@@ -1131,8 +1103,6 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         ],
         validate=_validate_google_drive,
         available=True,
-        managed=True,
-        managed_paused=True,  # same Google app as Gmail — paused until CASA clears
         # Key each connected account by its Google email (the broker's `account`
         # field) so multiple Drive accounts list the same way Gmail's do, rather
         # than by the opaque `sub` that account_field="account_id" would use.
@@ -1256,17 +1226,14 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via OpenWorker Cloud (recommended).",
-            "Manual: create an internal integration at notion.so/my-integrations,",
+            "Create an internal integration at notion.so/my-integrations,",
             "copy its secret, and share the relevant pages with the integration.",
         ],
         validate=_validate_notion,
         brand_color="#1f2328",
         logo="notion",
-        managed=True,
-        # Managed profiles key by the workspace id the broker sends
-        # (account_id); a manual integration token falls back to the
-        # validator's workspace name.
+        # Keyed by workspace id when the token carries one; a manual
+        # integration token falls back to the validator's workspace name.
         account_field="account_id",
     ),
     ConnectorDescriptor(
@@ -1285,13 +1252,11 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via OpenWorker Cloud (recommended).",
-            "Manual: create an API key under Workspace Settings → Developers.",
+            "Create an API key under Workspace Settings → Developers.",
         ],
         validate=_validate_attio,
         brand_color="#2d7ff9",
         logo="attio",
-        managed=True,
         account_field="account_id",
     ),
     ConnectorDescriptor(

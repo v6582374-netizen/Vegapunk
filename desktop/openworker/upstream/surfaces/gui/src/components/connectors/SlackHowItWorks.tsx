@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SlackWorkspace } from "../../api";
+import type { Connector } from "../../api";
 
 // UX-027: the post-connect "how mentions reach you" card. A tabbed carousel of
 // animated split-scenes — Slack on the left (pinned to light-Slack colors, so it
@@ -23,7 +23,7 @@ function readCollapsed(): boolean {
   try { return localStorage.getItem(KEY) === "1"; } catch { return false; }
 }
 
-export function SlackHowItWorks({ workspaces }: { workspaces: SlackWorkspace[] }) {
+export function SlackHowItWorks({ c }: { c: Connector }) {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [tab, setTab] = useState(0);
   const [cycle, setCycle] = useState(0); // bump = remount the scene = restart its animations
@@ -54,17 +54,12 @@ export function SlackHowItWorks({ workspaces }: { workspaces: SlackWorkspace[] }
     try { localStorage.setItem(KEY, v ? "1" : "0"); } catch { /* best effort */ }
   };
 
-  // Personalize when the install pre-added the connecting user (setup.py):
-  // their workspace names the status line; the scenes call them by first name.
-  const mine = workspaces.find(
-    (w) => w.installer_user_id && w.allowed_users.includes(w.installer_user_id)
-  );
-  const ws = mine ?? workspaces[0];
-  const meName =
-    (mine &&
-      (mine.installer_name ||
-        mine.allowed_user_names?.[mine.installer_user_id ?? ""])) ||
-    "You";
+  // Personalize once anyone is on the allow-list: the first allowed person is
+  // whoever set this up (they add themselves first), so the scenes can use their
+  // first name and the status line can say their mentions get through.
+  const meId = c.allowed_users[0];
+  const onList = !!meId;
+  const meName = (meId && c.allowed_user_names?.[meId]) || "You";
   const meFirst = meName.split(/\s+/)[0];
   const meInitial = (meName[0] || "Y").toUpperCase();
 
@@ -93,8 +88,8 @@ export function SlackHowItWorks({ workspaces }: { workspaces: SlackWorkspace[] }
       </div>
       <div className="text-[12px] text-muted mt-0.5">
         <span className="text-ok font-bold">✓ </span>
-        {ws?.account || "Workspace"} connected
-        {mine
+        {c.account || "Workspace"} connected
+        {onList
           ? " — you're on the People list, so your mentions get through."
           : " — here's how mentions reach you."}
       </div>

@@ -10,4 +10,32 @@
 
 ## Local adaptation registry
 
-No local adaptation commits have been recorded yet.
+### Removal of OpenWorker Cloud
+
+The entire OpenWorker Cloud capability is removed from this tree. The criterion
+was whether a feature can work without the upstream broker: anything that cannot
+was deleted outright rather than kept behind a flag or degraded path.
+
+Removed: Auth0 PKCE sign-in, the managed OAuth broker, telemetry, the persona
+gallery, GitHub App installation-token minting, the desktop-to-cloud relay
+WebSocket (with its Slack/GitHub inbound adapters), and the connectors' managed
+layer (one-click OAuth, `mode="relay"`, multi-workspace and multi-installation
+routing).
+
+Retained: manual token paste for every connector, Slack Socket Mode, GitHub PAT,
+MCP local OAuth (no cloud account required), and the generic multi-account
+storage layer (`accounts.py`, `gmail_accounts`, `gcal_accounts`,
+`hubspot_portals`), whose profile fields are field-compatible with manual paste.
+
+Consequences worth knowing when reviewing an upstream diff:
+
+- Slack is single-workspace. Per-team profiles (`slack:team:*`), `TeamAuth`, and
+  team-qualified addressing (`T…/C…`) are gone; allow-lists are flat again.
+- GitHub is `two_way=False` and is not a gateway listener platform — inbound
+  mentions arrived only over the relay.
+- Sender attribution is deleted: it named the managed OAuth installer, which
+  Socket Mode never has.
+- `Config` no longer carries `cloud_*` fields, and `/auth/callback` plus
+  `/oauth/callback` are gone (removed from the tokenless-path allowlist too).
+- Orphaned SecretStore entries (`cloud:auth`, `cloud:telemetry`, `slack:team:*`,
+  `github:install:*`) are left unread rather than migrated.

@@ -1146,7 +1146,7 @@ def test_run_admits_one_immutable_launch_and_keeps_preparation_editable(
         time.sleep(0.025)
     assert snapshot["current_launch"] is None
     assert snapshot["history"][0]["launch_id"] == launch_id
-    assert snapshot["history"][0]["state"] == "completed"
+    assert snapshot["history"][0]["state"] == "failed"
 
 
 def test_run_rejects_ineligible_revision_and_enforces_idempotent_single_active_slot(
@@ -1396,7 +1396,7 @@ def test_missing_runner_reconciles_to_interrupted_and_preserves_checkpoint(tmp_p
     assert resumed.json()["launch_id"] == launch_id
 
 
-def test_failed_launch_is_read_only_history(tmp_path, monkeypatch):
+def test_failed_launch_retries_from_web_and_preserves_attempt_history(tmp_path, monkeypatch):
     monkeypatch.setattr(
         discovery_module,
         "DISCOVERY_INPUT_CONVERSION_PROMPT_PATH",
@@ -1426,12 +1426,30 @@ def test_failed_launch_is_read_only_history(tmp_path, monkeypatch):
         time.sleep(0.01)
     assert snapshot["history"][0]["launch_id"] == launch_id
     assert snapshot["history"][0]["state"] == "failed"
-    assert snapshot["history"][0]["resumable"] is False
-    rejected = client.post(
+    assert snapshot["history"][0]["resumable"] is True
+    resumed = client.post(
         f"/v1/discovery/launches/{launch_id}/resume",
         headers={**_headers(), "Idempotency-Key": "failed-resume"},
     )
-    assert rejected.status_code == 409
+    assert resumed.status_code == 201
+    assert resumed.json()["launch_id"] == launch_id
+    assert len(resumed.json()["snapshot"]["current_launch"]["attempts"]) == 2
+
+    replayed = client.post(
+        f"/v1/discovery/launches/{launch_id}/resume",
+        headers={**_headers(), "Idempotency-Key": "failed-resume"},
+    )
+    assert replayed.status_code == 201
+    assert len(replayed.json()["snapshot"]["current_launch"]["attempts"]) == 2
+
+    for _ in range(80):
+        snapshot = client.get("/v1/discovery", headers=_headers()).json()
+        if snapshot["history"] and len(snapshot["history"][0]["attempts"]) == 2:
+            break
+        time.sleep(0.01)
+    assert snapshot["history"][0]["launch_id"] == launch_id
+    assert snapshot["history"][0]["state"] == "completed"
+    assert len(snapshot["history"][0]["attempts"]) == 2
 
 
 def test_launch_admission_is_serialized_by_the_durable_lock(tmp_path):

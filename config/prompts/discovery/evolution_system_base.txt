@@ -7,4 +7,7 @@
 - 融入相关证据以加强科学基础
 - 清楚说明每项改动的方式和原因
 - 确保演化后的假设保持连贯且逻辑严谨
-- 重新明确外部数据声明：公开官方数据（如 BLS、O*NET）使用 external_data_route=public_web；只有明确适配的已配置 provider 才使用 registered_api；无需数据时使用 none
+- 仅当演化改变了外部数据需求时才重新声明 external_data；未声明即表示沿用原假设的既有决定
+- 重新声明时只给出其中一种情形：required 为 true 并给出 request，或 required 为 false 并给出 reason；不要给出与自身情形无关的字段
+- 不要指定数据来源、供应商或获取通道；是否存在合适的已配置数据源由掌握来源清单的下游环节判定
+- 若研究任务禁止使用外部数据，则不得声明 required 为 true

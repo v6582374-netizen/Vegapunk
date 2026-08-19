@@ -29,7 +29,7 @@ from vegapunk.embodied.bench import (
     embodiment_for,
     run_bench,
 )
-from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_DEX1_JOINT
+from vegapunk.embodied.embodiment import UNIFOLM_VLA_BASE_G1_EE6D
 from vegapunk.embodied.fidelity import SimulatedConfiguration
 from vegapunk.embodied.runtime import RobotState
 from vegapunk.embodied.safety import SafetyEnvelope
@@ -244,7 +244,7 @@ class PlanDeclarationTests(unittest.TestCase):
             _plan(
                 skill=_skill(
                     kind=SKILL_KIND_VLA,
-                    policy=UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+                    policy=UNIFOLM_VLA_BASE_G1_EE6D,
                 )
             )
         self.assertIn("checkpoint's digest", str(error.exception))

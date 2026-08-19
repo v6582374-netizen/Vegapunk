@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
@@ -56,9 +57,67 @@ import numpy as np
 
 from vegapunk.embodied.admission import STAGE_OFFLINE_REPLAY
 from vegapunk.embodied.fidelity import SimulatedConfiguration
+from vegapunk.embodied.regime import (
+    APPLIED_AXES,
+    AXIS_ACTUATOR_GAIN_SCALE,
+    AXIS_COMMAND_LATENCY_STEPS,
+    AXIS_DAMPING_SCALE,
+    AXIS_FRICTION_SCALE,
+    AXIS_PAYLOAD_KG,
+    AXIS_SENSOR_NOISE_RAD,
+    RegimeSample,
+)
 from vegapunk.embodied.runtime import RobotState
 
 SIMULATION_STAGE = STAGE_OFFLINE_REPLAY
+
+SUPPORTED_PERTURBATION_AXES: frozenset[str] = frozenset(APPLIED_AXES)
+"""The axes this environment applies, derived from the regime registry.
+
+Derived rather than restated so the two lists cannot drift. If a future axis is
+registered in ``regime`` without an applier here, ``perturb`` raises on the
+first sample that carries it instead of quietly running nominal.
+"""
+
+_PERTURBED_MODEL_ARRAYS = (
+    "geom_friction",
+    "body_mass",
+    "dof_damping",
+    "dof_frictionloss",
+    "actuator_gainprm",
+    "actuator_biasprm",
+)
+"""The arrays an axis writes, snapshotted pristine at construction.
+
+This is exactly the set a regime assigns to, and nothing derived from them.
+MuJoCo caches quantities computed from mass -- reference inertias, subtree
+masses, body-relative camera and light positions -- and those are regenerated
+by ``_restore_pristine`` rather than listed here. Enumerating them would make
+the restore depend on which derived arrays a particular scene populates, a list
+that is silently wrong the first time a scene gains a camera; and a restore
+that missed one would carry the previous attempt's inertia cache into the next
+world, which is a compounding drift in the quantity hardest to notice.
+"""
+
+_GAIN_PRM_INDEX = 0
+"""Where a position actuator keeps its stiffness in ``actuator_gainprm``."""
+
+_BIAS_GAIN_MIRROR_INDEX = 1
+"""Where the same stiffness reappears, negated, in ``actuator_biasprm``.
+
+A MuJoCo ``position`` actuator is an affine bias whose second term is exactly
+``-kp``; the compiled scene confirms it (``gainprm[0] == 500`` and
+``biasprm[1] == -500``). Scaling the gain without this term would not soften
+the servo, it would offset it, and the arm would settle away from every
+commanded pose. ``biasprm[2]`` is the separately compiled ``dampratio`` term
+and is deliberately left alone: it is a damping law the scene author stated,
+not a mirror of the gain, and rescaling it would invent a spread nothing
+measured.
+"""
+
+_NOISE_SEED_BITS = 63
+"""Width the sample digest is folded to before seeding the noise generator."""
+
 
 CAMERA_SLOT_HEAD = "head"
 CAMERA_SLOT_LEFT_WRIST = "leftWrist"
@@ -305,6 +364,21 @@ class SimulatedG1:
         self._peak_velocity_rps = np.zeros(len(self._dof_index))
         self._peak_force_n = 0.0
 
+        # Taken from the freshly compiled model, before any attempt has run, so
+        # that every later perturbation starts from the scene the author wrote
+        # rather than from whatever the previous attempt left behind.
+        self._pristine_model = {
+            name: np.array(getattr(self._model, name), copy=True)
+            for name in _PERTURBED_MODEL_ARRAYS
+        }
+        self._end_effector_body_id = int(
+            self._model.body(end_effector_body).id
+        )
+        self._command_queue: deque[np.ndarray] = deque()
+        self._latency_steps = 0
+        self._sensor_noise_rad = 0.0
+        self._noise = np.random.default_rng(0)
+
         self.reset()
 
     @property
@@ -386,8 +460,176 @@ class SimulatedG1:
         """
         return float(self._data.time)
 
+    def perturb(self, sample: RegimeSample) -> None:
+        """Rebuild this model as the world ``sample`` describes.
+
+        Called at reset time and always from the pristine compiled arrays,
+        never from whatever the previous attempt left behind. Compounding is
+        the failure this ordering exists to prevent: a friction scale applied
+        on top of the last attempt's friction scale drifts monotonically
+        through a campaign, so the tenth attempt measures a world no reviewer
+        was shown while every attempt record still names its own sample.
+
+        An axis this environment cannot apply raises rather than being skipped.
+        A sample is the record of what an attempt ran in, so an axis quietly
+        dropped here would turn that record into a false claim -- and a false
+        claim of *extra* coverage, which is the direction that matters.
+        """
+        unsupported = sorted(
+            set(sample.values) - SUPPORTED_PERTURBATION_AXES
+        )
+        if unsupported:
+            raise ValueError(
+                f"sample {sample.index} carries axes this environment cannot "
+                f"apply: {unsupported}; it applies "
+                f"{sorted(SUPPORTED_PERTURBATION_AXES)}. Running it anyway "
+                "would record a robustness claim the physics never honoured"
+            )
+
+        self._restore_pristine()
+        model = self._model
+
+        friction_scale = sample.value(AXIS_FRICTION_SCALE, 1.0)
+        if friction_scale <= 0:
+            raise ValueError(
+                f"{AXIS_FRICTION_SCALE} must be positive; a frictionless "
+                "world cannot hold anything and would fail every grasp for a "
+                "reason that is not about the skill"
+            )
+        model.geom_friction[:] = (
+            self._pristine_model["geom_friction"] * friction_scale
+        )
+
+        # Dissipation is scaled on both arrays this scene actually uses.
+        # ``dof_damping`` is identically zero in the menagerie G1, so an axis
+        # that multiplied only it would be sampled, digested and reported while
+        # changing nothing -- the exact lie UNAPPLIED_AXES exists to refuse.
+        # ``dof_frictionloss`` is where the scene author put joint dissipation,
+        # and it is the same physical quantity the axis claims to vary.
+        damping_scale = sample.value(AXIS_DAMPING_SCALE, 1.0)
+        if damping_scale <= 0:
+            raise ValueError(
+                f"{AXIS_DAMPING_SCALE} must be positive; negative "
+                "dissipation adds energy to a joint every step"
+            )
+        model.dof_damping[:] = (
+            self._pristine_model["dof_damping"] * damping_scale
+        )
+        model.dof_frictionloss[:] = (
+            self._pristine_model["dof_frictionloss"] * damping_scale
+        )
+
+        # Both terms, because a MuJoCo position actuator is an affine law whose
+        # bias mirrors the gain exactly. Scaling one alone would not soften the
+        # servo, it would bias it, and the arm would settle away from every
+        # commanded pose while the axis claimed to be about stiffness.
+        gain_scale = sample.value(AXIS_ACTUATOR_GAIN_SCALE, 1.0)
+        if gain_scale <= 0:
+            raise ValueError(
+                f"{AXIS_ACTUATOR_GAIN_SCALE} must be positive; a "
+                "non-positive gain inverts the servo instead of weakening it"
+            )
+        model.actuator_gainprm[:, _GAIN_PRM_INDEX] = (
+            self._pristine_model["actuator_gainprm"][:, _GAIN_PRM_INDEX]
+            * gain_scale
+        )
+        model.actuator_biasprm[:, _BIAS_GAIN_MIRROR_INDEX] = (
+            self._pristine_model["actuator_biasprm"][
+                :, _BIAS_GAIN_MIRROR_INDEX
+            ]
+            * gain_scale
+        )
+
+        payload_kg = sample.value(AXIS_PAYLOAD_KG, 0.0)
+        if payload_kg < 0:
+            raise ValueError(
+                f"{AXIS_PAYLOAD_KG} cannot be negative; a gripper holding "
+                "less than nothing is not a world this scene can be in"
+            )
+        if payload_kg:
+            model.body_mass[self._end_effector_body_id] = (
+                self._pristine_model["body_mass"][self._end_effector_body_id]
+                + payload_kg
+            )
+
+        # The solver caches reference inertias derived from mass. Left stale
+        # they describe the unloaded arm, so a payload would be half-applied:
+        # felt by the dynamics, invisible to the solver.
+        self._mujoco.mj_setConst(model, self._data)
+
+        self._configure_latency(sample)
+        self._configure_sensor_noise(sample)
+
+    def _restore_pristine(self) -> None:
+        """Put every perturbable array back to the compiled scene's values.
+
+        The recompute is unconditional, and that is what makes the restore
+        provably complete rather than merely careful. MuJoCo derives reference
+        inertias, subtree masses and body-relative camera and light positions
+        from mass, and enumerating those derived arrays to restore them by hand
+        makes the restore depend on which of them a given scene happens to
+        populate -- a list that is silently wrong the first time a scene adds a
+        camera. Regenerating them from the restored values instead cannot omit
+        one. It is idempotent on an unperturbed model and independent of the
+        current pose, so the nominal path is unaffected.
+        """
+        for name, pristine in self._pristine_model.items():
+            getattr(self._model, name)[...] = pristine
+        self._mujoco.mj_setConst(self._model, self._data)
+
+    def _configure_latency(self, sample: RegimeSample) -> None:
+        """Fix how many control steps a command waits before it is applied.
+
+        Rounded to a whole step because that is the only resolution the
+        quantity has: a command is either in the buffer when a step runs or it
+        is not. Rounding rather than truncating keeps the top of the declared
+        band reachable, which a floor would quietly exclude.
+        """
+        latency = sample.value(AXIS_COMMAND_LATENCY_STEPS, 0.0)
+        if latency < 0:
+            raise ValueError(
+                f"{AXIS_COMMAND_LATENCY_STEPS} cannot be negative; a command "
+                "that arrives before it was sent is not a transport delay"
+            )
+        self._latency_steps = round(latency)
+        self._command_queue.clear()
+
+    def _configure_sensor_noise(self, sample: RegimeSample) -> None:
+        """Seed the encoder-noise stream from the sample that owns it.
+
+        Seeded from the sample digest rather than from a global stream so that
+        re-running attempt seven reproduces attempt seven's noise exactly. A
+        campaign that found a failure has to be able to hand back the world
+        that produced it, and noise it could not reproduce would make that
+        world unrecoverable.
+        """
+        noise_rad = sample.value(AXIS_SENSOR_NOISE_RAD, 0.0)
+        if noise_rad < 0:
+            raise ValueError(
+                f"{AXIS_SENSOR_NOISE_RAD} cannot be negative; a standard "
+                "deviation is a magnitude"
+            )
+        self._sensor_noise_rad = float(noise_rad)
+        seed = int(sample.digest(), 16) % (1 << _NOISE_SEED_BITS)
+        self._noise = np.random.default_rng(seed)
+
+    def _clear_perturbation(self) -> None:
+        """Return to the scene as authored, for a reset that names no sample.
+
+        A reset without a sample is a nominal run, and it has to actually be
+        one. Leaving the previous attempt's world installed would make the
+        nominal baseline a measurement of whatever ran last.
+        """
+        self._restore_pristine()
+        self._latency_steps = 0
+        self._sensor_noise_rad = 0.0
+        self._command_queue.clear()
+        self._noise = np.random.default_rng(0)
+
     def reset(
-        self, joint_offsets_rad: Optional[Sequence[float]] = None
+        self,
+        joint_offsets_rad: Optional[Sequence[float]] = None,
+        sample: Optional[RegimeSample] = None,
     ) -> None:
         """Return to the standing keyframe, optionally displaced, and unlatch.
 
@@ -398,7 +640,17 @@ class SimulatedG1:
         make the run a fact about an impossible pose. The commanded target is
         set to the displaced pose too, so the robot holds where it was placed
         instead of springing back to the keyframe before the run begins.
+
+        ``sample`` is the world this attempt runs in. It is applied here, and
+        only here, because a model parameter that changed mid-run would make
+        the attempt two measurements spliced together and its record a claim
+        about neither. A reset that names no sample restores the authored
+        scene, so a nominal run is nominal even after a perturbed one.
         """
+        if sample is None:
+            self._clear_perturbation()
+        else:
+            self.perturb(sample)
         self._mujoco.mj_resetDataKeyframe(self._model, self._data, 0)
         if joint_offsets_rad is not None:
             self._displace(joint_offsets_rad)
@@ -439,13 +691,17 @@ class SimulatedG1:
         ``RobotState`` requires and what the envelope actually bounds. Reading
         drains the peaks, so each read describes its own interval rather than
         the whole run.
+
+        Under a sensor-noise regime the reported joint positions are noisy and
+        nothing else is. Noise belongs to the instrument, not to the world: a
+        simulator that perturbed ``qpos`` would move the robot and then report
+        the truth, which is the opposite of the error being modelled and would
+        corrupt the force and velocity measurements the envelope is judged on.
         """
         data = self._data
         peak_velocity, peak_force = self._drain_peaks()
         return RobotState(
-            joint_positions_rad=tuple(
-                float(v) for v in data.qpos[self._qpos_index]
-            ),
+            joint_positions_rad=self._reported_positions_rad(),
             joint_velocity_rps=tuple(float(v) for v in peak_velocity),
             end_effector_force_n=peak_force,
             end_effector_position_m=tuple(
@@ -457,6 +713,20 @@ class SimulatedG1:
             workspace_clear=self._supervision.workspace_clear,
             age_s=self._observation_age_s,
         )
+
+    def _reported_positions_rad(self) -> tuple[float, ...]:
+        """The joint positions as the encoders report them, noise included.
+
+        Drawn per read rather than per step because a read is when an encoder
+        is actually interrogated, and zero-mean because a bias is a calibration
+        fault rather than noise and would belong on its own axis.
+        """
+        positions = self._data.qpos[self._qpos_index]
+        if self._sensor_noise_rad:
+            positions = positions + self._noise.normal(
+                0.0, self._sensor_noise_rad, size=positions.shape
+            )
+        return tuple(float(value) for value in positions)
 
     def command_joint_positions(self, positions_rad: Sequence[float]) -> None:
         """Apply one waypoint and advance the simulation one control period."""
@@ -471,12 +741,26 @@ class SimulatedG1:
                 f"expected {len(self._ctrl_index)} joint targets for "
                 f"{self._joint_names}, got {len(positions_rad)}"
             )
-        self._data.ctrl[self._ctrl_index] = np.asarray(
-            positions_rad, dtype=float
-        )
+        self._apply_command(np.asarray(positions_rad, dtype=float))
         for _ in range(self._steps_per_control):
             self._mujoco.mj_step(self._model, self._data)
             self._accumulate_peaks()
+
+    def _apply_command(self, target: np.ndarray) -> None:
+        """Set the servo target to the command this step is allowed to see.
+
+        With no latency the queue hands back what was just written, so the
+        nominal path is unchanged. Under latency the target that takes effect
+        is the one issued that many control steps ago, and until the queue
+        fills the robot holds the pose it was reset to -- which is what a real
+        transport delay does, rather than skipping the early commands.
+
+        The delay is applied to the *command*, never by rewinding the physics,
+        so the run remains a single continuous trajectory.
+        """
+        self._command_queue.append(target.copy())
+        if len(self._command_queue) > self._latency_steps:
+            self._data.ctrl[self._ctrl_index] = self._command_queue.popleft()
 
     def hold(self) -> None:
         """Latch the current pose as the command target and stop advancing.
@@ -485,6 +769,10 @@ class SimulatedG1:
         happened, and a stop is exactly when a caller most needs to know how
         fast the robot was moving when it was stopped.
         """
+        # Queued commands die with the stop. A latency buffer that survived a
+        # hold would let a command issued before the stop move the robot after
+        # it, which is exactly the thing a latch exists to make impossible.
+        self._command_queue.clear()
         self._data.ctrl[self._ctrl_index] = self._data.qpos[self._qpos_index]
         self._data.qvel[:] = 0.0
         self._mujoco.mj_forward(self._model, self._data)

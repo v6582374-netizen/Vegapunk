@@ -20,16 +20,27 @@ from vegapunk.embodied.campaign import (
     HALTED_COMPLETED,
     HALTED_REFUSED,
     AttemptVariation,
+    RegimeEnvironment,
+    RegimeSchedule,
     SimulatedCampaignEnvironment,
     SimulationCampaign,
     VariationSchedule,
 )
 from vegapunk.embodied.embodiment import (
-    UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+    UNIFOLM_VLA_BASE_G1_EE6D,
     EmbodimentProfile,
 )
 from vegapunk.embodied.fidelity import SimulatedConfiguration
 from vegapunk.embodied.loop import ExecutionLoop, RuntimeStep
+from vegapunk.embodied.regime import (
+    AXIS_FRICTION_SCALE,
+    AXIS_JOINT_OFFSET_RAD,
+    AXIS_PAYLOAD_KG,
+    DEFAULT_CONTACT_REGIME,
+    Regime,
+    RegimeAxis,
+    RegimeSample,
+)
 from vegapunk.embodied.safety import (
     ABORT_HUMAN_STOP,
     Observation,
@@ -52,6 +63,17 @@ from vegapunk.embodied.trajectory import (
 )
 
 NOW = datetime(2026, 8, 14, 9, 0, tzinfo=timezone.utc)
+
+LEGACY_VARIATION_DIGEST = "cb6b661c69b8bef2"
+"""The digest of a sample-less variation, pinned rather than recomputed.
+
+    seed 4, joint_offsets_rad (0.01, -0.02)
+
+Written as a literal on purpose. Deriving it from the module's own digest
+helper would make this test agree with any encoding change it was meant to
+catch, and the point of it is that attempt records written before regimes
+existed still hash to what they hashed to then.
+"""
 
 
 def _observation(**overrides: object) -> Observation:
@@ -151,7 +173,7 @@ def _vla_skill() -> PhysicalSkill:
         abort_conditions=("force_exceeded",),
         max_duration_s=5.0,
         reviewed_by="reviewer",
-        policy=UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+        policy=UNIFOLM_VLA_BASE_G1_EE6D,
     )
 
 
@@ -805,6 +827,524 @@ class CampaignApprovalTest(unittest.TestCase):
                 "human approval" in finding
                 for finding in report.trajectory.findings
             )
+        )
+
+
+class RegimeAwareRobot:
+    """Records the pose *and* the world it was asked to start each attempt in.
+
+    Separate from ``FakeResettableRobot`` because accepting a sample is exactly
+    the capability ``RegimeEnvironment`` requires, and a fake that accepted one
+    silently would hide the refusal that matters.
+    """
+
+    def __init__(self) -> None:
+        self.resets: list[tuple[Optional[tuple[float, ...]], object]] = []
+
+    def reset(
+        self,
+        joint_offsets_rad: Optional[Sequence[float]] = None,
+        sample: Optional[RegimeSample] = None,
+    ) -> None:
+        self.resets.append(
+            (
+                None
+                if joint_offsets_rad is None
+                else tuple(float(v) for v in joint_offsets_rad),
+                sample,
+            )
+        )
+
+
+def _offset_regime(samples: int = 10, seed: int = 0) -> Regime:
+    """A minimal regime that still declares the axis a schedule needs."""
+    return Regime(
+        axes=(
+            RegimeAxis(
+                name=AXIS_JOINT_OFFSET_RAD,
+                low=0.01,
+                high=0.05,
+                unit="rad",
+                rationale="a bounded start displacement, as the default uses",
+            ),
+            RegimeAxis(
+                name=AXIS_FRICTION_SCALE,
+                low=0.8,
+                high=1.25,
+                unit="dimensionless",
+                rationale="the contact band the default regime declares",
+            ),
+        ),
+        samples=samples,
+        seed=seed,
+    )
+
+
+class AttemptVariationSampleTest(unittest.TestCase):
+    """The one field that lets an attempt record name its world."""
+
+    def test_a_variation_without_a_sample_keeps_its_original_encoding(
+        self,
+    ) -> None:
+        """Otherwise every attempt recorded before regimes existed looks new."""
+        variation = AttemptVariation(
+            index=0, seed=4, joint_offsets_rad=(0.01, -0.02)
+        )
+
+        self.assertIsNone(variation.sample)
+        self.assertEqual(variation.digest(), LEGACY_VARIATION_DIGEST)
+
+    def test_a_sample_changes_the_digest(self) -> None:
+        offsets = (0.01, -0.02)
+        without = AttemptVariation(index=0, seed=4, joint_offsets_rad=offsets)
+        with_sample = AttemptVariation(
+            index=0,
+            seed=4,
+            joint_offsets_rad=offsets,
+            sample=RegimeSample(
+                index=0, seed=4, values={AXIS_PAYLOAD_KG: 0.5}
+            ),
+        )
+
+        self.assertNotEqual(without.digest(), with_sample.digest())
+
+    def test_two_worlds_at_the_same_pose_are_distinguishable(self) -> None:
+        """A digest that ignored the world would report them as one attempt."""
+        offsets = (0.01, -0.02)
+        first = AttemptVariation(
+            index=0,
+            seed=4,
+            joint_offsets_rad=offsets,
+            sample=RegimeSample(
+                index=0, seed=4, values={AXIS_PAYLOAD_KG: 0.5}
+            ),
+        )
+        second = AttemptVariation(
+            index=0,
+            seed=4,
+            joint_offsets_rad=offsets,
+            sample=RegimeSample(
+                index=0, seed=4, values={AXIS_PAYLOAD_KG: 0.9}
+            ),
+        )
+
+        self.assertNotEqual(first.digest(), second.digest())
+
+    def test_the_existing_construction_signature_still_works(self) -> None:
+        positional = AttemptVariation(1, 2, (0.01,))
+
+        self.assertEqual(positional.index, 1)
+        self.assertEqual(positional.seed, 2)
+        self.assertIsNone(positional.sample)
+
+
+class RegimeScheduleTest(unittest.TestCase):
+    """The schedule that varies the world, not only the pose."""
+
+    def test_it_satisfies_the_duck_type_the_campaign_uses(self) -> None:
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+
+        self.assertEqual(schedule.joint_count, 7)
+        variation = schedule.variation(0)
+        self.assertIsInstance(variation, AttemptVariation)
+        self.assertEqual(len(variation.joint_offsets_rad), 7)
+
+    def test_every_variation_carries_the_world_it_was_drawn_from(self) -> None:
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+
+        for index in range(10):
+            variation = schedule.variation(index)
+            self.assertIsNotNone(variation.sample)
+            self.assertEqual(variation.sample.index, index)
+            self.assertIn(AXIS_FRICTION_SCALE, variation.sample.values)
+
+    def test_offsets_respect_the_regimes_declared_magnitude(self) -> None:
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+
+        for index in range(10):
+            variation = schedule.variation(index)
+            bound = variation.sample.value(AXIS_JOINT_OFFSET_RAD, 0.0)
+            self.assertLessEqual(bound, 0.05)
+            for offset in variation.joint_offsets_rad:
+                self.assertLessEqual(abs(offset), bound + 1e-12)
+
+    def test_it_is_reproducible_and_varied(self) -> None:
+        first = RegimeSchedule(regime=_offset_regime(seed=11), joint_count=7)
+        second = RegimeSchedule(regime=_offset_regime(seed=11), joint_count=7)
+
+        self.assertEqual(
+            first.variation(3).digest(), second.variation(3).digest()
+        )
+        digests = {first.variation(i).digest() for i in range(10)}
+        self.assertEqual(len(digests), 10)
+
+    def test_a_different_regime_seed_draws_different_worlds(self) -> None:
+        first = RegimeSchedule(regime=_offset_regime(seed=1), joint_count=7)
+        second = RegimeSchedule(regime=_offset_regime(seed=2), joint_count=7)
+
+        self.assertNotEqual(
+            first.variation(0).digest(), second.variation(0).digest()
+        )
+
+    def test_a_regime_without_a_joint_offset_axis_is_refused(self) -> None:
+        """The campaign's contract is that attempts start differently."""
+        regime = Regime(
+            axes=(
+                RegimeAxis(
+                    name=AXIS_FRICTION_SCALE,
+                    low=0.8,
+                    high=1.25,
+                    unit="dimensionless",
+                    rationale="contact only",
+                ),
+            ),
+            samples=10,
+        )
+
+        with self.assertRaises(ValueError) as caught:
+            RegimeSchedule(regime=regime, joint_count=7)
+
+        self.assertIn(AXIS_JOINT_OFFSET_RAD, str(caught.exception))
+
+    def test_a_non_positive_joint_count_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            RegimeSchedule(regime=_offset_regime(), joint_count=0)
+
+    def test_the_default_regime_drives_a_schedule(self) -> None:
+        schedule = RegimeSchedule(
+            regime=DEFAULT_CONTACT_REGIME, joint_count=7
+        )
+
+        variation = schedule.variation(0)
+        self.assertEqual(len(variation.joint_offsets_rad), 7)
+        self.assertEqual(
+            set(variation.sample.values),
+            set(DEFAULT_CONTACT_REGIME.axis_names()),
+        )
+
+
+class RegimeEnvironmentTest(unittest.TestCase):
+    """The seam that installs a world, and what it refuses to run without."""
+
+    def _environment(
+        self, robot: object, **overrides: object
+    ) -> RegimeEnvironment:
+        harness = Harness()
+        return RegimeEnvironment(
+            robot=robot,
+            runtime_factory=ScriptedRuntime,
+            configuration=harness.configuration(**overrides),
+        )
+
+    def test_it_passes_both_the_pose_and_the_world_to_the_robot(self) -> None:
+        robot = RegimeAwareRobot()
+        environment = self._environment(robot)
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+        variation = schedule.variation(2)
+
+        runtime = environment.prepare(variation)
+
+        self.assertIsInstance(runtime, ScriptedRuntime)
+        self.assertEqual(len(robot.resets), 1)
+        offsets, sample = robot.resets[0]
+        self.assertEqual(offsets, variation.joint_offsets_rad)
+        self.assertIs(sample, variation.sample)
+
+    def test_a_fresh_runtime_per_attempt(self) -> None:
+        environment = self._environment(RegimeAwareRobot())
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+
+        first = environment.prepare(schedule.variation(0))
+        second = environment.prepare(schedule.variation(1))
+
+        self.assertIsNot(first, second)
+
+    def test_a_variation_with_no_sample_is_refused(self) -> None:
+        """Running it would report a regime the physics never applied."""
+        environment = self._environment(RegimeAwareRobot())
+
+        with self.assertRaises(ValueError) as caught:
+            environment.prepare(
+                AttemptVariation(index=0, seed=0, joint_offsets_rad=(0.01,))
+            )
+
+        self.assertIn("RegimeSchedule", str(caught.exception))
+
+    def test_it_refuses_to_describe_a_real_robot(self) -> None:
+        with self.assertRaises(ValueError):
+            self._environment(RegimeAwareRobot(), is_real_robot=True)
+
+    def test_a_robot_that_cannot_accept_a_world_is_refused(self) -> None:
+        """A silently ignored sample is the failure this module prevents."""
+        with self.assertRaises(ValueError) as caught:
+            self._environment(FakeResettableRobot())
+
+        self.assertIn("sample", str(caught.exception))
+
+    def test_the_configuration_is_unchanged_by_the_regime(self) -> None:
+        """The digest is the anchor every stage's evidence is scoped to."""
+        environment = self._environment(RegimeAwareRobot())
+        before = environment.configuration.digest()
+        schedule = RegimeSchedule(regime=_offset_regime(), joint_count=7)
+
+        for index in range(10):
+            environment.prepare(schedule.variation(index))
+
+        self.assertEqual(environment.configuration.digest(), before)
+
+
+class CampaignUnderARegimeTest(unittest.TestCase):
+    """A campaign iterating a regime concludes exactly what it did before."""
+
+    def _schedule(self, harness: "Harness", seed: int = 0) -> RegimeSchedule:
+        return RegimeSchedule(
+            regime=_offset_regime(
+                samples=MINIMUM_STAGE_ATTEMPTS, seed=seed
+            ),
+            joint_count=harness.embodiment.arm_dof,
+        )
+
+    def test_a_full_run_records_evidence_over_a_band_of_worlds(self) -> None:
+        harness = Harness()
+        harness.seed_prior_stage()
+        robot = RegimeAwareRobot()
+
+        report = harness.campaign().run(
+            campaign_id="regime-campaign",
+            selection=harness.selection,
+            environment=RegimeEnvironment(
+                robot=robot,
+                runtime_factory=ScriptedRuntime,
+                configuration=harness.configuration(),
+            ),
+            schedule=self._schedule(harness),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        self.assertEqual(report.halted, HALTED_COMPLETED)
+        self.assertEqual(report.successes, MINIMUM_STAGE_ATTEMPTS)
+        self.assertEqual(len(robot.resets), MINIMUM_STAGE_ATTEMPTS)
+        worlds = {attempt.variation_digest for attempt in report.attempts}
+        self.assertEqual(len(worlds), MINIMUM_STAGE_ATTEMPTS)
+
+    def test_every_attempt_ran_in_a_declared_world(self) -> None:
+        harness = Harness()
+        harness.seed_prior_stage()
+        robot = RegimeAwareRobot()
+
+        harness.campaign().run(
+            campaign_id="regime-campaign",
+            selection=harness.selection,
+            environment=RegimeEnvironment(
+                robot=robot,
+                runtime_factory=ScriptedRuntime,
+                configuration=harness.configuration(),
+            ),
+            schedule=self._schedule(harness),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        for _, sample in robot.resets:
+            self.assertIsNotNone(sample)
+            self.assertIn(AXIS_FRICTION_SCALE, sample.values)
+
+    def test_an_abort_still_halts_under_a_regime(self) -> None:
+        """No existing refusal is weakened by varying the world."""
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        def factory() -> ScriptedRuntime:
+            return ScriptedRuntime(estop_at_step=1)
+
+        report = harness.campaign().run(
+            campaign_id="regime-abort",
+            selection=harness.selection,
+            environment=RegimeEnvironment(
+                robot=RegimeAwareRobot(),
+                runtime_factory=factory,
+                configuration=harness.configuration(),
+            ),
+            schedule=self._schedule(harness),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        self.assertEqual(report.halted, HALTED_ABORTED)
+        self.assertEqual(len(report.attempts), 1)
+        self.assertEqual(report.attempts[0].outcome, OUTCOME_ABORTED)
+        self.assertFalse(report.next_stage_admitted)
+
+    def test_a_misrepresenting_environment_is_still_refused(self) -> None:
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        with self.assertRaises(ValueError):
+            harness.campaign().run(
+                campaign_id="regime-fidelity",
+                selection=harness.selection,
+                environment=RegimeEnvironment(
+                    robot=RegimeAwareRobot(),
+                    runtime_factory=ScriptedRuntime,
+                    configuration=harness.configuration(
+                        control_frequency_hz=5.0
+                    ),
+                ),
+                schedule=self._schedule(harness),
+                planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+            )
+
+    def test_a_regime_campaign_is_reproducible(self) -> None:
+        def run_once() -> tuple[str, ...]:
+            harness = Harness()
+            harness.seed_prior_stage()
+            report = harness.campaign().run(
+                campaign_id="regime-repeat",
+                selection=harness.selection,
+                environment=RegimeEnvironment(
+                    robot=RegimeAwareRobot(),
+                    runtime_factory=ScriptedRuntime,
+                    configuration=harness.configuration(),
+                ),
+                schedule=self._schedule(harness, seed=7),
+                planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+            )
+            return tuple(
+                attempt.variation_digest for attempt in report.attempts
+            )
+
+        self.assertEqual(run_once(), run_once())
+
+    def test_the_variation_schedule_still_drives_a_campaign_unchanged(
+        self,
+    ) -> None:
+        """The old schedule keeps working; the regime is an addition."""
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        report = harness.campaign().run(
+            campaign_id="plain-campaign",
+            selection=harness.selection,
+            environment=harness.environment(),
+            schedule=VariationSchedule(joint_count=7),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        self.assertEqual(report.halted, HALTED_COMPLETED)
+        for attempt in report.attempts:
+            self.assertEqual(attempt.outcome, OUTCOME_SUCCEEDED)
+
+
+class AttemptRecordCarriesItsWorldTest(unittest.TestCase):
+    """The campaign must hand the objective the world each attempt ran in.
+
+    This is the seam where the anti-overfitting mechanism either works or is
+    silently inert. ``RobustnessObjective`` buckets attempts by the regime
+    values behind them and penalises a candidate whose worst bucket trails its
+    mean. If an attempt record does not carry its sample, every attempt falls
+    into one nominal bucket, the worst bucket equals the mean, the sensitivity
+    is identically zero, and a candidate that is excellent in the easy corner
+    and useless in the hard one scores exactly like one that is uniformly
+    mediocre. The failure is invisible from the outside: the scores stay in
+    range, the search still ranks, and it ranks by the wrong thing.
+    """
+
+    def test_a_regime_campaign_records_the_sample_behind_each_attempt(
+        self,
+    ) -> None:
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        report = harness.campaign().run(
+            campaign_id="regime-sample-record",
+            selection=harness.selection,
+            environment=RegimeEnvironment(
+                robot=RegimeAwareRobot(),
+                runtime_factory=ScriptedRuntime,
+                configuration=harness.configuration(),
+            ),
+            schedule=RegimeSchedule(
+                regime=_offset_regime(samples=MINIMUM_STAGE_ATTEMPTS),
+                joint_count=harness.embodiment.arm_dof,
+            ),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        self.assertEqual(report.halted, HALTED_COMPLETED)
+        for attempt in report.attempts:
+            self.assertIsNotNone(
+                attempt.sample,
+                "an attempt that does not name its world cannot be bucketed, "
+                "so the sensitivity penalty would silently never fire",
+            )
+            self.assertIn(AXIS_FRICTION_SCALE, attempt.sample.values)
+            self.assertEqual(attempt.sample.index, attempt.index)
+
+    def test_a_nominal_campaign_records_no_sample(self) -> None:
+        """A plain schedule varies only the pose, and must not imply a regime."""
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        report = harness.campaign().run(
+            campaign_id="nominal-sample-record",
+            selection=harness.selection,
+            environment=harness.environment(),
+            schedule=VariationSchedule(
+                joint_count=harness.embodiment.arm_dof
+            ),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        self.assertEqual(report.halted, HALTED_COMPLETED)
+        for attempt in report.attempts:
+            self.assertIsNone(attempt.sample)
+
+    def test_the_recorded_samples_let_the_objective_split_the_evidence(
+        self,
+    ) -> None:
+        """End to end: a real campaign's report must bucket into the regime.
+
+        Asserted against the real ``RobustnessObjective`` rather than by
+        re-deriving buckets here, because the property that matters is that
+        these two modules agree at their seam.
+        """
+        from vegapunk.embodied.objective import (
+            NOMINAL_BUCKET,
+            RobustnessObjective,
+        )
+
+        harness = Harness()
+        harness.seed_prior_stage()
+
+        report = harness.campaign().run(
+            campaign_id="regime-objective-seam",
+            selection=harness.selection,
+            environment=RegimeEnvironment(
+                robot=RegimeAwareRobot(),
+                runtime_factory=ScriptedRuntime,
+                configuration=harness.configuration(),
+            ),
+            schedule=RegimeSchedule(
+                regime=_offset_regime(samples=MINIMUM_STAGE_ATTEMPTS),
+                joint_count=harness.embodiment.arm_dof,
+            ),
+            planned_attempts=MINIMUM_STAGE_ATTEMPTS,
+        )
+
+        score = RobustnessObjective(minimum_attempts=2).score(
+            "candidate-under-test", (report,)
+        )
+
+        self.assertEqual(score.attempts, MINIMUM_STAGE_ATTEMPTS)
+        self.assertIsNotNone(score.worst_bucket)
+        self.assertNotEqual(
+            score.worst_bucket.label,
+            NOMINAL_BUCKET,
+            "the objective fell back to one nominal bucket, which means the "
+            "campaign's samples never reached it",
+        )
+        self.assertLess(
+            score.worst_bucket.attempts,
+            MINIMUM_STAGE_ATTEMPTS,
+            "a worst bucket holding every attempt is not a bucket",
         )
 
 

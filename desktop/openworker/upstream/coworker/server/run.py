@@ -197,10 +197,10 @@ def main(argv=None) -> None:
             file=sys.stderr,
         )
 
-    # Publish the ACTUAL bound port so loopback URLs (the managed-OAuth callback)
+    # Publish the ACTUAL bound port so loopback URLs (the MCP OAuth callback)
     # target this process, not config.port. The desktop shell runs the sidecar on
     # a random free port (to coexist with a hand-run server on 8765), so the
-    # managed-connect redirect must follow the real port, not the 8765 default.
+    # OAuth redirect must follow the real port, not the 8765 default.
     os.environ["COWORKER_PORT"] = str(args.port)
     generated_token_path = _ensure_api_token(args.port, web=args.web)
     try:

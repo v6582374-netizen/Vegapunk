@@ -70,63 +70,37 @@ def _parse_or_coerce(target: str) -> tuple[str, str, Optional[str]]:
 def _resolve_slack_channel(
     secrets: SecretStore, name: str
 ) -> tuple[Optional[str], Optional[str]]:
-    """'#all-openworker' (a NAME the user said) → the team-qualified chat_id, via the
-    same cached conversations.list roster the GUI's channel picker uses. (chat_id, error):
-    exactly one match wins; none/many return an actionable error instead of a guess
-    (§36 — 'post Hi to <channel>' must just work when Slack is connected)."""
-    from .config import _slack_team_profiles
+    """'#all-openworker' (a NAME the user said) -> the chat_id, via the same cached
+    conversations.list roster the GUI's channel picker uses. (chat_id, error): a
+    match wins; none returns an actionable error instead of a guess."""
     from .slack_directory import list_channels
 
     query = name.lstrip("#").strip()
-    teams = [team_id for team_id, _p in _slack_team_profiles(secrets)]
-    if not teams and (secrets.get("slack:default") or {}).get("bot_token"):
-        teams = ["default"]
-    if not teams:
-        return None, "no bot token for slack — connect it first"
-    hits: list[tuple[str, dict]] = []
-    for team in teams:
-        r = list_channels(secrets, team, query, limit=50)
-        if not r.get("ok"):
-            continue
-        for c in r.get("channels") or []:
-            if str(c.get("name", "")).lower() == query.lower():
-                hits.append((team, c))
+    if not (secrets.get("slack:default") or {}).get("bot_token"):
+        return None, "no bot token for slack - connect it first"
+    r = list_channels(secrets, query, limit=50)
+    hits = [
+        c
+        for c in (r.get("channels") or [])
+        if str(c.get("name", "")).lower() == query.lower()
+    ]
     if not hits:
         return None, (
-            f"no Slack channel named #{query} in the connected workspace"
-            f"{'s' if len(teams) > 1 else ''} — check the name, or pass the full "
-            "address (slack:C… / slack:T…/C…)"
+            f"no Slack channel named #{query} in the connected workspace - check "
+            "the name, or pass the full address (slack:C...)"
         )
-    if len(hits) > 1:
-        return None, (
-            f"#{query} exists in more than one connected workspace — use the full "
-            "address (slack:TEAM_ID/CHANNEL_ID) to pick one"
-        )
-    team, c = hits[0]
-    chat_id = str(c["id"]) if team == "default" else f"{team}/{c['id']}"
+    c = hits[0]
     if not c.get("is_member"):
         return None, (
-            f"found #{query}, but the bot isn't a member — invite @OpenWorker to #{query} "
-            "in Slack, then retry"
+            f"found #{query}, but the bot isn't a member - invite @OpenWorker to "
+            f"#{query} in Slack, then retry"
         )
-    return chat_id, None
+    return str(c["id"]), None
 
 
 def _resolve_token(secrets: SecretStore, platform: str, chat_id: str) -> Optional[str]:
-    """Pick the outbound token for a reply.
-
-    Managed Slack relay is multi-workspace: a team-qualified chat_id ("T…/C…")
-    selects that team's bot token from its `slack:team:<team_id>` profile. Manual
-    Socket-Mode (single workspace, bare "C…") uses `slack:default`. Non-Slack
-    platforms always use `<platform>:default`.
-    """
-    if platform == "slack":
-        from .slack_addr import split
-
-        team, _channel = split(chat_id)
-        if team:
-            per_team = secrets.get(f"slack:team:{team}") or {}
-            return per_team.get("bot_token")
+    """The outbound token for a reply: always `<platform>:default` (one connected
+    workspace per platform)."""
     creds = secrets.get(f"{platform}:default") or {}
     return creds.get("bot_token")
 
@@ -155,10 +129,6 @@ def make_send_message_tool(
         token = _resolve_token(secrets, platform, chat_id)
         if not token:
             return {"error": f"no bot token for {platform} — connect it first"}
-        if platform == "slack":
-            from .attribution import sender_prefix
-
-            text = sender_prefix(secrets, chat_id) + text
         result = sender(token, chat_id, text, thread_id)
         if result.ok:
             return {"ok": True, "message_id": result.message_id, "target": target}
@@ -321,10 +291,6 @@ def make_send_file_tool(
                 return {"error": "file is larger than 50 MB"}
             data = resolved.read_bytes()
             filename = resolved.name
-        if platform == "slack" and comment:
-            from .attribution import sender_prefix
-
-            comment = sender_prefix(secrets, chat_id) + comment
         result = sender(token, chat_id, thread_id, filename, data, title, comment)
         if result.ok:
             return {

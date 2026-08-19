@@ -165,25 +165,25 @@ const SLACK_SESSION = {
 
 const CONNECTORS = {
   connectors: [
-    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, channels: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [], managed: false, managed_profile: false },
-    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
-    // Managed-capable connector (one-click via cloud when signed in; manual paste otherwise).
+    { name: "browser", title: "Browser", icon: "B", blurb: "Headless browser.", auth: "none", two_way: false, channels: false, available: true, brand_color: "#6b7280", logo: "", fields: [], instructions: [], connected: true, account: null, enabled: true, allowed_users: [], tools: [] },
+    { name: "telegram", title: "Telegram", icon: "T", blurb: "Two-way Telegram messaging.", auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#229ed9", logo: "telegram", fields: [{ key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "123456:ABC…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
+    // Multi-account connector: each manual token paste lands as its own account.
     // Carries pre-connect detail copy (§38): about + access + tools drive available-detail.spec.ts.
-    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", about: "Search, summarize, and send over your Gmail.", access: ["Reads and searches your mail.", "Sends email as you.", "Never deletes mail or changes account settings."], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "gmail_search", label: "Search mail", kind: "read", description: "Search messages.", enabled: true, requires_approval: false }, { name: "gmail_send", label: "Send email", kind: "write", description: "Send a message.", enabled: true, requires_approval: true }], managed: true, managed_profile: false },
-    { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "gmail", title: "Gmail", icon: "✉", blurb: "Search, summarize, draft, and send email.", about: "Search, summarize, and send over your Gmail.", access: ["Reads and searches your mail.", "Sends email as you.", "Never deletes mail or changes account settings."], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#ea4335", logo: "gmail", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "gmail_search", label: "Search mail", kind: "read", description: "Search messages.", enabled: true, requires_approval: false }, { name: "gmail_send", label: "Send email", kind: "write", description: "Send a message.", enabled: true, requires_approval: true }] },
+    { name: "google_calendar", title: "Google Calendar", icon: "◷", blurb: "Read availability, summarize schedules, and create events.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#4285f4", logo: "google_calendar", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
-    { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, channels: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, channels: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
     // Generic multi-account connector (accounts.py layer): one-click OR integration token.
-    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
-    // Managed email-keyed multi-account connector (outlook) — drives the onboarding tools gallery.
-    { name: "outlook", title: "Outlook", icon: "◎", blurb: "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.", aliases: ["calendar", "email", "mail", "microsoft", "office"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
-    // Sixth active card in the onboarding gallery (promoted 2026-07-19 to even the grid).
-    { name: "attio", title: "Attio", icon: "▣", blurb: "Search and read Attio CRM records; log notes.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#2d6ae0", logo: "attio", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
+    // Email-keyed multi-account connector (outlook) — drives the onboarding tools list.
+    { name: "outlook", title: "Outlook", icon: "◎", blurb: "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.", aliases: ["calendar", "email", "mail", "microsoft", "office"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
+    // Sixth active row in the onboarding tools list (promoted 2026-07-19).
+    { name: "attio", title: "Attio", icon: "▣", blurb: "Search and read Attio CRM records; log notes.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#2d6ae0", logo: "attio", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
     // MCP-BACKED connectors (§42): vendor-hosted MCP + local OAuth, pinned tool subset.
     // monday is one-click ONLY (no manual fields); jira also has a manual token path
-    // (two-mode modal). Neither needs cloud sign-in.
-    { name: "monday", title: "monday.com", icon: "▦", blurb: "Read boards and items, track work, create items and post updates.", aliases: ["project management", "tasks", "boards"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#6161ff", logo: "monday", mcp: true, fields: [], instructions: ["One click connects via monday.com sign-in in your browser.", "Sign-in is fully local — tokens stay on this Mac."], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "mcp__monday__get_board_info", label: "Read board", kind: "read", description: "Read a board's columns and groups.", enabled: true, requires_approval: false }, { name: "mcp__monday__create_item", label: "Create item", kind: "write", description: "Create an item on a board.", enabled: true, requires_approval: true }], managed: false, managed_profile: false },
-    { name: "jira", title: "Jira", icon: "◆", blurb: "Search, summarize, create, and update issues.", aliases: ["issues", "tickets", "atlassian"], auth: "api_token", two_way: false, channels: false, available: true, brand_color: "#0052cc", logo: "jira", mcp: true, fields: [{ key: "base_url", label: "Atlassian site URL", secret: false, required: true, help: "", placeholder: "" }, { key: "email", label: "Account email", secret: false, required: true, help: "", placeholder: "" }, { key: "api_token", label: "API token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: false, managed_profile: false },
+    // (two-mode modal): local MCP OAuth alongside manual fields.
+    { name: "monday", title: "monday.com", icon: "▦", blurb: "Read boards and items, track work, create items and post updates.", aliases: ["project management", "tasks", "boards"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#6161ff", logo: "monday", mcp: true, fields: [], instructions: ["One click connects via monday.com sign-in in your browser.", "Sign-in is fully local — tokens stay on this Mac."], connected: false, account: null, enabled: false, allowed_users: [], tools: [{ name: "mcp__monday__get_board_info", label: "Read board", kind: "read", description: "Read a board's columns and groups.", enabled: true, requires_approval: false }, { name: "mcp__monday__create_item", label: "Create item", kind: "write", description: "Create an item on a board.", enabled: true, requires_approval: true }] },
+    { name: "jira", title: "Jira", icon: "◆", blurb: "Search, summarize, create, and update issues.", aliases: ["issues", "tickets", "atlassian"], auth: "api_token", two_way: false, channels: false, available: true, brand_color: "#0052cc", logo: "jira", mcp: true, fields: [{ key: "base_url", label: "Atlassian site URL", secret: false, required: true, help: "", placeholder: "" }, { key: "email", label: "Account email", secret: false, required: true, help: "", placeholder: "" }, { key: "api_token", label: "API token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [] },
   ],
 };
 
@@ -228,45 +228,7 @@ const INBOX_ITEMS = [
   },
 ];
 
-// Mutable cloud sign-in state: POST /v1/cloud/login flips it (the real flow
-// goes through the browser; the mock completes instantly), logout flips back.
-export const CLOUD_STATE = {
-  signed_in: false,
-  account: "",
-  user_id: "",
-  telemetry_enabled: true,
-};
 
-const GALLERY_PERSONAS = [
-  {
-    slug: "sales",
-    version: 1,
-    name: "Sales Coworker",
-    icon: "chart",
-    tagline: "Research accounts, prep meetings, draft follow-ups",
-    description: "A sales-focused coworker.",
-    family: "knowledge",
-    workspace: "deliverable",
-    publisher: "OpenWorker",
-    recommended_connectors: ["hubspot", "gmail"],
-    risk_summary: "Declarative manifest; no executable code.",
-    featured: true,
-  },
-  {
-    slug: "recruiter",
-    version: 1,
-    name: "Recruiter",
-    icon: "search",
-    tagline: "Sourcing summaries and scheduling loops",
-    description: "A recruiting coworker.",
-    family: "knowledge",
-    workspace: "deliverable",
-    publisher: "OpenWorker",
-    recommended_connectors: ["gmail"],
-    risk_summary: "Declarative manifest; no executable code.",
-    featured: false,
-  },
-];
 
 // Persona detail (GET /v1/personas/:id) — SourcesDrawer/PersonaView read `recommends` and
 // `default_connections` as arrays, so these must be present (not the catch-all {}).
@@ -469,76 +431,67 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
 
   const subscriptions: any[] = [
-    // One existing subscription (a non-pinned session) so the Slack page's per-workspace
-    // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
-    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:T1DL/C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
+    // One existing subscription (a non-pinned session) so the Slack page's
+    // "Listening" row has an entry. Socket Mode channels are bare ids (slack:C…).
+    { session_id: "wp-1", session_title: "Weekly plan 1", agent: "cowork", channel: "slack:C0AAA111", channel_name: "ocw-test", routing_target: null, collision: false },
   ];
   // Parked unauthorized messages (§19) — mutable so Allow/Dismiss round-trip through the UI.
-  // The relay is multi-workspace: parked items carry their team so the Slack page files them
-  // under the right workspace card.
   const parked: any[] = [
-    { id: "pk1", platform: "slack", chat_id: "C0AAA111", chat_name: "#ocw-test", user_id: "U0NEW", user_name: "Maya", chat_type: "channel", text: "hey ocw, can you summarize this thread?", ts: Date.now() / 1000 - 120, team_id: "T1DL" },
+    { id: "pk1", platform: "slack", chat_id: "C0AAA111", chat_name: "#ocw-test", user_id: "U0NEW", user_name: "Maya", chat_type: "channel", text: "hey ocw, can you summarize this thread?", ts: Date.now() / 1000 - 120 },
   ];
-  // Slack connector — PER-TEST state (managed relay, two workspaces) so allow/disconnect
-  // mutations never leak across tests sharing a worker. Backend parity: `workspaces` mirrors
-  // the slack:team:* profiles, each with its OWN allow-list.
+  // Slack connector — PER-TEST state (Socket Mode, ONE workspace) so allow/disconnect
+  // mutations never leak across tests sharing a worker. Backend parity: the flat
+  // allow-list mirrors the single slack:default profile.
   const slackState = {
     connected: true,
-    mode: "relay" as "" | "relay",
     account: "deeplearning.ai",
-    allowed_users: [] as string[], // flat list (manual Socket Mode only)
-    approval_owner_ids: [] as string[],
-    workspaces: [
-      // T1DL mirrors a managed install: the installer (authed_user) was pre-added
-      // to the allow-list on connect (UX-027) — keys the "you" chip + setup card.
-      { team_id: "T1DL", account: "deeplearning.ai", domain: "dlaiteam", allowed_users: ["U_ME"] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null>, approval_owner_ids: ["U_ME"] as string[], approval_owner_names: { U_ME: "Rohit Prasad" } as Record<string, string | null>, installer_user_id: "U_ME", installer_name: "Rohit Prasad" },
-      { team_id: "T2AC", account: "acme-partners", domain: "acmehq", allowed_users: [] as string[], allow_all: false, allowed_user_names: {} as Record<string, string | null>, approval_owner_ids: [] as string[], approval_owner_names: {} as Record<string, string | null>, installer_user_id: "", installer_name: "" },
-    ],
+    allowed_users: ["U_ME"] as string[],
+    allowed_user_names: { U_ME: "Rohit Prasad" } as Record<string, string | null>,
+    approval_owner_ids: ["U_ME"] as string[],
+    approval_owner_names: { U_ME: "Rohit Prasad" } as Record<string, string | null>,
   };
   const slackConnector = () => ({
     name: "slack", title: "Slack", icon: "#", blurb: "Two-way Slack messaging.",
     auth: "bot_token", two_way: true, channels: true, available: true, brand_color: "#611f69", logo: "slack",
-    fields: [], instructions: [], connected: slackState.connected,
+    fields: [
+      { key: "bot_token", label: "Bot token", secret: true, required: true, help: "", placeholder: "xoxb-…" },
+      { key: "app_token", label: "App token", secret: true, required: true, help: "", placeholder: "xapp-…" },
+    ],
+    instructions: [], connected: slackState.connected,
     account: slackState.account, enabled: slackState.connected,
     allowed_users: [...slackState.allowed_users],
+    allowed_user_names: { ...slackState.allowed_user_names },
     approval_owner_ids: [...slackState.approval_owner_ids],
-    tools: [], managed: true,
-    managed_profile: slackState.mode === "relay", mode: slackState.mode,
-    workspaces: slackState.workspaces.map((w) => ({ ...w, allowed_users: [...w.allowed_users] })),
+    approval_owner_names: { ...slackState.approval_owner_names },
+    tools: [], mode: "",
     unauthorized: parked.map((x) => ({ ...x })),
   });
-  // GitHub — PER-TEST multi-installation state (managed relay, one installation +
-  // one parked mention) mirroring the backend's github:install:<id> profiles.
+  // GitHub — PER-TEST state (a personal access token, ONE account + one parked
+  // mention) mirroring the backend's single github profile.
   const githubParked: any[] = [
-    { id: "gh-pk1", platform: "github", chat_id: "acme/site#7", chat_name: "acme/site#7", user_id: "maya-dev", user_name: "maya-dev", chat_type: "channel", text: "@ocw please take a look at this flaky test", ts: Date.now() / 1000 - 90, team_id: "101" },
+    { id: "gh-pk1", platform: "github", chat_id: "acme/site#7", chat_name: "acme/site#7", user_id: "maya-dev", user_name: "maya-dev", chat_type: "channel", text: "@ocw please take a look at this flaky test", ts: Date.now() / 1000 - 90 },
   ];
   const githubState = {
     connected: true,
-    mode: "relay" as "" | "relay",
-    installations: [
-      { installation_id: "101", account_login: "acme", account_type: "Organization", repo_selection: "selected", github_login: "rohit-dev", allowed_users: ["rohit-dev"], allow_all: false },
-    ],
+    account: "rohit-dev",
+    allowed_users: ["rohit-dev"] as string[],
   };
   const githubConnector = () => ({
     name: "github", title: "GitHub", icon: "⌘", blurb: "Work with issues, pull requests, repository files, and CI status.",
     auth: "token", two_way: true, channels: false, available: true, brand_color: "#1f2328", logo: "github",
     fields: [{ key: "token", label: "Personal access token", secret: true, required: true, help: "", placeholder: "" }],
     instructions: [], connected: githubState.connected,
-    account: githubState.installations[0]?.account_login ?? null,
-    enabled: githubState.connected, allowed_users: [], tools: [], managed: true,
-    managed_profile: githubState.mode === "relay", mode: githubState.mode,
-    installations: githubState.installations.map((i) => ({ ...i, allowed_users: [...i.allowed_users] })),
+    account: githubState.account,
+    enabled: githubState.connected,
+    allowed_users: [...githubState.allowed_users],
+    tools: [], mode: "",
     unauthorized: githubParked.map((x) => ({ ...x })),
   });
-  // Gmail — PER-TEST multi-account state (starts disconnected; managed connects add
-  // mailboxes instantly, mirroring the backend's gmail:account:<email> profiles).
-  // NOTE: the real server currently sends managed_paused: true for the Google trio
-  // (CASA pending). The fixture keeps gmail UNPAUSED because the cloud-machinery specs
-  // use its one-click as their subject; the paused UI is covered by google-paused.spec.ts
-  // via a per-test connectors override.
+  // Gmail — PER-TEST multi-account state (starts disconnected; each token paste adds
+  // a mailbox, mirroring the backend's gmail:account:<email> profiles).
   const gmailState = {
     accounts: [] as {
-      email: string; default: boolean; managed: boolean; scopes: string; needs_reauth: boolean;
+      email: string; default: boolean; scopes: string; needs_reauth: boolean;
     }[],
     filters: { senders: [] as string[], labels: [] as string[] },
   };
@@ -557,7 +510,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Google Calendar — PER-TEST multi-account state (gmail's shape, no filters).
   const gcalState = {
     accounts: [] as {
-      email: string; default: boolean; managed: boolean; scopes: string; needs_reauth: boolean;
+      email: string; default: boolean; scopes: string; needs_reauth: boolean;
     }[],
   };
   const GCAL_NEXT = ["rohit@gmail.com", "work@dlai.com", "third@x.com"];
@@ -573,7 +526,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
   // Notion — PER-TEST generic multi-account state (accounts.py layer: AccountRow shape).
   const notionState = {
-    accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
+    accounts: [] as { account_id: string; name: string; default: boolean }[],
   };
   const NOTION_NEXT = [
     { account_id: "ws-1", name: "Rohit's Workspace" },
@@ -589,9 +542,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
       accounts: notionState.accounts.map((a) => ({ ...a })),
     };
   };
-  // Outlook — email-keyed managed accounts (mirrors outlook:account:<email> profiles).
+  // Outlook — email-keyed accounts (mirrors outlook:account:<email> profiles).
   const outlookState = {
-    accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
+    accounts: [] as { account_id: string; name: string; default: boolean }[],
   };
   // MCP-backed connectors (§42) — per-test connect state; the mock "browser flow"
   // completes instantly so the modal's poll picks it up.
@@ -615,15 +568,14 @@ export async function mockApi(page: import("@playwright/test").Page) {
       accounts: outlookState.accounts.map((a) => ({ ...a })),
     };
   };
-  // HubSpot — PER-TEST multi-portal state (starts disconnected; managed connects add
+  // HubSpot — PER-TEST multi-portal state (starts disconnected; each token paste adds
   // portals instantly, mirroring the backend's hubspot:portal:<hub_id> profiles).
   const hubspotState = {
     portals: [] as {
       hub_id: string; name: string; sandbox: boolean; default: boolean;
-      managed: boolean; access: string;
+      access: string;
     }[],
     hidden_fields: [] as string[],
-    nextAccess: "read", // captured from the last connect-managed body
   };
   const HUBSPOT_NEXT = [
     { hub_id: "111", name: "Acme Inc", sandbox: false },
@@ -678,13 +630,6 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // the app reads it back (which is what gates parking approvals to the Inbox vs an inline card).
   const unattended: Record<string, boolean> = {};
 
-  // Fresh cloud sign-in state per test (module state outlives a page).
-  Object.assign(CLOUD_STATE, {
-    signed_in: false,
-    account: "",
-    user_id: "",
-    telemetry_enabled: true,
-  });
 
   // The scripted fake agent behind the session WebSocket. Speaks the real event protocol
   // ({type, data}), so the full send → stream → render loop and the approval round-trip run
@@ -1380,13 +1325,6 @@ export async function mockApi(page: import("@playwright/test").Page) {
     // must precede the /v1/personas/{id} catch-all (install matches it too)
     if (p.endsWith("/v1/personas/install") && m === "POST") {
       const b = req.postDataJSON();
-      if (b.gallery_slug) {
-        return json(
-          CLOUD_STATE.signed_in
-            ? { ok: true, consent: [{ id: b.gallery_slug }], personas }
-            : { ok: false, error: "gallery requires cloud sign-in" },
-        );
-      }
       return json({ ok: false, error: "unsupported in mock" });
     }
     if (/\/v1\/personas\/[^/]+$/.test(p) && m === "POST") {
@@ -1431,31 +1369,24 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (i < 0) return json({ ok: false, error: "unknown item" });
       const b = req.postDataJSON();
       const item = parked.splice(i, 1)[0];
-      // Backend parity: allowing routes to the item's OWN workspace's list (ids are
-      // workspace-scoped); a team-less item lands on the flat list (manual mode).
+      // Socket Mode is one workspace: allowing lands on the single flat list.
       if (b.action === "allow" || b.action === "allow_deliver") {
-        const pool = item.team_id
-          ? slackState.workspaces.find((w) => w.team_id === item.team_id)?.allowed_users
-          : slackState.allowed_users;
-        if (pool && !pool.includes(item.user_id)) pool.push(item.user_id);
+        const pool = slackState.allowed_users;
+        if (!pool.includes(item.user_id)) pool.push(item.user_id);
       }
       return json({ ok: true });
     }
-    // Per-workspace allow/disallow (team_id in the body) + the flat manual list without it.
+    // Allow/disallow against the single workspace's flat list.
     if (/\/v1\/connectors\/slack\/(allow|disallow)$/.test(p) && m === "POST") {
       const b = req.postDataJSON();
       const add = p.endsWith("/allow");
-      const ws = b.team_id
-        ? slackState.workspaces.find((w) => w.team_id === b.team_id)
-        : null;
-      const pool = b.team_id ? ws?.allowed_users : slackState.allowed_users;
-      if (!pool) return json({ ok: false, error: "workspace not connected" });
+      const pool = slackState.allowed_users;
       const i = pool.indexOf(b.user_id);
       if (add && i < 0) pool.push(b.user_id);
       if (!add && i >= 0) pool.splice(i, 1);
       // Directory picks carry the display name — backend seeds the people directory.
-      if (add && b.name && ws) ws.allowed_user_names[b.user_id] = b.name;
-      return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
+      if (add && b.name) slackState.allowed_user_names[b.user_id] = b.name;
+      return json({ ok: true, allowed_users: [...pool] });
     }
     if (p.endsWith("/v1/connectors/slack/approval-owners/add") && m === "POST") {
       const b = req.postDataJSON();
@@ -1476,7 +1407,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({ ok: true, approval_owner_ids: [...slackState.approval_owner_ids] });
     }
     // Workspace rosters for the pickers (users.list / conversations.list, mocked).
-    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/directory$/.test(p) && m === "GET") {
+    if (p.endsWith("/v1/connectors/slack/directory") && m === "GET") {
       const q = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
       const members = [
         { id: "U9MAYA", name: "Maya Chen", handle: "maya", guest: false },
@@ -1485,43 +1416,16 @@ export async function mockApi(page: import("@playwright/test").Page) {
       ].filter((mem) => !q || mem.name.toLowerCase().includes(q) || mem.handle.includes(q));
       return json({ ok: true, members });
     }
-    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/channels$/.test(p) && m === "GET") {
-      const team = decodeURIComponent(p.split("/workspaces/")[1].split("/")[0]);
+    if (p.endsWith("/v1/connectors/slack/channels") && m === "GET") {
       const q = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
       const channels = [
         { id: "C9LAUNCH", name: "launch-team", is_private: false, is_member: true },
         { id: "C8LEADS", name: "leads", is_private: true, is_member: true },
         { id: "C7LOBBY", name: "lobby", is_private: false, is_member: false },
       ].filter((c) => !q || c.name.includes(q));
-      return json({ ok: true, channels, team });
+      return json({ ok: true, channels });
     }
-    // Slack health, three layers (M3.6 Step 2): socket live + all tokens good by
-    // default; sign-in mirrors CLOUD_STATE. Specs force reconnecting/offline/dead
-    // tokens by registering a later page.route override (later routes match first).
-    if (p.endsWith("/v1/connectors/slack/status"))
-      return json({
-        ok: true,
-        mode: slackState.mode,
-        relay: { state: "live", reconnects: 0, last_event_at: Date.now() / 1000 - 30, last_error: "" },
-        signed_in: CLOUD_STATE.signed_in,
-        teams: Object.fromEntries(
-          slackState.workspaces.map((w) => [w.team_id, { token_ok: true }]),
-        ),
-      });
-    // Stop relaying one workspace; removing the last flips the connector off (backend parity).
-    if (/\/v1\/connectors\/slack\/workspaces\/[^/]+\/disconnect$/.test(p) && m === "POST") {
-      const teamId = decodeURIComponent(p.split("/").slice(-2)[0]);
-      const i = slackState.workspaces.findIndex((w) => w.team_id === teamId);
-      if (i < 0) return json({ ok: false, error: "workspace not connected" });
-      slackState.workspaces.splice(i, 1);
-      if (slackState.workspaces.length === 0) {
-        slackState.connected = false;
-        slackState.mode = "";
-      }
-      return json({ ok: true, remaining_workspaces: slackState.workspaces.length });
-    }
-    // GitHub relay (github-relay-spec §8): per-installation allow/disallow, parked
-    // resolution, status, per-installation disconnect.
+    // GitHub (PAT): allow/disallow + parked resolution against one flat allow-list.
     if (/\/v1\/connectors\/github\/unauthorized\/[^/]+$/.test(p) && m === "POST") {
       const id = p.split("/").pop();
       const i = githubParked.findIndex((x) => x.id === id);
@@ -1529,46 +1433,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const b = req.postDataJSON();
       const item = githubParked.splice(i, 1)[0];
       if (b.action === "allow" || b.action === "allow_deliver") {
-        const pool = githubState.installations.find(
-          (x) => x.installation_id === item.team_id,
-        )?.allowed_users;
-        if (pool && !pool.includes(item.user_id)) pool.push(item.user_id);
+        const pool = githubState.allowed_users;
+        if (!pool.includes(item.user_id)) pool.push(item.user_id);
       }
       return json({ ok: true });
     }
     if (/\/v1\/connectors\/github\/(allow|disallow)$/.test(p) && m === "POST") {
       const b = req.postDataJSON();
-      const pool = githubState.installations.find(
-        (x) => x.installation_id === b.team_id,
-      )?.allowed_users;
-      if (!pool) return json({ ok: false, error: "installation not connected" });
+      const pool = githubState.allowed_users;
       const add = p.endsWith("/allow");
       const i = pool.indexOf(b.user_id);
       if (add && i < 0) pool.push(b.user_id);
       if (!add && i >= 0) pool.splice(i, 1);
-      return json({ ok: true, allowed_users: [...pool], team_id: b.team_id ?? null });
-    }
-    if (p.endsWith("/v1/connectors/github/status"))
-      return json({
-        ok: true,
-        mode: githubState.mode,
-        relay: { state: "live", reconnects: 0, last_event_at: Date.now() / 1000 - 30, last_error: "" },
-        signed_in: CLOUD_STATE.signed_in,
-        installs: Object.fromEntries(
-          githubState.installations.map((x) => [x.installation_id, { token_ok: true }]),
-        ),
-        missed: {},
-      });
-    if (/\/v1\/connectors\/github\/installations\/[^/]+\/disconnect$/.test(p) && m === "POST") {
-      const iid = decodeURIComponent(p.split("/").slice(-2)[0]);
-      const i = githubState.installations.findIndex((x) => x.installation_id === iid);
-      if (i < 0) return json({ ok: false, error: "installation not connected" });
-      githubState.installations.splice(i, 1);
-      if (githubState.installations.length === 0) {
-        githubState.connected = false;
-        githubState.mode = "";
-      }
-      return json({ ok: true, remaining_installs: githubState.installations.length });
+      return json({ ok: true, allowed_users: [...pool] });
     }
     // Gmail multi-account management (M3.6 Step 3): per-account disconnect/default
     // + the "Never show agents" filter lists.
@@ -1672,18 +1549,25 @@ export async function mockApi(page: import("@playwright/test").Page) {
           ),
         ],
       });
-    if (p.endsWith("/v1/cloud/status")) return json({ ...CLOUD_STATE });
-    if (p.endsWith("/v1/cloud/login") && m === "POST") {
-      Object.assign(CLOUD_STATE, { signed_in: true, account: "rohit@openworker.com", user_id: "usr_e2e" });
+    // Whole-connector disconnect (drops the stored credentials). Accounts-layer
+    // connectors clear every account; the rest just flip to not-connected.
+    if (/\/v1\/connectors\/[^/]+\/disconnect$/.test(p) && m === "POST") {
+      const name = p.match(/\/v1\/connectors\/([^/]+)\/disconnect$/)?.[1] || "";
+      if (name === "slack") {
+        slackState.connected = false;
+        return json({ ok: true });
+      }
+      if (name === "github") {
+        githubState.connected = false;
+        return json({ ok: true });
+      }
+      if (name === "gmail") gmailState.accounts.length = 0;
+      if (name === "google_calendar") gcalState.accounts.length = 0;
+      if (name === "notion") notionState.accounts.length = 0;
+      if (name === "outlook") outlookState.accounts.length = 0;
+      if (name === "hubspot") hubspotState.portals.length = 0;
+      if (name in mcpState) mcpState[name as "monday" | "jira"] = false;
       return json({ ok: true });
-    }
-    if (p.endsWith("/v1/cloud/telemetry") && m === "POST") {
-      CLOUD_STATE.telemetry_enabled = !!req.postDataJSON().enabled;
-      return json({ ok: true, telemetry_enabled: CLOUD_STATE.telemetry_enabled });
-    }
-    if (p.endsWith("/v1/cloud/logout") && m === "POST") {
-      Object.assign(CLOUD_STATE, { signed_in: false, account: "", user_id: "" });
-      return json({ ok: true, signed_in: false });
     }
     if (/\/v1\/connectors\/[^/]+\/mcp-connect$/.test(p) && m === "POST") {
       // Local MCP OAuth flow — no cloud sign-in required; completes instantly here.
@@ -1696,97 +1580,63 @@ export async function mockApi(page: import("@playwright/test").Page) {
       }
       return json({ ok: false, error: `${name} has no MCP connect path` });
     }
-    if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
-      if (!CLOUD_STATE.signed_in) return json({ ok: false, error: "not signed in" });
-      // Slack managed install = add a workspace. The real flow completes in the system
-      // browser; the mock installs instantly so the page's poll picks it up.
-      if (p.includes("/connectors/slack/")) {
-        slackState.workspaces.push({ team_id: "T3NEW", account: "new-workspace", domain: "new-workspace", allowed_users: ["U_ME"], allow_all: false, allowed_user_names: { U_ME: "Rohit Prasad" }, approval_owner_ids: ["U_ME"], approval_owner_names: { U_ME: "Rohit Prasad" }, installer_user_id: "U_ME", installer_name: "Rohit Prasad" });
+    // Manual token connect — the ONE connect path now. Connectors on the accounts
+    // layer append an account per connect (mirroring the backend's <name>:account:<id>
+    // profiles); the rest just flip to connected.
+    if (/\/v1\/connectors\/[^/]+\/connect$/.test(p) && m === "POST") {
+      const name = p.match(/\/v1\/connectors\/([^/]+)\/connect$/)?.[1] || "";
+      const fields = (req.postDataJSON() || {}).fields || {};
+      if (name === "slack") {
+        // Socket Mode needs BOTH tokens; the backend validates them together.
+        if (!fields.bot_token || !fields.app_token)
+          return json({ ok: false, error: "both tokens are required" });
         slackState.connected = true;
-        slackState.mode = "relay";
+        return json({ ok: true, account: slackState.account });
       }
-      // GitHub managed connect = install on the next account (instant, like Slack).
-      if (p.includes("/connectors/github/")) {
-        githubState.installations.push({
-          installation_id: "202", account_login: "hooli", account_type: "Organization",
-          repo_selection: "all", github_login: "rohit-dev", allowed_users: ["rohit-dev"], allow_all: false,
-        });
+      if (name === "github") {
         githubState.connected = true;
-        githubState.mode = "relay";
+        return json({ ok: true, account: githubState.account });
       }
-      // Gmail managed connect = add the next mailbox; the first becomes default.
-      if (p.includes("/connectors/gmail/")) {
+      if (name === "gmail") {
         const email = GMAIL_NEXT[gmailState.accounts.length] || `acct${gmailState.accounts.length}@x.com`;
         gmailState.accounts.push({
-          email, default: gmailState.accounts.length === 0, managed: true,
+          email, default: gmailState.accounts.length === 0,
           scopes: "gmail.readonly gmail.send", needs_reauth: false,
         });
+        return json({ ok: true, account: email });
       }
-      // Google Calendar managed connect = add the next account (gmail's flow).
-      if (p.includes("/connectors/google_calendar/")) {
+      if (name === "google_calendar") {
         const email = GCAL_NEXT[gcalState.accounts.length] || `acct${gcalState.accounts.length}@x.com`;
         gcalState.accounts.push({
-          email, default: gcalState.accounts.length === 0, managed: true,
+          email, default: gcalState.accounts.length === 0,
           scopes: "calendar", needs_reauth: false,
         });
+        return json({ ok: true, account: email });
       }
-      // Outlook managed connect = add the next mailbox (email-keyed accounts).
-      if (p.includes("/connectors/outlook/")) {
+      if (name === "outlook") {
+        const id = `mbx${outlookState.accounts.length + 1}@openworker.com`;
         outlookState.accounts.push({
-          account_id: `mbx${outlookState.accounts.length + 1}@openworker.com`,
-          name: `mbx${outlookState.accounts.length + 1}@openworker.com`,
-          default: outlookState.accounts.length === 0,
-          managed: true,
+          account_id: id, name: id, default: outlookState.accounts.length === 0,
         });
+        return json({ ok: true, account: id });
       }
-      // Notion managed connect = add the next workspace (generic accounts layer).
-      if (p.includes("/connectors/notion/")) {
+      if (name === "notion") {
         const next = NOTION_NEXT[notionState.accounts.length] || {
           account_id: `ws-${notionState.accounts.length + 1}`, name: "extra",
         };
-        notionState.accounts.push({
-          ...next, default: notionState.accounts.length === 0, managed: true,
-        });
+        notionState.accounts.push({ ...next, default: notionState.accounts.length === 0 });
+        return json({ ok: true, account: next.name });
       }
-      // HubSpot managed connect = add the next portal at the requested access tier.
-      if (p.includes("/connectors/hubspot/")) {
-        const access = (req.postDataJSON() || {}).access || "read";
+      if (name === "hubspot") {
         const next = HUBSPOT_NEXT[hubspotState.portals.length] || {
           hub_id: `9${hubspotState.portals.length}`, name: "extra", sandbox: false,
         };
         hubspotState.portals.push({
-          ...next, default: hubspotState.portals.length === 0, managed: true, access,
+          ...next, default: hubspotState.portals.length === 0, access: "",
         });
+        return json({ ok: true, account: next.name });
       }
-      return json({ ok: true });
-    }
-    if (p.endsWith("/v1/cloud/gallery")) {
-      return json(
-        CLOUD_STATE.signed_in
-          ? { ok: true, personas: GALLERY_PERSONAS }
-          : { ok: false, error: "gallery requires cloud sign-in", personas: [] },
-      );
-    }
-    if (/\/v1\/cloud\/gallery\/[^/]+$/.test(p)) {
-      if (!CLOUD_STATE.signed_in) return json({ ok: false, error: "gallery requires cloud sign-in" });
-      const slug = p.split("/").pop();
-      const cardBase = GALLERY_PERSONAS.find((g) => g.slug === slug) ?? GALLERY_PERSONAS[0];
-      return json({
-        ok: true,
-        card: { ...cardBase, pitch_markdown: "**Walk into every call already knowing the account.**" },
-        capabilities: {
-          tools: ["files", "search", "todo"],
-          risk: [],
-          connectors: true,
-          mcp: [],
-          messaging: true,
-          recommended_mode: "interactive",
-          recommended_models: [],
-        },
-        recommends: [
-          { kind: "connector", ref: "hubspot", reason: "read deals and contacts", tier: "core" },
-        ],
-      });
+      return json({ ok: true, account: "connected" });
     }
     // provider credential check (read-only) — an api_key containing "bad" fails, else ok.
     if (p.endsWith("/v1/providers/verify") && m === "POST") {

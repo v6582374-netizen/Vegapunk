@@ -1,28 +1,23 @@
 import { useState } from "react";
 import {
-  connectManaged,
   disconnectGcalAccount,
   setGcalDefaultAccount,
   type GmailAccount,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
+import { AddConnectionModal } from "./AddConnectionModal";
 import type { DetailProps } from "./ConnectorsSection";
 import { ToolsDisclosure } from "./ToolsDisclosure";
 import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, TAG_WARN, XBTN } from "./ui";
 
 // The Google Calendar detail page: connected accounts (multi-account, Default
 // badge, per-account disconnect) — Gmail's page minus the privacy filters.
-// Adding an account launches managed OAuth DIRECTLY (one connect mode, no modal).
+// Adding an account pastes an OAuth access token; each paste lands as its own
+// account alongside the others.
 
-export function CalendarDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
-  const [busy, setBusy] = useState(false);
+export function CalendarDetail({ c, onChanged }: DetailProps) {
+  const [adding, setAdding] = useState(false);
   const accounts = (c.accounts ?? []) as GmailAccount[]; // email-keyed (pre-generic-layer shape)
-
-  const addAccount = async () => {
-    setBusy(true);
-    await connectManaged("google_calendar"); // completes in the system browser; the poll picks it up
-    setTimeout(() => setBusy(false), 2500);
-  };
 
   return (
     <div data-testid="gcal-detail">
@@ -45,28 +40,16 @@ export function CalendarDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
             )}
           </div>
         </div>
-        <button
-          className={PILL_ACCENT + (c.managed_paused ? " opacity-50" : "")}
-          data-testid="add-account-btn"
-          onClick={addAccount}
-          disabled={busy || !cloud?.signed_in || c.managed_paused}
-          title={
-            c.managed_paused
-              ? "One-click Google sign-in is coming soon"
-              : cloud?.signed_in
-                ? ""
-                : "Sign in to OpenWorker Cloud first"
-          }
-        >
-          {c.managed_paused ? "＋ Add account · Coming soon" : busy ? "Check your browser…" : "＋ Add account"}
+        <button className={PILL_ACCENT} data-testid="add-account-btn" onClick={() => setAdding(true)}>
+          ＋ Add account
         </button>
       </div>
 
       {!c.connected && (
         <div className={GRP}>
           <div className={ROW + " text-[12.5px] text-muted"}>
-            Sign in with Google — each account stays separate, agents say which one they use.
-            {cloud?.signed_in ? "" : " Requires cloud sign-in."}
+            Paste an OAuth access token with Calendar scopes — each account stays
+            separate, and agents say which one they use.
           </div>
         </div>
       )}
@@ -87,6 +70,15 @@ export function CalendarDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
         Creating, changing, or deleting events always asks for your approval first, and the
         approval names the account.
       </div>
+
+      {adding && (
+        <AddConnectionModal
+          c={c}
+          title="Add an account"
+          onClose={() => setAdding(false)}
+          onChanged={onChanged}
+        />
+      )}
     </div>
   );
 }

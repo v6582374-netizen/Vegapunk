@@ -28,13 +28,9 @@ export const TAG_WARN =
 export const TAG_QUIET =
   "text-[10.5px] font-semibold px-1.5 py-0.5 rounded bg-paper border border-line text-muted shrink-0";
 
-/** Status chip variants for the Connected list. */
+/** Status chip for the Connected list. */
 export const CHIP_OK =
   "text-[11px] font-medium px-2 py-0.5 rounded-full bg-okSoft text-ok border border-okLine shrink-0";
-export const CHIP_WARN =
-  "text-[11px] font-medium px-2 py-0.5 rounded-full bg-warnSoft text-warnInk border border-warnInk/20 shrink-0";
-export const CHIP_OFF =
-  "text-[11px] font-medium px-2 py-0.5 rounded-full bg-paper text-muted border border-lineStrong shrink-0";
 
 /** Small × affordance (danger on hover). */
 export const XBTN = "text-faint hover:text-danger shrink-0 leading-none";

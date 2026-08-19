@@ -177,7 +177,13 @@ class PerformExperimentsArtifactTest(unittest.TestCase):
 
 
 class CodexRunnerTest(unittest.TestCase):
-    def test_runner_maps_canonical_provider_model_to_codex_config(self) -> None:
+    def test_runner_does_not_pass_any_system_model_identity(self) -> None:
+        """Codex CLI owns its own model and credentials.
+
+        Discovery selects the backend, not the backend's model.  Injecting a
+        Vegapunk catalog identity here would send a Provider-specific model
+        name to a tool authenticated against a different account.
+        """
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
 
@@ -192,36 +198,13 @@ class CodexRunnerTest(unittest.TestCase):
                 "vegapunk.experiments_utils_codex.subprocess.run",
                 side_effect=complete_codex,
             ) as run_command:
-                CodexRunner(model="qwen:qwen3-max").run(
-                    "run the exact experiment", cwd=root
-                )
+                CodexRunner().run("run the exact experiment", cwd=root)
 
             command = run_command.call_args.args[0]
-            self.assertEqual(command[command.index("--model") + 1], "qwen3-max")
-            self.assertNotIn("model_provider=qwen", command)
-
-    def test_runner_can_override_codex_model_provider_explicitly(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-
-            def complete_codex(command: list[str], **_: object) -> CompletedProcess:
-                output_path = Path(
-                    command[command.index("--output-last-message") + 1]
-                )
-                output_path.write_text("finished", encoding="utf-8")
-                return CompletedProcess(command, 0, stdout="", stderr="")
-
-            with patch(
-                "vegapunk.experiments_utils_codex.subprocess.run",
-                side_effect=complete_codex,
-            ) as run_command:
-                CodexRunner(
-                    model="qwen:qwen3-max",
-                    model_provider="qwen",
-                ).run("run the exact experiment", cwd=root)
-
-            command = run_command.call_args.args[0]
-            self.assertIn("model_provider=qwen", command)
+            self.assertNotIn("--model", command)
+            self.assertFalse(
+                [item for item in command if "model_provider" in str(item)]
+            )
 
     def test_runner_reads_the_last_message_file(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -244,14 +227,18 @@ class CodexRunnerTest(unittest.TestCase):
                 "vegapunk.experiments_utils_codex.subprocess.run",
                 side_effect=complete_codex,
             ) as run_command:
-                output = CodexRunner(model="gpt-5.6-sol").run(
+                output = CodexRunner().run(
                     "run the exact experiment", cwd=root
                 )
 
             command = run_command.call_args.args[0]
             self.assertEqual(command[:2], ["codex", "exec"])
+            self.assertEqual(command[-1], "-")
+            self.assertNotIn("run the exact experiment", command)
+            self.assertEqual(
+                run_command.call_args.kwargs["input"], "run the exact experiment"
+            )
             self.assertEqual(command[command.index("--cd") + 1], str(root))
-            self.assertEqual(command[command.index("--model") + 1], "gpt-5.6-sol")
             self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
             self.assertEqual(
                 command[command.index("-c") + 1], "approval_policy=never"
@@ -269,6 +256,33 @@ class CodexRunnerTest(unittest.TestCase):
             self.assertEqual(output_path.parent, root)
             self.assertEqual(output, "finished")
 
+    def test_runner_sends_the_prompt_over_stdin_not_argv(self) -> None:
+        """The research context grows without bound; argv is capped by ARG_MAX.
+
+        A prompt far larger than any kernel argument limit must still reach
+        the CLI, so it travels over stdin and never appears in the command.
+        """
+        huge_prompt = "research context " * 200_000  # ~3.2 MB, beyond ARG_MAX
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+
+            def complete_codex(command: list[str], **_: object) -> CompletedProcess:
+                output_path = Path(
+                    command[command.index("--output-last-message") + 1]
+                )
+                output_path.write_text("finished", encoding="utf-8")
+                return CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch(
+                "vegapunk.experiments_utils_codex.subprocess.run",
+                side_effect=complete_codex,
+            ) as run_command:
+                CodexRunner().run(huge_prompt, cwd=root)
+
+            command = run_command.call_args.args[0]
+            self.assertLess(sum(len(str(item)) for item in command), 10_000)
+            self.assertEqual(run_command.call_args.kwargs["input"], huge_prompt)
+
     def test_runner_rejects_success_text_from_a_failed_process(self) -> None:
         completed = CompletedProcess(
             ["codex", "exec"],
@@ -282,7 +296,7 @@ class CodexRunnerTest(unittest.TestCase):
             return_value=completed,
         ):
             with self.assertRaises(CalledProcessError) as raised:
-                CodexRunner(model="gpt-5.6-sol").run("run experiment")
+                CodexRunner().run("run experiment")
 
         self.assertEqual(raised.exception.returncode, 7)
         self.assertEqual(raised.exception.stdout, completed.stdout)
@@ -300,7 +314,7 @@ class CodexRunnerTest(unittest.TestCase):
             "vegapunk.experiments_utils_codex.subprocess.run",
             return_value=completed,
         ), self.assertRaises(RuntimeError) as raised:
-            CodexRunner(model="gpt-5.6-sol").run("run experiment")
+            CodexRunner().run("run experiment")
 
         self.assertIn("final message", str(raised.exception))
 

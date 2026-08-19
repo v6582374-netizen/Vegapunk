@@ -1,25 +1,18 @@
-"""Slack team-qualified addressing for managed relay (slack-relay-spec §8/§9).
+"""Slack chat_id normalization.
 
-A single owner can be in several Slack workspaces at once, so a bare channel id
-(`C…`) is ambiguous — a `U…`/`C…` only means something inside its `team_id`.
-Managed-relay targets therefore carry the team: the reply handle's chat_id is
-`"{team_id}/{channel}"`.
+Slack's API wants a bare channel id (`C…`). Targets are normally exactly that,
+but a persisted Inbox binding written by an older build can still carry a
+team-qualified `"{team_id}/{channel}"` form, so outbound sends normalize through
+`split` before hitting the API.
 
 Encoding note: the reply-target grammar is colon-delimited
-(`platform:chat_id[:thread]`, see base.parse_target), so we join team+channel
-with `/` — colon-free — to stay inside that grammar unchanged. `slack:T012345/C0123`
-is the wire form of the spec's conceptual `slack:T012345:C0123`. Manual
-Socket-Mode targets (single workspace) keep the bare `slack:C0123` form.
+(`platform:chat_id[:thread]`, see base.parse_target), which is why the legacy
+qualified form joined team+channel with a colon-free `/`.
 """
 
 from __future__ import annotations
 
 from typing import Optional
-
-
-def qualify(team_id: Optional[str], channel: str) -> str:
-    """Build a team-qualified chat_id, or the bare channel when no team."""
-    return f"{team_id}/{channel}" if team_id else channel
 
 
 def split(chat_id: str) -> tuple[Optional[str], str]:

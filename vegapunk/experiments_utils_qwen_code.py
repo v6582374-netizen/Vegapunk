@@ -16,15 +16,11 @@ import subprocess
 from datetime import datetime
 
 from .experiments_utils_codex import (
-    _split_codex_model_identity,
     extract_idea_info,
     perform_experiments as _perform_experiments,
 )
 
 logger = logging.getLogger(__name__)
-
-
-_DASHSCOPE_COMPATIBLE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 class QwenCodeAuthenticationError(RuntimeError):
@@ -35,10 +31,6 @@ class QwenCodeAuthenticationError(RuntimeError):
     lets callers stop the experiment attempt instead of treating that text as a
     model response.
     """
-
-
-class QwenCodeConfigurationError(RuntimeError):
-    """Raised when the Launch Qwen credential is not configured."""
 
 
 class QwenCodeProtocolError(RuntimeError):
@@ -154,9 +146,9 @@ def _final_qwen_message(stdout: str) -> str:
     auth_error = _qwen_authentication_error_text(stdout)
     if auth_error:
         raise QwenCodeAuthenticationError(
-            "Qwen Code authentication failed: upstream rejected the configured "
-            f"API key ({auth_error}). Check the Launch Qwen credential and "
-            "DASHSCOPE_API_KEY precedence."
+            "Qwen Code authentication failed: upstream rejected its own "
+            f"configured credentials ({auth_error}). Authenticate the Qwen "
+            "Code CLI outside Vegapunk."
         )
     events = _qwen_json_events(stdout)
     for event in reversed(events):
@@ -184,45 +176,23 @@ class QwenCodeRunner:
 
     backend_label = "Qwen Code"
 
-    def __init__(
-        self,
-        proxy_settings=None,
-        model="qwen3.6-plus",
-        *,
-        command: str | None = None,
-    ):
+    def __init__(self, proxy_settings=None, *, command: str | None = None):
+        # Qwen Code is an independently installed tool.  Its model choice and
+        # credentials belong to the user's own CLI configuration, so Discovery
+        # hands it only a prompt and a workspace.
         self.proxy_settings = proxy_settings or {}
-        # Vegapunk model identities are provider/model. Qwen Code receives the
-        # provider-local model name; provider routing remains a separate concern.
-        self.model, _provider = _split_codex_model_identity(model)
         self.command = command or os.environ.get("QWEN_CODE_BIN", "qwen")
 
     def run(self, prompt, cwd=None):
         workspace_root = osp.abspath(cwd or os.getcwd())
         env = os.environ.copy()
         env.update(self.proxy_settings)
-        # Qwen Code uses the OpenAI-compatible protocol name for its generic
-        # provider.  Bind that protocol to the Qwen provider's credential here
-        # instead of inheriting a user-level OPENAI_API_KEY / selected auth mode.
-        # This child-only alias never changes the parent process environment.
-        dashscope_api_key = env.get("DASHSCOPE_API_KEY")
-        if not dashscope_api_key:
-            raise QwenCodeConfigurationError(
-                "Qwen Code requires DASHSCOPE_API_KEY for the configured DashScope "
-                "provider; it will not fall back to OPENAI_API_KEY."
-            )
-        env["OPENAI_API_KEY"] = dashscope_api_key
-        env["OPENAI_BASE_URL"] = _DASHSCOPE_COMPATIBLE_BASE_URL
+        # The prompt carries the entire research context, which grows without
+        # bound over a session.  argv is capped by the kernel (ARG_MAX), so the
+        # prompt must travel over stdin: Qwen Code treats piped stdin as its
+        # non-interactive prompt.
         command = [
             self.command,
-            "--prompt",
-            prompt,
-            "--model",
-            self.model,
-            "--auth-type",
-            "openai",
-            "--openai-base-url",
-            _DASHSCOPE_COMPATIBLE_BASE_URL,
             "--approval-mode",
             "yolo",
             "--output-format",
@@ -234,6 +204,7 @@ class QwenCodeRunner:
         result = subprocess.run(
             command,
             cwd=workspace_root,
+            input=prompt,
             capture_output=True,
             text=True,
             env=env,
@@ -248,9 +219,9 @@ class QwenCodeRunner:
         auth_error = _qwen_authentication_error_text(result.stdout, result.stderr)
         if auth_error:
             raise QwenCodeAuthenticationError(
-                "Qwen Code authentication failed: upstream rejected the configured "
-                f"API key ({auth_error}). Check the Launch Qwen credential and "
-                "DASHSCOPE_API_KEY precedence."
+                "Qwen Code authentication failed: upstream rejected its own "
+                f"configured credentials ({auth_error}). Authenticate the Qwen "
+                "Code CLI outside Vegapunk."
             )
         if result.returncode != 0:
             raise subprocess.CalledProcessError(
@@ -283,7 +254,6 @@ def perform_experiments(
     idea,
     folder_name,
     proxy_settings=None,
-    model="qwen3.6-plus",
     gpu_ids=None,
     max_runs=None,
     log_file=None,
@@ -299,7 +269,6 @@ def perform_experiments(
         idea,
         folder_name,
         proxy_settings=proxy_settings,
-        model=model,
         gpu_ids=gpu_ids,
         max_runs=max_runs,
         log_file=log_file,
@@ -315,7 +284,6 @@ def perform_experiments(
 
 __all__ = [
     "QwenCodeAuthenticationError",
-    "QwenCodeConfigurationError",
     "QwenCodeProtocolError",
     "QwenCodeRunner",
     "perform_experiments",

@@ -5,8 +5,10 @@
 3. 具体、可检验，并可通过实验验证。
 4. 直接回应研究目标，且具有明确的科学意义。
 5. 考虑约束条件和领域知识。
-6. 明确声明每个创意对外部数据的需求。仅当需要获取外部数据时才将 requires_external_data 设为 true；此时在 external_data_request 中描述具体变量、条件、单位、范围、分辨率和格式，并将 external_data_route 设为 public_web（官方公开来源，如 BLS、O*NET）或 registered_api（仅限明确适配的已配置 provider）。当无需获取外部数据即可评估该创意时，将其设为 false、external_data_route 设为 none，并在 external_data_reason 中说明原因。
-7. 绝不可省略外部数据声明或路由，也不可使用不确定状态。不得为了获取公开数据而选择无关的已配置 API。
+6. 为每个创意声明外部数据需求，且只声明其中一种情形：需要外部数据时，将 required 置为 true，并在 request 中描述具体变量、条件、单位、范围、分辨率和格式；无需外部数据即可评估时，将 required 置为 false，并在 reason 中说明理由。
+7. 不要声明与自身情形无关的字段：required 为 true 时不要给出 reason，required 为 false 时不要给出 request。不存在不确定状态。
+8. 不要指定数据来源、供应商或获取通道。是否存在合适的已配置数据源，由掌握来源清单的下游环节判定；你只需说明所需数据本身。
+9. 若研究任务禁止使用外部数据，则任何创意都不得声明 required 为 true。
 
 保持创造力，同时坚持科学严谨性。提出能够建立概念间意外联系、挑战传统观点或将一个领域原理应用于另一领域的假设。
 

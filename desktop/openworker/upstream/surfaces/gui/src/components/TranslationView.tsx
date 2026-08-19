@@ -550,8 +550,8 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
 
   const [logOpen, setLogOpen] = useState(false);
   const [log, setLog] = useState<string[]>([]);
-  const [preview, setPreview] = useState<{ name: string; url: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewUrls = useRef<string[]>([]);
   const cursors = useRef(new Map<string, number>());
 
   /* ---- load ---- */
@@ -740,19 +740,19 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
     return () => controller.abort();
   }, [logOpen, runId]);
 
-  /* ---- inline PDF preview ---- */
+  /* ---- PDF preview, in its own browser tab ----
+     A translated page has to be readable at full size, which an inline panel inside a three-column
+     surface can never be. The artifact endpoint is authenticated, so the tab cannot just point at
+     the URL: the bytes are fetched with the launch credential and handed over as a blob. Those blob
+     URLs stay alive as long as this surface does — revoking one closes the tab reading it — and are
+     released together when the module unmounts. */
 
   useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview.url);
-  }, [preview]);
+    for (const url of previewUrls.current) URL.revokeObjectURL(url);
+    previewUrls.current = [];
+  }, []);
 
-  useEffect(() => {
-    setPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return null;
-    });
-    setPreviewError(null);
-  }, [runId]);
+  useEffect(() => setPreviewError(null), [runId]);
 
   /* ---- actions ---- */
 
@@ -909,13 +909,21 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
   const openPreview = async (artifact: TranslationArtifact) => {
     if (!runId) return;
     setPreviewError(null);
+    // The tab is claimed inside the click, before the await. A window opened after an async hop
+    // has lost the user gesture and browsers block it as unsolicited.
+    const tab = window.open("", "_blank");
+    if (tab) tab.opener = null;
     try {
       const url = await fetchTranslationArtifactBlobUrl(runId, artifact.name);
-      setPreview((prev) => {
-        if (prev) URL.revokeObjectURL(prev.url);
-        return { name: artifact.name, url };
-      });
+      previewUrls.current.push(url);
+      if (!tab) {
+        setPreviewError("Your browser blocked the preview tab. Allow pop-ups for this app, or use Download.");
+        return;
+      }
+      tab.location.replace(url);
+      announce(`Opened ${artifact.name} in a new tab.`);
     } catch (caught) {
+      tab?.close();
       setPreviewError(errText(caught, "That artifact could not be previewed."));
     }
   };
@@ -1372,39 +1380,6 @@ export function TranslationView({ onOpenSettings }: { onOpenSettings?: () => voi
                     </p>
                   )}
 
-                  {preview && (
-                    <div className={`${CARD} overflow-hidden`}>
-                      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-                        <span className="min-w-0 flex-1 truncate text-[11.5px] text-ink" title={preview.name}>
-                          {preview.name}
-                        </span>
-                        <button
-                          type="button"
-                          className="shrink-0 rounded-lg border border-line px-1.5 py-0.5 text-[11px] text-muted transition-colors hover:bg-paper hover:text-ink"
-                          aria-label="Close preview"
-                          onClick={() =>
-                            setPreview((prev) => {
-                              if (prev) URL.revokeObjectURL(prev.url);
-                              return null;
-                            })
-                          }
-                        >
-                          <Icon name="x" size={12} />
-                        </button>
-                      </div>
-                      <object
-                        data={preview.url}
-                        type="application/pdf"
-                        aria-label={`Preview of ${preview.name}`}
-                        className="block h-[360px] w-full bg-paper"
-                        data-testid="translation-artifact-preview"
-                      >
-                        <p className="p-3 text-[11.5px] text-muted">
-                          This PDF cannot be shown inline. Use Download instead.
-                        </p>
-                      </object>
-                    </div>
-                  )}
                 </section>
               )}
             </div>

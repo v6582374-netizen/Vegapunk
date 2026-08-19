@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from vegapunk.experiments_utils_qwen_code import (
     QwenCodeAuthenticationError,
-    QwenCodeConfigurationError,
     QwenCodeRunner,
     _final_qwen_message,
     perform_experiments,
@@ -17,17 +16,6 @@ from vegapunk.experiments_utils_qwen_code import (
 
 
 class QwenCodeRunnerTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self._dashscope_environment = patch.dict(
-            "vegapunk.experiments_utils_qwen_code.os.environ",
-            {"DASHSCOPE_API_KEY": "dashscope-key"},
-            clear=False,
-        )
-        self._dashscope_environment.start()
-
-    def tearDown(self) -> None:
-        self._dashscope_environment.stop()
-
     def test_extracts_terminal_result_event(self) -> None:
         payload = [
             {"type": "assistant", "message": {"content": [{"text": "draft"}]}},
@@ -138,7 +126,8 @@ class QwenCodeRunnerTest(unittest.TestCase):
 
         self.assertEqual(_final_qwen_message(stdout), "done")
 
-    def test_uses_official_headless_flags_and_provider_local_model(self) -> None:
+    def test_invokes_qwen_with_only_a_prompt_and_a_workspace(self) -> None:
+        """Qwen Code owns its own model and auth; Discovery selects neither."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             payload = [{"type": "result", "subtype": "success", "result": "done"}]
@@ -149,31 +138,31 @@ class QwenCodeRunnerTest(unittest.TestCase):
                     ["qwen"], 0, stdout=json.dumps(payload), stderr=""
                 ),
             ) as run_command:
-                output = QwenCodeRunner(
-                    model="qwen/qwen3.6-plus", command="qwen"
-                ).run("make the change", cwd=root)
+                output = QwenCodeRunner(command="qwen").run(
+                    "make the change", cwd=root
+                )
 
             self.assertEqual(output, "done")
             command = run_command.call_args.args[0]
             self.assertEqual(command[0], "qwen")
-            self.assertEqual(command[command.index("--model") + 1], "qwen3.6-plus")
-            self.assertEqual(
-                command[command.index("--approval-mode") + 1], "yolo"
-            )
-            self.assertEqual(
-                command[command.index("--output-format") + 1], "json"
-            )
+            # The prompt travels over stdin so a growing research context can
+            # never exceed the kernel argv limit (ARG_MAX).
+            self.assertNotIn("--prompt", command)
+            self.assertNotIn("make the change", command)
+            self.assertEqual(run_command.call_args.kwargs["input"], "make the change")
+            self.assertEqual(command[command.index("--approval-mode") + 1], "yolo")
+            self.assertEqual(command[command.index("--output-format") + 1], "json")
             self.assertIn("--sandbox=false", command)
+            self.assertEqual(run_command.call_args.kwargs["cwd"], str(root))
+            for owned_by_the_cli in ("--model", "--auth-type", "--openai-base-url"):
+                self.assertNotIn(owned_by_the_cli, command)
 
-    def test_binds_dashscope_credentials_when_openai_key_is_also_present(self) -> None:
-        """Qwen Code must not inherit the parent's unrelated OpenAI route."""
+    def test_does_not_hand_discovery_provider_credentials_to_the_cli(self) -> None:
+        """The Launch's own API key must not become Qwen Code's credential."""
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             "vegapunk.experiments_utils_qwen_code.os.environ",
-            {
-                "DASHSCOPE_API_KEY": "dashscope-key",
-                "OPENAI_API_KEY": "unrelated-openai-key",
-            },
-            clear=False,
+            {"OPENAI_API_KEY": "discovery-relay-key"},
+            clear=True,
         ):
             payload = [{"type": "result", "subtype": "success", "result": "done"}]
             with patch(
@@ -182,34 +171,34 @@ class QwenCodeRunnerTest(unittest.TestCase):
                     ["qwen"], 0, stdout=json.dumps(payload), stderr=""
                 ),
             ) as run_command:
-                QwenCodeRunner(model="qwen/qwen3-max", command="qwen").run(
-                    "make the change", cwd=Path(directory)
-                )
-
-            command = run_command.call_args.args[0]
-            environment = run_command.call_args.kwargs["env"]
-            self.assertEqual(
-                command[command.index("--auth-type") + 1], "openai"
-            )
-            self.assertEqual(
-                command[command.index("--openai-base-url") + 1],
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            )
-            self.assertEqual(environment["OPENAI_API_KEY"], "dashscope-key")
-
-    def test_requires_dashscope_key_instead_of_falling_back_to_openai_key(self) -> None:
-        """A missing Qwen credential must fail before a DashScope request is made."""
-        with tempfile.TemporaryDirectory() as directory, patch.dict(
-            "vegapunk.experiments_utils_qwen_code.os.environ",
-            {"OPENAI_API_KEY": "unrelated-openai-key"},
-            clear=True,
-        ), patch("vegapunk.experiments_utils_qwen_code.subprocess.run") as run_command:
-            with self.assertRaises(QwenCodeConfigurationError):
                 QwenCodeRunner(command="qwen").run(
                     "make the change", cwd=Path(directory)
                 )
 
-            run_command.assert_not_called()
+            environment = run_command.call_args.kwargs["env"]
+            self.assertEqual(environment["OPENAI_API_KEY"], "discovery-relay-key")
+            self.assertNotIn("OPENAI_BASE_URL", environment)
+
+    def test_runs_without_any_discovery_provider_credential_present(self) -> None:
+        """A Launch with no Qwen credential must still reach the installed CLI."""
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "vegapunk.experiments_utils_qwen_code.os.environ",
+            {},
+            clear=True,
+        ):
+            payload = [{"type": "result", "subtype": "success", "result": "done"}]
+            with patch(
+                "vegapunk.experiments_utils_qwen_code.subprocess.run",
+                return_value=CompletedProcess(
+                    ["qwen"], 0, stdout=json.dumps(payload), stderr=""
+                ),
+            ) as run_command:
+                output = QwenCodeRunner(command="qwen").run(
+                    "make the change", cwd=Path(directory)
+                )
+
+            self.assertEqual(output, "done")
+            run_command.assert_called_once()
 
     def test_rejects_authentication_error_with_success_exit_code(self) -> None:
         """Qwen Code can encode an upstream 401 in a successful JSON event."""

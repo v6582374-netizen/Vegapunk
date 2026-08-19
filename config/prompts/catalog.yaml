@@ -505,3 +505,14 @@ prompts:
   template_variables: []
   required_template_variables: []
   file: scoring/scorer_system.txt
+- id: embodied.intake_triage
+  name: Embodied adaptation intake triage prompt
+  description: Classifies one robot complaint into a symptom and an adaptation route without asserting hardware facts
+  workflow: embodied
+  stage: intake
+  order: 10
+  invocation_type: repeated
+  mutual_exclusion_group: null
+  template_variables: [pain_point_text, submitted_by, symptom_vocabulary, adaptation_path_ladder, automatable_paths]
+  required_template_variables: [pain_point_text, submitted_by, symptom_vocabulary, adaptation_path_ladder, automatable_paths]
+  file: embodied/intake_triage.txt

@@ -170,15 +170,14 @@ def disconnect_account(
 
 
 def account_rows(secrets: SecretStore, connector: str) -> list[dict[str, Any]]:
-    """connector_list's `accounts` field: id, display name, default/managed
-    flags. Display name = the identity captured at connect (else the id)."""
+    """connector_list's `accounts` field: id, display name, default flag.
+    Display name = the identity captured at connect (else the id)."""
     default = default_account(secrets, connector)
     return [
         {
             "account_id": account_id,
             "name": str(profile.get("account") or account_id),
             "default": account_id == default,
-            "managed": bool(profile.get("managed")),
         }
         for account_id, profile in list_accounts(secrets, connector)
     ]

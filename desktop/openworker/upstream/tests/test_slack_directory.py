@@ -15,7 +15,6 @@ from coworker.secrets import SecretStore
 def secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
     store = SecretStore()
-    store.put("slack:team:T1", {"bot_token": "xoxb-t1", "team_id": "T1"})
     store.put("slack:default", {"bot_token": "xoxb-manual"})
     return store
 
@@ -56,7 +55,7 @@ MEMBERS = [
 
 def test_members_filtered_ranked_and_guest_tagged(secrets, monkeypatch):
     _fake_pages(monkeypatch, {"users.list": MEMBERS})
-    out = slack_directory.list_members(secrets, "T1")
+    out = slack_directory.list_members(secrets)
     assert out["ok"]
     ids = [m["id"] for m in out["members"]]
     assert ids == ["U4", "U1", "U2", "U3"]  # alpha by display name; no bots/deleted
@@ -64,22 +63,21 @@ def test_members_filtered_ranked_and_guest_tagged(secrets, monkeypatch):
     assert by_id["U4"]["guest"] and not by_id["U2"]["guest"]
     assert by_id["U3"]["name"] == "zed"  # display-name fallback
 
-    out = slack_directory.list_members(secrets, "T1", query="ro")
+    out = slack_directory.list_members(secrets, query="ro")
     assert [m["id"] for m in out["members"]] == ["U2"]  # prefix beats substring
-    out = slack_directory.list_members(
-        secrets, "T1", query="maya"
+    out = slack_directory.list_members(secrets, query="maya"
     )  # handle matches too
     assert [m["id"] for m in out["members"]] == ["U1"]
 
 
-def test_roster_is_cached_per_workspace(secrets, monkeypatch):
+def test_roster_is_cached_and_refresh_forces_a_refetch(secrets, monkeypatch):
     calls = _fake_pages(monkeypatch, {"users.list": MEMBERS})
-    slack_directory.list_members(secrets, "T1")
-    slack_directory.list_members(secrets, "T1", query="ro")  # filter runs on the cache
+    slack_directory.list_members(secrets)
+    slack_directory.list_members(secrets, query="ro")  # filter runs on the cache
     assert len(calls) == 1
-    slack_directory.list_members(secrets, "default")  # other workspace = own fetch
+    slack_directory.list_members(secrets, refresh=True)  # explicit refresh = own fetch
     assert len(calls) == 2
-    assert calls[0][1] == "xoxb-t1" and calls[1][1] == "xoxb-manual"
+    assert calls[0][1] == "xoxb-manual" and calls[1][1] == "xoxb-manual"
 
 
 def test_channels_carry_privacy_and_membership(secrets, monkeypatch):
@@ -98,7 +96,7 @@ def test_channels_carry_privacy_and_membership(secrets, monkeypatch):
             ]
         },
     )
-    out = slack_directory.list_channels(secrets, "T1", query="l")
+    out = slack_directory.list_channels(secrets, query="l")
     assert out["ok"]
     assert [c["name"] for c in out["channels"]] == ["launch-team", "leads", "general"]
     by_name = {c["name"]: c for c in out["channels"]}
@@ -108,13 +106,13 @@ def test_channels_carry_privacy_and_membership(secrets, monkeypatch):
 
 def test_unconnected_workspace_and_api_error(secrets, monkeypatch):
     empty = SecretStore()
-    assert not slack_directory.list_members(empty, "T9")["ok"]
+    assert not slack_directory.list_members(empty)["ok"]
 
     def boom(token, method, params, key):
         raise RuntimeError("ratelimited")
 
     monkeypatch.setattr(slack_directory, "_get_pages", boom)
-    out = slack_directory.list_members(secrets, "T1")
+    out = slack_directory.list_members(secrets)
     assert out == {"ok": False, "error": "ratelimited"}
 
 
@@ -134,9 +132,10 @@ def test_allow_with_name_seeds_people_directory(tmp_path, monkeypatch):
 
     manager = SessionManager(workspace=tmp_path, provider=_Provider())
     manager.secrets.put(
-        "slack:team:T1", {"bot_token": "xoxb", "team_id": "T1", "allowed_users": []}
+        "slack:default",
+        {"bot_token": "xoxb", "app_token": "xapp", "allowed_users": []},
     )
-    out = manager.allow_user("slack", "U2", "T1", display_name="Rohit Prasad")
+    out = manager.allow_user("slack", "U2", display_name="Rohit Prasad")
     assert out["ok"]
-    assert manager.secrets.get("slack:team:T1")["allowed_users"] == ["U2"]
+    assert manager.secrets.get("slack:default")["allowed_users"] == ["U2"]
     assert manager._people.get("slack:U2") == "Rohit Prasad"

@@ -14,7 +14,8 @@ from vegapunk.embodied.admission import (
     HumanApproval,
 )
 from vegapunk.embodied.embodiment import (
-    UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+    ACTION_SPACE_EE_6D,
+    UNIFOLM_VLA_BASE_G1_EE6D,
     EmbodimentProfile,
 )
 from vegapunk.embodied.loop import ExecutionLoop, RuntimeStep
@@ -53,9 +54,10 @@ _EMBODIMENT = EmbodimentProfile(
     camera_map={"observation.images.top": "head_rgb"},
     control_frequency_hz=30.0,
     control_authority="arm_and_gripper",
-    state_dim=16,
-    action_dim=16,
+    state_dim=23,
+    action_dim=23,
     onboard_image_service=True,
+    action_space=ACTION_SPACE_EE_6D,
 )
 
 _ENVELOPE = SafetyEnvelope(
@@ -77,10 +79,10 @@ _SKILL = PhysicalSkill(
     abort_conditions=("force_exceeded",),
     max_duration_s=6.0,
     reviewed_by="lab_owner",
-    policy=UNIFOLM_VLA_BASE_G1_DEX1_JOINT,
+    policy=UNIFOLM_VLA_BASE_G1_EE6D,
 )
 
-_POLICY_DIGEST = UNIFOLM_VLA_BASE_G1_DEX1_JOINT.digest()
+_POLICY_DIGEST = UNIFOLM_VLA_BASE_G1_EE6D.digest()
 
 
 def _observation(**overrides: object) -> Observation:

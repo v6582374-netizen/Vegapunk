@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Optional
+from typing import Any
 
 from ..secrets import SecretStore
 
@@ -28,22 +28,17 @@ _PAGE_LIMIT = 200
 _CHANNEL_PAGE_LIMIT = 999
 _MAX_PAGES = 25  # caps both sweeps — beyond that, type more letters
 
-# (team_id, kind) → (fetched_at, rows). Module-level on purpose: survives
-# request handlers but not the process — nothing roster-shaped is persisted.
-_CACHE: dict[tuple[str, str], tuple[float, list[dict[str, Any]]]] = {}
+# kind → (fetched_at, rows). Module-level on purpose: survives request handlers
+# but not the process — nothing roster-shaped is persisted.
+_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 
 
 def _api_base() -> str:
     return os.environ.get("SLACK_API_URL", "https://slack.com/api/")
 
 
-def _bot_token(secrets: SecretStore, team_id: str) -> str:
-    """The workspace's bot token: per-team profile (managed relay) or the flat
-    default profile (manual Socket Mode — team_id "default")."""
-    if team_id and team_id != "default":
-        profile = secrets.get(f"slack:team:{team_id}") or {}
-        if profile.get("bot_token"):
-            return str(profile["bot_token"])
+def _bot_token(secrets: SecretStore) -> str:
+    """The connected workspace's bot token (Socket Mode: the flat default profile)."""
     return str((secrets.get("slack:default") or {}).get("bot_token") or "")
 
 
@@ -79,13 +74,13 @@ def _get_pages(
     return rows
 
 
-def _cached(team_id: str, kind: str, fetch, refresh: bool) -> list[dict[str, Any]]:
+def _cached(kind: str, fetch, refresh: bool) -> list[dict[str, Any]]:
     now = time.time()
-    hit = _CACHE.get((team_id, kind))
+    hit = _CACHE.get(kind)
     if hit and not refresh and now - hit[0] < _TTL:
         return hit[1]
     rows = fetch()
-    _CACHE[(team_id, kind)] = (now, rows)
+    _CACHE[kind] = (now, rows)
     return rows
 
 
@@ -104,7 +99,6 @@ def _rank(rows: list[dict], query: str, key: str, limit: int) -> list[dict]:
 
 def list_members(
     secrets: SecretStore,
-    team_id: str,
     query: str = "",
     limit: int = 25,
     *,
@@ -112,7 +106,7 @@ def list_members(
 ) -> dict[str, Any]:
     """Human members of the workspace: id, display name, @handle, guest flag.
     Bots, deleted users, and Slackbot are filtered — they can't need allowing."""
-    token = _bot_token(secrets, team_id)
+    token = _bot_token(secrets)
     if not token:
         return {"ok": False, "error": "workspace not connected"}
 
@@ -142,7 +136,7 @@ def list_members(
         return out
 
     try:
-        rows = _cached(team_id, "members", fetch, refresh)
+        rows = _cached("members", fetch, refresh)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "members": _rank(rows, query, "name", limit)}
@@ -150,7 +144,6 @@ def list_members(
 
 def list_channels(
     secrets: SecretStore,
-    team_id: str,
     query: str = "",
     limit: int = 25,
     *,
@@ -158,7 +151,7 @@ def list_channels(
 ) -> dict[str, Any]:
     """Channels the token can see: all public ones, private only where the bot
     is a member. `is_member` lets the GUI hint "invite @OpenWorker" for the rest."""
-    token = _bot_token(secrets, team_id)
+    token = _bot_token(secrets)
     if not token:
         return {"ok": False, "error": "workspace not connected"}
 
@@ -182,16 +175,12 @@ def list_channels(
         ]
 
     try:
-        rows = _cached(team_id, "channels", fetch, refresh)
+        rows = _cached("channels", fetch, refresh)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
     return {"ok": True, "channels": _rank(rows, query, "name", limit)}
 
 
-def clear_cache(team_id: Optional[str] = None) -> None:
-    """Drop cached rosters (all teams, or one) — disconnect/reconnect hygiene."""
-    if team_id is None:
-        _CACHE.clear()
-        return
-    for key in [k for k in _CACHE if k[0] == team_id]:
-        del _CACHE[key]
+def clear_cache() -> None:
+    """Drop the cached rosters — disconnect/reconnect hygiene."""
+    _CACHE.clear()

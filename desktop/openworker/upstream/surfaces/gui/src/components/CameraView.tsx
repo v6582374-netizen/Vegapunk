@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { relayCameraOffer } from "../api";
 import { Icon } from "./Icon";
 import { PanelHead } from "./PanelHead";
 
 const CAMERA_HOST_KEY = "vegapunk:camera-host:v1";
 
 const CAMERAS = [
-  { id: "head", label: "Head stereo", detail: "1280 × 480 · left / right", port: 60001, aspect: "aspect-[8/3]", featured: true },
-  { id: "leftWrist", label: "Left wrist", detail: "640 × 480", port: 60002, aspect: "aspect-[4/3]", featured: false },
-  { id: "rightWrist", label: "Right wrist", detail: "640 × 480", port: 60003, aspect: "aspect-[4/3]", featured: false },
+  { id: "head", label: "Head stereo", detail: "1280 × 480 · left / right", aspect: "aspect-[8/3]", featured: true },
+  { id: "leftWrist", label: "Left wrist", detail: "640 × 480", aspect: "aspect-[4/3]", featured: false },
+  { id: "rightWrist", label: "Right wrist", detail: "640 × 480", aspect: "aspect-[4/3]", featured: false },
 ] as const;
 
 type CameraId = (typeof CAMERAS)[number]["id"];
@@ -28,9 +29,10 @@ const statusLabel: Record<CameraStatus, string> = {
 };
 
 /**
- * The camera service uses one fixed WebRTC port per camera. The UI accepts a
- * host or a copied camera URL, then deliberately discards protocol, port and
- * path so a pasted head-camera URL still starts the complete camera set.
+ * The UI accepts a host or a copied camera URL, then deliberately discards
+ * protocol, port and path so a pasted head-camera URL still starts the complete
+ * camera set. Which port belongs to which pane is the relay's business, not the
+ * page's: the browser never addresses a camera directly.
  */
 export function normaliseRobotHost(input: string): string {
   const raw = input.trim();
@@ -48,10 +50,6 @@ export function normaliseRobotHost(input: string): string {
   }
 
   return url.hostname;
-}
-
-function cameraOrigin(host: string, port: number) {
-  return `https://${host}:${port}`;
 }
 
 function waitForIceGathering(pc: RTCPeerConnection) {
@@ -196,20 +194,24 @@ export function CameraView() {
           await peer.setLocalDescription(offer);
           await waitForIceGathering(peer);
 
-          const response = await fetch(`${cameraOrigin(normalizedHost, camera.port)}/offer`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(peer.localDescription),
+          // Signalling goes through the sidecar. The robot serves HTTPS with a
+          // self-signed certificate that has no subjectAltName, which no browser can
+          // be taught to trust, so the page cannot perform this exchange itself. The
+          // video that follows is still a direct browser-to-robot WebRTC connection.
+          const answer = await relayCameraOffer(camera.id, normalizedHost, {
+            sdp: peer.localDescription?.sdp ?? "",
+            type: peer.localDescription?.type ?? "offer",
           });
-          if (!response.ok) throw new Error(`Camera service returned ${response.status}.`);
-
-          const answer = await response.json();
           await peer.setRemoteDescription(answer);
-        } catch {
+        } catch (error) {
           peer.close();
           update({ status: "failed", stream: null });
           if (attempt.current === currentAttempt) {
-            setMessage("A camera could not connect. In Chrome, open its address once and accept the robot certificate, then start again.");
+            setMessage(
+              error instanceof Error
+                ? error.message
+                : "A camera could not connect. Check the robot address and try again.",
+            );
           }
         }
       }),

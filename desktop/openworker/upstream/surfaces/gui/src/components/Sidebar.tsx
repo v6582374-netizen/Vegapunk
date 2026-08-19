@@ -1,20 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  announceCloudChanged,
   AUTOMATIONS_CHANGED,
-  CLOUD_CHANGED,
-  cloudLogin,
-  cloudLogout,
   getAutomations,
-  getCloudStatus,
   getPersonas,
   getSettings,
   INBOX_UNLOCK,
   PERSONAS_CHANGED,
   setNavLayout,
-  waitForCloudSignIn,
   type Automation,
-  type CloudStatus,
   type Persona,
   type RecentWorkspace,
   type SurfaceVisibility,
@@ -137,6 +130,7 @@ interface Props {
   onOpenDiscovery?: () => void;
   onOpenTranslation?: () => void;
   onOpenCamera?: () => void;
+  onOpenEmbodied?: () => void;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
@@ -146,6 +140,7 @@ interface Props {
   discoveryActive?: boolean;
   translationActive?: boolean;
   cameraActive?: boolean;
+  embodiedActive?: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
@@ -184,30 +179,19 @@ export function Sidebar(props: Props) {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   const [harnessExpanded, setHarnessExpanded] = useState(true);
-  // The account row (§26): cloud sign-in status drives the avatar/name/dot; refreshed on
-  // focus and whenever the menu opens (sign-in completes out-of-band in the browser).
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
+  const [physicalExpanded, setPhysicalExpanded] = useState(true);
   // Inbox chip sticky unlock (§26): absent until the product first parks an item (or a
   // session first goes Unattended), then permanent. Per-device, like nav collapse.
   const [inboxUnlocked, setInboxUnlocked] = useState(
     () => localStorage.getItem("ocw:inbox-unlocked") === "1",
   );
-  const refreshCloud = () => getCloudStatus().then(setCloud).catch(() => {});
   useEffect(() => {
-    refreshCloud();
-    const onFocus = () => refreshCloud();
-    window.addEventListener("focus", onFocus);
-    window.addEventListener(CLOUD_CHANGED, onFocus);
     const unlock = () => {
       localStorage.setItem("ocw:inbox-unlocked", "1");
       setInboxUnlocked(true);
     };
     window.addEventListener(INBOX_UNLOCK, unlock);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener(CLOUD_CHANGED, onFocus);
-      window.removeEventListener(INBOX_UNLOCK, unlock);
-    };
+    return () => window.removeEventListener(INBOX_UNLOCK, unlock);
   }, []);
   // UX-023: automations feed the nav row's badge + the Scheduled band. The 15s poll
   // is the baseline; mutations announce AUTOMATIONS_CHANGED for an instant refresh
@@ -277,6 +261,14 @@ export function Sidebar(props: Props) {
       setHarnessExpanded(true);
     }
   }, [props.skillsManagerActive, props.agentsMdActive]);
+
+  // Entering a Physical AI surface from anywhere else (a link, a restored surface) must not
+  // leave its group looking collapsed while one of its children is the current page.
+  useEffect(() => {
+    if (props.embodiedActive || props.cameraActive) {
+      setPhysicalExpanded(true);
+    }
+  }, [props.embodiedActive, props.cameraActive]);
   const [showArchived, setShowArchived] = useState(false);
   // Surfaced + enabled personas drive the surface list + family-aware behavior.
   // Refetched on the personas-changed event so an enable/install/delete in Settings
@@ -384,13 +376,6 @@ export function Sidebar(props: Props) {
       {trailing != null && <span aria-hidden>{trailing}</span>}
     </button>
   );
-
-  // Display identity for the account row: the cloud profile only carries the email, so the
-  // row shows the capitalized local part ("rohit@…" → "Rohit"); the menu header shows it all.
-  const accountEmail = cloud?.signed_in ? cloud.account : "";
-  const accountName = accountEmail
-    ? accountEmail.split("@")[0].replace(/^./, (c) => c.toUpperCase())
-    : "";
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
   // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
@@ -1019,7 +1004,7 @@ export function Sidebar(props: Props) {
             <Icon name="sidebar" size={16} />
           </button>
         )}
-        <div className="brand-wordmark text-[15px]">OpenWorker<span className="beta-tag">BETA</span></div>
+        <div className="brand-wordmark text-[15px]">Vegapunk<span className="beta-tag">BETA</span></div>
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
@@ -1087,19 +1072,58 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
-      <div className="px-2.5 mt-1">
+      {/* Physical AI: everything that concerns a body in a room. The governance workbench is
+          the surface that decides whether motion may happen at all, so it leads; Camera is the
+          read-only view of what a robot currently sees. Grouped (rather than two loose rows)
+          because they share one subject — the physical robot — and are read together. */}
+      <div className="px-2.5 mt-1" data-testid="nav-physical-ai-group">
         <button
           className={
             "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
-            (props.cameraActive ? "text-ink bg-paper" : "text-muted")
+            ((props.embodiedActive || props.cameraActive) ? "text-ink" : "text-muted")
           }
-          data-testid="nav-camera"
-          aria-current={props.cameraActive ? "page" : undefined}
-          onClick={() => props.onOpenCamera?.()}
+          type="button"
+          aria-expanded={physicalExpanded}
+          aria-controls="physical-ai-nav-items"
+          data-testid="nav-physical-ai"
+          onClick={() => setPhysicalExpanded((expanded) => !expanded)}
         >
-          <Icon name="image" size={15} className="shrink-0" />
-          <span className="flex-1">Camera</span>
+          <Icon name="shield" size={15} className="shrink-0" />
+          <span className="flex-1">Physical AI</span>
+          <Icon name={physicalExpanded ? "chevronDown" : "chevronRight"} size={14} className="text-faint shrink-0" />
         </button>
+
+        {physicalExpanded && (
+          <div id="physical-ai-nav-items" className="mt-0.5 ml-4 pl-2 border-l border-line/70 space-y-0.5">
+            <button
+              className={
+                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left hover:bg-paper hover:text-ink " +
+                (props.embodiedActive ? "text-ink bg-paper" : "text-muted")
+              }
+              type="button"
+              data-testid="nav-embodied"
+              aria-current={props.embodiedActive ? "page" : undefined}
+              onClick={() => props.onOpenEmbodied?.()}
+            >
+              <Icon name="audit" size={14} className="shrink-0" />
+              <span className="flex-1">Embodied</span>
+            </button>
+
+            <button
+              className={
+                "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] text-left hover:bg-paper hover:text-ink " +
+                (props.cameraActive ? "text-ink bg-paper" : "text-muted")
+              }
+              type="button"
+              data-testid="nav-camera"
+              aria-current={props.cameraActive ? "page" : undefined}
+              onClick={() => props.onOpenCamera?.()}
+            >
+              <Icon name="image" size={14} className="shrink-0" />
+              <span className="flex-1">Camera</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Connectors: a first-class nav row alongside Automations. */}
@@ -1263,39 +1287,6 @@ export function Sidebar(props: Props) {
                 data-testid="account-menu"
                 role="menu"
               >
-                {cloud?.signed_in ? (
-                  <div
-                    className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
-                    title={`${accountEmail} · OpenWorker Cloud`}
-                  >
-                    {accountEmail} · OpenWorker Cloud
-                  </div>
-                ) : (
-                  <>
-                    <div className="px-3 py-1.5 text-[11px] text-faint border-b border-line">
-                      Not signed in — one-click connections need OpenWorker Cloud
-                    </div>
-                    <button
-                      className="w-full flex items-center gap-2.5 px-3 py-1.5 mb-1 text-[13px] text-left text-accent hover:bg-paper"
-                      data-testid="account-sign-in"
-                      onClick={async () => {
-                        setAppMenuOpen(false);
-                        // Opens the system browser server-side; completion lands out-of-band,
-                        // so poll until it flips (refocusing the window also refetches).
-                        await cloudLogin().catch(() => {});
-                        waitForCloudSignIn((s) => {
-                          if (s) setCloud(s);
-                          // Other always-mounted consumers (Settings' telemetry card,
-                          // connector panes) refetch on this.
-                          if (s?.signed_in) announceCloudChanged();
-                        });
-                      }}
-                    >
-                      <Icon name="plug" size={15} className="shrink-0" /> Sign in to OpenWorker
-                      Cloud
-                    </button>
-                  </>
-                )}
                 {appMenuItem(
                   "inbox",
                   "Inbox",
@@ -1312,15 +1303,6 @@ export function Sidebar(props: Props) {
                   <span className="text-[11px] text-faint">⌘ ,</span>,
                 )}
                 {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
-                {cloud?.signed_in && (
-                  <>
-                    <div className="h-px bg-line my-1 mx-2" />
-                    {appMenuItem("signOut", "Sign out", async () => {
-                      await cloudLogout().catch(() => {});
-                      announceCloudChanged();
-                    })}
-                  </>
-                )}
               </div>
             </>
           )}
@@ -1331,35 +1313,18 @@ export function Sidebar(props: Props) {
               (appMenuOpen ? "bg-paper text-ink" : "hover:bg-paper")
             }
             data-testid="account-row"
-            onClick={() => {
-              if (!appMenuOpen) refreshCloud();
-              setAppMenuOpen((v) => !v);
-            }}
+            onClick={() => setAppMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={appMenuOpen}
-            aria-label={cloud?.signed_in ? `Account: ${accountEmail}` : "Account: not signed in"}
+            aria-label="App menu"
           >
             <span
-              className={
-                "w-6 h-6 rounded-full grid place-items-center text-[10.5px] font-semibold shrink-0 " +
-                (cloud?.signed_in
-                  ? "bg-accentSoft text-accent"
-                  : "bg-paper text-faint border border-line")
-              }
+              className="w-6 h-6 rounded-full grid place-items-center shrink-0 bg-accentSoft text-accent"
               aria-hidden
             >
-              {cloud?.signed_in ? accountName.slice(0, 1).toUpperCase() : "?"}
+              <Icon name="gear" size={13} />
             </span>
-            <span className={"truncate " + (cloud?.signed_in ? "" : "text-muted")}>
-              {cloud?.signed_in ? accountName : "Not signed in"}
-            </span>
-            {cloud?.signed_in && (
-              <span
-                className="w-[7px] h-[7px] rounded-full bg-ok shrink-0"
-                title="Signed in to OpenWorker Cloud"
-                aria-hidden
-              />
-            )}
+            <span className="truncate">OpenWorker</span>
             <span className="flex-1" />
             {inboxUnlocked && (
               <span

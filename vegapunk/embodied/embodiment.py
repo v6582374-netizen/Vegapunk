@@ -29,6 +29,22 @@ COMPATIBILITY_ADAPTATION_REQUIRED = "adaptation_required"
 NORMALIZATION_BOUNDS = "bounds"
 NORMALIZATION_BOUNDS_Q99 = "bounds_q99"
 
+ACTION_SPACE_JOINT = "joint"
+ACTION_SPACE_EE_6D = "ee_6d"
+"""What the numbers in an action vector *mean*.
+
+The most consequential fact about a checkpoint, and the one most easily lost:
+two contracts can agree on every dimension count and still describe different
+physics. A joint-space action is an angle per motor. An ``ee_6d`` action is a
+pose for the hand, which a robot cannot execute at all without an inverse
+kinematics layer converting it into angles.
+
+Recorded as a field rather than inferred from the dimension count because the
+inference is not available: 23 numbers could be angles for a 23-DoF arm or a
+dual-arm pose pair, and guessing wrong produces motion that is confidently and
+completely wrong rather than absent.
+"""
+
 INTENDED_USE_LABORATORY_RESEARCH = "laboratory_research"
 
 
@@ -55,6 +71,7 @@ class EmbodimentProfile:
     state_dim: int
     action_dim: int
     onboard_image_service: bool
+    action_space: str = ACTION_SPACE_JOINT
     unverified_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -82,6 +99,7 @@ class EmbodimentProfile:
                 "state_dim": self.state_dim,
                 "action_dim": self.action_dim,
                 "onboard_image_service": self.onboard_image_service,
+                "action_space": self.action_space,
                 "unverified_fields": sorted(self.unverified_fields),
             }
         )
@@ -106,6 +124,7 @@ class PolicyCheckpoint:
     license_id: str
     commercial_use_permitted: bool
     normalization: str = NORMALIZATION_BOUNDS
+    action_space: str = ACTION_SPACE_JOINT
     unverified_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -130,28 +149,90 @@ class PolicyCheckpoint:
                 "license_id": self.license_id,
                 "commercial_use_permitted": self.commercial_use_permitted,
                 "normalization": self.normalization,
+                "action_space": self.action_space,
                 "unverified_fields": sorted(self.unverified_fields),
             }
         )
 
 
-# The published G1 joint-mode contract: 25 action-chunk steps by 16 dimensions
-# with bounds normalization, a Dex1-1 gripper pair, and an onboard image
-# service. Recorded here because the upstream loader would otherwise choose
-# these constants from launch-command text.
-UNIFOLM_VLA_BASE_G1_DEX1_JOINT = PolicyCheckpoint(
-    checkpoint_id="unifolm-vla-base/g1_dex1/joint",
-    unnorm_key="g1_joint",
-    action_chunk_steps=25,
-    action_dim=16,
-    state_dim=16,
-    expected_end_effector="dex1_1",
-    expected_camera_keys=("observation.images.top",),
-    control_frequency_hz=30.0,
-    license_id="CC-BY-NC-SA-4.0",
-    commercial_use_permitted=False,
-    normalization=NORMALIZATION_BOUNDS,
+# The task-scoped contracts actually published with UnifoLM-VLA-Base, read
+# from the checkpoint's own ``dataset_statistics.json`` rather than from its
+# README or its ``config.yaml``. Both of those documents disagree with the
+# weights: the config declares ``action_dim: 7``, a leftover from the LIBERO
+# template, and no key named ``g1_joint`` exists at all.
+#
+# The statistics file is the authority because it is what the server loads at
+# runtime to un-normalize actions. If these numbers are wrong, every action the
+# policy emits is scaled by the wrong constants, and the robot moves
+# confidently to the wrong place -- which is indistinguishable, from the
+# outside, from a policy that simply cannot do the task.
+UNIFOLM_VLA_BASE_TASK_KEYS = (
+    "g1_bag_insert",
+    "g1_clean_table",
+    "g1_dual_clean_table_left",
+    "g1_dual_clean_table_right",
+    "g1_erase_board",
+    "g1_fold_towel",
+    "g1_organize_tools",
+    "g1_pack_pencilbox",
+    "g1_pack_pingpong",
+    "g1_pour_medicine",
+    "g1_prepare_fruit",
+    "g1_stack_block",
+    "g1_wipe_table",
 )
+"""Every un-normalization key the published checkpoint actually carries.
+
+Enumerated so that a key which does not exist is a rejection rather than a
+``KeyError`` at inference time, and so that nobody has to discover the absence
+of ``g1_joint`` by watching an arm move.
+"""
+
+UNIFOLM_VLA_BASE_ACTION_DIM = 23
+UNIFOLM_VLA_BASE_CHUNK_STEPS = 25
+
+
+def unifolm_vla_base_g1(
+    unnorm_key: str = "g1_stack_block",
+) -> PolicyCheckpoint:
+    """The contract of one task's slice of UnifoLM-VLA-Base.
+
+    Parameterised by task because the checkpoint is not one contract but
+    thirteen: each task carries its own normalization statistics, and loading
+    the wrong one mis-scales every action while every dimension check still
+    passes. The key is therefore something a caller must state, and stating one
+    that does not exist is refused here rather than at inference.
+    """
+    if unnorm_key not in UNIFOLM_VLA_BASE_TASK_KEYS:
+        raise ValueError(
+            f"unnorm_key {unnorm_key!r} is not published with this "
+            f"checkpoint; it carries {list(UNIFOLM_VLA_BASE_TASK_KEYS)!r}. "
+            "Note in particular that no 'g1_joint' key exists: the upstream "
+            "loader would select 16-dimensional joint constants for it from "
+            "launch-command text and then fail to find any matching statistics"
+        )
+    return PolicyCheckpoint(
+        checkpoint_id=f"unifolm-vla-base/{unnorm_key}",
+        unnorm_key=unnorm_key,
+        action_chunk_steps=UNIFOLM_VLA_BASE_CHUNK_STEPS,
+        action_dim=UNIFOLM_VLA_BASE_ACTION_DIM,
+        state_dim=UNIFOLM_VLA_BASE_ACTION_DIM,
+        expected_end_effector="dex1_1",
+        expected_camera_keys=("observation.images.top",),
+        control_frequency_hz=30.0,
+        license_id="CC-BY-NC-SA-4.0",
+        commercial_use_permitted=False,
+        normalization=NORMALIZATION_BOUNDS_Q99,
+        action_space=ACTION_SPACE_EE_6D,
+    )
+
+
+UNIFOLM_VLA_BASE_G1_EE6D = unifolm_vla_base_g1()
+"""One representative task contract, for callers that need a concrete policy.
+
+``g1_stack_block`` because it is the largest of the thirteen datasets and the
+one the upstream evaluation scripts use as their example.
+"""
 
 
 @dataclass(frozen=True)
@@ -214,6 +295,15 @@ def assess_policy_compatibility(
         findings.append(
             f"end_effector {embodiment.end_effector!r} does not match the "
             f"policy contract {policy.expected_end_effector!r}"
+        )
+
+    if embodiment.action_space != policy.action_space:
+        findings.append(
+            f"action_space {embodiment.action_space!r} does not match the "
+            f"policy contract {policy.action_space!r}; the checkpoint's "
+            "numbers are not the quantity this robot is commanded with, so a "
+            "retargeting layer must convert them and its correctness is a "
+            "separate claim that no dimension check can establish"
         )
 
     if embodiment.action_dim != policy.action_dim:

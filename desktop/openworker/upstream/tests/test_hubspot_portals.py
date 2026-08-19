@@ -28,7 +28,6 @@ def _portal(hub_id: str, **extra) -> dict:
     return {
         "type": "oauth",
         "enabled": True,
-        "managed": True,
         "access_token": f"tok-{hub_id}",
         "hub_id": hub_id,
         "account": f"acme-{hub_id}",
@@ -62,7 +61,7 @@ def test_legacy_private_app_default_migrates_to_one_portal(secrets):
     assert hubspot_portals.default_portal(secrets) == "424242"
 
 
-def test_managed_portals_list_with_access_and_sandbox(secrets):
+def test_portals_list_with_access_and_sandbox(secrets):
     hubspot_portals.managed_connect_portal(secrets, _portal("111", sandbox=True))
     hubspot_portals.managed_connect_portal(
         secrets,
@@ -200,29 +199,15 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def test_managed_callback_lands_in_portal_profile(client):
-    import coworker.cloud as cloud
-
-    cloud._pending_managed_states["s"] = cloud._now()
-    resp = client.post(
-        "/oauth/callback",
-        data={
-            "provider": "hubspot",
-            "connector": "hubspot",
-            "connection_id": "conn_hs",
-            "access_token": "hs-at",
-            "refresh_token": "hs-rt",
-            "expires_in": "1800",
-            "scope": "crm.objects.contacts.read tickets",
-            "account": "Acme Inc",
-            "hub_id": "424242",
-            "sandbox": "1",
-            "app_state": "s",
-        },
+def test_connect_lands_in_portal_profile(client):
+    """A portal profile is keyed by hub_id and surfaces as one `portals` row
+    (name/sandbox/default/access derived from the stored profile)."""
+    hubspot_portals.managed_connect_portal(
+        client.manager.secrets,
+        _portal("424242", account="Acme Inc", sandbox=True),
     )
-    assert resp.status_code == 200 and "HubSpot connected" in resp.text
     profile = client.manager.secrets.get("hubspot:portal:424242")
-    assert profile["access_token"] == "hs-at" and profile["sandbox"] is True
+    assert profile["access_token"] == "tok-424242" and profile["sandbox"] is True
     listed = {c["name"]: c for c in client.manager.list_connectors()}
     row = listed["hubspot"]["portals"][0]
     assert row == {
@@ -230,15 +215,11 @@ def test_managed_callback_lands_in_portal_profile(client):
         "name": "Acme Inc",
         "sandbox": True,
         "default": True,
-        "managed": True,
         "access": "read",
     }
 
 
-def test_portal_routes_default_and_disconnect(client, monkeypatch):
-    import coworker.cloud as cloud
-
-    monkeypatch.setattr(cloud, "cloud_disconnect", lambda *a, **k: None)
+def test_portal_routes_default_and_disconnect(client):
     for hub in ("111", "222"):
         hubspot_portals.managed_connect_portal(client.manager.secrets, _portal(hub))
 

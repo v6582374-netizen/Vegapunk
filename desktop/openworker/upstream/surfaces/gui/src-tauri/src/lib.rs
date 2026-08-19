@@ -537,7 +537,7 @@ pub fn run() {
             //    Overlay title bar (macOS): traffic lights float over the edge-to-edge UI.
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("OpenWorker")
+                    .title("Vegapunk")
                     .inner_size(1360.0, 900.0)
                     .min_inner_size(980.0, 640.0)
                     // Let the WEBVIEW receive OS file drags: Tauri's own drag-drop handler
@@ -569,7 +569,7 @@ pub fn run() {
             });
 
             // 3. System tray: Open / Settings / Quit.
-            let open_i = MenuItem::with_id(app, "open", "Open OpenWorker", true, None::<&str>)?;
+            let open_i = MenuItem::with_id(app, "open", "Open Vegapunk", true, None::<&str>)?;
             let settings_i = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &settings_i, &quit_i])?;
@@ -578,7 +578,7 @@ pub fn run() {
             // it for light/dark automatically - not the full-color app icon.
             let tray_icon = tauri::image::Image::new(include_bytes!("../icons/tray.rgba"), 44, 44);
             TrayIconBuilder::new()
-                .tooltip("OpenWorker")
+                .tooltip("Vegapunk")
                 .icon(tray_icon)
                 .icon_as_template(true)
                 .menu(&menu)
@@ -600,7 +600,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building the OpenWorker desktop app")
+        .expect("error while building the Vegapunk desktop app")
         .run(|app, event| {
             // Also on Exit: belt-and-suspenders in case a quit path reaches teardown without
             // a preceding ExitRequested (observed with macOS Cmd+Q under the tray setup).

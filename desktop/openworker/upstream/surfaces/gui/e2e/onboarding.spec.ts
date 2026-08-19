@@ -1,9 +1,9 @@
 // First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
 // §39: step 1 is a provider GALLERY (cards wear their own state; a card opens its key
 // form inside a fixed-height swap region; Test verifies, SAVES, and returns) and step 2
-// is a two-state tools page (why-paragraph + sign-in → mini connector gallery with live
-// one-click connects). Entered here via the REPLAY path (Settings ▸ Appearance ▸ "Run
-// setup again") — which is itself under test.
+// is the tools page — benefit rows that wear a ✓ once connected, plus a pointer to the
+// Connectors page where each connector's own token flow lives. Entered here via the
+// REPLAY path (Settings ▸ Appearance ▸ "Run setup again") — which is itself under test.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -47,7 +47,7 @@ test("key form: Test verifies, saves, and returns to the gallery with the ✓", 
 
   await page.getByTestId("ob-provider-zai").click();
   // The header stays put (§39 fixed frame): the welcome headline is still on screen.
-  await expect(page.getByRole("heading", { name: "Welcome to OpenWorker" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome to Vegapunk" })).toBeVisible();
   // Optional endpoint is a quiet disclosure with no explainer copy (owner call 2026-07-18).
   await expect(page.getByTestId("ob-field-base_url")).toHaveCount(0);
   await page.getByTestId("ob-endpoint-link").click();
@@ -98,56 +98,42 @@ test("key form: revisiting a connected provider shows the in-field saved state; 
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 });
 
-test("tools page: sign-in morphs the page into the connector gallery; a card connects one-click", async ({
+test("tools page: benefit rows, connected ✓, and the hand-off to Connectors", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // Pre-sign-in (§41): the benefit rows are already there (no Connect buttons yet),
-  // the combined Google row says Coming soon, the band asks for sign-in, and the one
-  // footer button is the quiet "Continue without sign-in".
+  // The rows make the case, each framed by the job it does.
   await expect(page.getByText("Chat can only advise")).toBeVisible();
   await expect(page.getByTestId("ob-tool-outlook")).toContainText("Stay on top of email");
-  await expect(page.getByTestId("ob-tool-outlook").getByRole("button")).toHaveCount(0);
   await expect(page.getByTestId("ob-tool-attio")).toContainText("Track every relationship");
-  await expect(page.getByTestId("ob-tool-google-soon")).toContainText("Coming soon");
-  await expect(page.getByText("Sign in for one-click connections")).toBeVisible();
-  await expect(page.getByTestId("ob-tools-skip")).toContainText("Continue without sign-in");
 
-  // Sign-in lands out-of-band; the band's SLOT stays put and flips to the congrats
-  // (zero layout shift), and every row grows its Connect pill.
-  await page.getByTestId("ob-cloud-signin").click();
-  await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tools-signedin")).toContainText("You’re signed in");
-  await expect(
-    page.getByTestId("ob-tool-attio").getByRole("button", { name: "Connect" }),
-  ).toBeVisible();
-  await expect(page.getByTestId("ob-tool-google-soon").getByRole("button")).toHaveCount(0);
+  // Already-connected connectors wear their ✓ (slack + github are connected in fixtures);
+  // an unconnected one carries no button — connecting happens on the Connectors page.
+  await expect(page.getByTestId("ob-tool-slack")).toContainText("✓ Connected");
+  await expect(page.getByTestId("ob-tool-github")).toContainText("✓ Connected");
+  await expect(page.getByTestId("ob-tool-attio").getByRole("button")).toHaveCount(0);
 
-  // One-click connect: the consent completes in the (mock) browser; the poll flips the
-  // row to ✓ Connected. Next was armed the whole time — connecting is optional.
-  await page.getByTestId("ob-tool-outlook").getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByTestId("ob-tool-outlook")).toContainText("✓ Connected", {
-    timeout: 10_000,
-  });
-  await expect(page.getByTestId("ob-continue-tools")).toBeEnabled();
+  // The pinned band says what connecting takes — no sign-in ask anywhere on the page.
+  await expect(page.getByTestId("ob-tools-howto")).toContainText("Each tool takes its own token");
+  await expect(page.getByText(/sign in/i)).toHaveCount(0);
+
+  // Next is always armed: connecting is optional and happens later.
   await page.getByTestId("ob-continue-tools").click();
-
-  // Done step: the automation CTA lands on the Automations quickstart.
   await expect(page.getByTestId("ob-step-done")).toBeVisible();
   await page.getByTestId("ob-cta-automation").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
 });
 
-test("tools page skips cleanly; Start working lands in a session with the panel open", async ({
+test("Start working lands in a session with the panel open", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
-  await page.getByTestId("ob-tools-skip").click();
+  await page.getByTestId("ob-continue-tools").click();
   await expect(page.getByTestId("ob-step-done")).toBeVisible();
   await page.getByTestId("ob-start").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);

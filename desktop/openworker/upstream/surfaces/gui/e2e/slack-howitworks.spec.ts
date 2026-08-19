@@ -1,28 +1,26 @@
-// UX-027: the Slack post-connect orientation card — installer pre-added to the
-// allow-list ("you" chip), status line, 3-tab animated how-it-works carousel
-// (no "Listen to a channel" — deferred by owner call), collapse persisted locally.
+// UX-027: the Slack post-connect orientation card — status line, 3-tab animated
+// how-it-works carousel (no "Listen to a channel" — deferred by owner call),
+// collapse persisted locally.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openSlackPage(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
   await page.getByTestId("connector-slack").click();
 }
 
-test("post-connect card: personalized status line + the installer's 'you' chip", async ({
+test("post-connect card: personalized status line for the connected workspace", async ({
   page,
 }) => {
   await openSlackPage(page);
   const card = page.getByTestId("slack-howitworks");
   await expect(card).toContainText("Getting started with Slack & OpenWorker");
   await expect(card).toContainText("deeplearning.ai connected");
+  // Someone is already on the allow-list (the person who set this up), so the line
+  // says their mentions get through — and their chip carries the resolved name.
   await expect(card).toContainText("you're on the People list");
-  // The pre-added installer renders as a named chip marked "you" in ITS workspace.
-  const chip = page.getByTestId("slack-workspace-T1DL").getByTestId("people-chip-you");
-  await expect(chip).toContainText("Rohit Prasad");
-  await expect(chip).toContainText("· you");
+  await expect(page.getByTestId("slack-socket-card")).toContainText("Rohit Prasad");
 });
 
 test("carousel has exactly the 3 shipped scenes and tabs switch the caption", async ({

@@ -7,8 +7,7 @@ import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
 }
 
 test("available row opens the pre-connect detail page", async ({ page }) => {

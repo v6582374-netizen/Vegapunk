@@ -45,6 +45,7 @@ changed it.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import random
 from dataclasses import dataclass
@@ -64,6 +65,11 @@ from vegapunk.embodied.fidelity import (
     SimulatedConfiguration,
 )
 from vegapunk.embodied.loop import ExecutionLoop, SkillRuntime
+from vegapunk.embodied.regime import (
+    AXIS_JOINT_OFFSET_RAD,
+    Regime,
+    RegimeSample,
+)
 from vegapunk.embodied.runtime import ResettableRobot
 from vegapunk.embodied.skill import SkillSelection
 from vegapunk.embodied.trajectory import (
@@ -100,6 +106,7 @@ class AttemptVariation:
     index: int
     seed: int
     joint_offsets_rad: tuple[float, ...]
+    sample: Optional[RegimeSample] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -116,14 +123,23 @@ class AttemptVariation:
             )
 
     def digest(self) -> str:
-        return _digest(
-            {
-                "seed": self.seed,
-                "joint_offsets_rad": [
-                    round(value, 9) for value in self.joint_offsets_rad
-                ],
-            }
-        )
+        """Identify this attempt's initial condition, and its world.
+
+        The regime enters the digest only when there is one. An absent sample
+        contributes nothing rather than a null, so every attempt recorded
+        before regimes existed keeps the digest it was recorded with: a
+        reviewer comparing an old campaign against a new one is then comparing
+        initial conditions, not an encoding change.
+        """
+        payload: dict[str, object] = {
+            "seed": self.seed,
+            "joint_offsets_rad": [
+                round(value, 9) for value in self.joint_offsets_rad
+            ],
+        }
+        if self.sample is not None:
+            payload["sample"] = self.sample.digest()
+        return _digest(payload)
 
 
 class VariationSchedule:
@@ -176,6 +192,68 @@ class VariationSchedule:
         )
 
 
+class RegimeSchedule:
+    """Initial conditions drawn from a regime, one world per attempt.
+
+    Interchangeable with ``VariationSchedule`` at the campaign's seam, and that
+    interchangeability is the whole point: the campaign decides what to attempt
+    next and must not acquire an opinion about how varied a world is. Swapping
+    one schedule for the other changes what a success rate is a statement
+    about, and changes nothing about who is allowed to conclude it.
+
+    The regime must declare a joint-offset axis. A campaign's existing contract
+    is that every attempt starts somewhere different, and a schedule that
+    invented an offset bound the regime never declared would put an
+    undocumented perturbation into a record whose whole purpose is to say what
+    was perturbed.
+    """
+
+    def __init__(self, regime: Regime, joint_count: int) -> None:
+        if joint_count <= 0:
+            raise ValueError("joint_count must be positive")
+        if AXIS_JOINT_OFFSET_RAD not in regime.axis_names():
+            raise ValueError(
+                f"a regime schedule needs the {AXIS_JOINT_OFFSET_RAD!r} axis "
+                f"to place each attempt, but this regime varies "
+                f"{list(regime.axis_names())}; without it every attempt would "
+                "start from the identical pose and the campaign would report "
+                "replays of one initial condition as independent runs"
+            )
+        self._regime = regime
+        self._joint_count = int(joint_count)
+
+    @property
+    def joint_count(self) -> int:
+        return self._joint_count
+
+    @property
+    def regime(self) -> Regime:
+        return self._regime
+
+    def variation(self, index: int) -> AttemptVariation:
+        """Draw attempt ``index``'s world and the pose it starts from.
+
+        The joint-offset axis bounds a magnitude, so the per-joint signs are
+        drawn here from a generator keyed to the sample. Sampling the axis once
+        per joint instead would make the declared bound a near-certainty on
+        some joint of seven rather than a bound on the attempt, which is a
+        wider perturbation than the axis says it is.
+        """
+        sample = self._regime.sample(index)
+        magnitude = sample.value(AXIS_JOINT_OFFSET_RAD, 0.0)
+        generator = random.Random(f"{sample.digest()}:offsets")
+        offsets = tuple(
+            generator.uniform(-magnitude, magnitude)
+            for _ in range(self._joint_count)
+        )
+        return AttemptVariation(
+            index=index,
+            seed=sample.seed,
+            joint_offsets_rad=offsets,
+            sample=sample,
+        )
+
+
 class CampaignEnvironment(Protocol):
     """The seam between the campaign and whatever it iterates.
 
@@ -208,6 +286,16 @@ class AttemptRecord:
     variation_digest: str
     findings: tuple[str, ...] = ()
     abort_cause: Optional[str] = None
+    sample: Optional[RegimeSample] = None
+    """The world this attempt actually ran in.
+
+    Carried on the record rather than left on the variation because the record
+    is what leaves the campaign. An objective that must know whether a failure
+    came from a heavy payload or a slippery contact can only learn it here, and
+    a record that omitted it would collapse every attempt into one bucket --
+    making the mean its own worst case, the measured sensitivity identically
+    zero, and the penalty that exists to punish brittleness inert.
+    """
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "findings", tuple(self.findings))
@@ -360,6 +448,7 @@ class SimulationCampaign:
                     variation_digest=variation.digest(),
                     findings=trajectory.findings,
                     abort_cause=trajectory.abort_cause,
+                    sample=variation.sample,
                 )
             )
 
@@ -473,4 +562,115 @@ class SimulatedCampaignEnvironment:
 
     def prepare(self, variation: AttemptVariation) -> SkillRuntime:
         self._robot.reset(joint_offsets_rad=variation.joint_offsets_rad)
+        return self._runtime_factory()
+
+
+class PerturbableRobot(Protocol):
+    """A resettable robot that also accepts the world to reset into.
+
+    ``runtime.ResettableRobot`` is the narrower capability -- a robot that can
+    be teleported to a pose -- and it stays narrow because that is the property
+    which already excludes hardware. This protocol is stated separately rather
+    than by widening that one, because accepting a regime sample is a strictly
+    stronger claim: it says the environment can rebuild its own contact and
+    actuator parameters. An environment typed as merely resettable would accept
+    a sample-bearing call it has no method to honour.
+    """
+
+    def reset(
+        self,
+        joint_offsets_rad: Optional[Sequence[float]] = None,
+        sample: Optional[RegimeSample] = None,
+    ) -> None:
+        """Return to the start pose, in the world ``sample`` describes."""
+
+
+class RegimeEnvironment:
+    """Prepares one attempt in the world its variation names.
+
+    The same seam as ``SimulatedCampaignEnvironment`` and the same refusal to
+    describe hardware; the difference is only that the initial condition it
+    installs includes the physics, not just the pose. It is a separate class
+    rather than a flag because the two make different claims about what a
+    campaign's evidence covers, and a boolean argument would let that
+    difference be set by accident.
+
+    The robot must accept a sample. A robot that silently ignored one would run
+    every attempt nominally while the attempt records described a distribution,
+    which is the one failure this whole module exists to prevent, so the
+    capability is checked here rather than discovered from a suspiciously high
+    success rate.
+    """
+
+    def __init__(
+        self,
+        robot: PerturbableRobot,
+        runtime_factory: Callable[[], SkillRuntime],
+        configuration: SimulatedConfiguration,
+    ) -> None:
+        if configuration.is_real_robot:
+            raise ValueError(
+                f"environment {configuration.environment_id!r} describes "
+                "itself as a real robot; this class resets to a chosen "
+                "initial condition and rebuilds the model's contact and "
+                "actuator parameters, neither of which a physical robot can "
+                "do, so the description is wrong about one of the two"
+            )
+        self._require_perturbable(robot)
+        self._robot = robot
+        self._runtime_factory = runtime_factory
+        self._configuration = configuration
+
+    @staticmethod
+    def _require_perturbable(robot: PerturbableRobot) -> None:
+        """Refuse a robot whose reset cannot accept the world to reset into.
+
+        Checked at construction because the alternative is finding out from a
+        success rate. A robot that took ``joint_offsets_rad`` alone would raise
+        on the first attempt at best, and at worst, if its reset tolerates
+        surplus keywords, run every attempt nominally while each attempt
+        record named a different world. That artefact cannot be told apart
+        from genuine robustness evidence, so the capability is established
+        before any of it is produced.
+        """
+        try:
+            signature = inspect.signature(robot.reset)
+        except (TypeError, ValueError):  # pragma: no cover - exotic callable
+            return
+        parameters = signature.parameters
+        accepts_sample = "sample" in parameters or any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        if not accepts_sample:
+            raise ValueError(
+                f"{type(robot).__name__}.reset does not accept a regime "
+                "sample, so this environment could not install the world each "
+                "attempt claims to have run in; a campaign over it would "
+                "report a distribution it never entered"
+            )
+
+    @property
+    def configuration(self) -> SimulatedConfiguration:
+        """The facts this environment's evidence is scoped to.
+
+        Unchanged by the regime, deliberately. The configuration digest is the
+        anchor every stage's evidence hangs from, so a per-attempt world that
+        entered it would make each attempt a different configuration and leave
+        the ladder with ten evidence sets of one run each.
+        """
+        return self._configuration
+
+    def prepare(self, variation: AttemptVariation) -> SkillRuntime:
+        if variation.sample is None:
+            raise ValueError(
+                f"attempt {variation.index} carries no regime sample, so this "
+                "environment would run it in the nominal world while the "
+                "campaign reported a regime; pair this environment with a "
+                "RegimeSchedule"
+            )
+        self._robot.reset(
+            joint_offsets_rad=variation.joint_offsets_rad,
+            sample=variation.sample,
+        )
         return self._runtime_factory()

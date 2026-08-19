@@ -340,6 +340,83 @@ class BenchReport:
         return self.hardware_decision.blocking_reasons
 
 
+MILESTONE_CALIBRATION = "calibration"
+MILESTONE_GOAL = "goal"
+MILESTONE_STAGE = "stage"
+MILESTONE_HARDWARE_DECISION = "hardware_decision"
+
+BENCH_MILESTONES = (
+    MILESTONE_CALIBRATION,
+    MILESTONE_GOAL,
+    MILESTONE_STAGE,
+    MILESTONE_HARDWARE_DECISION,
+)
+"""The facts this module establishes that are not attempts, in run order."""
+
+BenchFact = (
+    CalibrationReport | JointPoseGoal | CampaignReport | AdmissionDecision
+)
+"""What a milestone carries: the whole verdict, produced by its owner."""
+
+
+@dataclass(frozen=True)
+class BenchMilestone:
+    """One fact the assembly established, and how much of the run preceded it.
+
+    ``fact`` is the verdict itself rather than a summary of it, so a reader of
+    this ledger and a reader of ``BenchReport`` are reading the same object and
+    cannot come to different conclusions about it.
+
+    ``attempts_recorded`` is how many trajectory records existed at the moment
+    this fact became true. It is the whole reason two independent ledgers can be
+    read as one story: a reader merges them by draining that many attempts before
+    emitting this milestone, without a clock and without either ledger needing to
+    know the other's shape. ``required_duration_s`` accompanies the goal, because
+    the duration the goal implies is established in the same breath as the goal.
+    """
+
+    kind: str
+    fact: BenchFact
+    attempts_recorded: int
+    required_duration_s: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in BENCH_MILESTONES:
+            raise ValueError(
+                f"{self.kind!r} is not a bench milestone; the vocabulary is "
+                f"{', '.join(BENCH_MILESTONES)}"
+            )
+        if self.attempts_recorded < 0:
+            raise ValueError(
+                "a milestone cannot be preceded by a negative number of "
+                "attempts"
+            )
+
+
+class BenchMilestones:
+    """The append-only record of what the assembly established, as it did.
+
+    The same shape as the other two ledgers, and for the same reason: a caller
+    that wants to watch a run reads a record of fact rather than being handed a
+    callback. Its entries are appended by ``run_bench`` at the instant each fact
+    becomes true, once, and the report returned at the end is assembled from the
+    very same values, so there is no second account that could disagree.
+
+    Locking is deliberately absent, exactly as in ``AdmissionLedger`` and
+    ``TrajectoryLedger``: one appender, and readers that take a snapshot.
+    """
+
+    def __init__(self) -> None:
+        self._records: list[BenchMilestone] = []
+
+    def record(self, milestone: BenchMilestone) -> BenchMilestone:
+        self._records.append(milestone)
+        return milestone
+
+    def records(self) -> tuple[BenchMilestone, ...]:
+        return tuple(self._records)
+
+
 def embodiment_for(
     robot: SimulatedRobot,
     end_effector: str,
@@ -486,6 +563,9 @@ def run_bench(
     clock: Optional[Callable[[], datetime]] = None,
     frames: Optional[object] = None,
     preview_fps: float = DEFAULT_PREVIEW_FPS,
+    admission: Optional[AdmissionLedger] = None,
+    trajectories: Optional[TrajectoryLedger] = None,
+    milestones: Optional[BenchMilestones] = None,
 ) -> BenchReport:
     """Measure, then iterate, then report what the ladder opened.
 
@@ -498,8 +578,55 @@ def run_bench(
     ``frames`` turns on the camera preview. It is threaded through to the robot
     rather than to the loop because nothing in the governed path may depend on
     whether a run is being watched.
+
+    ``admission`` and ``trajectories`` default to fresh ledgers, which is what a
+    bench operated from a terminal wants: the run's record begins and ends with
+    the run. They are accepted because the ledgers are the run's record of fact,
+    so a caller that needs to observe progress watches the ledger rather than
+    being handed a callback. A callback would be a second account of what
+    happened, published before the record it is derived from, and the two could
+    disagree; a ledger that is read as it fills cannot.
+
+    ``milestones`` is that same argument applied to the facts of this run that
+    are not attempts. The calibration report, the goal, each ``CampaignReport``
+    and the hardware decision are established here, and they used to exist only
+    as fields of the returned report -- so a caller watching the ledgers saw
+    twenty attempts and only afterwards the measurement that authorised them and
+    the goal they were aimed at. The run's log stated its causal story backwards.
+
+    Recording them here is not a callback wearing a ledger's clothes. The test
+    the previous paragraph sets is whether a second account exists that could
+    disagree with the record, and it does not: this *is* the record, appended
+    once, at the moment the fact becomes true, by the module that owns the fact,
+    and the report returned at the end is assembled from the very same objects.
+    Nothing is published ahead of what it derives from. What a callback would
+    have added is a parallel narration; what this adds is the timestamp the
+    record was always missing.
     """
     at = clock if clock is not None else _utc_now
+
+    # Resolved before anything is measured, because the first fact worth
+    # recording is the calibration, and a milestone is watermarked by the
+    # attempts recorded before it.
+    admission = admission if admission is not None else AdmissionLedger()
+    trajectories = (
+        trajectories if trajectories is not None else TrajectoryLedger()
+    )
+    milestones = milestones if milestones is not None else BenchMilestones()
+
+    def _milestone(
+        kind: str,
+        fact: BenchFact,
+        required_duration_s: Optional[float] = None,
+    ) -> None:
+        milestones.record(
+            BenchMilestone(
+                kind=kind,
+                fact=fact,
+                attempts_recorded=len(trajectories.records()),
+                required_duration_s=required_duration_s,
+            )
+        )
 
     embodiment = embodiment_for(
         robot,
@@ -557,6 +684,7 @@ def run_bench(
         plan.candidate_rates_rps,
         margin=plan.velocity_margin,
     )
+    _milestone(MILESTONE_CALIBRATION, calibration)
 
     def _report(
         stages: Sequence[CampaignReport],
@@ -617,6 +745,8 @@ def run_bench(
     allowed_duration_s = min(
         plan.envelope.max_duration_s, plan.skill.max_duration_s
     )
+    _milestone(MILESTONE_GOAL, goal, required_duration_s=required_duration_s)
+
     if required_duration_s > allowed_duration_s:
         return _report(
             (),
@@ -630,8 +760,6 @@ def run_bench(
             required_duration_s=required_duration_s,
         )
 
-    admission = AdmissionLedger()
-    trajectories = TrajectoryLedger()
     loop = ExecutionLoop(
         registry=catalog,
         embodiment=embodiment,
@@ -671,6 +799,7 @@ def run_bench(
             planned_attempts=plan.attempts_per_stage,
         )
         stages.append(stage_report)
+        _milestone(MILESTONE_STAGE, stage_report)
 
         if not stage_report.completed:
             return _report(
@@ -705,6 +834,8 @@ def run_bench(
         approval=None,
         now=at(),
     )
+    _milestone(MILESTONE_HARDWARE_DECISION, hardware_decision)
+
     return _report(
         stages,
         HALTED_COMPLETED,

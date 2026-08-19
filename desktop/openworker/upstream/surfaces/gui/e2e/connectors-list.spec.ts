@@ -7,17 +7,16 @@ import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
 }
 
 test("connected connectors come first with status + health chip", async ({ page }) => {
   await openConnectors(page);
 
   const slack = page.getByTestId("connector-slack");
-  await expect(slack).toContainText("2 workspaces · relay");
-  // signed out + relay mode → the honest chip is the actionable one
-  await expect(slack).toContainText("Sign-in needed");
+  await expect(slack).toContainText("deeplearning.ai");
+  // a connected two-way connector reads Live
+  await expect(slack).toContainText("Live");
   // available section renders the not-connected connectors with a Connect pill
   await expect(
     page.getByTestId("connector-telegram").getByRole("button", { name: "Connect" }),
@@ -27,9 +26,9 @@ test("connected connectors come first with status + health chip", async ({ page 
 test("row navigates to the detail subpage; breadcrumb returns", async ({ page }) => {
   await openConnectors(page);
   await page.getByTestId("connector-slack").click();
-  await expect(page.getByTestId("slack-workspaces")).toBeVisible();
+  await expect(page.getByTestId("slack-detail")).toBeVisible();
   await page.getByTestId("connectors-breadcrumb").click();
-  await expect(page.getByTestId("connector-slack")).toContainText("2 workspaces · relay");
+  await expect(page.getByTestId("connector-slack")).toContainText("deeplearning.ai");
 });
 
 test("generic detail page: tools + two-way blocks + disconnect for telegram-alikes", async ({
@@ -47,9 +46,8 @@ test("Connect on a multi-mode connector opens the modal with One click | Manual 
   page,
 }) => {
   await openConnectors(page);
-  // make slack disconnected for this test: disconnect both workspaces via its page is
-  // heavy — instead assert the modal via the detail page's Add workspace in the slack spec;
-  // here we verify the generic modal path with telegram (single-mode → ConnectSetup pane).
+  // Single-mode connectors (telegram) render their ConnectSetup pane directly; the
+  // One click | Manual switcher is reserved for MCP-backed connectors with fields.
   await page.getByTestId("connector-telegram").getByRole("button", { name: "Connect" }).click();
   const modal = page.getByTestId("add-connection-modal");
   await expect(modal).toBeVisible();

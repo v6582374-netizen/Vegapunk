@@ -9,7 +9,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from vegapunk.mas.memory.memory_manager import InMemoryMemoryManager
-from vegapunk.mas.workflow.data_type import Idea, Task, WorkflowSession, WorkflowState
+from vegapunk.mas.workflow.data_type import (
+    ExternalDataDeclaration,
+    Idea,
+    Task,
+    WorkflowSession,
+    WorkflowState,
+)
 from vegapunk.mas.workflow.external_data import MANIFEST_FILENAME
 from vegapunk.mas.workflow.orchestration_agent import OrchestrationAgent
 
@@ -25,7 +31,7 @@ def _write_connector_artifact(workspace: Path, idea: Idea) -> None:
                         "source": "NREL",
                         "api_id": "nrel-example",
                         "docs_url": "https://developer.nrel.gov/docs/",
-                        "request": idea.external_data_request,
+                        "request": idea.external_data.request,
                         "retrieved_at": "2026-08-06T10:00:00+00:00",
                     }
                 ]
@@ -43,7 +49,7 @@ def _append_web_artifact(workspace: Path, idea: Idea) -> None:
             "artifact_path": "shared-response.csv",
             "source": "Official supplementary dataset",
             "api_id": "non_api",
-            "request": idea.external_data_request,
+            "request": idea.external_data.request,
             "retrieved_at": "2026-08-06T10:01:00+00:00",
         }
     )
@@ -57,32 +63,25 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 id="data-free",
                 text="Use the supplied model.",
                 score=0.1,
-                requires_external_data=False,
-                external_data_reason="The supplied model is sufficient.",
+                external_data=ExternalDataDeclaration(reason="The supplied model is sufficient."),
             )
             connector_only = Idea(
                 id="connector-only",
                 text="Measure water permeability.",
                 score=0.2,
-                requires_external_data=True,
-                external_data_request="Water permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
             )
             web_supplemented = Idea(
                 id="web-supplemented",
                 text="Measure water and salt permeability.",
                 score=0.3,
-                requires_external_data=True,
-                external_data_request="Water and salt permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water and salt permeability by salinity."),
             )
             failed = Idea(
                 id="failed-acquisition",
                 text="Measure an unavailable quantity.",
                 score=0.4,
-                requires_external_data=True,
-                external_data_request="Unavailable quantity by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Unavailable quantity by salinity."),
             )
             ideas = [data_free, connector_only, web_supplemented, failed]
             session = WorkflowSession(
@@ -119,12 +118,21 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
             async def web_execute(context: dict, _: dict) -> dict:
                 nonlocal active_acquisitions, peak_acquisitions
-                self.assertEqual(context["hypothesis"]["id"], web_supplemented.id)
-                self.assertIn("Partial coverage", context["connector_coverage_feedback"])
+                self.assertIn(
+                    context["hypothesis"]["id"], {web_supplemented.id, failed.id}
+                )
                 active_acquisitions += 1
                 peak_acquisitions = max(peak_acquisitions, active_acquisitions)
                 try:
                     await asyncio.sleep(0.01)
+                    if context["hypothesis"]["id"] == failed.id:
+                        # The Connector failure opened the web fallback, whose
+                        # feedback must carry the failure it is compensating for.
+                        self.assertIn(
+                            "Connector failed", context["connector_coverage_feedback"]
+                        )
+                        raise RuntimeError("Public web source unavailable")
+                    self.assertIn("Partial coverage", context["connector_coverage_feedback"])
                     _append_web_artifact(Path(context["idea_data_workspace"]), web_supplemented)
                     return {"coverage_feedback": "Supplementary salt data saved."}
                 finally:
@@ -163,7 +171,9 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(session.state, WorkflowState.EVOLVING)
             self.assertEqual(scholar.execute.await_count, 4)
             self.assertEqual(connector.execute.await_count, 3)
-            web_evidence.execute.assert_awaited_once()
+            # Web Evidence runs for the partial-coverage idea and as the
+            # fallback for the idea whose Connector failed outright.
+            self.assertEqual(web_evidence.execute.await_count, 2)
             self.assertEqual(peak_acquisitions, 1)
             self.assertEqual(data_free.data_workspace, "")
             self.assertEqual(
@@ -177,6 +187,8 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(failed.evidence, [{"title": "Paper for failed-acquisition"}])
             self.assertEqual(failed.acquisition_events[0]["acquired_by"], "connector")
             self.assertEqual(failed.acquisition_events[0]["status"], "failed")
+            self.assertEqual(failed.acquisition_events[1]["acquired_by"], "web_evidence")
+            self.assertEqual(failed.acquisition_events[1]["status"], "failed")
 
             await orchestrator._execute_current_phase(session)
 
@@ -204,9 +216,7 @@ class MixedExternalEvidenceWorkflowTest(unittest.IsolatedAsyncioTestCase):
             idea = Idea(
                 id="refinement-idea",
                 text="Measure water and salt permeability.",
-                requires_external_data=True,
-                external_data_request="Water and salt permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water and salt permeability by salinity."),
                 method_details={"method": "Compare transport curves."},
             )
             session = WorkflowSession(

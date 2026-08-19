@@ -129,7 +129,6 @@ def disconnect_account(secrets: SecretStore, email: str) -> dict[str, Any]:
             secrets.put(DEFAULT_KEY, pointer)
         else:
             pointer.pop("default_account", None)
-            pointer.pop("managed", None)
             if pointer.get("filters"):
                 secrets.put(DEFAULT_KEY, pointer)
             else:

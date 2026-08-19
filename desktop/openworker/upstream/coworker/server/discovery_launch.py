@@ -792,11 +792,11 @@ class DiscoveryLaunchStore:
                 return self._replayed_result(previous["result"], response_builder)
 
             record = self._record_or_raise_locked(launch_id)
-            if record["state"] not in {"stopped", "interrupted"}:
+            if record["state"] not in {"stopped", "interrupted", "failed"}:
                 raise LaunchStateConflict(
                     f"Resume is unavailable while Launch is {record['state']}"
                 )
-            if not record.get("resumable"):
+            if record["state"] != "failed" and not record.get("resumable"):
                 raise LaunchStateConflict(
                     "Launch does not have a reconciled checkpoint that can be resumed"
                 )
@@ -813,7 +813,9 @@ class DiscoveryLaunchStore:
             attempt_id = f"attempt-{uuid.uuid4().hex}"
             adoption_nonce = uuid.uuid4().hex
             attempt = self._new_attempt(attempt_id, adoption_nonce)
-            attempt["resume_from_round"] = int(checkpoint.get("round", 0) or 0)
+            attempt["resume_from_round"] = int(
+                checkpoint.get("round", 0) or record.get("round", 0) or 0
+            )
             record["attempts"].append(attempt)
             record["current_attempt_id"] = attempt_id
             record["state"] = "starting"
@@ -1256,7 +1258,10 @@ class DiscoveryLaunchStore:
         record["outcome"] = "failed"
         record["error"] = error or "Discovery runner failed"
         record["runner_pid"] = None
-        record["resumable"] = False
+        # A failed attempt remains historical evidence, but its immutable Launch
+        # snapshot can be retried as a new attempt. The launcher reconstructs
+        # the completed-round boundary from durable artifacts on resume.
+        record["resumable"] = True
         attempt["finished_at"] = finished_at
         attempt["state"] = "failed"
         self._finish_timeline_locked(record, "failed", finished_at)
@@ -1726,6 +1731,11 @@ class DiscoveryLaunchStore:
         state = record.get("state")
         if state in {"starting", "running"}:
             return ["stop"]
+        if state == "failed":
+            # Failed records written before retry support may still carry the
+            # former resumable=false value.  Their immutable snapshot is valid
+            # for a new retry attempt nevertheless.
+            return ["resume"]
         if state in {"stopped", "interrupted"} and record.get("resumable"):
             return ["resume"]
         return []

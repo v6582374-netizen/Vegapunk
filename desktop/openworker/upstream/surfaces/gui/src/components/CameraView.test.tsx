@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CameraView, normaliseRobotHost } from "./CameraView";
+import { relayCameraOffer } from "../api";
+
+// Signalling deliberately does not leave the app's own origin: the robot's
+// certificate cannot be trusted by any browser, so the sidecar relays the
+// exchange. Mocking the relay is therefore mocking the whole network boundary.
+vi.mock("../api", () => ({
+  relayCameraOffer: vi.fn().mockResolvedValue({ sdp: "answer", type: "answer" }),
+}));
 
 class FakePeerConnection {
   static instances: FakePeerConnection[] = [];
@@ -30,6 +38,7 @@ class FakePeerConnection {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.mocked(relayCameraOffer).mockClear();
   FakePeerConnection.instances = [];
   localStorage.clear();
 });
@@ -47,29 +56,23 @@ describe("normaliseRobotHost", () => {
 });
 
 describe("CameraView", () => {
-  it("starts all three read-only WebRTC camera connections and closes them on stop", async () => {
+  it("relays all three read-only WebRTC camera connections and closes them on stop", async () => {
     vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
     vi.stubGlobal("MediaStream", class {});
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ type: "answer", sdp: "answer" }) }));
     vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
 
     render(<CameraView />);
     fireEvent.change(screen.getByLabelText("Robot address"), { target: { value: "192.168.123.164" } });
     fireEvent.click(screen.getByRole("button", { name: "Start cameras" }));
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://192.168.123.164:60001/offer",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://192.168.123.164:60002/offer",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "https://192.168.123.164:60003/offer",
-      expect.objectContaining({ method: "POST" }),
-    );
+    await waitFor(() => expect(relayCameraOffer).toHaveBeenCalledTimes(3));
+    for (const slot of ["head", "leftWrist", "rightWrist"]) {
+      expect(relayCameraOffer).toHaveBeenCalledWith(
+        slot,
+        "192.168.123.164",
+        expect.objectContaining({ type: "offer" }),
+      );
+    }
     expect(await screen.findAllByText("Live")).toHaveLength(3);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));

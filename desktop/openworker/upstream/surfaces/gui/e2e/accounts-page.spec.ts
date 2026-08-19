@@ -1,41 +1,42 @@
-// The generic multi-account detail page (AccountsDetail) + the modal's generic
-// one-click pane, exercised via Notion — the pattern all batch-2 connectors
-// share (accounts.py layer: AccountRow shape, Default badge, per-account ×).
+// The generic multi-account detail page (AccountsDetail), exercised via Notion —
+// the pattern all batch-2 connectors share (accounts.py layer: AccountRow shape,
+// Default badge, per-account ×). Every account arrives as a pasted token.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
 }
 
-async function signInAndConnectFirstWorkspace(page) {
+/** Connect the first Notion workspace by pasting a token in the list's modal. */
+async function connectFirstWorkspace(page) {
   await openConnectors(page);
-  await page.getByTestId("account-row").click();
-  await page.getByTestId("account-sign-in").click();
-  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
-  // Available row → modal with One click | Manual pills → generic one-click
   await page
     .getByTestId("connector-notion")
     .getByRole("button", { name: "Connect", exact: true })
     .click();
-  await expect(page.getByTestId("modal-pane-manual")).toBeVisible();
-  await page.getByTestId("modal-generic-one-click").click();
-  await page.keyboard.press("Escape");
+  await page.getByPlaceholder("ntn_…").fill("ntn_secret");
+  await page.getByTestId("add-connection-modal").getByRole("button", { name: "Connect" }).click();
   await expect(page.getByTestId("connector-notion")).toContainText("Rohit's Workspace", {
     timeout: 10_000,
   });
 }
 
-test("one-click connect, add a second workspace from the page; first stays default", async ({
-  page,
-}) => {
-  await signInAndConnectFirstWorkspace(page);
+/** Add one more account from the detail page's own token form. */
+async function addAccountFromPage(page) {
+  await page.getByTestId("add-account-btn").click();
+  const form = page.getByTestId("accounts-manual-add");
+  await form.getByPlaceholder("ntn_…").fill("ntn_second");
+  await form.getByRole("button", { name: "Connect" }).click();
+}
+
+test("add a second workspace from the page; the first stays default", async ({ page }) => {
+  await connectFirstWorkspace(page);
   await page.getByTestId("connector-notion").click();
   await expect(page.getByTestId("accounts-detail")).toBeVisible();
 
-  await page.getByTestId("add-account-btn").click();
+  await addAccountFromPage(page);
   const first = page.getByTestId("account-ws-1");
   const second = page.getByTestId("account-ws-2");
   await expect(second).toBeVisible({ timeout: 10_000 });
@@ -50,9 +51,9 @@ test("one-click connect, add a second workspace from the page; first stays defau
 test("Make default moves the badge; disconnecting the default repoints it", async ({
   page,
 }) => {
-  await signInAndConnectFirstWorkspace(page);
+  await connectFirstWorkspace(page);
   await page.getByTestId("connector-notion").click();
-  await page.getByTestId("add-account-btn").click();
+  await addAccountFromPage(page);
   await expect(page.getByTestId("account-ws-2")).toBeVisible({ timeout: 10_000 });
 
   await page.getByTestId("account-make-default-ws-2").click();
@@ -64,15 +65,11 @@ test("Make default moves the badge; disconnecting the default repoints it", asyn
   await expect(page.getByTestId("account-ws-1")).toContainText("Default");
 });
 
-test("signed out: the modal's one-click pane offers inline cloud sign-in; manual pane has the token form", async ({
-  page,
-}) => {
+test("not connected: the page leads with the token form, no sign-in gate", async ({ page }) => {
   await openConnectors(page);
-  await page
-    .getByTestId("connector-notion")
-    .getByRole("button", { name: "Connect", exact: true })
-    .click();
-  await expect(page.getByTestId("inline-cloud-sign-in")).toBeVisible();
-  await page.getByTestId("modal-pane-manual").click();
+  await page.getByTestId("connector-notion").click();
+  // Pre-connect goes through AvailableDetail → its Connect opens the token modal.
+  await page.getByTestId("available-connect").click();
   await expect(page.getByPlaceholder("ntn_…")).toBeVisible();
+  await expect(page.getByTestId("modal-pane-one")).toHaveCount(0); // no one-click pane
 });

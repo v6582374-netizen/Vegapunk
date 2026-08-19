@@ -1,32 +1,26 @@
 import { useState } from "react";
 import {
-  connectManaged,
   disconnectGmailAccount,
   setGmailDefaultAccount,
   setGmailFilters,
   type GmailAccount,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
+import { AddConnectionModal } from "./AddConnectionModal";
 import type { DetailProps } from "./ConnectorsSection";
 import { ToolsDisclosure } from "./ToolsDisclosure";
 import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, TAG_WARN, XBTN } from "./ui";
 
 // The Gmail detail page (UX-DECISIONS §21): connected mailboxes (multi-account,
 // Default badge, per-account disconnect) + "Never show agents" privacy filters.
-// Adding an account launches managed OAuth DIRECTLY — Gmail has one connect mode,
-// so no modal (the pill-modal is only for ≥2-mode connectors like Slack).
+// Adding a mailbox pastes an OAuth access token; each paste lands as its own
+// mailbox alongside the others.
 
 const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
-export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
-  const [busy, setBusy] = useState(false);
+export function GmailDetail({ c, onChanged }: DetailProps) {
+  const [adding, setAdding] = useState(false);
   const accounts = (c.accounts ?? []) as GmailAccount[]; // email-keyed (pre-generic-layer shape)
-
-  const addAccount = async () => {
-    setBusy(true);
-    await connectManaged("gmail"); // completes in the system browser; the poll picks it up
-    setTimeout(() => setBusy(false), 2500);
-  };
 
   return (
     <div data-testid="gmail-detail">
@@ -47,28 +41,16 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
             )}
           </div>
         </div>
-        <button
-          className={PILL_ACCENT + (c.managed_paused ? " opacity-50" : "")}
-          data-testid="add-account-btn"
-          onClick={addAccount}
-          disabled={busy || !cloud?.signed_in || c.managed_paused}
-          title={
-            c.managed_paused
-              ? "One-click Google sign-in is coming soon"
-              : cloud?.signed_in
-                ? ""
-                : "Sign in to OpenWorker Cloud first"
-          }
-        >
-          {c.managed_paused ? "＋ Add account · Coming soon" : busy ? "Check your browser…" : "＋ Add account"}
+        <button className={PILL_ACCENT} data-testid="add-account-btn" onClick={() => setAdding(true)}>
+          ＋ Add account
         </button>
       </div>
 
       {!c.connected && (
         <div className={GRP}>
           <div className={ROW + " text-[12.5px] text-muted"}>
-            Sign in with Google — each mailbox stays separate, agents say which one they use.
-            {cloud?.signed_in ? "" : " Requires cloud sign-in."}
+            Paste an OAuth access token with Gmail scopes — each mailbox stays
+            separate, and agents say which one they use.
           </div>
         </div>
       )}
@@ -91,6 +73,15 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
         Filters are enforced on this computer, before an agent sees results. Hidden counts show
         on the tool card and in Activity — never the content.
       </div>
+
+      {adding && (
+        <AddConnectionModal
+          c={c}
+          title="Add a mailbox"
+          onClose={() => setAdding(false)}
+          onChanged={onChanged}
+        />
+      )}
     </div>
   );
 }

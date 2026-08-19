@@ -9,7 +9,13 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from vegapunk.mas.agents.connector_agent import ConnectorAgent
 from vegapunk.mas.memory.memory_manager import InMemoryMemoryManager
-from vegapunk.mas.workflow.data_type import Idea, Task, WorkflowSession, WorkflowState
+from vegapunk.mas.workflow.data_type import (
+    ExternalDataDeclaration,
+    Idea,
+    Task,
+    WorkflowSession,
+    WorkflowState,
+)
 from vegapunk.mas.workflow.external_data import (
     MANIFEST_FILENAME,
     allocate_idea_data_workspace,
@@ -58,19 +64,13 @@ class _FakeCodexRunner:
 
 
 class ConnectorAgentTest(unittest.IsolatedAsyncioTestCase):
-    def test_connector_runner_uses_injected_runtime_model_and_launch_backend(self) -> None:
-        runtime = SimpleNamespace(
-            catalog=SimpleNamespace(active_text_model="qwen/qwen3-max")
-        )
+    def test_connector_runner_follows_launch_backend_without_a_system_model(self) -> None:
+        """The Launch selects the backend; the backend owns its own model."""
         config = {
-            "_runtime": runtime,
             "_global_config": {
                 "exp_backend": "qwen_code",
                 "proxy_settings": {"HTTPS_PROXY": "https://proxy.invalid"},
-                "experiment": {
-                    "backend": "qwen_code",
-                    "model": "relay/gpt-5.6-sol",
-                },
+                "experiment": {"backend": "qwen_code"},
             },
         }
 
@@ -82,10 +82,7 @@ class ConnectorAgentTest(unittest.IsolatedAsyncioTestCase):
             runner = agent._create_runner()
 
         self.assertIs(runner, qwen_runner.return_value)
-        qwen_runner.assert_called_once_with(
-            {"HTTPS_PROXY": "https://proxy.invalid"},
-            model="qwen/qwen3-max",
-        )
+        qwen_runner.assert_called_once_with({"HTTPS_PROXY": "https://proxy.invalid"})
         codex_runner.assert_not_called()
 
     def test_connector_registry_prompt_is_limited_to_description_and_docs(self) -> None:
@@ -220,11 +217,9 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
             idea = Idea(
                 id="idea-1",
                 text="Assess GenAI's effect on employment.",
-                requires_external_data=True,
-                external_data_request=(
+                external_data=ExternalDataDeclaration(required=True, request=(
                     "BLS employment projections by SOC occupation for 2022–2032."
-                ),
-                external_data_route="public_web",
+                )),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -238,7 +233,19 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
             scholar = SimpleNamespace(
                 execute=AsyncMock(return_value={"evidence": [], "references": []})
             )
-            connector = SimpleNamespace(execute=AsyncMock())
+            # Only the Connector holds the registry, so only the Connector can
+            # find it irrelevant.  It saves nothing and opens the gate itself.
+            async def connector_execute(context: dict, _: dict) -> dict:
+                return {
+                    "coverage_feedback": (
+                        "No registered API serves labor-market projections."
+                    ),
+                    "open_web_evidence_gate": True,
+                }
+
+            connector = SimpleNamespace(
+                execute=AsyncMock(side_effect=connector_execute)
+            )
 
             async def web_evidence_execute(context: dict, _: dict) -> None:
                 workspace = Path(context["idea_data_workspace"])
@@ -253,7 +260,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                                     "artifact_path": "bls_projections.csv",
                                     "source": "U.S. Bureau of Labor Statistics",
                                     "api_id": "non_api",
-                                    "request": idea.external_data_request,
+                                    "request": idea.external_data.request,
                                     "retrieved_at": "2026-08-10T12:00:00+00:00",
                                 }
                             ]
@@ -281,9 +288,12 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
 
             await orchestrator._run_external_data_phase(session)
 
-            connector.execute.assert_not_awaited()
+            # The unrelated API is still bypassed -- but by the Connector's own
+            # judgment, not by a route an Idea guessed before seeing the registry.
+            connector.execute.assert_awaited_once()
             web_evidence.execute.assert_awaited_once()
             self.assertEqual(idea.evidence[0]["acquired_by"], "web_evidence")
+            self.assertEqual(len(idea.evidence), 1)
 
     async def test_data_required_idea_admits_valid_local_connector_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -292,9 +302,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 id="idea-1",
                 text="Measure membrane transport.",
                 score=0.7,
-                requires_external_data=True,
-                external_data_request="Water and salt permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water and salt permeability by salinity."),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -315,7 +323,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                                     "source": "NREL",
                                     "api_id": "nrel-example",
                                     "docs_url": "https://developer.nrel.gov/docs/",
-                                    "request": idea.external_data_request,
+                                    "request": idea.external_data.request,
                                     "retrieved_at": "2026-08-06T10:00:00+00:00",
                                 }
                             ]
@@ -353,9 +361,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                 id="idea-1",
                 text="Measure membrane transport.",
                 score=0.7,
-                requires_external_data=True,
-                external_data_request="Water permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -377,14 +383,158 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(idea.evidence, [])
             self.assertEqual(session.state, WorkflowState.EVOLVING)
 
+    async def test_connector_failure_falls_back_to_public_web_evidence(self) -> None:
+        """A dead Connector (e.g. missing API key) must not silence the public web.
+
+        The gate exists so the Connector can declare sufficient coverage.  A
+        Connector that failed admitted zero evidence, so the fallback opens by
+        construction instead of leaving the Idea to fabricate synthetic data.
+        """
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            idea = Idea(
+                id="idea-1",
+                text="Measure membrane transport.",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
+            )
+            session = WorkflowSession(
+                id="session-1",
+                task=Task(id="task-1", description="Study membrane transport.", domain="materials"),
+                ideas=[idea],
+            )
+            scholar = SimpleNamespace(execute=AsyncMock(return_value={"evidence": [], "references": []}))
+            connector = SimpleNamespace(
+                execute=AsyncMock(side_effect=RuntimeError("NREL API key is not configured"))
+            )
+
+            async def web_evidence_execute(context: dict, _: dict) -> None:
+                self.assertIn(
+                    "NREL API key is not configured",
+                    context["connector_coverage_feedback"],
+                )
+                workspace = Path(context["idea_data_workspace"])
+                (workspace / "nrel_release.csv").write_text(
+                    "salinity,permeability\n35,0.2\n", encoding="utf-8"
+                )
+                (workspace / MANIFEST_FILENAME).write_text(
+                    json.dumps(
+                        {
+                            "artifacts": [
+                                {
+                                    "artifact_path": "nrel_release.csv",
+                                    "source": "NREL",
+                                    "api_id": "non_api",
+                                    "request": idea.external_data.request,
+                                    "retrieved_at": "2026-08-10T12:00:00+00:00",
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            web_evidence = SimpleNamespace(execute=AsyncMock(side_effect=web_evidence_execute))
+            orchestrator = OrchestrationAgent(
+                {
+                    "workflow": {"external_data_workspace_root": temporary_directory},
+                    "external_data": {"api_registry": API_REGISTRY},
+                },
+                InMemoryMemoryManager(),
+                model_runtime=SimpleNamespace(),
+                agent_registry={
+                    "scholar": scholar,
+                    "connector": connector,
+                    "web_evidence": web_evidence,
+                },
+            )
+
+            await orchestrator._run_external_data_phase(session)
+
+            web_evidence.execute.assert_awaited_once()
+            self.assertEqual(len(idea.evidence), 1)
+            self.assertEqual(idea.evidence[0]["acquired_by"], "web_evidence")
+            self.assertEqual(idea.acquisition_events[0]["acquired_by"], "connector")
+            self.assertEqual(idea.acquisition_events[0]["status"], "failed")
+            self.assertEqual(session.state, WorkflowState.EVOLVING)
+
+    async def test_rejected_connector_manifest_opens_web_evidence_fallback(self) -> None:
+        """A rejected manifest admitted zero evidence, voiding any sufficiency claim."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            idea = Idea(
+                id="idea-1",
+                text="Measure membrane transport.",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
+            )
+            session = WorkflowSession(
+                id="session-1",
+                task=Task(id="task-1", description="Study membrane transport.", domain="materials"),
+                ideas=[idea],
+            )
+            scholar = SimpleNamespace(execute=AsyncMock(return_value={"evidence": [], "references": []}))
+
+            async def connector_execute(context: dict, _: dict) -> dict:
+                # Claims sufficiency, but writes a manifest missing required
+                # provenance, so nothing can be admitted.
+                workspace = Path(context["idea_data_workspace"])
+                (workspace / MANIFEST_FILENAME).write_text(
+                    json.dumps({"artifacts": [{"artifact_path": "missing.json"}]}),
+                    encoding="utf-8",
+                )
+                return {
+                    "coverage_feedback": "Sufficient coverage: all requested data was saved.",
+                    "open_web_evidence_gate": False,
+                }
+
+            connector = SimpleNamespace(execute=AsyncMock(side_effect=connector_execute))
+
+            async def web_evidence_execute(context: dict, _: dict) -> None:
+                self.assertIn("rejected", context["connector_coverage_feedback"])
+                workspace = Path(context["idea_data_workspace"])
+                (workspace / "web.csv").write_text("salinity,permeability\n35,0.2\n", encoding="utf-8")
+                (workspace / MANIFEST_FILENAME).write_text(
+                    json.dumps(
+                        {
+                            "artifacts": [
+                                {
+                                    "artifact_path": "web.csv",
+                                    "source": "NREL",
+                                    "api_id": "non_api",
+                                    "request": idea.external_data.request,
+                                    "retrieved_at": "2026-08-10T12:00:00+00:00",
+                                }
+                            ]
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            web_evidence = SimpleNamespace(execute=AsyncMock(side_effect=web_evidence_execute))
+            orchestrator = OrchestrationAgent(
+                {
+                    "workflow": {"external_data_workspace_root": temporary_directory},
+                    "external_data": {"api_registry": API_REGISTRY},
+                },
+                InMemoryMemoryManager(),
+                model_runtime=SimpleNamespace(),
+                agent_registry={
+                    "scholar": scholar,
+                    "connector": connector,
+                    "web_evidence": web_evidence,
+                },
+            )
+
+            await orchestrator._run_external_data_phase(session)
+
+            web_evidence.execute.assert_awaited_once()
+            self.assertEqual(len(idea.evidence), 1)
+            self.assertEqual(idea.evidence[0]["acquired_by"], "web_evidence")
+            self.assertEqual(idea.acquisition_events[0]["status"], "invalid_manifest")
+
     async def test_method_refinement_receives_admitted_connector_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             idea = Idea(
                 id="idea-1",
                 text="Measure membrane transport.",
-                requires_external_data=True,
-                external_data_request="Water permeability by salinity.",
-                external_data_route="registered_api",
+                external_data=ExternalDataDeclaration(required=True, request="Water permeability by salinity."),
             )
             session = WorkflowSession(
                 id="session-1",
@@ -406,7 +556,7 @@ class ConnectorWorkflowTest(unittest.IsolatedAsyncioTestCase):
                                     "source": "NREL",
                                     "api_id": "nrel-example",
                                     "docs_url": "https://developer.nrel.gov/docs/",
-                                    "request": idea.external_data_request,
+                                    "request": idea.external_data.request,
                                     "retrieved_at": "2026-08-06T10:00:00+00:00",
                                 }
                             ]

@@ -12,7 +12,7 @@ streamable-HTTP transport. We supply its three integration points:
     user-driven, so concurrency is meaningless)
 
 DCR means there is no client id/secret registered anywhere up front — nothing for the
-ocw-connect broker to hold, so unlike the managed connectors this flow is fully local.
+no broker to hold, so this flow is fully local.
 First server: Granola (https://mcp.granola.ai/mcp).
 """
 

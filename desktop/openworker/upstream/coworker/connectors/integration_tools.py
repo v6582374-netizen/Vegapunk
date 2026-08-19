@@ -1,7 +1,7 @@
 """Cowork-only connector tools for first-party integrations.
 
 These tools are intentionally local-first: credentials are read from the SecretStore at
-execution time and never enter prompts. OAuth-managed setup can later replace the manual
+execution time and never enter prompts. The manual
 access-token fields without changing the tool surface.
 """
 
@@ -75,14 +75,6 @@ def _profile(
     secrets: SecretStore, name: str, *keys: str
 ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, str]]]:
     profile = secrets.get(f"{name}:default") or {}
-    if profile.get("managed"):
-        # Managed-OAuth profiles renew through the cloud broker just before
-        # expiry; manual token profiles are never touched (no-op inside).
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), name)
-        profile = secrets.get(f"{name}:default") or {}
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return None, {"error": f"{name} is not connected; missing {', '.join(missing)}"}
@@ -93,11 +85,11 @@ def _account_profile(
     secrets: SecretStore, connector: str, account: str = "", *keys: str
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
     """(account_id, profile, err) for an account-patterned connector (generic
-    accounts.py layer): requested — or default — account, managed tokens
-    refreshed in place. The gmail/gcal/hubspot bespoke helpers predate this."""
+    accounts.py layer): requested — or default — account. The gmail/gcal/hubspot
+    bespoke helpers predate this."""
     from . import accounts as _accounts
 
-    account_id, key, profile = _accounts.resolve(secrets, connector, account)
+    account_id, _key, profile = _accounts.resolve(secrets, connector, account)
     if profile is None:
         hint = (
             f"no {connector} account matching {account!r}"
@@ -105,12 +97,6 @@ def _account_profile(
             else f"{connector} is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), connector, profile_key=key)
-        profile = secrets.get(key) or profile
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return (
@@ -138,11 +124,11 @@ _GEN_ACCOUNT_PROP = {
 def _gmail_profile(
     secrets: SecretStore, account: str = ""
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
-    """(email, profile, err) for the requested — or default — mailbox, with the
-    managed token refreshed in place. Multi-account: `gmail:account:<email>`."""
+    """(email, profile, err) for the requested — or default — mailbox.
+    Multi-account: `gmail:account:<email>`."""
     from . import gmail_accounts
 
-    email, key, profile = gmail_accounts.resolve(secrets, account)
+    email, _key, profile = gmail_accounts.resolve(secrets, account)
     if profile is None:
         hint = (
             f"no gmail account matching {account!r}"
@@ -150,12 +136,6 @@ def _gmail_profile(
             else "gmail is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), "gmail", profile_key=key)
-        profile = secrets.get(key) or profile
     if not profile.get("access_token"):
         return "", None, {"error": f"gmail account {email} has no usable token"}
     return email, profile, None
@@ -164,12 +144,11 @@ def _gmail_profile(
 def _gcal_profile(
     secrets: SecretStore, account: str = ""
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
-    """(email, profile, err) for the requested — or default — Google account,
-    with the managed token refreshed in place. Multi-account:
-    `google_calendar:account:<email>`."""
+    """(email, profile, err) for the requested — or default — Google account.
+    Multi-account: `google_calendar:account:<email>`."""
     from . import gcal_accounts
 
-    email, key, profile = gcal_accounts.resolve(secrets, account)
+    email, _key, profile = gcal_accounts.resolve(secrets, account)
     if profile is None:
         hint = (
             f"no google calendar account matching {account!r}"
@@ -177,14 +156,6 @@ def _gcal_profile(
             else "google calendar is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(
-            secrets, load_config(), "google_calendar", profile_key=key
-        )
-        profile = secrets.get(key) or profile
     if not profile.get("access_token"):
         return (
             "",
@@ -207,11 +178,11 @@ def _now_ms() -> int:
 def _hubspot_profile(
     secrets: SecretStore, portal: str = ""
 ) -> tuple[str, str, Optional[dict[str, str]]]:
-    """(portal name, bearer token, err) for the requested — or default — portal,
-    with a managed token refreshed in place. Multi-portal: `hubspot:portal:<id>`."""
+    """(portal name, bearer token, err) for the requested — or default — portal.
+    Multi-portal: `hubspot:portal:<id>`."""
     from . import hubspot_portals
 
-    hub_id, key, profile = hubspot_portals.resolve(secrets, portal)
+    hub_id, _key, profile = hubspot_portals.resolve(secrets, portal)
     if profile is None:
         hint = (
             f"no hubspot portal matching {portal!r}"
@@ -219,14 +190,7 @@ def _hubspot_profile(
             else "hubspot is not connected"
         )
         return "", "", {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), "hubspot", profile_key=key)
-        profile = secrets.get(key) or profile
-    # Manual private-app profiles carry `token`; managed OAuth carries
-    # `access_token` (which is what the broker refresh rotates).
+    # Private-app profiles carry `token`; OAuth profiles carry `access_token`.
     token = profile.get("token") or profile.get("access_token") or ""
     if not token:
         return "", "", {"error": f"hubspot portal {hub_id} has no usable token"}
@@ -370,46 +334,22 @@ def _github_base() -> str:
 
 
 def _github_auth(
-    secrets: SecretStore, install: str = "", *, force: bool = False
+    secrets: SecretStore,
 ) -> tuple[Optional[dict[str, str]], Optional[dict[str, str]]]:
-    """(headers, err). A manual PAT (`github:default.token`) wins, untouched;
-    a managed relay profile mints a short-lived installation token instead —
-    memory-cached, never stored (github-relay-spec §4). `install` picks the
-    installation by account login (pass the repo owner) or id; unknown values
-    fall back to the default installation."""
+    """(headers, err) for the manual PAT in `github:default.token`."""
     profile = secrets.get("github:default") or {}
     if profile.get("token"):
         return _github_headers(profile["token"]), None
-    if profile.get("mode") == "relay":
-        from ..cloud import github_installation_token
-        from ..config import load_config
-        from . import github_installs
-
-        installation_id, _prof = github_installs.resolve(secrets, install)
-        if not installation_id and install:
-            installation_id, _prof = github_installs.resolve(secrets, "")
-        if not installation_id:
-            return None, {"error": "github is not connected; no App installation"}
-        token = github_installation_token(
-            secrets, load_config(), installation_id, force=force
-        )
-        if not token:
-            return None, {
-                "error": "github installation token unavailable "
-                "(sign in to OpenWorker Cloud and retry)"
-            }
-        return _github_headers(token), None
     return None, {"error": "github is not connected; missing token"}
 
 
-def _github_git_auth_args(secrets: SecretStore, owner: str) -> list[str]:
+def _github_git_auth_args(secrets: SecretStore) -> list[str]:
     """Per-invocation git auth: the token rides an HTTP header on the command
-    line only — it must NEVER land in .git/config or a credential store (the
-    no-token-at-rest rule; github-relay-spec §4). Empty for the tokenless case
-    (public repos clone fine without auth)."""
+    line only — it must NEVER land in .git/config or a credential store.
+    Tokenless for the unconnected case (public repos clone fine without auth)."""
     import base64
 
-    headers, err = _github_auth(secrets, owner)
+    headers, err = _github_auth(secrets)
     if err:
         return ["-c", "credential.helper="]
     token = headers["Authorization"].split(" ", 1)[1]
@@ -449,21 +389,13 @@ def _github_git_base() -> str:
 
 
 def _github_call(
-    secrets: SecretStore, method: str, path: str, *, install: str = "", **kw: Any
+    secrets: SecretStore, method: str, path: str, **kw: Any
 ) -> dict[str, Any]:
-    """A GitHub API call that works on either auth path. A 401 on the managed
-    path re-mints once (the cached installation token may have just expired)."""
-    headers, err = _github_auth(secrets, install)
+    """A GitHub API call authenticated with the stored PAT."""
+    headers, err = _github_auth(secrets)
     if err:
         return err
-    out = _request(method, _github_base() + path, headers=headers, **kw)
-    managed = not (secrets.get("github:default") or {}).get("token")
-    if managed and out.get("error") == "HTTP 401":
-        headers, err = _github_auth(secrets, install, force=True)
-        if err:
-            return out
-        out = _request(method, _github_base() + path, headers=headers, **kw)
-    return out
+    return _request(method, _github_base() + path, headers=headers, **kw)
 
 
 def _google_headers(token: str) -> dict[str, str]:
@@ -593,7 +525,6 @@ def make_integration_tools(
             secrets,
             "GET",
             f"/repos/{owner}/{repo}/issues/{issue_number}",
-            install=owner,
         )
 
     github_get_issue.__name__ = "github_get_issue"
@@ -621,7 +552,6 @@ def make_integration_tools(
             secrets,
             "POST",
             f"/repos/{owner}/{repo}/issues",
-            install=owner,
             json={"title": title, "body": body},
         )
 
@@ -645,15 +575,13 @@ def make_integration_tools(
         )
     )
 
-    # Wave-1 relay write tools (github-relay-spec §8). The write ceiling is
-    # enforced by what exists here: comments, reviews, issues — no push,
-    # branch-delete, or repo-settings tools on any auth path.
+    # The write ceiling is enforced by what exists here: comments, reviews,
+    # issues — no push, branch-delete, or repo-settings tools.
     def github_reply(owner: str, repo: str, number: int, body: str) -> dict[str, Any]:
         return _github_call(
             secrets,
             "POST",
             f"/repos/{owner}/{repo}/issues/{number}/comments",
-            install=owner,
             json={"body": body},
         )
 
@@ -663,8 +591,8 @@ def make_integration_tools(
             github_reply,
             _schema(
                 "github_reply",
-                "Comment on a GitHub issue or pull request (as the agent's bot "
-                "identity on the managed path). Requires user approval.",
+                "Comment on a GitHub issue or pull request. "
+                "Requires user approval.",
                 {
                     "owner": {"type": "string"},
                     "repo": {"type": "string"},
@@ -688,7 +616,6 @@ def make_integration_tools(
             secrets,
             "POST",
             f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
-            install=owner,
             json={"event": event, **({"body": body} if body else {})},
         )
 
@@ -733,7 +660,6 @@ def make_integration_tools(
             secrets,
             "GET",
             f"/repos/{owner}/{repo}/commits",
-            install=owner,
             params=params,
         )
         if "error" in out:
@@ -808,7 +734,7 @@ def make_integration_tools(
             }
         url = f"{_github_git_base()}/{owner}/{repo}.git"
         _out, git_err = _run_git(
-            [*_github_git_auth_args(secrets, owner), "clone", url, str(target)]
+            [*_github_git_auth_args(secrets), "clone", url, str(target)]
         )
         if git_err:
             return {"error": f"clone failed: {git_err}"}
@@ -853,14 +779,9 @@ def make_integration_tools(
             return err
         if not (target / ".git").exists():
             return {"error": f"{target} is not a git repository"}
-        remote, git_err = _run_git(["remote", "get-url", "origin"], cwd=target)
-        if git_err:
-            return {"error": f"no origin remote: {git_err}"}
-        m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?/?$", remote)
-        owner = m.group(1) if m else ""
         _out, git_err = _run_git(
             [
-                *_github_git_auth_args(secrets, owner),
+                *_github_git_auth_args(secrets),
                 "-C",
                 str(target),
                 "pull",
@@ -3088,7 +3009,7 @@ def make_integration_tools(
         )
     )
 
-    # -- notion (managed OAuth or integration token, multi-workspace) --
+    # -- notion (integration token, multi-workspace) --
 
     def _notion_headers(profile: dict[str, Any]) -> dict[str, str]:
         return {
@@ -3276,7 +3197,7 @@ def make_integration_tools(
         )
     )
 
-    # -- attio (managed OAuth or API key, multi-workspace) --
+    # -- attio (API key, multi-workspace) --
 
     def attio_list_objects(account: str = "") -> dict[str, Any]:
         aid, profile, err = _account_profile(secrets, "attio", account, "access_token")

@@ -55,15 +55,15 @@ class CodexMCTSSearch:
         baseline_results: Dict[str, Any],
         idea_info: Dict[str, str],
         proxy_settings=None,
-        model='gpt-5.6-sol',
         runner_cls=CodexRunner,
     ):
         self.folder_name = folder_name
         self.baseline_results = baseline_results
         self.idea_info = idea_info
 
-        # Create the selected coding-agent runner.
-        self.codex_runner = runner_cls(proxy_settings, model)
+        # Create the selected coding-agent runner.  The backend owns its own
+        # model choice and credentials, so only proxy settings are passed.
+        self.codex_runner = runner_cls(proxy_settings)
         self.backend_label = getattr(self.codex_runner, "backend_label", "Codex CLI")
 
         # Create root node
@@ -732,7 +732,6 @@ def perform_experiments_mcts(
     idea,
     folder_name: str,
     proxy_settings=None,
-    model='gpt-5.6-sol',
     runner_cls=CodexRunner,
     gpu_ids=None,
     log_file=None,
@@ -744,7 +743,6 @@ def perform_experiments_mcts(
         idea: Experiment idea
         folder_name: Experiment folder
         proxy_settings: Proxy settings
-        model: Model name
 
     Returns:
         bool: Whether experiment succeeded
@@ -774,7 +772,6 @@ def perform_experiments_mcts(
             baseline_results=baseline_results,
             idea_info=idea_info,
             proxy_settings=proxy_settings,
-            model=model,
             runner_cls=runner_cls,
         )
         success = mcts_search.run_mcts_search()

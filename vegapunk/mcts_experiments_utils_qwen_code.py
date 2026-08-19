@@ -12,7 +12,6 @@ def perform_experiments_mcts(
     idea,
     folder_name: str,
     proxy_settings=None,
-    model="qwen3.6-plus",
     gpu_ids=None,
     log_file=None,
 ) -> bool:
@@ -20,7 +19,6 @@ def perform_experiments_mcts(
         idea,
         folder_name,
         proxy_settings=proxy_settings,
-        model=model,
         runner_cls=QwenCodeRunner,
     )
 

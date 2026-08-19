@@ -3,7 +3,6 @@ import {
   addMcpServer,
   allowUser,
   connectConnector,
-  connectManaged,
   connectMcpBacked,
   connectMcp,
   deleteMcpServer,
@@ -20,14 +19,12 @@ import {
   reloadMcp,
   setDefaultModel,
   updateConnectorTools,
-  type CloudStatus,
   type Connector,
   type Subscription,
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
-import { CloudSignInInline, CloudStatusPending } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
@@ -517,20 +514,14 @@ function AddForm({
 // Parked messages from senders not on the allow-list (§19). The gateway keeps what they said
 // instead of dropping it, so first contact is one step: Allow & deliver replays the original
 // message through the normal inbound path — no "message the bot again".
-// With `teamId` (the Slack-workspaces page) only that workspace's parked messages show;
-// resolving routes the allow to the right workspace server-side (the item carries its team).
 export function UnauthorizedBlock({
   c,
   onChanged,
-  teamId,
 }: {
   c: Connector;
   onChanged: () => void;
-  teamId?: string;
 }) {
-  const items = (c.unauthorized ?? []).filter(
-    (m) => teamId === undefined || m.team_id === teamId,
-  );
+  const items = c.unauthorized ?? [];
   if (items.length === 0) return null;
   const act = async (id: string, action: "dismiss" | "allow" | "allow_deliver") => {
     await resolveUnauthorized(c.name, id, action);
@@ -539,7 +530,7 @@ export function UnauthorizedBlock({
   return (
     <div
       className="border-t border-line px-3.5 py-3"
-      data-testid={teamId ? `unauthorized-${c.name}-${teamId}` : `unauthorized-${c.name}`}
+      data-testid={`unauthorized-${c.name}`}
     >
       <div className={SEC_H + " mb-2"}>
         Messages from senders you haven't allowed · {items.length}
@@ -636,27 +627,16 @@ export function ListeningSessionsBlock({ c }: { c: Connector }) {
 
 // Who may message this two-way bot. Recent senders surface here once they DM/mention the bot, so you
 // can Allow them; allowed users are chips you can remove. (Was orphaned in the super-agent view.)
-// With `teamId` (the Slack-workspaces page) the list is that WORKSPACE's — ids are
-// workspace-scoped, so allow/remove target `slack:team:<id>` and recents filter to the team.
 export function AllowlistBlock({
   c,
   onChanged,
-  teamId,
-  allowed,
-  allowedNames,
 }: {
   c: Connector;
   onChanged: () => void;
-  teamId?: string;
-  allowed?: string[];
-  allowedNames?: Record<string, string | null>;
 }) {
-  const allowedUsers = allowed ?? c.allowed_users;
-  const names = allowedNames ?? c.allowed_user_names;
-  const recent = (c.recent ?? []).filter(
-    (r) => teamId === undefined || r.team_id === teamId,
-  );
-  const unknownRecent = recent.filter((r) => !r.authorized);
+  const allowedUsers = c.allowed_users;
+  const names = c.allowed_user_names;
+  const unknownRecent = (c.recent ?? []).filter((r) => !r.authorized);
 
   return (
     <div className="border-t border-line px-3.5 py-3 grid grid-cols-2 gap-5">
@@ -680,7 +660,7 @@ export function AllowlistBlock({
                 className="w-4 h-4 grid place-items-center text-faint hover:text-danger"
                 title="remove"
                 onClick={async () => {
-                  await disallowUser(c.name, u, teamId);
+                  await disallowUser(c.name, u);
                   onChanged();
                 }}
               >
@@ -707,7 +687,7 @@ export function AllowlistBlock({
                 <button
                   className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
                   onClick={async () => {
-                    await allowUser(c.name, r.user_id, teamId);
+                    await allowUser(c.name, r.user_id);
                     onChanged();
                   }}
                 >
@@ -735,7 +715,7 @@ export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () =
     );
   return (
     <div className="border-t border-line px-3.5 py-3">
-      <div className={SEC_H + " mb-2"}>Tools exposed to OpenWorker</div>
+      <div className={SEC_H + " mb-2"}>Tools exposed to Vegapunk</div>
       <div className="space-y-1.5">
         {c.tools.map((tool) => (
           <label
@@ -766,20 +746,18 @@ export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () =
 // recommended connector can be connected without leaving the session (owner ask, 2026-07-03).
 export function ConnectSetup({
   c,
-  cloud,
   onConnected,
   manualOnly = false,
 }: {
   c: Connector;
-  cloud: CloudStatus | null;
   onConnected: () => void;
   // The add-modal's Manual pane: the one-click button lives on the sibling
-  // pill, so don't render the managed block again here.
+  // pill, so don't render the MCP block again here.
   manualOnly?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [waiting, setWaiting] = useState(false); // managed flow: browser is open
+  const [waiting, setWaiting] = useState(false); // MCP local OAuth: browser is open
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -789,15 +767,6 @@ export function ConnectSetup({
     setBusy(false);
     if (res.ok) onConnected();
     else setError(res.error || "could not connect");
-  };
-
-  const oneClick = async () => {
-    setError(null);
-    const res = await connectManaged(c.name);
-    // Completion arrives via the tab's poll: the broker form-POSTs the profile
-    // to the sidecar, the connector flips to connected, this card closes itself.
-    if (res.ok) setWaiting(true);
-    else setError(res.error || "could not start managed connect");
   };
 
   const mcpOneClick = async () => {
@@ -812,46 +781,12 @@ export function ConnectSetup({
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
       {c.mcp && !manualOnly && (
-        /* MCP-backed one-click needs no cloud sign-in — the OAuth flow is local. */
+        /* MCP-backed one-click: the OAuth flow runs locally on this computer. */
         <div className="space-y-2" data-testid="mcp-connect">
           <button className={BTN_ACCENT} onClick={mcpOneClick} disabled={waiting}>
             {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
           </button>
           {c.fields.length > 0 && (
-            <div className="text-[11.5px] text-faint">or connect manually:</div>
-          )}
-        </div>
-      )}
-      {c.managed && !c.mcp && !manualOnly && (
-        <div className="space-y-2" data-testid="managed-connect">
-          {c.managed_paused ? (
-            // One-click temporarily off (e.g. Google pending CASA verification):
-            // a visibly-parked button, and the manual path below stays fully live.
-            <>
-              <button className={BTN_ACCENT + " opacity-50"} disabled data-testid="managed-coming-soon">
-                {`Connect ${c.title} with one click`}
-                <span className="ml-2 text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-white/25">
-                  Coming soon
-                </span>
-              </button>
-              <div className="text-[11.5px] text-faint">
-                One-click sign-in is coming soon — connect manually below for now:
-              </div>
-            </>
-          ) : cloud?.signed_in ? (
-            <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
-              {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
-            </button>
-          ) : cloud ? (
-            <CloudSignInInline
-              blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
-            />
-          ) : (
-            // Status unknown (fetch pending/failed): never show the sign-in ask to a
-            // possibly-signed-in user (FB-013); the host keeps polling.
-            <CloudStatusPending />
-          )}
-          {!c.managed_paused && cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>
           )}
         </div>

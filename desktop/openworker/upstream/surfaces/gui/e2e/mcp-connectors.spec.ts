@@ -1,31 +1,29 @@
 // MCP-backed connectors (UX-DECISIONS §42): monday/asana/jira connect through the
-// vendor's hosted MCP server via a fully LOCAL OAuth flow — one-click without any
-// cloud sign-in — and agents get only the PINNED tool subset, surfaced on the
-// connector detail page like any other curated tool set.
+// vendor's hosted MCP server via a fully LOCAL OAuth flow — the one and only
+// one-click left in the product — and agents get only the PINNED tool subset,
+// surfaced on the connector detail page like any other curated tool set.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
 }
 
-test("monday: one-click MCP connect without cloud sign-in; card flips connected", async ({
+test("monday: local-OAuth MCP connect; card flips connected", async ({
   page,
 }) => {
   await openConnectors(page);
 
-  // Signed OUT (fixtures default) — the MCP one-click needs no OpenWorker account.
+  // The MCP one-click is fully local — no account anywhere in the flow.
   await page
     .getByTestId("connector-monday")
     .getByRole("button", { name: "Connect" })
     .click();
   const modal = page.getByTestId("add-connection-modal");
   await expect(modal).toBeVisible();
-  // Single-mode: no One click | Manual pills, no cloud sign-in gate — just the button.
+  // Single-mode: no One click | Manual pills — just the button.
   await expect(modal.getByTestId("modal-pane-manual")).toHaveCount(0);
-  await expect(modal.getByTestId("inline-cloud-sign-in")).toHaveCount(0);
   await expect(modal.getByText("sign-in runs entirely on this computer")).toBeVisible();
 
   await modal.getByTestId("modal-mcp-one-click").click();
@@ -49,7 +47,7 @@ test("jira: two modes — MCP one-click pane plus the manual token form", async 
     .click();
   const modal = page.getByTestId("add-connection-modal");
 
-  // One click pane is the MCP flow (no cloud sign-in gate).
+  // One click pane is the local MCP OAuth flow.
   await expect(modal.getByTestId("modal-pane-one")).toBeVisible();
   await expect(modal.getByTestId("modal-mcp-one-click")).toBeVisible();
 

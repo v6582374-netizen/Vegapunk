@@ -1,70 +1,53 @@
-// The HubSpot detail page (M3.6 Step 4, UX-DECISIONS §21): multi-portal with
-// Default/Sandbox/access tags, the add-modal with One click (read | write
-// consent radios) | Manual private-app pills, and the hidden-fields denylist.
+// The HubSpot detail page (UX-DECISIONS §21): multi-portal with Default/Sandbox
+// tags, the add-portal modal (private-app token paste), and the hidden-fields
+// denylist that keeps properties away from the model.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
 async function openConnectors(page) {
   await page.goto("/");
-  await page.getByTestId("account-row").click();
-  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("nav-connectors").click();
 }
 
-async function signIn(page) {
-  await page.getByTestId("account-row").click();
-  await page.getByTestId("account-sign-in").click();
-  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
+/** Paste a private-app token from whichever connect surface is open. */
+async function pasteToken(page) {
+  const modal = page.getByTestId("add-connection-modal");
+  await modal.getByPlaceholder("pat-…").fill("pat-e2e-token");
+  await modal.getByRole("button", { name: "Connect", exact: true }).click();
 }
 
-test("connect via modal: access radios pick the consent tier; tags reflect it", async ({
-  page,
-}) => {
+async function connectFirstPortal(page) {
   await openConnectors(page);
-  await signIn(page);
+  await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
+  await pasteToken(page);
+  await expect(page.getByTestId("connector-hubspot")).toContainText("Acme Inc", {
+    timeout: 10_000,
+  });
+}
 
-  // Available row → Connect → the two-pill modal with the access radios
+test("connect via modal: the private-app token is the connect path", async ({ page }) => {
+  await openConnectors(page);
   await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
   const modal = page.getByTestId("add-connection-modal");
-  await expect(modal.getByTestId("hubspot-access-read")).toBeChecked(); // read-only default
-  await expect(modal).toContainText("never delete");
-  await modal.getByTestId("hubspot-access-write").check();
-  await modal.getByTestId("modal-connect-hubspot").click();
-  await page.keyboard.press("Escape");
+  // One mode only — no One click | Manual pills now that the broker is gone.
+  await expect(modal.getByTestId("modal-pane-manual")).toHaveCount(0);
+  await expect(modal.getByPlaceholder("pat-…")).toBeVisible();
 
-  // the mock connects instantly; the row moves to Connected and navigates
+  await pasteToken(page);
   await expect(page.getByTestId("connector-hubspot")).toContainText("Acme Inc", {
     timeout: 10_000,
   });
   await page.getByTestId("connector-hubspot").click();
-  const row = page.getByTestId("hubspot-portal-111");
-  await expect(row).toContainText("Default");
-  await expect(page.getByTestId("hubspot-access-tag-111")).toContainText("read & write");
-});
-
-test("manual pane offers the private-app token (no duplicated one-click)", async ({
-  page,
-}) => {
-  await openConnectors(page);
-  await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
-  const modal = page.getByTestId("add-connection-modal");
-  await modal.getByTestId("modal-pane-manual").click();
-  await expect(modal.getByPlaceholder("pat-…")).toBeVisible();
-  await expect(modal.getByTestId("managed-connect")).toHaveCount(0); // one-click lives on the other pill
+  await expect(page.getByTestId("hubspot-portal-111")).toContainText("Default");
 });
 
 test("second portal: sandbox tag, make-default, disconnect repoints", async ({ page }) => {
-  await openConnectors(page);
-  await signIn(page);
-  await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
-  await page.getByTestId("modal-connect-hubspot").click();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("connector-hubspot")).toContainText("Acme Inc", { timeout: 10_000 });
+  await connectFirstPortal(page);
   await page.getByTestId("connector-hubspot").click();
 
   // add the sandbox portal from the page's header button
   await page.getByTestId("add-portal-btn").click();
-  await page.getByTestId("modal-connect-hubspot").click();
-  await page.keyboard.press("Escape");
+  await pasteToken(page);
   const sandbox = page.getByTestId("hubspot-portal-222");
   await expect(sandbox).toContainText("Sandbox", { timeout: 10_000 });
 
@@ -76,12 +59,7 @@ test("second portal: sandbox tag, make-default, disconnect repoints", async ({ p
 });
 
 test("hidden fields round-trip and read back normalized", async ({ page }) => {
-  await openConnectors(page);
-  await signIn(page);
-  await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
-  await page.getByTestId("modal-connect-hubspot").click();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("connector-hubspot")).toContainText("Acme Inc", { timeout: 10_000 });
+  await connectFirstPortal(page);
   await page.getByTestId("connector-hubspot").click();
 
   const row = page.getByTestId("hubspot-hidden-fields");

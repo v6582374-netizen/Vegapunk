@@ -402,22 +402,37 @@ class EvolutionAgent(BaseAgent):
                                 "type": "string",
                                 "description": "Reasoning for the evolved hypothesis"
                             },
-                            "requires_external_data": {
-                                "type": "boolean",
-                                "description": "Whether this evolved idea needs externally acquired data."
-                            },
-                            "external_data_request": {
-                                "type": "string",
-                                "description": "Concrete data variables, range, resolution, and format when external data is required."
-                            },
-                            "external_data_reason": {
-                                "type": "string",
-                                "description": "Why no external data is required when requires_external_data is false."
-                            },
-                            "external_data_route": {
-                                "type": "string",
-                                "enum": ["registered_api", "public_web", "none"],
-                                "description": "registered_api for a specifically appropriate configured provider, public_web for official public sources, or none when no data is needed."
+                            # Same closed choice as generation.  Omitting the
+                            # field inherits the parent Idea's decision whole,
+                            # which is why it is not a required property here.
+                            "external_data": {
+                                "oneOf": [
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "required": {"const": True},
+                                            "request": {
+                                                "type": "string",
+                                                "description": "The concrete data variables, range, resolution, and format needed."
+                                            }
+                                        },
+                                        "required": ["required", "request"],
+                                        "additionalProperties": False
+                                    },
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "required": {"const": False},
+                                            "reason": {
+                                                "type": "string",
+                                                "description": "Why the evolved idea needs no externally acquired data."
+                                            }
+                                        },
+                                        "required": ["required", "reason"],
+                                        "additionalProperties": False
+                                    }
+                                ],
+                                "description": "Only restate this when the evolution changes the decision; omit it to keep the parent Idea's declaration."
                             },
                             "improvements": {
                                 "type": "array",
@@ -427,7 +442,7 @@ class EvolutionAgent(BaseAgent):
                                 }
                             }
                         },
-                        "required": ["text", "rationale", "improvements", "requires_external_data", "external_data_request", "external_data_reason", "external_data_route"]
+                        "required": ["text", "rationale", "improvements"]
                     }
                 },
                 "reasoning": {

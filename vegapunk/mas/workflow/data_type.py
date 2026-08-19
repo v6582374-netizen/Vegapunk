@@ -9,85 +9,97 @@ and WorkflowStates.
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Mapping, Optional
 
 
 EXTERNAL_DATA_FALLBACK_REASON = (
     "External data requirement was missing or invalid; acquisition is disabled by default."
 )
-EXTERNAL_DATA_ROUTE_REGISTERED_API = "registered_api"
-EXTERNAL_DATA_ROUTE_PUBLIC_WEB = "public_web"
-EXTERNAL_DATA_ROUTE_NONE = "none"
-_EXTERNAL_DATA_ROUTES = {
-    EXTERNAL_DATA_ROUTE_REGISTERED_API,
-    EXTERNAL_DATA_ROUTE_PUBLIC_WEB,
-}
+EXTERNAL_DATA_POLICY_FORBIDDEN_REASON = (
+    "The research Task forbids externally acquired data; acquisition is closed for every Idea."
+)
+EXTERNAL_DATA_POLICY_ALLOWED = "allowed"
+EXTERNAL_DATA_POLICY_FORBIDDEN = "forbidden"
+EXTERNAL_DATA_POLICIES = (
+    EXTERNAL_DATA_POLICY_ALLOWED,
+    EXTERNAL_DATA_POLICY_FORBIDDEN,
+)
 
 
-def normalize_external_data_requirement(
-    requires_external_data: Any,
-    external_data_request: Any,
-    external_data_reason: Any,
-    external_data_route: Any = "",
-) -> tuple[bool, str, str, str, Optional[str]]:
-    """Normalize an Idea's explicit external-data declaration.
+@dataclass(frozen=True)
+class ExternalDataDeclaration:
+    """One branch of an Idea's external-data decision.
 
-    The declaration is deliberately closed by default.  A missing/non-boolean
-    switch or a true switch without a concrete request cannot authorize a
-    future data acquisition step.  Returning a warning separately lets the
-    workflow log the normalization without adding an ``uncertain`` state to
-    the persisted model.
+    The decision is a choice, not a table.  An open declaration carries the
+    concrete ``request`` it needs; a closed one carries the ``reason`` it does
+    not.  Neither branch has to invent the other branch's payload, so a record
+    can no longer contradict itself by construction.
     """
-    request = external_data_request.strip() if isinstance(external_data_request, str) else ""
-    reason = external_data_reason.strip() if isinstance(external_data_reason, str) else ""
-    route = external_data_route.strip() if isinstance(external_data_route, str) else ""
 
-    if not isinstance(requires_external_data, bool):
+    required: bool = False
+    request: str = ""
+    reason: str = ""
+
+
+def resolve_external_data_declaration(
+    raw: Any,
+    *,
+    policy: str = EXTERNAL_DATA_POLICY_ALLOWED,
+    inherited: Optional[ExternalDataDeclaration] = None,
+) -> tuple[ExternalDataDeclaration, Optional[str]]:
+    """Resolve one declaration against the Task-level policy.
+
+    This is the single customs house for every entrance that can create an
+    Idea.  An Idea may only narrow what its Task already permits; it can never
+    widen it.  A missing declaration inherits its parent's decision whole,
+    rather than blending fields into a record nobody chose.
+    """
+    if policy == EXTERNAL_DATA_POLICY_FORBIDDEN:
+        claimed = isinstance(raw, Mapping) and raw.get("required") is True
         return (
-            False,
-            "",
-            EXTERNAL_DATA_FALLBACK_REASON,
-            EXTERNAL_DATA_ROUTE_NONE,
-            "requires_external_data must be a boolean; acquisition was disabled",
+            ExternalDataDeclaration(reason=EXTERNAL_DATA_POLICY_FORBIDDEN_REASON),
+            "the Task forbids external data; the Idea's request was refused"
+            if claimed
+            else None,
         )
 
-    if requires_external_data and not request:
+    if raw is None and inherited is not None:
+        return inherited, None
+
+    if not isinstance(raw, Mapping):
         return (
-            False,
-            "",
-            EXTERNAL_DATA_FALLBACK_REASON,
-            EXTERNAL_DATA_ROUTE_NONE,
-            "requires_external_data was true without a concrete external_data_request; acquisition was disabled",
+            ExternalDataDeclaration(reason=EXTERNAL_DATA_FALLBACK_REASON),
+            "external_data must be an object declaring required; acquisition was disabled",
         )
 
-    if requires_external_data and not route:
+    required = raw.get("required")
+    request = raw.get("request")
+    reason = raw.get("reason")
+    request = request.strip() if isinstance(request, str) else ""
+    reason = reason.strip() if isinstance(reason, str) else ""
+
+    if not isinstance(required, bool):
         return (
-            True,
-            request,
-            reason,
-            EXTERNAL_DATA_ROUTE_PUBLIC_WEB,
-            "external_data_route was omitted; defaulting to public_web rather than an unrelated registered API",
+            ExternalDataDeclaration(reason=EXTERNAL_DATA_FALLBACK_REASON),
+            "external_data.required must be a boolean; acquisition was disabled",
         )
 
-    if requires_external_data and route not in _EXTERNAL_DATA_ROUTES:
-        return (
-            False,
-            "",
-            EXTERNAL_DATA_FALLBACK_REASON,
-            EXTERNAL_DATA_ROUTE_NONE,
-            "external_data_route must be registered_api or public_web; acquisition was disabled",
-        )
+    if required:
+        if not request:
+            return (
+                ExternalDataDeclaration(reason=EXTERNAL_DATA_FALLBACK_REASON),
+                "external_data.required was true without a concrete request; "
+                "acquisition was disabled",
+            )
+        return ExternalDataDeclaration(required=True, request=request), None
 
-    if not requires_external_data:
-        warning = None
-        if request:
-            warning = "external_data_request was ignored because requires_external_data is false"
-        if not reason:
-            reason = EXTERNAL_DATA_FALLBACK_REASON
-            warning = warning or "external_data_reason was empty; acquisition remains disabled"
-        return False, "", reason, EXTERNAL_DATA_ROUTE_NONE, warning
-
-    return True, request, reason, route, None
+    warning = None
+    if request:
+        warning = "external_data.request was ignored because required is false"
+    if not reason:
+        reason = EXTERNAL_DATA_FALLBACK_REASON
+        warning = warning or "external_data.reason was empty; acquisition remains disabled"
+    return ExternalDataDeclaration(reason=reason), warning
 
 
 # 这些状态就是发现流程的路线图：先产生想法，再批评、查证、改进、排序，
@@ -116,10 +128,9 @@ class Idea:
     text: str
     score: float = 0.0
     rationale: str = ""
-    requires_external_data: bool = False
-    external_data_request: str = ""
-    external_data_reason: str = ""
-    external_data_route: str = ""
+    external_data: ExternalDataDeclaration = field(
+        default_factory=ExternalDataDeclaration
+    )
     data_workspace: str = ""
     baseline_summary: str = ""
     critiques: List[str] = field(default_factory=list)
@@ -144,10 +155,11 @@ class Idea:
             "text": self.text,
             "score": self.score,
             "rationale": self.rationale,
-            "requires_external_data": self.requires_external_data,
-            "external_data_request": self.external_data_request,
-            "external_data_reason": self.external_data_reason,
-            "external_data_route": self.external_data_route,
+            "external_data": {
+                "required": self.external_data.required,
+                "request": self.external_data.request,
+                "reason": self.external_data.reason,
+            },
             "data_workspace": self.data_workspace,
             "baseline_summary": self.baseline_summary,
             "critiques": self.critiques,
@@ -169,8 +181,16 @@ class Idea:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Idea':
         """Create an Idea from a dictionary."""
+        data = dict(data)
         if isinstance(data.get("generated_at"), str):
             data["generated_at"] = datetime.fromisoformat(data["generated_at"])
+        declaration = data.get("external_data")
+        if isinstance(declaration, Mapping):
+            data["external_data"] = ExternalDataDeclaration(
+                required=bool(declaration.get("required")),
+                request=str(declaration.get("request") or ""),
+                reason=str(declaration.get("reason") or ""),
+            )
         return cls(**data)
 
 
@@ -185,6 +205,8 @@ class Task:
     constraints: List[str] = field(default_factory=list)
     background: str = ""
     ref_code_path: str = ""
+    # The authority an Idea-level declaration may only narrow, never widen.
+    external_data_policy: str = EXTERNAL_DATA_POLICY_ALLOWED
     created_at: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -196,6 +218,7 @@ class Task:
             "constraints": self.constraints,
             "background": self.background,
             "ref_code_path": self.ref_code_path,
+            "external_data_policy": self.external_data_policy,
             "created_at": self.created_at.isoformat()
         }
 

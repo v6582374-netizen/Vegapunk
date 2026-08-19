@@ -61,12 +61,16 @@ const baseProps = {
   onOpenInbox: vi.fn(),
   onOpenSkillsManager: vi.fn(),
   onOpenAgentsMd: vi.fn(),
+  onOpenEmbodied: vi.fn(),
+  onOpenCamera: vi.fn(),
   scheduledActive: false,
   integrationsActive: false,
   auditActive: false,
   inboxActive: false,
   skillsManagerActive: false,
   agentsMdActive: false,
+  embodiedActive: false,
+  cameraActive: false,
 };
 
 afterEach(() => {
@@ -121,6 +125,53 @@ describe("Skills Manager workspace", () => {
     view.rerender(<Sidebar {...baseProps} agentsMdActive />);
     await waitFor(() => expect(screen.getByRole("button", { name: "AGENTS.md" })).toBeTruthy());
     expect(screen.getByRole("button", { name: "AGENTS.md" }).getAttribute("aria-current")).toBe("page");
+  });
+});
+
+describe("Physical AI navigation group", () => {
+  it("groups the governance workbench and Camera under one Physical AI parent", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+
+    const group = await screen.findByRole("button", { name: "Physical AI" });
+    const items = screen.getByTestId("nav-physical-ai-group");
+    expect(within(items).getByRole("button", { name: "Embodied" })).toBeTruthy();
+    expect(within(items).getByRole("button", { name: "Camera" })).toBeTruthy();
+
+    fireEvent.click(group);
+    expect(screen.queryByRole("button", { name: "Embodied" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Camera" })).toBeNull();
+  });
+
+  it("opens each Physical AI surface from its own entry", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    render(<Sidebar {...baseProps} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Embodied" }));
+    expect(baseProps.onOpenEmbodied).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Camera" }));
+    expect(baseProps.onOpenCamera).toHaveBeenCalledOnce();
+  });
+
+  it("reopens the group when a child surface is the current page", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } },
+    ]);
+    const view = render(<Sidebar {...baseProps} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Physical AI" }));
+    expect(screen.queryByRole("button", { name: "Embodied" })).toBeNull();
+
+    view.rerender(<Sidebar {...baseProps} embodiedActive />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Embodied" })).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Embodied" }).getAttribute("aria-current")).toBe("page");
   });
 });
 

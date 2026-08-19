@@ -103,6 +103,7 @@ beforeEach(() => {
     bundle_dir: "",
   });
   streamTranslationRunLog.mockResolvedValue(undefined);
+  mocks.fetchTranslationArtifactBlobUrl.mockResolvedValue("blob:artifact");
   translationArtifactUrl.mockImplementation((runId: string, name: string) => `http://local/${runId}/${name}`);
 });
 
@@ -666,4 +667,51 @@ it("skips the rail entirely when reviewing a past translation", async () => {
   expect(screen.queryByTestId("translation-steps")).toBeNull();
   expect(screen.queryByTestId("translation-radial")).toBeNull();
   expect(screen.getByTestId("translation-record-when").textContent).toMatch(/ago|yesterday|just now/i);
+});
+
+it("previews a finished PDF in its own browser tab, not inline under the artifacts", async () => {
+  // A translated page is unreadable in a panel wedged into a three-column surface, so Preview
+  // hands the artifact to a full tab. The endpoint is authenticated, hence blob bytes rather
+  // than a bare URL.
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  getTranslationRun.mockResolvedValue(DONE_RUN);
+  mocks.fetchTranslationArtifactBlobUrl.mockResolvedValue("blob:preview-1");
+  const replace = vi.fn();
+  const tab = { location: { replace }, opener: {} as unknown, close: vi.fn() };
+  const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+  const row = await waitFor(() => within(artifactPanel()).getByTestId("translation-artifact-mono"));
+  fireEvent.click(within(row).getByRole("button", { name: "Preview" }));
+
+  await waitFor(() => expect(replace).toHaveBeenCalledWith("blob:preview-1"));
+  // Claimed inside the click, before the await, or the browser treats it as an unsolicited pop-up.
+  expect(open).toHaveBeenCalledWith("", "_blank");
+  expect(open.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.fetchTranslationArtifactBlobUrl.mock.invocationCallOrder[0],
+  );
+  expect(tab.opener).toBeNull();
+  expect(mocks.fetchTranslationArtifactBlobUrl).toHaveBeenCalledWith(DONE_RUN.run_id, "scaling-laws-revisited.zh.mono.pdf");
+  // Nothing is embedded in the surface any more.
+  expect(screen.queryByTestId("translation-artifact-preview")).toBeNull();
+  open.mockRestore();
+});
+
+it("says so when the browser blocks the preview tab", async () => {
+  listTranslationDocuments.mockResolvedValue({ documents: [DONE_DOC] });
+  listTranslationRuns.mockResolvedValue({ runs: [DONE_RUN] });
+  getTranslationRun.mockResolvedValue(DONE_RUN);
+  mocks.fetchTranslationArtifactBlobUrl.mockResolvedValue("blob:preview-2");
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+  render(<TranslationView />);
+
+  fireEvent.click(await waitFor(() => card(DONE_DOC.filename)));
+  const row = await waitFor(() => within(artifactPanel()).getByTestId("translation-artifact-mono"));
+  fireEvent.click(within(row).getByRole("button", { name: "Preview" }));
+
+  const alert = await waitFor(() => screen.getByRole("alert"));
+  expect(alert.textContent).toMatch(/blocked the preview tab/i);
+  open.mockRestore();
 });

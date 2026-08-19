@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  connectManaged,
   disconnectAccount,
   setDefaultAccount,
   type AccountRow,
@@ -14,21 +13,12 @@ import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, XBTN } from "./ui";
 // The generic detail page for multi-account connectors on the accounts layer
 // (Notion, Attio, PostHog, Mixpanel, Amplitude, Apollo, Hunter — batch 2).
 // Same grammar as the Calendar page: an Accounts group with a Default badge,
-// make-default, per-account ×. "＋ Add account" launches managed OAuth when
-// the connector has it (and the user is signed in); the manual token form is
-// always available underneath — signed out or in, local-only stays first-class.
+// make-default, per-account ×. "＋ Add account" reveals the token form — each
+// pasted token lands as its own account alongside the others.
 
-export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
-  const [busy, setBusy] = useState(false);
+export function AccountsDetail({ c, onChanged }: DetailProps) {
   const [showManual, setShowManual] = useState(false);
   const accounts = (c.accounts ?? []) as AccountRow[];
-  const canOneClick = c.managed && !!cloud?.signed_in;
-
-  const addManaged = async () => {
-    setBusy(true);
-    await connectManaged(c.name); // completes in the system browser; the section poll picks it up
-    setTimeout(() => setBusy(false), 2500);
-  };
 
   return (
     <div data-testid="accounts-detail">
@@ -54,15 +44,9 @@ export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
         <button
           className={PILL_ACCENT}
           data-testid="add-account-btn"
-          onClick={() => (canOneClick ? addManaged() : setShowManual((v) => !v))}
-          disabled={busy}
-          title={
-            c.managed && !cloud?.signed_in
-              ? "Sign in to OpenWorker Cloud for one-click — or add a token below"
-              : ""
-          }
+          onClick={() => setShowManual((v) => !v)}
         >
-          {busy ? "Check your browser…" : "＋ Add account"}
+          ＋ Add account
         </button>
       </div>
 
@@ -79,14 +63,11 @@ export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
 
       {(showManual || !c.connected) && (
         <>
-          <div className={GRP_H + (accounts.length ? "" : " !mt-0")}>
-            {c.managed ? "Add manually" : "Add an account"}
-          </div>
+          <div className={GRP_H + (accounts.length ? "" : " !mt-0")}>Add an account</div>
           <div className={GRP} data-testid="accounts-manual-add">
             <div className="px-1.5 py-1">
               <ConnectSetup
                 c={c}
-                cloud={cloud}
                 onConnected={() => {
                   setShowManual(false);
                   onChanged();

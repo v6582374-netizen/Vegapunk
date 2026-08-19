@@ -53,10 +53,13 @@ def test_browser_automation_reads_are_free_interactions_gate():
 
 
 # -- slack channel-name resolution ------------------------------------------------------
-def _secrets_with_team(tmp_path) -> SecretStore:
+def _socket_secrets(tmp_path) -> SecretStore:
+    """The one Socket Mode workspace: creds live on slack:default, ids are bare."""
     s = SecretStore(tmp_path / "secrets.json")
-    s.put("slack:default", {"mode": "relay", "enabled": True})
-    s.put("slack:team:T1", {"bot_token": "xoxb-t1", "account": "acme"})
+    s.put(
+        "slack:default",
+        {"bot_token": "xoxb-default", "app_token": "xapp-1", "enabled": True},
+    )
     return s
 
 
@@ -68,126 +71,125 @@ def _record_sender(record: list):
     return {"slack": sender}
 
 
-def _fake_roster(monkeypatch, channels_by_team: dict):
+def _fake_roster(monkeypatch, channels):
+    """Stub the cached conversations.list roster. `channels` is None to simulate a
+    roster fetch failure, else the rows the one workspace returns."""
     from coworker.connectors import slack_directory
 
     calls: list = []
 
-    def fake_list_channels(secrets, team_id, query="", limit=25, *, refresh=False):
-        calls.append(team_id)
-        rows = channels_by_team.get(team_id)
-        if rows is None:
+    def fake_list_channels(secrets, query="", limit=25, *, refresh=False):
+        calls.append(query)
+        if channels is None:
             return {"ok": False, "error": "workspace not connected"}
-        return {"ok": True, "channels": rows}
+        return {"ok": True, "channels": channels}
 
     monkeypatch.setattr(slack_directory, "list_channels", fake_list_channels)
     return calls
 
 
-def test_channel_name_resolves_to_team_qualified_address(tmp_path, monkeypatch):
-    secrets = _secrets_with_team(tmp_path)
-    _fake_roster(
+def test_channel_name_resolves_to_channel_id(tmp_path, monkeypatch):
+    secrets = _socket_secrets(tmp_path)
+    calls = _fake_roster(
         monkeypatch,
-        {
-            "T1": [
-                {
-                    "id": "C9",
-                    "name": "all-openworker",
-                    "is_private": False,
-                    "is_member": True,
-                }
-            ]
-        },
+        [
+            {
+                "id": "C9",
+                "name": "all-openworker",
+                "is_private": False,
+                "is_member": True,
+            }
+        ],
     )
     record: list = []
     tool = make_send_message_tool(secrets, senders=_record_sender(record))
 
     out = tool("slack:#all-openworker", "Hi")
     assert out["ok"] is True
-    assert record[0]["chat_id"] == "T1/C9"
-    assert (
-        record[0]["token"] == "xoxb-t1"
-    )  # the resolved team's token, not slack:default
+    assert record[0]["chat_id"] == "C9"
+    assert record[0]["token"] == "xoxb-default"
+    assert calls == ["all-openworker"]
 
 
 def test_bare_channel_names_coerce_to_slack(tmp_path, monkeypatch):
     """The owner's exact transcript: the model sent target='all-openworker' and
     '#all-openworker' — no 'slack:' prefix — and got 'invalid target'. Bare names
     are Slack-shaped and must resolve."""
-    secrets = _secrets_with_team(tmp_path)
+    secrets = _socket_secrets(tmp_path)
     _fake_roster(
         monkeypatch,
-        {
-            "T1": [
-                {
-                    "id": "C9",
-                    "name": "all-openworker",
-                    "is_private": False,
-                    "is_member": True,
-                }
-            ]
-        },
+        [
+            {
+                "id": "C9",
+                "name": "all-openworker",
+                "is_private": False,
+                "is_member": True,
+            }
+        ],
     )
     record: list = []
     tool = make_send_message_tool(secrets, senders=_record_sender(record))
 
     assert tool("all-openworker", "Hi")["ok"] is True
     assert tool("#all-openworker", "Hi")["ok"] is True
-    assert all(r["chat_id"] == "T1/C9" and r["token"] == "xoxb-t1" for r in record)
+    assert all(r["chat_id"] == "C9" and r["token"] == "xoxb-default" for r in record)
 
     # Garbage that is neither an address nor a Slack-shaped name still errors clearly.
     assert "invalid target" in tool("Not A Channel!", "Hi")["error"]
 
 
 def test_id_like_targets_never_touch_the_roster(tmp_path, monkeypatch):
-    secrets = _secrets_with_team(tmp_path)
-    calls = _fake_roster(monkeypatch, {})
+    secrets = _socket_secrets(tmp_path)
+    calls = _fake_roster(monkeypatch, [])
     record: list = []
     tool = make_send_message_tool(secrets, senders=_record_sender(record))
 
-    assert tool("slack:T1/C0BFPTFE7RV", "Hi")["ok"] is True
-    assert calls == [] and record[0]["chat_id"] == "T1/C0BFPTFE7RV"
+    assert tool("slack:C0BFPTFE7RV", "Hi")["ok"] is True
+    assert calls == [] and record[0]["chat_id"] == "C0BFPTFE7RV"
 
 
-def test_unknown_ambiguous_and_not_member_names_error_actionably(tmp_path, monkeypatch):
-    secrets = _secrets_with_team(tmp_path)
-    secrets.put("slack:team:T2", {"bot_token": "xoxb-t2", "account": "beta"})
-    chan = {"id": "C1", "name": "general", "is_private": False, "is_member": True}
-    _fake_roster(monkeypatch, {"T1": [chan], "T2": [dict(chan, id="C2")]})
+def test_unknown_and_not_member_names_error_actionably(tmp_path, monkeypatch):
+    secrets = _socket_secrets(tmp_path)
+    _fake_roster(
+        monkeypatch,
+        [{"id": "C1", "name": "general", "is_private": False, "is_member": True}],
+    )
     tool = make_send_message_tool(secrets, senders=_record_sender([]))
 
     assert "no Slack channel named #nope" in tool("slack:#nope", "Hi")["error"]
-    assert "more than one connected workspace" in tool("slack:#general", "Hi")["error"]
 
+    # Found, but the bot was never invited — say so instead of failing opaquely.
     _fake_roster(
         monkeypatch,
-        {
-            "T1": [
-                {
-                    "id": "C3",
-                    "name": "private-ops",
-                    "is_private": True,
-                    "is_member": False,
-                }
-            ]
-        },
+        [
+            {
+                "id": "C3",
+                "name": "private-ops",
+                "is_private": True,
+                "is_member": False,
+            }
+        ],
     )
-    secrets.delete("slack:team:T2")
     assert "invite @OpenWorker" in tool("slack:#private-ops", "Hi")["error"]
 
 
+def test_name_resolution_without_a_connected_workspace(tmp_path, monkeypatch):
+    secrets = SecretStore(tmp_path / "secrets.json")  # Slack never connected
+    calls = _fake_roster(monkeypatch, [])
+    tool = make_send_message_tool(secrets, senders=_record_sender([]))
+
+    assert "no bot token for slack" in tool("slack:#general", "Hi")["error"]
+    assert calls == []  # never fetch a roster we have no token for
+
+
 def test_send_file_resolves_names_too(tmp_path, monkeypatch):
-    secrets = _secrets_with_team(tmp_path)
+    secrets = _socket_secrets(tmp_path)
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "r.pdf").write_bytes(b"%PDF")
     _fake_roster(
         monkeypatch,
-        {
-            "T1": [
-                {"id": "C9", "name": "general", "is_private": False, "is_member": True}
-            ]
-        },
+        [{"id": "C9", "name": "general", "is_private": False, "is_member": True}],
     )
     record: list = []
 
@@ -199,4 +201,4 @@ def test_send_file_resolves_names_too(tmp_path, monkeypatch):
         secrets, workspace=ws, file_senders={"slack": file_sender}
     )
     out = tool("slack:#general", "r.pdf")
-    assert out["ok"] is True and record[0]["chat_id"] == "T1/C9"
+    assert out["ok"] is True and record[0]["chat_id"] == "C9"

@@ -17,7 +17,7 @@ from coworker.connectors.setup import (
 from coworker.secrets import SecretStore
 
 
-def _fake_descriptor(name="acmeapp", account_field="project_id", managed=False):
+def _fake_descriptor(name="acmeapp", account_field="project_id"):
     return ConnectorDescriptor(
         name=name,
         title="AcmeApp",
@@ -31,7 +31,6 @@ def _fake_descriptor(name="acmeapp", account_field="project_id", managed=False):
         ],
         instructions=[],
         validate=lambda creds: ValidationResult(True, identity="acme@example.com"),
-        managed=managed,
         account_field=account_field,
     )
 
@@ -131,12 +130,12 @@ def test_connector_list_accounts_branch_and_full_disconnect(acme, secrets):
     accounts.add_account(
         secrets, "acmeapp", "p1", {"api_key": "k1", "account": "Proj One"}
     )
-    accounts.add_account(secrets, "acmeapp", "p2", {"api_key": "k2", "managed": True})
+    accounts.add_account(secrets, "acmeapp", "p2", {"api_key": "k2"})
     entry = next(c for c in connector_list(secrets) if c["name"] == "acmeapp")
     assert entry["connected"] and entry["enabled"]
     assert entry["accounts"] == [
-        {"account_id": "p1", "name": "Proj One", "default": True, "managed": False},
-        {"account_id": "p2", "name": "p2", "default": False, "managed": True},
+        {"account_id": "p1", "name": "Proj One", "default": True},
+        {"account_id": "p2", "name": "p2", "default": False},
     ]
     assert entry["account"] == "Proj One"  # default account's display name
 

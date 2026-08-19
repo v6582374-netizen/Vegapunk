@@ -62,8 +62,7 @@ def _send_slack(
 
     from .slack_addr import split
 
-    # A managed-relay chat_id is team-qualified ("T…/C…"); Slack's API wants the
-    # bare channel. The per-team token is selected by the caller (send_message).
+    # Normalize to the bare channel id Slack's API expects.
     _team, chat_id = split(chat_id)
     payload: dict = {"channel": chat_id, "text": text}
     if thread_id:
