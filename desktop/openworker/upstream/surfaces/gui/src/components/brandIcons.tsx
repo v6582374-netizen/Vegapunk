@@ -119,6 +119,15 @@ function Telegram({ s }: { s: number }) {
   );
 }
 
+function YouTube({ s }: { s: number }) {
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21.6 7.2a2.7 2.7 0 0 0-1.9-1.9C18 4.8 12 4.8 12 4.8s-6 0-7.7.5a2.7 2.7 0 0 0-1.9 1.9C1.9 8.9 1.9 12 1.9 12s0 3.1.5 4.8a2.7 2.7 0 0 0 1.9 1.9c1.7.5 7.7.5 7.7.5s6 0 7.7-.5a2.7 2.7 0 0 0 1.9-1.9c.5-1.7.5-4.8.5-4.8s0-3.1-.5-4.8Z" fill="#FF0000" />
+      <path d="m10 15.5 5-3.5-5-3.5z" fill="#fff" />
+    </svg>
+  );
+}
+
 const MARKS: Record<string, (p: { s: number }) => JSX.Element> = {
   gmail: Gmail,
   google_calendar: GoogleCalendar,
@@ -131,6 +140,7 @@ const MARKS: Record<string, (p: { s: number }) => JSX.Element> = {
   pagerduty: PagerDuty,
   github: GitHub,
   telegram: Telegram,
+  youtube: YouTube,
 };
 
 export function hasBrandIcon(name: string): boolean {
