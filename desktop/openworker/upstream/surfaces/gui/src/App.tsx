@@ -68,7 +68,7 @@ import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
 import { DiscoveryView } from "./components/DiscoveryView";
 import { CameraView } from "./components/CameraView";
 import { EmbodiedWorkbench } from "./components/EmbodiedWorkbench";
-import { YouTubePrototype } from "./components/YouTubePrototype";
+import { YouTubeView } from "./components/YouTubeView";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -1380,7 +1380,7 @@ function VegapunkApp({
         onPeekLeave={() => setNavPeek(false)}
       />
       {surface === "youtube-prototype" ? (
-        <YouTubePrototype />
+        <YouTubeView />
       ) : surface === "scheduled" ? (
         <ScheduledView
           onOpenRun={openRunSession}
