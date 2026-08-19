@@ -2036,6 +2036,8 @@ export interface Automation {
   schedule_raw?: { kind: string; cron?: string | null; fire_at?: string | null; timezone?: string };
   workspace: string;
   agent: string;
+  kind?: "agent" | "youtube" | string;
+  config?: Record<string, unknown>;
   enabled: boolean;
   next_run: number | null;
   last_run: number | null;
@@ -2174,6 +2176,99 @@ export async function finalizeAutomationRun(id: string, runId: string) {
     `${httpBase()}/v1/automations/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/finalize`,
     { method: "POST" },
   );
+  return res.json();
+}
+
+// -- YouTube automation -------------------------------------------------------
+export interface YouTubeStatus {
+  configured: boolean;
+  connected: boolean;
+  needs_authorization: boolean;
+  account_id?: string | null;
+  account_title?: string | null;
+  connected_at?: number | null;
+  subscriptions_synced_at?: number | null;
+  last_scan_at?: number | null;
+  channel_count: number;
+  video_count: number;
+}
+
+export interface YouTubeVideo {
+  video_id: string;
+  channel_id: string;
+  channel_title: string;
+  title: string;
+  url: string;
+  published_at: string;
+  published_ts: number | null;
+  discovered_at: number;
+  selected: boolean;
+  caption_status: "pending" | "ready" | "error" | string;
+  caption_error: string | null;
+  caption?: {
+    language_code: string;
+    language_name: string;
+    track_kind: string;
+    source: string;
+  } | null;
+  caption_body?: string | null;
+}
+
+export async function getYouTubeStatus(): Promise<YouTubeStatus> {
+  const res = await fetch(`${httpBase()}/v1/youtube/status`);
+  return res.json();
+}
+
+export async function startYouTubeOAuth(): Promise<{ ok: boolean; authorization_url?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/oauth/start`);
+  return res.json();
+}
+
+export async function disconnectYouTube(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/disconnect`, { method: "POST" });
+  return res.json();
+}
+
+export async function refreshYouTubeSubscriptions() {
+  const res = await fetch(`${httpBase()}/v1/youtube/subscriptions/refresh`, { method: "POST" });
+  return res.json();
+}
+
+export async function createYouTubeAutomation(payload?: { title?: string }): Promise<{ ok: boolean; error?: string; task?: Automation }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/automations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  return res.json();
+}
+
+export async function runYouTubeAutomation(taskId: string) {
+  const res = await fetch(`${httpBase()}/v1/youtube/automations/${encodeURIComponent(taskId)}/run`, { method: "POST" });
+  return res.json();
+}
+
+export async function getYouTubeVideos(): Promise<{ videos: YouTubeVideo[] }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/videos`);
+  return res.json();
+}
+
+export async function getYouTubeVideo(videoId: string): Promise<{ video: YouTubeVideo }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`);
+  return res.json();
+}
+
+export async function setYouTubeVideoSelected(videoId: string, selected: boolean) {
+  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ selected }),
+  });
+  return res.json();
+}
+
+export async function deleteYouTubeVideo(videoId: string) {
+  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`, { method: "DELETE" });
   return res.json();
 }
 

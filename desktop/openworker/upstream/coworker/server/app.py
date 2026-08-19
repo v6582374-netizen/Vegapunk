@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
@@ -283,6 +284,7 @@ def create_app(
     web_auth_token = web_token or api_token
     tokenless_paths = {
         "/v1/health",
+        "/v1/youtube/oauth/callback",
         "/mcp/oauth/callback",
         "/web/auth",
         "/web/login",
@@ -361,6 +363,7 @@ def create_app(
         allow_headers=["*"],
     )
     app.state.manager = manager
+    youtube_oauth_states: dict[str, float] = {}
     default_library_root, default_baseline_root = default_prompt_roots()
     app.state.prompt_library = DesktopPromptLibrary(
         PromptLibrary(
@@ -1805,6 +1808,157 @@ def create_app(
             )
             await manager._dispatch_inbound(event)
             return {"ok": True}
+
+    # -- YouTube automation ------------------------------------------------------
+    def _youtube_video_public(video: dict[str, Any], *, include_body: bool = False) -> dict[str, Any]:
+        result = {
+            "video_id": video.get("video_id"),
+            "channel_id": video.get("channel_id"),
+            "channel_title": video.get("channel_title"),
+            "title": video.get("title"),
+            "url": video.get("url"),
+            "published_at": video.get("published_at"),
+            "published_ts": video.get("published_ts"),
+            "discovered_at": video.get("discovered_at"),
+            "selected": bool(video.get("selected")),
+            "caption_status": video.get("caption_status"),
+            "caption_error": video.get("caption_error"),
+            "caption": {
+                "language_code": video.get("language_code"),
+                "language_name": video.get("language_name"),
+                "track_kind": video.get("track_kind"),
+                "source": video.get("caption_source"),
+            }
+            if video.get("language_code")
+            else None,
+        }
+        if include_body:
+            result["caption_body"] = video.get("caption_body")
+        return result
+
+    @app.get("/v1/youtube/status")
+    def youtube_status() -> dict[str, Any]:
+        return {
+            **manager.youtube_client.status(),
+            "subscriptions_synced_at": manager.youtube_store.get_state("subscriptions_synced_at"),
+            "last_scan_at": manager.youtube_store.get_state("last_scan_at"),
+            "channel_count": len(manager.youtube_store.list_channels()),
+            "video_count": len(manager.youtube_store.list_videos()),
+        }
+
+    @app.get("/v1/youtube/oauth/start")
+    def youtube_oauth_start(request: Request) -> dict[str, Any]:
+        state = secrets.token_urlsafe(32)
+        youtube_oauth_states[state] = time.time() + 600
+        redirect_uri = os.environ.get("YOUTUBE_REDIRECT_URI") or str(
+            request.url_for("youtube_oauth_callback")
+        )
+        try:
+            url = manager.youtube_client.authorization_url(state=state, redirect_uri=redirect_uri)
+        except Exception as exc:
+            youtube_oauth_states.pop(state, None)
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "authorization_url": url}
+
+    @app.get("/v1/youtube/oauth/callback", name="youtube_oauth_callback")
+    async def youtube_oauth_callback(
+        request: Request, code: str = "", state: str = "", error: str = ""
+    ) -> HTMLResponse:
+        if error:
+            return HTMLResponse(
+                _browser_page(
+                    "YouTube sign-in failed",
+                    "Return to Vegapunk and start the connection again.",
+                    ok=False,
+                    error=error,
+                    connector="youtube",
+                ),
+                status_code=400,
+            )
+        expires = youtube_oauth_states.pop(state, 0)
+        if not code or not state or expires < time.time():
+            return HTMLResponse(
+                _browser_page(
+                    "Nothing waiting for this sign-in",
+                    "The YouTube sign-in may have timed out. Start it again from Vegapunk.",
+                    ok=False,
+                    connector="youtube",
+                ),
+                status_code=400,
+            )
+        redirect_uri = os.environ.get("YOUTUBE_REDIRECT_URI") or str(
+            request.url_for("youtube_oauth_callback")
+        )
+        try:
+            await manager.youtube_client.exchange_code(code=code, redirect_uri=redirect_uri)
+            await manager.youtube.sync_subscriptions()
+            if manager.youtube_store.get_state("authorized_at") is None:
+                manager.youtube_store.set_state("authorized_at", time.time())
+        except Exception as exc:
+            return HTMLResponse(
+                _browser_page(
+                    "YouTube connection failed",
+                    "The account was not connected. Return to Vegapunk and try again.",
+                    ok=False,
+                    error=str(exc),
+                    connector="youtube",
+                ),
+                status_code=400,
+            )
+        return HTMLResponse(
+            _browser_page(
+                "YouTube connected",
+                "Your subscriptions are synced. You can close this tab and return to Vegapunk.",
+                ok=True,
+                connector="youtube",
+            )
+        )
+
+    @app.post("/v1/youtube/disconnect")
+    def youtube_disconnect() -> dict[str, Any]:
+        manager.secrets.delete("youtube:default")
+        return {"ok": True}
+
+    @app.post("/v1/youtube/subscriptions/refresh")
+    async def youtube_subscriptions_refresh() -> dict[str, Any]:
+        try:
+            return await manager.youtube.sync_subscriptions()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @app.post("/v1/youtube/automations")
+    def youtube_automation_create(body: dict | None = None) -> dict[str, Any]:
+        return manager.create_youtube_automation(body or {})
+
+    @app.post("/v1/youtube/automations/{task_id}/run")
+    async def youtube_automation_run(task_id: str) -> dict[str, Any]:
+        return await manager.run_youtube_now(task_id)
+
+    @app.get("/v1/youtube/videos")
+    def youtube_videos() -> dict[str, Any]:
+        return {"videos": [_youtube_video_public(v) for v in manager.youtube_store.list_videos()]}
+
+    @app.get("/v1/youtube/videos/{video_id}")
+    def youtube_video(video_id: str) -> dict[str, Any]:
+        video = manager.youtube_store.get_video(video_id)
+        if video is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        return {"video": _youtube_video_public(video, include_body=True)}
+
+    @app.patch("/v1/youtube/videos/{video_id}")
+    def youtube_video_update(video_id: str, body: dict | None = None) -> dict[str, Any]:
+        selected = (body or {}).get("selected")
+        if not isinstance(selected, bool):
+            return {"ok": False, "error": "selected must be a boolean"}
+        if not manager.youtube_store.set_selected(video_id, selected):
+            raise HTTPException(status_code=404, detail="video not found")
+        return {"ok": True, "video": _youtube_video_public(manager.youtube_store.get_video(video_id) or {})}
+
+    @app.delete("/v1/youtube/videos/{video_id}")
+    def youtube_video_delete(video_id: str) -> dict[str, Any]:
+        if not manager.youtube_store.delete_video(video_id):
+            raise HTTPException(status_code=404, detail="video not found")
+        return {"ok": True}
 
     # -- automations (scheduled tasks) ------------------------------------------
     @app.get("/v1/automations")

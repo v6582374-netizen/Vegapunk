@@ -68,6 +68,7 @@ import { AgentsMdEditorWorkspace } from "./components/AgentsMdEditorWorkspace";
 import { DiscoveryView } from "./components/DiscoveryView";
 import { CameraView } from "./components/CameraView";
 import { EmbodiedWorkbench } from "./components/EmbodiedWorkbench";
+import { YouTubePrototype } from "./components/YouTubePrototype";
 
 const newId = () =>
   (crypto as any).randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 14);
@@ -163,6 +164,7 @@ export function App() {
   if (prototype === "babeldoc") return <BabelDocPrototype />;
   if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
   if (prototype === "embodied") return <EmbodiedPrototype />;
+  if (prototype === "youtube") return <YouTubePrototype />;
   const app = <VegapunkApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }

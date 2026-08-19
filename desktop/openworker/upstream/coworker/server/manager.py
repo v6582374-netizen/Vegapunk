@@ -89,6 +89,7 @@ from ..providers import (
 from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
 from ..skills import SkillLoader
+from ..youtube import YouTubeAutomationService, YouTubeClient, YouTubeStore
 from .discovery_preferences import DiscoveryLaunchPreferences
 
 _SCOPES = {s.value for s in Scope}
@@ -198,6 +199,9 @@ class SessionManager:
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
+        self.youtube_store = YouTubeStore(base / "youtube.db")
+        self.youtube_client = YouTubeClient(self.secrets)
+        self.youtube = YouTubeAutomationService(self.youtube_store, self.youtube_client)
         self.scheduler = Scheduler(
             self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
         )
@@ -2274,6 +2278,8 @@ class SessionManager:
         await self.scheduler.stop()
         await self.stop_gateway()
         await self.mcp.aclose()
+        await self.youtube_client.close()
+        self.youtube_store.close()
         self.audit_store.close()
 
     # -- automation (scheduled tasks) -------------------------------------------
@@ -2803,6 +2809,8 @@ class SessionManager:
         )
 
     async def _run_scheduled_task(self, task, trigger: str) -> TaskRun:
+        if getattr(task, "kind", "agent") == "youtube":
+            return await self._run_youtube_task(task, trigger)
         run = TaskRun(
             task_id=task.id, trigger=trigger
         )  # __post_init__ sets run.session_id
@@ -2860,6 +2868,37 @@ class SessionManager:
                 pass
             self.task_store.add_run(run)
         return run
+
+    async def _run_youtube_task(self, task: ScheduledTask, trigger: str) -> TaskRun:
+        run = TaskRun(task_id=task.id, trigger=trigger)
+        self.task_store.add_run(run)
+        try:
+            result = await self.youtube.run(task_id=task.id, workspace=task.workspace)
+            run.result_text = result.result_text()
+            run.artifacts = [result.artifact] if result.artifact else []
+            run.status = "ok"
+        except Exception as exc:
+            run.status = "error"
+            run.error = str(exc)
+        finally:
+            run.finished_at = time.time()
+            self.task_store.add_run(run)
+        return run
+
+    async def run_youtube_now(self, task_id: str) -> dict[str, Any]:
+        task = self.task_store.get(task_id)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        if task.kind != "youtube":
+            return {"ok": False, "error": "not a YouTube automation"}
+        run = await self._run_youtube_task(task, "manual")
+        fresh = self.task_store.get(task_id)
+        if fresh is not None:
+            fresh.run_count += 1
+            fresh.last_run = run.started_at
+            fresh.last_status = run.status
+            self.task_store.save(fresh)
+        return {"ok": True, "run": run.to_dict()}
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
@@ -2941,11 +2980,15 @@ class SessionManager:
         cron = (payload.get("cron") or "").strip() or None
         fire_at = (payload.get("fire_at") or "").strip() or None
         timezone = (payload.get("timezone") or "").strip() or "local"
+        kind = str(payload.get("kind") or "agent").strip().lower()
+        config = payload.get("config") if isinstance(payload.get("config"), dict) else {}
 
         if not title:
             return {"ok": False, "error": "title is required"}
         if not instructions:
             return {"ok": False, "error": "instructions are required"}
+        if kind not in {"agent", "youtube"}:
+            return {"ok": False, "error": f"unsupported automation kind: {kind}"}
         if not cron and not fire_at:
             return {
                 "ok": False,
@@ -2969,6 +3012,8 @@ class SessionManager:
             workspace="",
             origin_surface="cowork",
             agent="cowork",
+            kind=kind,
+            config=config,
             # Human-driven path (GUI form / onboarding recipes): the creating surface
             # rendered the grants, the submit IS the consent. Same validation as the
             # agent tool — only target-bound write grants survive.
@@ -2977,6 +3022,19 @@ class SessionManager:
         task.workspace = self._provision_scratch(task.task_session_id)
         self.task_store.save(task)
         return {"ok": True, "task": task.public()}
+
+    def create_youtube_automation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Create a YouTube automation with the fixed daily Beijing schedule."""
+        body = dict(payload or {})
+        body.setdefault("title", "YouTube subscription updates")
+        body.setdefault(
+            "instructions",
+            "Fetch subscribed-channel updates, retrieve the best available raw captions, and save them locally.",
+        )
+        body["kind"] = "youtube"
+        body["cron"] = "0 0 * * *"
+        body["timezone"] = "Asia/Shanghai"
+        return self.create_automation(body)
 
     def update_automation(
         self, task_id: str, changes: dict[str, Any]
