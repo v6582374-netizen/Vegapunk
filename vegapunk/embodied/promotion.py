@@ -283,132 +283,175 @@ class PromotionLedger:
         return tuple(self._rejections.values())
 
 
-def _contract_reasons(submission: PromotionSubmission) -> tuple[str, ...]:
+def _skill_reasons(skill: GoldenSkillRevision | None) -> list[str]:
     reasons: list[str] = []
-    skill = submission.skill
-    candidate = submission.candidate
-    embodiment = submission.embodiment
-    configuration = submission.configuration
-    plan = submission.plan
-
     if skill is None:
         reasons.append("a frozen Physical Skill revision is required")
-    else:
-        if skill.skill.skill_id != GOLDEN_SKILL_ID:
-            reasons.append(
-                f"the first Generation accepts only {GOLDEN_SKILL_ID!r}"
-            )
-        if skill.operation_loop != GOLDEN_INSTRUMENT_OPERATION_LOOP:
-            reasons.append(
-                "the Golden Skill must declare the complete ordered Instrument "
-                "Operation Loop"
-            )
+        return reasons
+    if skill.skill.skill_id != GOLDEN_SKILL_ID:
+        reasons.append(f"the first Generation accepts only {GOLDEN_SKILL_ID!r}")
+    if skill.operation_loop != GOLDEN_INSTRUMENT_OPERATION_LOOP:
+        reasons.append(
+            "the Golden Skill must declare the complete ordered Instrument "
+            "Operation Loop"
+        )
+    return reasons
 
+
+def _candidate_reasons(
+    candidate: CandidateBundle | None,
+    skill: GoldenSkillRevision | None,
+) -> list[str]:
+    reasons: list[str] = []
     if candidate is None:
         reasons.append("a frozen Candidate Bundle is required")
-    else:
-        missing = candidate.missing_fields()
-        if missing:
+        return reasons
+    missing = candidate.missing_fields()
+    if missing:
+        reasons.append("the Candidate Bundle is missing: " + ", ".join(missing))
+    if skill is not None:
+        if candidate.skill_revision_id != skill.version_id:
             reasons.append(
-                "the Candidate Bundle is missing: " + ", ".join(missing)
+                "the Candidate Bundle names a different Physical Skill revision"
             )
-        if skill is not None:
-            if candidate.skill_revision_id != skill.version_id:
-                reasons.append(
-                    "the Candidate Bundle names a different Physical Skill "
-                    "revision"
-                )
-            if candidate.skill_revision_digest != skill.digest():
-                reasons.append(
-                    "the Candidate Bundle names a different Physical Skill "
-                    "contract"
-                )
+        if candidate.skill_revision_digest != skill.digest():
+            reasons.append(
+                "the Candidate Bundle names a different Physical Skill contract"
+            )
+    return reasons
 
+
+def _embodiment_reasons(
+    embodiment: EmbodimentProfile | None,
+    candidate: CandidateBundle | None,
+) -> list[str]:
+    reasons: list[str] = []
     if embodiment is None:
         reasons.append("a frozen embodiment is required")
-    else:
-        if not embodiment.fully_verified:
-            reasons.append(
-                "the embodiment still has unverified configuration fields: "
-                + ", ".join(embodiment.unverified_fields)
-            )
-        if embodiment.digest() != GOLDEN_EMBODIMENT.digest():
-            reasons.append(
-                "the first Generation accepts only the named Golden embodiment"
-            )
-        if candidate is not None and candidate.embodiment_digest != embodiment.digest():
-            reasons.append("the Candidate Bundle names a different embodiment")
+        return reasons
+    if not embodiment.fully_verified:
+        reasons.append(
+            "the embodiment still has unverified configuration fields: "
+            + ", ".join(embodiment.unverified_fields)
+        )
+    if embodiment.digest() != GOLDEN_EMBODIMENT.digest():
+        reasons.append(
+            "the first Generation accepts only the named Golden embodiment"
+        )
+    if candidate is not None and candidate.embodiment_digest != embodiment.digest():
+        reasons.append("the Candidate Bundle names a different embodiment")
+    return reasons
 
+
+def _configuration_reasons(
+    configuration: PromotionConfiguration | None,
+    embodiment: EmbodimentProfile | None,
+    candidate: CandidateBundle | None,
+) -> list[str]:
+    reasons: list[str] = []
     if configuration is None:
         reasons.append("a frozen promotion configuration is required")
-    else:
-        missing = configuration.missing_fields()
-        if missing:
-            reasons.append(
-                "the promotion configuration is missing: " + ", ".join(missing)
-            )
-        if configuration.digest() != GOLDEN_PROMOTION_CONFIGURATION.digest():
-            reasons.append(
-                "the first Generation accepts only the named Golden "
-                "configuration"
-            )
-        if (
-            embodiment is not None
-            and configuration.embodiment_digest != embodiment.digest()
-        ):
-            reasons.append("the configuration names a different embodiment")
-        if (
-            candidate is not None
-            and candidate.configuration_digest != configuration.digest()
-        ):
-            reasons.append("the Candidate Bundle names a different configuration")
-        if (
-            candidate is not None
-            and candidate.observation_schema_digest
-            != configuration.observation_schema_digest
-        ):
-            reasons.append(
-                "the Candidate Bundle observation schema is incompatible with "
-                "the promotion configuration"
-            )
-        if (
-            candidate is not None
-            and candidate.action_schema_digest
-            != configuration.action_protocol_digest
-        ):
-            reasons.append(
-                "the Candidate Bundle action schema is incompatible with the "
-                "promotion configuration"
-            )
+        return reasons
+    missing = configuration.missing_fields()
+    if missing:
+        reasons.append(
+            "the promotion configuration is missing: " + ", ".join(missing)
+        )
+    if configuration.digest() != GOLDEN_PROMOTION_CONFIGURATION.digest():
+        reasons.append(
+            "the first Generation accepts only the named Golden configuration"
+        )
+    if (
+        embodiment is not None
+        and configuration.embodiment_digest != embodiment.digest()
+    ):
+        reasons.append("the configuration names a different embodiment")
+    if (
+        candidate is not None
+        and candidate.configuration_digest != configuration.digest()
+    ):
+        reasons.append("the Candidate Bundle names a different configuration")
+    if (
+        candidate is not None
+        and candidate.observation_schema_digest
+        != configuration.observation_schema_digest
+    ):
+        reasons.append(
+            "the Candidate Bundle observation schema is incompatible with the "
+            "promotion configuration"
+        )
+    if (
+        candidate is not None
+        and candidate.action_schema_digest
+        != configuration.action_protocol_digest
+    ):
+        reasons.append(
+            "the Candidate Bundle action schema is incompatible with the "
+            "promotion configuration"
+        )
+    return reasons
 
+
+def _plan_reasons(
+    plan: CampaignPlan | None,
+    skill: GoldenSkillRevision | None,
+    candidate: CandidateBundle | None,
+    embodiment: EmbodimentProfile | None,
+    configuration: PromotionConfiguration | None,
+) -> list[str]:
+    reasons: list[str] = []
     if plan is None:
         reasons.append("a frozen Campaign Plan is required")
-    else:
-        if not plan.campaign_id.strip():
-            reasons.append("the Campaign Plan requires a campaign_id")
-        if not plan.prepared_by.strip():
-            reasons.append("the Campaign Plan must name its human owner")
-        if plan.hardware_attempts <= 0:
-            reasons.append(
-                "the Campaign Plan must pre-register at least one hardware attempt"
-            )
-        if plan.ordered_gates != PROMOTION_GATE_ORDER:
-            reasons.append(
-                "the Campaign Plan gate order must match the Generation "
-                "promotion ladder exactly"
-            )
-        if skill is not None and plan.skill_revision_id != skill.version_id:
-            reasons.append("the Campaign Plan names a different skill revision")
-        if candidate is not None and plan.candidate_digest != candidate.digest():
-            reasons.append("the Campaign Plan names a different Candidate Bundle")
-        if embodiment is not None and plan.embodiment_digest != embodiment.digest():
-            reasons.append("the Campaign Plan names a different embodiment")
-        if (
-            configuration is not None
-            and plan.configuration_digest != configuration.digest()
-        ):
-            reasons.append("the Campaign Plan names a different configuration")
+        return reasons
+    if not plan.campaign_id.strip():
+        reasons.append("the Campaign Plan requires a campaign_id")
+    if not plan.prepared_by.strip():
+        reasons.append("the Campaign Plan must name its human owner")
+    if plan.hardware_attempts <= 0:
+        reasons.append(
+            "the Campaign Plan must pre-register at least one hardware attempt"
+        )
+    if plan.ordered_gates != PROMOTION_GATE_ORDER:
+        reasons.append(
+            "the Campaign Plan gate order must match the Generation promotion "
+            "ladder exactly"
+        )
+    if skill is not None and plan.skill_revision_id != skill.version_id:
+        reasons.append("the Campaign Plan names a different skill revision")
+    if candidate is not None and plan.candidate_digest != candidate.digest():
+        reasons.append("the Campaign Plan names a different Candidate Bundle")
+    if embodiment is not None and plan.embodiment_digest != embodiment.digest():
+        reasons.append("the Campaign Plan names a different embodiment")
+    if (
+        configuration is not None
+        and plan.configuration_digest != configuration.digest()
+    ):
+        reasons.append("the Campaign Plan names a different configuration")
+    return reasons
 
+
+def _contract_reasons(submission: PromotionSubmission) -> tuple[str, ...]:
+    reasons = _skill_reasons(submission.skill)
+    reasons.extend(_candidate_reasons(submission.candidate, submission.skill))
+    reasons.extend(
+        _embodiment_reasons(submission.embodiment, submission.candidate)
+    )
+    reasons.extend(
+        _configuration_reasons(
+            submission.configuration,
+            submission.embodiment,
+            submission.candidate,
+        )
+    )
+    reasons.extend(
+        _plan_reasons(
+            submission.plan,
+            submission.skill,
+            submission.candidate,
+            submission.embodiment,
+            submission.configuration,
+        )
+    )
     return tuple(reasons)
 
 
