@@ -255,18 +255,6 @@ class SealedRejection:
             MappingProxyType(dict(self.input_identities)),
         )
 
-    def digest(self) -> str:
-        return _digest(
-            {
-                "promotion_digest": self.promotion_digest,
-                "failed_gate": self.failed_gate,
-                "reasons": list(self.reasons),
-                "input_identities": dict(self.input_identities),
-                "sealed_at": self.sealed_at.isoformat(),
-            }
-        )
-
-
 class PromotionLedger:
     """The append-only rejection record for one promotion authority."""
 
@@ -392,14 +380,9 @@ def _configuration_reasons(
     return reasons
 
 
-def _plan_reasons(
-    plan: CampaignPlan | None,
-    skill: GoldenSkillRevision | None,
-    candidate: CandidateBundle | None,
-    embodiment: EmbodimentProfile | None,
-    configuration: PromotionConfiguration | None,
-) -> list[str]:
+def _plan_reasons(submission: PromotionSubmission) -> list[str]:
     reasons: list[str] = []
+    plan = submission.plan
     if plan is None:
         reasons.append("a frozen Campaign Plan is required")
         return reasons
@@ -416,15 +399,24 @@ def _plan_reasons(
             "the Campaign Plan gate order must match the Generation promotion "
             "ladder exactly"
         )
-    if skill is not None and plan.skill_revision_id != skill.version_id:
+    if (
+        submission.skill is not None
+        and plan.skill_revision_id != submission.skill.version_id
+    ):
         reasons.append("the Campaign Plan names a different skill revision")
-    if candidate is not None and plan.candidate_digest != candidate.digest():
+    if (
+        submission.candidate is not None
+        and plan.candidate_digest != submission.candidate.digest()
+    ):
         reasons.append("the Campaign Plan names a different Candidate Bundle")
-    if embodiment is not None and plan.embodiment_digest != embodiment.digest():
+    if (
+        submission.embodiment is not None
+        and plan.embodiment_digest != submission.embodiment.digest()
+    ):
         reasons.append("the Campaign Plan names a different embodiment")
     if (
-        configuration is not None
-        and plan.configuration_digest != configuration.digest()
+        submission.configuration is not None
+        and plan.configuration_digest != submission.configuration.digest()
     ):
         reasons.append("the Campaign Plan names a different configuration")
     return reasons
@@ -443,15 +435,7 @@ def _contract_reasons(submission: PromotionSubmission) -> tuple[str, ...]:
             submission.candidate,
         )
     )
-    reasons.extend(
-        _plan_reasons(
-            submission.plan,
-            submission.skill,
-            submission.candidate,
-            submission.embodiment,
-            submission.configuration,
-        )
-    )
+    reasons.extend(_plan_reasons(submission))
     return tuple(reasons)
 
 
