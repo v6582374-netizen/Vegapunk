@@ -8,12 +8,15 @@ from typing import cast
 
 from vegapunk.embodied.embodiment import EmbodimentProfile
 from vegapunk.embodied.promotion import (
-    GOLDEN_INSTRUMENT_OPERATION_STEPS,
+    GOLDEN_EMBODIMENT,
+    GOLDEN_INSTRUMENT_OPERATION_LOOP,
+    GOLDEN_PROMOTION_CONFIGURATION,
     GOLDEN_SKILL_ID,
     PROMOTION_GATE_ORDER,
     CampaignPlan,
     CandidateBundle,
-    PromotionConfiguration,
+    GoldenSkillRevision,
+    InstrumentOperationLoop,
     PromotionLedger,
     PromotionSubmission,
     SealedRejection,
@@ -33,67 +36,53 @@ def _record_execution(
     return execute
 
 
-def _skill(**overrides: object) -> PhysicalSkill:
-    fields: dict[str, object] = {
-        "skill_id": GOLDEN_SKILL_ID,
-        "revision": 1,
-        "kind": SKILL_KIND_DETERMINISTIC,
-        "summary": "Open the lid, transfer with the cup, and restore the bench.",
-        "parameters": (),
-        "preconditions": ("instrument_closed", "cup_at_home"),
-        "postconditions": ("instrument_closed", "cup_at_home", "transfer_complete"),
-        "abort_conditions": ("witness_indeterminate", "safety_stop"),
-        "max_duration_s": 90.0,
-        "reviewed_by": "skill_owner",
-        "policy": None,
-        "operation_steps": GOLDEN_INSTRUMENT_OPERATION_STEPS,
-    }
-    fields.update(overrides)
-    return PhysicalSkill(**fields)  # type: ignore[arg-type]
+def _skill() -> GoldenSkillRevision:
+    skill = PhysicalSkill(
+        skill_id=GOLDEN_SKILL_ID,
+        revision=1,
+        kind=SKILL_KIND_DETERMINISTIC,
+        summary="Open the lid, transfer with the cup, and restore the bench.",
+        parameters=(),
+        preconditions=("instrument_closed", "cup_at_home"),
+        postconditions=(
+            "instrument_closed",
+            "cup_at_home",
+            "transfer_complete",
+        ),
+        abort_conditions=("witness_indeterminate", "safety_stop"),
+        max_duration_s=90.0,
+        reviewed_by="skill_owner",
+        policy=None,
+    )
+    return GoldenSkillRevision(
+        skill=skill,
+        operation_loop=GOLDEN_INSTRUMENT_OPERATION_LOOP,
+    )
 
 
 def _embodiment() -> EmbodimentProfile:
-    return EmbodimentProfile(
-        robot_model="unitree_g1",
-        arm_dof=14,
-        end_effector="dex3",
-        camera_map={"observation.images.top": "head_camera"},
-        control_frequency_hz=30.0,
-        control_authority="target_bridge_v1",
-        state_dim=29,
-        action_dim=29,
-        onboard_image_service=True,
-    )
+    return GOLDEN_EMBODIMENT
 
 
 def _submission() -> PromotionSubmission:
     skill = _skill()
     embodiment = _embodiment()
-    configuration = PromotionConfiguration(
-        configuration_id="golden-bench-v1",
-        embodiment_digest=embodiment.digest(),
-        observation_schema_digest="golden-observation-v1",
-        action_protocol_digest="whole-body-target-v1",
-        independent_witness_digest="lid-and-volume-witness-v1",
-        calibration_digest="golden-bench-calibration-v1",
-        isaac_lab_config_digest="isaac-golden-bench-v1",
-        mujoco_config_digest="mujoco-golden-control-v1",
-    )
+    configuration = GOLDEN_PROMOTION_CONFIGURATION
     candidate = CandidateBundle(
         candidate_id="act-baseline-v1",
         policy_artifact_digest="act-checkpoint-sha256",
         data_manifest_digest="training-manifest-sha256",
         training_recipe_digest="act-recipe-sha256",
         observation_schema_digest="golden-observation-v1",
-        action_schema_digest="whole-body-target-v1",
-        skill_version_id=skill.version_id,
-        skill_contract_digest=skill.contract_digest(),
+        action_schema_digest=configuration.action_protocol_digest,
+        skill_revision_id=skill.version_id,
+        skill_revision_digest=skill.digest(),
         embodiment_digest=embodiment.digest(),
         configuration_digest=configuration.digest(),
     )
     plan = CampaignPlan(
         campaign_id="generation-1-pilot",
-        skill_version_id=skill.version_id,
+        skill_revision_id=skill.version_id,
         candidate_digest=candidate.digest(),
         embodiment_digest=embodiment.digest(),
         configuration_digest=configuration.digest(),
@@ -118,9 +107,10 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
 
         def execute(accepted: PromotionSubmission) -> object:
             events.append("execution")
+            assert accepted.skill is not None
             self.assertEqual(
-                accepted.skill.operation_steps,  # type: ignore[union-attr]
-                GOLDEN_INSTRUMENT_OPERATION_STEPS,
+                accepted.skill.operation_loop,
+                GOLDEN_INSTRUMENT_OPERATION_LOOP,
             )
             return expected
 
@@ -172,7 +162,7 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
             submission,
             candidate=replace(
                 candidate,
-                skill_version_id="golden_instrument_operation_loop@2",
+                skill_revision_id="golden_instrument_operation_loop@2",
             ),
         )
         executions: list[PromotionSubmission] = []
@@ -205,7 +195,7 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
         cases = (
             replace(
                 submission,
-                candidate=replace(candidate, skill_contract_digest="other-skill"),
+                candidate=replace(candidate, skill_revision_digest="other-skill"),
             ),
             replace(
                 submission,
@@ -223,7 +213,7 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
             ),
             replace(
                 submission,
-                plan=replace(plan, skill_version_id="other-skill@1"),
+                plan=replace(plan, skill_revision_id="other-skill@1"),
             ),
             replace(
                 submission,
@@ -346,16 +336,62 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
                 self.assertEqual(executions, [])
                 self.assertTrue(result.reasons)
 
+    def test_a_self_consistent_but_different_bench_is_still_sealed(self) -> None:
+        submission = _submission()
+        candidate = submission.candidate
+        embodiment = submission.embodiment
+        configuration = submission.configuration
+        plan = submission.plan
+        assert candidate is not None
+        assert embodiment is not None
+        assert configuration is not None
+        assert plan is not None
+
+        other_embodiment = replace(embodiment, robot_model="unitree_g1_lab_copy")
+        other_configuration = replace(
+            configuration,
+            configuration_id="other-bench-v1",
+            embodiment_digest=other_embodiment.digest(),
+        )
+        other_candidate = replace(
+            candidate,
+            embodiment_digest=other_embodiment.digest(),
+            configuration_digest=other_configuration.digest(),
+        )
+        other_plan = replace(
+            plan,
+            candidate_digest=other_candidate.digest(),
+            embodiment_digest=other_embodiment.digest(),
+            configuration_digest=other_configuration.digest(),
+        )
+        executions: list[PromotionSubmission] = []
+
+        result = promote_generation(
+            replace(
+                submission,
+                candidate=other_candidate,
+                embodiment=other_embodiment,
+                configuration=other_configuration,
+                plan=other_plan,
+            ),
+            ledger=PromotionLedger(),
+            execute=_record_execution(executions),
+            now=NOW,
+        )
+
+        self.assertIsInstance(result, SealedRejection)
+        self.assertEqual(executions, [])
+
     def test_partial_or_reordered_segments_cannot_claim_task_success(self) -> None:
         submission = _submission()
         skill = submission.skill
         assert skill is not None
         invalid_loops = (
-            GOLDEN_INSTRUMENT_OPERATION_STEPS[:3],
+            GOLDEN_INSTRUMENT_OPERATION_LOOP.steps[:3],
             (
-                GOLDEN_INSTRUMENT_OPERATION_STEPS[1],
-                GOLDEN_INSTRUMENT_OPERATION_STEPS[0],
-                *GOLDEN_INSTRUMENT_OPERATION_STEPS[2:],
+                GOLDEN_INSTRUMENT_OPERATION_LOOP.steps[1],
+                GOLDEN_INSTRUMENT_OPERATION_LOOP.steps[0],
+                *GOLDEN_INSTRUMENT_OPERATION_LOOP.steps[2:],
             ),
         )
 
@@ -365,7 +401,12 @@ class GenerationPromotionAcceptanceTest(unittest.TestCase):
                 result = promote_generation(
                     replace(
                         submission,
-                        skill=replace(skill, operation_steps=operation_steps),
+                        skill=replace(
+                            skill,
+                            operation_loop=InstrumentOperationLoop(
+                                steps=operation_steps
+                            ),
+                        ),
                     ),
                     ledger=PromotionLedger(),
                     execute=_record_execution(executions),

@@ -14,13 +14,6 @@ from vegapunk.embodied.embodiment import EmbodimentProfile
 from vegapunk.embodied.skill import PhysicalSkill
 
 GOLDEN_SKILL_ID = "golden_instrument_operation_loop"
-GOLDEN_INSTRUMENT_OPERATION_STEPS = (
-    "open_lid",
-    "pick_up_cup",
-    "tilt_cup",
-    "return_cup",
-    "close_lid",
-)
 
 GATE_CONTRACT_VALIDATION = "contract_validation"
 GATE_OFFLINE_REPLAY = "offline_replay"
@@ -48,6 +41,43 @@ def _digest(payload: object) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
+def _missing_fields(fields: Mapping[str, str]) -> tuple[str, ...]:
+    return tuple(name for name, value in fields.items() if not value.strip())
+
+
+@dataclass(frozen=True)
+class InstrumentOperationLoop:
+    """The ordered whole task; its identity is not a set of segments."""
+
+    steps: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "steps", tuple(self.steps))
+
+    def digest(self) -> str:
+        return _digest(list(self.steps))
+
+
+@dataclass(frozen=True)
+class GoldenSkillRevision:
+    """The reviewed Physical Skill contract plus its complete ordered loop."""
+
+    skill: PhysicalSkill
+    operation_loop: InstrumentOperationLoop
+
+    @property
+    def version_id(self) -> str:
+        return self.skill.version_id
+
+    def digest(self) -> str:
+        return _digest(
+            {
+                "physical_skill_contract": self.skill.contract_digest(),
+                "operation_loop": self.operation_loop.digest(),
+            }
+        )
+
+
 @dataclass(frozen=True)
 class PromotionConfiguration:
     configuration_id: str
@@ -59,19 +89,23 @@ class PromotionConfiguration:
     isaac_lab_config_digest: str
     mujoco_config_digest: str
 
+    def as_contract(self) -> dict[str, str]:
+        return {
+            "configuration_id": self.configuration_id,
+            "embodiment_digest": self.embodiment_digest,
+            "observation_schema_digest": self.observation_schema_digest,
+            "action_protocol_digest": self.action_protocol_digest,
+            "independent_witness_digest": self.independent_witness_digest,
+            "calibration_digest": self.calibration_digest,
+            "isaac_lab_config_digest": self.isaac_lab_config_digest,
+            "mujoco_config_digest": self.mujoco_config_digest,
+        }
+
+    def missing_fields(self) -> tuple[str, ...]:
+        return _missing_fields(self.as_contract())
+
     def digest(self) -> str:
-        return _digest(
-            {
-                "configuration_id": self.configuration_id,
-                "embodiment_digest": self.embodiment_digest,
-                "observation_schema_digest": self.observation_schema_digest,
-                "action_protocol_digest": self.action_protocol_digest,
-                "independent_witness_digest": self.independent_witness_digest,
-                "calibration_digest": self.calibration_digest,
-                "isaac_lab_config_digest": self.isaac_lab_config_digest,
-                "mujoco_config_digest": self.mujoco_config_digest,
-            }
-        )
+        return _digest(self.as_contract())
 
 
 @dataclass(frozen=True)
@@ -82,32 +116,36 @@ class CandidateBundle:
     training_recipe_digest: str
     observation_schema_digest: str
     action_schema_digest: str
-    skill_version_id: str
-    skill_contract_digest: str
+    skill_revision_id: str
+    skill_revision_digest: str
     embodiment_digest: str
     configuration_digest: str
 
+    def as_contract(self) -> dict[str, str]:
+        return {
+            "candidate_id": self.candidate_id,
+            "policy_artifact_digest": self.policy_artifact_digest,
+            "data_manifest_digest": self.data_manifest_digest,
+            "training_recipe_digest": self.training_recipe_digest,
+            "observation_schema_digest": self.observation_schema_digest,
+            "action_schema_digest": self.action_schema_digest,
+            "skill_revision_id": self.skill_revision_id,
+            "skill_revision_digest": self.skill_revision_digest,
+            "embodiment_digest": self.embodiment_digest,
+            "configuration_digest": self.configuration_digest,
+        }
+
+    def missing_fields(self) -> tuple[str, ...]:
+        return _missing_fields(self.as_contract())
+
     def digest(self) -> str:
-        return _digest(
-            {
-                "candidate_id": self.candidate_id,
-                "policy_artifact_digest": self.policy_artifact_digest,
-                "data_manifest_digest": self.data_manifest_digest,
-                "training_recipe_digest": self.training_recipe_digest,
-                "observation_schema_digest": self.observation_schema_digest,
-                "action_schema_digest": self.action_schema_digest,
-                "skill_version_id": self.skill_version_id,
-                "skill_contract_digest": self.skill_contract_digest,
-                "embodiment_digest": self.embodiment_digest,
-                "configuration_digest": self.configuration_digest,
-            }
-        )
+        return _digest(self.as_contract())
 
 
 @dataclass(frozen=True)
 class CampaignPlan:
     campaign_id: str
-    skill_version_id: str
+    skill_revision_id: str
     candidate_digest: str
     embodiment_digest: str
     configuration_digest: str
@@ -118,24 +156,59 @@ class CampaignPlan:
     def __post_init__(self) -> None:
         object.__setattr__(self, "ordered_gates", tuple(self.ordered_gates))
 
+    def as_contract(self) -> dict[str, object]:
+        return {
+            "campaign_id": self.campaign_id,
+            "skill_revision_id": self.skill_revision_id,
+            "candidate_digest": self.candidate_digest,
+            "embodiment_digest": self.embodiment_digest,
+            "configuration_digest": self.configuration_digest,
+            "ordered_gates": list(self.ordered_gates),
+            "hardware_attempts": self.hardware_attempts,
+            "prepared_by": self.prepared_by,
+        }
+
     def digest(self) -> str:
-        return _digest(
-            {
-                "campaign_id": self.campaign_id,
-                "skill_version_id": self.skill_version_id,
-                "candidate_digest": self.candidate_digest,
-                "embodiment_digest": self.embodiment_digest,
-                "configuration_digest": self.configuration_digest,
-                "ordered_gates": list(self.ordered_gates),
-                "hardware_attempts": self.hardware_attempts,
-                "prepared_by": self.prepared_by,
-            }
-        )
+        return _digest(self.as_contract())
+
+
+GOLDEN_INSTRUMENT_OPERATION_LOOP = InstrumentOperationLoop(
+    steps=(
+        "open_lid",
+        "pick_up_cup",
+        "tilt_cup",
+        "return_cup",
+        "close_lid",
+    )
+)
+
+GOLDEN_EMBODIMENT = EmbodimentProfile(
+    robot_model="unitree_g1",
+    arm_dof=14,
+    end_effector="dex3",
+    camera_map={"observation.images.top": "head_camera"},
+    control_frequency_hz=30.0,
+    control_authority="target_bridge_v1",
+    state_dim=29,
+    action_dim=29,
+    onboard_image_service=True,
+)
+
+GOLDEN_PROMOTION_CONFIGURATION = PromotionConfiguration(
+    configuration_id="golden-bench-v1",
+    embodiment_digest=GOLDEN_EMBODIMENT.digest(),
+    observation_schema_digest="golden-observation-v1",
+    action_protocol_digest="joint-whole-body-target-v1",
+    independent_witness_digest="lid-and-volume-witness-v1",
+    calibration_digest="golden-bench-calibration-v1",
+    isaac_lab_config_digest="isaac-golden-bench-v1",
+    mujoco_config_digest="mujoco-golden-control-v1",
+)
 
 
 @dataclass(frozen=True)
 class PromotionSubmission:
-    skill: PhysicalSkill | None
+    skill: GoldenSkillRevision | None
     candidate: CandidateBundle | None
     embodiment: EmbodimentProfile | None
     configuration: PromotionConfiguration | None
@@ -144,9 +217,7 @@ class PromotionSubmission:
     def identities(self) -> Mapping[str, str]:
         skill_identity = "missing"
         if self.skill is not None:
-            skill_identity = (
-                f"{self.skill.version_id}:{self.skill.contract_digest()}"
-            )
+            skill_identity = f"{self.skill.version_id}:{self.skill.digest()}"
         identities = {
             "skill_revision": skill_identity,
             "candidate_bundle": (
@@ -184,8 +255,21 @@ class SealedRejection:
             MappingProxyType(dict(self.input_identities)),
         )
 
+    def digest(self) -> str:
+        return _digest(
+            {
+                "promotion_digest": self.promotion_digest,
+                "failed_gate": self.failed_gate,
+                "reasons": list(self.reasons),
+                "input_identities": dict(self.input_identities),
+                "sealed_at": self.sealed_at.isoformat(),
+            }
+        )
+
 
 class PromotionLedger:
+    """The append-only rejection record for one promotion authority."""
+
     def __init__(self) -> None:
         self._rejections: dict[str, SealedRejection] = {}
 
@@ -199,70 +283,47 @@ class PromotionLedger:
         return tuple(self._rejections.values())
 
 
-ResultT = TypeVar("ResultT")
-
-
-def promote_generation(
-    submission: PromotionSubmission,
-    *,
-    ledger: PromotionLedger,
-    execute: Callable[[PromotionSubmission], ResultT],
-    now: datetime,
-) -> ResultT | SealedRejection:
-    """Validate frozen identities before handing the attempt to any executor."""
-    existing = ledger.rejection_for(submission.digest())
-    if existing is not None:
-        return existing
-
-    skill = submission.skill
+def _contract_reasons(submission: PromotionSubmission) -> tuple[str, ...]:
     reasons: list[str] = []
+    skill = submission.skill
+    candidate = submission.candidate
+    embodiment = submission.embodiment
+    configuration = submission.configuration
+    plan = submission.plan
+
     if skill is None:
         reasons.append("a frozen Physical Skill revision is required")
-    elif skill.skill_id != GOLDEN_SKILL_ID:
-        reasons.append(f"the first Generation accepts only {GOLDEN_SKILL_ID!r}")
-    elif skill.operation_steps != GOLDEN_INSTRUMENT_OPERATION_STEPS:
-        reasons.append(
-            "the Golden Skill must declare the complete ordered Instrument "
-            "Operation Loop"
-        )
+    else:
+        if skill.skill.skill_id != GOLDEN_SKILL_ID:
+            reasons.append(
+                f"the first Generation accepts only {GOLDEN_SKILL_ID!r}"
+            )
+        if skill.operation_loop != GOLDEN_INSTRUMENT_OPERATION_LOOP:
+            reasons.append(
+                "the Golden Skill must declare the complete ordered Instrument "
+                "Operation Loop"
+            )
 
-    candidate = submission.candidate
     if candidate is None:
         reasons.append("a frozen Candidate Bundle is required")
     else:
-        candidate_fields = {
-            "candidate_id": candidate.candidate_id,
-            "policy_artifact_digest": candidate.policy_artifact_digest,
-            "data_manifest_digest": candidate.data_manifest_digest,
-            "training_recipe_digest": candidate.training_recipe_digest,
-            "observation_schema_digest": candidate.observation_schema_digest,
-            "action_schema_digest": candidate.action_schema_digest,
-            "skill_version_id": candidate.skill_version_id,
-            "skill_contract_digest": candidate.skill_contract_digest,
-            "embodiment_digest": candidate.embodiment_digest,
-            "configuration_digest": candidate.configuration_digest,
-        }
-        missing_candidate_fields = tuple(
-            name for name, value in candidate_fields.items() if not value.strip()
-        )
-        if missing_candidate_fields:
+        missing = candidate.missing_fields()
+        if missing:
             reasons.append(
-                "the Candidate Bundle is missing: "
-                + ", ".join(missing_candidate_fields)
+                "the Candidate Bundle is missing: " + ", ".join(missing)
             )
         if skill is not None:
-            if candidate.skill_version_id != skill.version_id:
+            if candidate.skill_revision_id != skill.version_id:
                 reasons.append(
                     "the Candidate Bundle names a different Physical Skill "
                     "revision"
                 )
-            if candidate.skill_contract_digest != skill.contract_digest():
+            if candidate.skill_revision_digest != skill.digest():
                 reasons.append(
                     "the Candidate Bundle names a different Physical Skill "
                     "contract"
                 )
 
-    embodiment = submission.embodiment
     if embodiment is None:
         reasons.append("a frozen embodiment is required")
     else:
@@ -271,32 +332,25 @@ def promote_generation(
                 "the embodiment still has unverified configuration fields: "
                 + ", ".join(embodiment.unverified_fields)
             )
+        if embodiment.digest() != GOLDEN_EMBODIMENT.digest():
+            reasons.append(
+                "the first Generation accepts only the named Golden embodiment"
+            )
         if candidate is not None and candidate.embodiment_digest != embodiment.digest():
             reasons.append("the Candidate Bundle names a different embodiment")
 
-    configuration = submission.configuration
     if configuration is None:
         reasons.append("a frozen promotion configuration is required")
     else:
-        configuration_fields = {
-            "configuration_id": configuration.configuration_id,
-            "embodiment_digest": configuration.embodiment_digest,
-            "observation_schema_digest": configuration.observation_schema_digest,
-            "action_protocol_digest": configuration.action_protocol_digest,
-            "independent_witness_digest": configuration.independent_witness_digest,
-            "calibration_digest": configuration.calibration_digest,
-            "isaac_lab_config_digest": configuration.isaac_lab_config_digest,
-            "mujoco_config_digest": configuration.mujoco_config_digest,
-        }
-        missing_configuration_fields = tuple(
-            name
-            for name, value in configuration_fields.items()
-            if not value.strip()
-        )
-        if missing_configuration_fields:
+        missing = configuration.missing_fields()
+        if missing:
             reasons.append(
-                "the promotion configuration is missing: "
-                + ", ".join(missing_configuration_fields)
+                "the promotion configuration is missing: " + ", ".join(missing)
+            )
+        if configuration.digest() != GOLDEN_PROMOTION_CONFIGURATION.digest():
+            reasons.append(
+                "the first Generation accepts only the named Golden "
+                "configuration"
             )
         if (
             embodiment is not None
@@ -327,7 +381,6 @@ def promote_generation(
                 "promotion configuration"
             )
 
-    plan = submission.plan
     if plan is None:
         reasons.append("a frozen Campaign Plan is required")
     else:
@@ -344,7 +397,7 @@ def promote_generation(
                 "the Campaign Plan gate order must match the Generation "
                 "promotion ladder exactly"
             )
-        if skill is not None and plan.skill_version_id != skill.version_id:
+        if skill is not None and plan.skill_revision_id != skill.version_id:
             reasons.append("the Campaign Plan names a different skill revision")
         if candidate is not None and plan.candidate_digest != candidate.digest():
             reasons.append("the Campaign Plan names a different Candidate Bundle")
@@ -356,12 +409,31 @@ def promote_generation(
         ):
             reasons.append("the Campaign Plan names a different configuration")
 
+    return tuple(reasons)
+
+
+ResultT = TypeVar("ResultT")
+
+
+def promote_generation(
+    submission: PromotionSubmission,
+    *,
+    ledger: PromotionLedger,
+    execute: Callable[[PromotionSubmission], ResultT],
+    now: datetime,
+) -> ResultT | SealedRejection:
+    """Validate frozen identities before handing the attempt to any executor."""
+    existing = ledger.rejection_for(submission.digest())
+    if existing is not None:
+        return existing
+
+    reasons = _contract_reasons(submission)
     if reasons:
         return ledger.seal_rejection(
             SealedRejection(
                 promotion_digest=submission.digest(),
                 failed_gate=GATE_CONTRACT_VALIDATION,
-                reasons=tuple(reasons),
+                reasons=reasons,
                 input_identities=submission.identities(),
                 sealed_at=now,
             )

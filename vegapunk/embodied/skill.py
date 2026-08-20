@@ -137,7 +137,6 @@ class PhysicalSkill:
     max_duration_s: float
     reviewed_by: str
     policy: Optional[PolicyCheckpoint] = None
-    operation_steps: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "parameters", tuple(self.parameters))
@@ -146,7 +145,6 @@ class PhysicalSkill:
         object.__setattr__(
             self, "abort_conditions", tuple(self.abort_conditions)
         )
-        object.__setattr__(self, "operation_steps", tuple(self.operation_steps))
 
         if not self.skill_id:
             raise ValueError("a PhysicalSkill requires a skill_id")
@@ -213,7 +211,6 @@ class PhysicalSkill:
                 "max_duration_s": self.max_duration_s,
                 "reviewed_by": self.reviewed_by,
                 "policy": None if self.policy is None else self.policy.digest(),
-                "operation_steps": list(self.operation_steps),
             }
         )
 
