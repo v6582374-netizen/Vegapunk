@@ -9,6 +9,36 @@ It is organized around the robot and instrument's real states, not an
 experiment-search workflow.
 _Avoid_: discovery harness, candidate-search harness, robot scientist
 
+**Golden Skill**:
+The first complete, ordered Instrument Operation Loop used to prove the
+Generation process without generalizing across tasks.
+_Avoid_: demo segment, skill collection, benchmark clip
+
+**Physical Skill Revision**:
+One frozen, human-reviewed statement of a Physical Skill's complete task,
+safety, completion, and abort contract.
+_Avoid_: mutable skill definition, latest skill, prompt
+
+**Candidate Bundle**:
+One immutable policy candidate bound to its training provenance, observation
+and action contracts, Physical Skill Revision, embodiment, and configuration.
+_Avoid_: checkpoint, model file, policy name
+
+**Campaign Plan**:
+The pre-registered ordered evidence ladder and bounded hardware spend for one
+Candidate Bundle's Generation Promotion.
+_Avoid_: run settings, experiment notes, dynamic schedule
+
+**Generation Promotion**:
+The sole authority boundary that validates frozen inputs before any Replay,
+simulation, Shadow, or hardware activity may begin.
+_Avoid_: deployment, evaluation run, automatic upgrade
+
+**Sealed Rejection**:
+The append-only refusal of one Generation Promotion input set, naming the
+failed Gate, reasons, and exact input identities that cannot later be replaced.
+_Avoid_: exception, failed log line, mutable status
+
 **Whole-Body Target Contract**:
 The complete real-time control target published by an upstream policy or
 teleoperator and consumed by the existing whole-body tracker and companion
@@ -107,4 +137,3 @@ The state a lapse of commanding authority leaves behind: motion authority stays
 withdrawn until a named human clears it.
 Fresh, valid targets do not restore it on their own.
 _Avoid_: automatic recovery, retry, transient fault
-
