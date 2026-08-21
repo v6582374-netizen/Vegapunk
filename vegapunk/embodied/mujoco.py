@@ -157,8 +157,9 @@ class MujocoRuntime(Protocol):
         targets: tuple[WholeBodyTarget, ...],
         *,
         seed: int,
+        fault_injected: bool,
     ) -> MujocoRun:
-        """Consume the frozen targets and return observed control facts."""
+        """Consume targets under one registered nominal or fault-injection case."""
 
 
 @dataclass(frozen=True)
@@ -255,6 +256,7 @@ class MujocoAdapter:
         replay: QualifiedReplay,
         *,
         seed: int,
+        fault_injected: bool,
         policy: MujocoControlPolicy,
     ) -> MujocoEpisode:
         if replay.control_frequency_hz != self._surface.control_frequency_hz:
@@ -263,7 +265,12 @@ class MujocoAdapter:
             )
         if not all(isinstance(target, WholeBodyTarget) for target in replay.targets):
             raise TypeError("MuJoCo consumes WholeBodyTarget values, not commands")
-        observed = self._runtime.run(self._surface, replay.targets, seed=seed)
+        observed = self._runtime.run(
+            self._surface,
+            replay.targets,
+            seed=seed,
+            fault_injected=fault_injected,
+        )
         expected_sequences = tuple(target.sequence for target in replay.targets)
         if observed.target_sequences != expected_sequences:
             raise ValueError(
@@ -281,6 +288,8 @@ class MujocoAdapter:
             findings.append("MuJoCo observed a contact anomaly")
         if observed.observed_latency_steps > policy.max_latency_steps:
             findings.append("MuJoCo observed latency beyond the pre-registered limit")
+        if fault_injected and not observed.fault_detected:
+            findings.append("MuJoCo did not observe the pre-registered fault injection")
         if (
             policy.require_fault_hold
             and observed.fault_detected
@@ -302,6 +311,7 @@ class MujocoAdapter:
                 "observed_latency_steps": observed.observed_latency_steps,
                 "fault_detected": observed.fault_detected,
                 "fault_held": observed.fault_held,
+                "fault_injected": fault_injected,
                 "completed": observed.completed,
                 "outcome": outcome,
             }
@@ -325,13 +335,18 @@ class MujocoValidationCase:
 
     isaac_attempt_id: str
     seed: int
+    fault_injected: bool = False
 
     def __post_init__(self) -> None:
         if not self.isaac_attempt_id.strip():
             raise ValueError("a MuJoCo validation case names its Isaac attempt")
 
     def as_payload(self) -> dict[str, object]:
-        return {"isaac_attempt_id": self.isaac_attempt_id, "seed": self.seed}
+        return {
+            "isaac_attempt_id": self.isaac_attempt_id,
+            "seed": self.seed,
+            "fault_injected": self.fault_injected,
+        }
 
 
 @dataclass(frozen=True)
@@ -402,6 +417,8 @@ class MujocoValidationPlan:
         identifiers = tuple(case.isaac_attempt_id for case in self.cases)
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("a MuJoCo plan cannot reuse an Isaac attempt")
+        if not any(case.fault_injected for case in self.cases):
+            raise ValueError("a MuJoCo plan must pre-register a fault-injection case")
         if not isinstance(self.control_policy, MujocoControlPolicy):
             raise TypeError("a MuJoCo plan carries a MujocoControlPolicy")
         if not isinstance(self.disagreement_policy, SimulatorDisagreementPolicy):
@@ -657,6 +674,7 @@ def execute_mujoco_validation(
         episode = adapter.run(
             replay,
             seed=case.seed,
+            fault_injected=case.fault_injected,
             policy=plan.control_policy,
         )
         if episode.seed != case.seed or episode.target_sequences != expected_sequences:

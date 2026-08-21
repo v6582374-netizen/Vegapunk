@@ -207,6 +207,7 @@ def _plan(
             MujocoValidationCase(
                 isaac_attempt_id=attempt.attempt_id,
                 seed=attempt.seed,
+                fault_injected=attempt.seed == 102,
             )
             for attempt in isaac_evidence.attempts
         ),
@@ -229,24 +230,29 @@ class _MujocoHost:
         )
 
     def __init__(
-        self, *, completed: bool = True, contact_anomaly: bool = False
+        self,
+        *,
+        completed: bool = True,
+        contact_anomaly: bool = False,
+        fault_held: bool = True,
     ) -> None:
         self.completed = completed
         self.contact_anomaly = contact_anomaly
-        self.seen: list[tuple[int, tuple[int, ...]]] = []
+        self.fault_held = fault_held
+        self.seen: list[tuple[int, tuple[int, ...], bool]] = []
 
-    def run(self, surface, targets, *, seed):
+    def run(self, surface, targets, *, seed, fault_injected):
         del surface
         sequences = tuple(target.sequence for target in targets)
-        self.seen.append((seed, sequences))
+        self.seen.append((seed, sequences, fault_injected))
         return MujocoRun(
             target_sequences=sequences,
             max_joint_step_rad=0.1,
             joint_boundary_violation=False,
             contact_anomaly=self.contact_anomaly,
             observed_latency_steps=1,
-            fault_detected=False,
-            fault_held=True,
+            fault_detected=fault_injected,
+            fault_held=self.fault_held,
             completed=self.completed,
         )
 
@@ -283,7 +289,7 @@ class MujocoCrossValidationAcceptanceTest(unittest.TestCase):
             now=AT,
         )
 
-        self.assertEqual(host.seen, [(101, (1, 2)), (102, (1, 2))])
+        self.assertEqual(host.seen, [(101, (1, 2), False), (102, (1, 2), True)])
         self.assertTrue(all(attempt.episode.succeeded for attempt in evidence.attempts))
         self.assertTrue(ledger.decide(evidence).admitted)
 
@@ -320,6 +326,31 @@ class MujocoCrossValidationAcceptanceTest(unittest.TestCase):
         self.assertEqual(result.failed_gate, GATE_MUJOCO)
         self.assertIn("disagree", " ".join(result.reasons).lower())
         self.assertEqual(later_stages, [])
+
+    def test_the_registered_fault_case_must_detect_and_hold_the_fault(self) -> None:
+        submission = _submission()
+        candidate = submission.candidate
+        assert candidate is not None
+        replay = _replay()
+        isaac_evidence = _isaac_evidence(candidate, replay)
+        isaac_ledger = IsaacCampaignEvidenceLedger()
+        isaac_ledger.seal(isaac_evidence)
+
+        evidence = execute_mujoco_validation(
+            _plan(submission, replay, isaac_evidence),
+            candidate=candidate,
+            skill_revision_digest=_skill().digest(),
+            replay=replay,
+            isaac_evidence=isaac_evidence,
+            isaac_ledger=isaac_ledger,
+            isaac_policy=IsaacGatePolicy(min_success_rate=1.0),
+            adapter=MujocoAdapter(_surface(_skill()), _MujocoHost(fault_held=False)),
+            ledger=MujocoEvidenceLedger(),
+            now=AT,
+        )
+
+        self.assertFalse(evidence.attempts[1].episode.succeeded)
+        self.assertIn("did not hold", " ".join(evidence.attempts[1].episode.findings))
 
     def test_mujoco_evidence_cannot_be_relabelled_as_isaac_or_real(self) -> None:
         with self.assertRaisesRegex(ValueError, "simulator-scoped"):
