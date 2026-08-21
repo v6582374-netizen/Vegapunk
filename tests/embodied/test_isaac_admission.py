@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from vegapunk.embodied.episode import (
@@ -12,9 +13,11 @@ from vegapunk.embodied.isaac import (
     GOLDEN_ISAAC_SCENE,
     ISAAC_LAB_SOURCE,
     ISAAC_LAB_VERSION,
+    DeterministicIsaacLabRuntime,
     IsaacEvidenceLedger,
     IsaacLabAdapter,
     IsaacLabEvidence,
+    IsaacLabRun,
     admit_qualified_replay,
 )
 from vegapunk.embodied.promotion import (
@@ -42,7 +45,7 @@ from vegapunk.operation.episode import (
 )
 from vegapunk.operation.target import HAND_OPEN, STAND_BODY, WholeBodyTarget
 from vegapunk.operation.tracker import TrackerState
-from vegapunk.operation.witness import LID_CLOSED
+from vegapunk.operation.witness import LID_CLOSED, LID_INDETERMINATE
 
 AT = datetime(2026, 8, 21, 14, 0, tzinfo=timezone.utc)
 NOW = 2_000_000_000
@@ -182,7 +185,9 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
 
     def test_a_fixed_seed_and_scene_reproduce_the_same_simulator_verdict(self) -> None:
         replay = _replay()
-        adapter = IsaacLabAdapter(GOLDEN_ISAAC_SCENE)
+        adapter = IsaacLabAdapter(
+            GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
+        )
 
         first = adapter.run(replay, seed=17)
         second = adapter.run(replay, seed=17)
@@ -193,6 +198,35 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         self.assertEqual(first.target_sequences, (1,))
         self.assertTrue(first.succeeded)
 
+    def test_the_adapter_rejects_a_scene_other_than_the_named_golden_scene(self) -> None:
+        other_scene = replace(
+            GOLDEN_ISAAC_SCENE,
+            policy_camera_key="observation.images.wrist",
+        )
+
+        with self.assertRaisesRegex(ValueError, "named Golden Scene"):
+            IsaacLabAdapter(other_scene, DeterministicIsaacLabRuntime())
+
+    def test_an_indeterminate_independent_witness_cannot_produce_simulator_success(self) -> None:
+        class IndeterminateRuntime:
+            def run(self, scene, targets, *, seed):
+                del seed
+                return IsaacLabRun(
+                    target_sequences=tuple(target.sequence for target in targets),
+                    policy_camera_observations=(scene.policy_camera_key,),
+                    observed_contacts=scene.required_contacts,
+                    witness_value=LID_INDETERMINATE,
+                    witness_age_ns=0,
+                    completed=True,
+                )
+
+        episode = IsaacLabAdapter(GOLDEN_ISAAC_SCENE, IndeterminateRuntime()).run(
+            _replay(), seed=17
+        )
+
+        self.assertEqual(episode.witness_value, LID_INDETERMINATE)
+        self.assertFalse(episode.succeeded)
+
     def test_simulator_evidence_is_scoped_and_cannot_be_relabelled_as_real(self) -> None:
         replay = _replay()
         candidate = _submission().candidate
@@ -201,7 +235,9 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         evidence = admit_qualified_replay(
             replay,
             candidate=candidate,
-            adapter=IsaacLabAdapter(GOLDEN_ISAAC_SCENE),
+            adapter=IsaacLabAdapter(
+                GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
+            ),
             seed=17,
             ledger=IsaacEvidenceLedger(),
             now=AT,
@@ -233,7 +269,9 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
             return admit_qualified_replay(
                 replay,
                 candidate=accepted.candidate,
-                adapter=IsaacLabAdapter(GOLDEN_ISAAC_SCENE),
+                adapter=IsaacLabAdapter(
+                    GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
+                ),
                 seed=17,
                 ledger=isaac_ledger,
                 now=AT,
@@ -250,4 +288,3 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         assert isinstance(evidence, IsaacLabEvidence)
         self.assertTrue(evidence.succeeded)
         self.assertEqual(isaac_ledger.evidence_for(evidence.digest()), evidence)
-

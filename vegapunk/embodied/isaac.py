@@ -12,6 +12,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Protocol
 
 from vegapunk.embodied.episode import QualifiedReplay
 from vegapunk.embodied.promotion import (
@@ -20,6 +21,7 @@ from vegapunk.embodied.promotion import (
     CandidateBundle,
 )
 from vegapunk.operation.target import WholeBodyTarget
+from vegapunk.operation.witness import LID_CLOSED, LID_INDETERMINATE, LID_OPEN
 
 ISAAC_LAB_SOURCE = "isaac_lab"
 ISAAC_LAB_VERSION = "isaac-lab-golden-v1"
@@ -27,6 +29,8 @@ ISAAC_LAB_VERSION = "isaac-lab-golden-v1"
 VERDICT_SUCCEEDED = "succeeded"
 VERDICT_FAILED = "failed"
 _VERDICTS = frozenset({VERDICT_SUCCEEDED, VERDICT_FAILED})
+_WITNESS_VALUES = frozenset({LID_OPEN, LID_CLOSED, LID_INDETERMINATE})
+MAX_WITNESS_AGE_NS = 500_000_000
 
 
 def _digest(payload: object) -> str:
@@ -109,7 +113,10 @@ class IsaacLabEpisode:
     replay_digest: str
     seed: int
     target_sequences: tuple[int, ...]
-    independent_witness_visible: bool
+    policy_camera_observations: tuple[str, ...]
+    observed_contacts: tuple[tuple[str, str], ...]
+    witness_value: str
+    witness_age_ns: int
     verdict: str
     trace_digest: str
 
@@ -123,6 +130,12 @@ class IsaacLabEpisode:
             raise ValueError("a simulator episode binds its replay and trace")
         if not self.target_sequences:
             raise ValueError("an Isaac Episode records WholeBodyTarget sequences")
+        if not self.policy_camera_observations:
+            raise ValueError("an Isaac Episode records its policy camera")
+        if self.witness_value not in _WITNESS_VALUES:
+            raise ValueError("an Isaac Episode records an Independent Witness value")
+        if self.witness_age_ns < 0:
+            raise ValueError("a witness age cannot be negative")
         if self.verdict not in _VERDICTS:
             raise ValueError("an Isaac Episode has a simulator verdict")
 
@@ -131,11 +144,90 @@ class IsaacLabEpisode:
         return self.verdict == VERDICT_SUCCEEDED
 
 
+@dataclass(frozen=True)
+class IsaacLabRun:
+    """The task-relevant facts observed by an Isaac Lab runtime.
+
+    The adapter does not manufacture contacts or witness readings.  A concrete
+    runtime owns the simulator API and returns what its scene observed; the
+    adapter only checks those facts against the frozen Golden contract.
+    """
+
+    target_sequences: tuple[int, ...]
+    policy_camera_observations: tuple[str, ...]
+    observed_contacts: tuple[tuple[str, str], ...]
+    witness_value: str
+    witness_age_ns: int
+    completed: bool
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_sequences", tuple(self.target_sequences))
+        object.__setattr__(
+            self,
+            "policy_camera_observations",
+            tuple(self.policy_camera_observations),
+        )
+        object.__setattr__(
+            self,
+            "observed_contacts",
+            tuple(tuple(contact) for contact in self.observed_contacts),
+        )
+        if not self.target_sequences:
+            raise ValueError("an Isaac run records every consumed target")
+        if self.witness_value not in _WITNESS_VALUES:
+            raise ValueError("an Isaac run records an Independent Witness value")
+        if self.witness_age_ns < 0:
+            raise ValueError("an Isaac run cannot have a negative witness age")
+
+
+class IsaacLabRuntime(Protocol):
+    """The narrow production seam implemented by the actual Isaac Lab host."""
+
+    def run(
+        self,
+        scene: IsaacLabGoldenScene,
+        targets: tuple[WholeBodyTarget, ...],
+        *,
+        seed: int,
+    ) -> IsaacLabRun:
+        """Execute targets and return scene-observed task facts."""
+
+
+class DeterministicIsaacLabRuntime:
+    """A deterministic Golden-scene runtime for contract and admission tests.
+
+    It is intentionally a stand-in for the Isaac Lab host, not a second
+    control path: it receives the same whole-body targets and reports the
+    scene's camera, contacts, witness and completion facts through the runtime
+    seam above.  A deployment replaces this object with the host integration.
+    """
+
+    def run(
+        self,
+        scene: IsaacLabGoldenScene,
+        targets: tuple[WholeBodyTarget, ...],
+        *,
+        seed: int,
+    ) -> IsaacLabRun:
+        del seed
+        return IsaacLabRun(
+            target_sequences=tuple(target.sequence for target in targets),
+            policy_camera_observations=(scene.policy_camera_key,),
+            observed_contacts=scene.required_contacts,
+            witness_value=LID_CLOSED,
+            witness_age_ns=0,
+            completed=True,
+        )
+
+
 class IsaacLabAdapter:
     """The sole adapter from Qualified Replay to Isaac Lab Episode semantics."""
 
-    def __init__(self, scene: IsaacLabGoldenScene) -> None:
+    def __init__(self, scene: IsaacLabGoldenScene, runtime: IsaacLabRuntime) -> None:
+        if scene.digest() != GOLDEN_ISAAC_SCENE.digest():
+            raise ValueError("Isaac admission accepts only the named Golden Scene")
         self._scene = scene
+        self._runtime = runtime
 
     def run(self, replay: QualifiedReplay, *, seed: int) -> IsaacLabEpisode:
         """Run the frozen targets deterministically against one frozen scene."""
@@ -143,9 +235,26 @@ class IsaacLabAdapter:
             raise ValueError("the replay control frequency differs from the scene")
         if not all(isinstance(target, WholeBodyTarget) for target in replay.targets):
             raise TypeError("Isaac consumes WholeBodyTarget values, not commands")
+        run = self._runtime.run(self._scene, replay.targets, seed=seed)
         target_sequences = tuple(target.sequence for target in replay.targets)
-        succeeded = self._scene.independent_witness_visible and not any(
-            target.saturated for target in replay.targets
+        if run.target_sequences != target_sequences:
+            raise ValueError("Isaac runtime did not execute the Qualified Replay targets")
+        camera_complete = set(run.policy_camera_observations) == {
+            self._scene.policy_camera_key
+        }
+        contacts_complete = set(self._scene.required_contacts).issubset(
+            run.observed_contacts
+        )
+        witness_fresh_and_closed = (
+            run.witness_value == LID_CLOSED
+            and run.witness_age_ns <= MAX_WITNESS_AGE_NS
+        )
+        succeeded = (
+            run.completed
+            and camera_complete
+            and contacts_complete
+            and witness_fresh_and_closed
+            and not any(target.saturated for target in replay.targets)
         )
         verdict = VERDICT_SUCCEEDED if succeeded else VERDICT_FAILED
         trace_digest = _digest(
@@ -154,6 +263,11 @@ class IsaacLabAdapter:
                 "replay": replay.digest(),
                 "seed": seed,
                 "targets": [target.as_payload() for target in replay.targets],
+                "policy_camera_observations": list(run.policy_camera_observations),
+                "observed_contacts": [list(contact) for contact in run.observed_contacts],
+                "witness_value": run.witness_value,
+                "witness_age_ns": run.witness_age_ns,
+                "completed": run.completed,
                 "verdict": verdict,
             }
         )
@@ -164,7 +278,10 @@ class IsaacLabAdapter:
             replay_digest=replay.digest(),
             seed=seed,
             target_sequences=target_sequences,
-            independent_witness_visible=self._scene.independent_witness_visible,
+            policy_camera_observations=run.policy_camera_observations,
+            observed_contacts=run.observed_contacts,
+            witness_value=run.witness_value,
+            witness_age_ns=run.witness_age_ns,
             verdict=verdict,
             trace_digest=trace_digest,
         )
