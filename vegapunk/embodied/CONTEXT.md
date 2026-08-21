@@ -103,6 +103,31 @@ Instrument Operation Loop, including observations, target contract, state
 labels, outcome, and any intervention or abort.
 _Avoid_: video clip, successful demo only, partial action trace
 
+**Time Synchronization**:
+The named, bounded alignment of observation, Target Bridge, and Independent
+Witness clocks for one Training-grade Episode. It makes an observation/target
+pair a fact rather than an arrival-order guess.
+_Avoid_: implicit timestamps, best-effort timing, camera frame rate
+
+**Training Manifest**:
+The frozen list of eligible Training-grade Episodes and every excluded Episode
+with its reason. It retains excluded records instead of silently selecting only
+successful demonstrations.
+_Avoid_: filtered dataset, success-only list, dropped failure
+
+**Qualified Replay**:
+The reproducible replay candidate frozen from one eligible Training-grade
+Episode. It binds that Episode, control frequency, initial-state envelope and
+capture artifact, and carries only validated Whole-Body Targets for the existing
+Target Bridge.
+_Avoid_: action dump, direct joint playback, actuator shortcut
+
+**Intervention / Abort Record**:
+Separate named facts that a normal run was interrupted or ended. They may make
+an Episode ineligible, but they never erase its observations, witness readings,
+testimony, or outcome.
+_Avoid_: failed status, overwritten result, discarded run
+
 **Pilot Batch**:
 A deliberately limited collection and training round whose result decides
 whether the current task and data contract should scale, change, or stop.
