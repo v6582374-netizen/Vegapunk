@@ -10,6 +10,8 @@ from vegapunk.embodied.episode import (
     freeze_qualified_replay,
 )
 from vegapunk.embodied.isaac import (
+    CONTRACT_RUNTIME_SOURCE,
+    CONTRACT_RUNTIME_VERSION,
     GOLDEN_ISAAC_SCENE,
     ISAAC_LAB_SOURCE,
     ISAAC_LAB_VERSION,
@@ -18,6 +20,7 @@ from vegapunk.embodied.isaac import (
     IsaacLabAdapter,
     IsaacLabEvidence,
     IsaacLabRun,
+    IsaacRuntimeProvenance,
     admit_qualified_replay,
 )
 from vegapunk.embodied.promotion import (
@@ -49,6 +52,33 @@ from vegapunk.operation.witness import LID_CLOSED, LID_INDETERMINATE
 
 AT = datetime(2026, 8, 21, 14, 0, tzinfo=timezone.utc)
 NOW = 2_000_000_000
+
+
+class _IsaacLabHost:
+    """A host double: its provenance is the fact the contract runtime lacks."""
+
+    @property
+    def provenance(self) -> IsaacRuntimeProvenance:
+        return IsaacRuntimeProvenance(
+            source=ISAAC_LAB_SOURCE,
+            simulator_version=ISAAC_LAB_VERSION,
+            admission_capable=True,
+        )
+
+    def run(self, scene, targets, *, seed):
+        del seed
+        return IsaacLabRun(
+            target_sequences=tuple(target.sequence for target in targets),
+            policy_camera_observations=(scene.policy_camera_key,),
+            observed_contacts=scene.required_contacts,
+            witness_value=LID_CLOSED,
+            witness_age_ns=0,
+            completed=True,
+        )
+
+
+def _host_adapter() -> IsaacLabAdapter:
+    return IsaacLabAdapter(GOLDEN_ISAAC_SCENE, _IsaacLabHost())
 
 
 def _skill() -> GoldenSkillRevision:
@@ -193,8 +223,8 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         second = adapter.run(replay, seed=17)
 
         self.assertEqual(first, second)
-        self.assertEqual(first.source, ISAAC_LAB_SOURCE)
-        self.assertEqual(first.simulator_version, ISAAC_LAB_VERSION)
+        self.assertEqual(first.source, CONTRACT_RUNTIME_SOURCE)
+        self.assertEqual(first.simulator_version, CONTRACT_RUNTIME_VERSION)
         self.assertEqual(first.target_sequences, (1,))
         self.assertTrue(first.succeeded)
 
@@ -209,6 +239,14 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
 
     def test_an_indeterminate_independent_witness_cannot_produce_simulator_success(self) -> None:
         class IndeterminateRuntime:
+            @property
+            def provenance(self) -> IsaacRuntimeProvenance:
+                return IsaacRuntimeProvenance(
+                    source=ISAAC_LAB_SOURCE,
+                    simulator_version=ISAAC_LAB_VERSION,
+                    admission_capable=True,
+                )
+
             def run(self, scene, targets, *, seed):
                 del seed
                 return IsaacLabRun(
@@ -235,9 +273,7 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         evidence = admit_qualified_replay(
             replay,
             candidate=candidate,
-            adapter=IsaacLabAdapter(
-                GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
-            ),
+            adapter=_host_adapter(),
             seed=17,
             ledger=IsaacEvidenceLedger(),
             now=AT,
@@ -269,9 +305,7 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
             return admit_qualified_replay(
                 replay,
                 candidate=accepted.candidate,
-                adapter=IsaacLabAdapter(
-                    GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
-                ),
+                adapter=_host_adapter(),
                 seed=17,
                 ledger=isaac_ledger,
                 now=AT,
@@ -288,3 +322,19 @@ class IsaacAdmissionAcceptanceTest(unittest.TestCase):
         assert isinstance(evidence, IsaacLabEvidence)
         self.assertTrue(evidence.succeeded)
         self.assertEqual(isaac_ledger.evidence_for(evidence.digest()), evidence)
+
+    def test_a_contract_runtime_cannot_seal_admission_evidence(self) -> None:
+        candidate = _submission().candidate
+        assert candidate is not None
+
+        with self.assertRaisesRegex(ValueError, "host runtime"):
+            admit_qualified_replay(
+                _replay(),
+                candidate=candidate,
+                adapter=IsaacLabAdapter(
+                    GOLDEN_ISAAC_SCENE, DeterministicIsaacLabRuntime()
+                ),
+                seed=17,
+                ledger=IsaacEvidenceLedger(),
+                now=AT,
+            )

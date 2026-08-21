@@ -25,6 +25,8 @@ from vegapunk.operation.witness import LID_CLOSED, LID_INDETERMINATE, LID_OPEN
 
 ISAAC_LAB_SOURCE = "isaac_lab"
 ISAAC_LAB_VERSION = "isaac-lab-golden-v1"
+CONTRACT_RUNTIME_SOURCE = "isaac_lab_contract"
+CONTRACT_RUNTIME_VERSION = "deterministic-contract-v1"
 
 VERDICT_SUCCEEDED = "succeeded"
 VERDICT_FAILED = "failed"
@@ -122,7 +124,7 @@ class IsaacLabEpisode:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "target_sequences", tuple(self.target_sequences))
-        if self.source != ISAAC_LAB_SOURCE:
+        if self.source not in {ISAAC_LAB_SOURCE, CONTRACT_RUNTIME_SOURCE}:
             raise ValueError("an Isaac Episode is simulator-scoped, never real")
         if not self.simulator_version.strip() or not self.scene_digest.strip():
             raise ValueError("a simulator episode names its exact world")
@@ -180,8 +182,27 @@ class IsaacLabRun:
             raise ValueError("an Isaac run cannot have a negative witness age")
 
 
+@dataclass(frozen=True)
+class IsaacRuntimeProvenance:
+    """What runtime made the scene observations, and what it may certify."""
+
+    source: str
+    simulator_version: str
+    admission_capable: bool
+
+    def __post_init__(self) -> None:
+        if not self.source.strip() or not self.simulator_version.strip():
+            raise ValueError("an Isaac runtime names its source and version")
+        if self.admission_capable and self.source != ISAAC_LAB_SOURCE:
+            raise ValueError("only an Isaac Lab host may certify admission evidence")
+
+
 class IsaacLabRuntime(Protocol):
     """The narrow production seam implemented by the actual Isaac Lab host."""
+
+    @property
+    def provenance(self) -> IsaacRuntimeProvenance:
+        """The host identity carried into every simulator episode."""
 
     def run(
         self,
@@ -199,8 +220,17 @@ class DeterministicIsaacLabRuntime:
     It is intentionally a stand-in for the Isaac Lab host, not a second
     control path: it receives the same whole-body targets and reports the
     scene's camera, contacts, witness and completion facts through the runtime
-    seam above.  A deployment replaces this object with the host integration.
+    seam above.  It is deliberately ineligible to certify admission evidence;
+    a deployment replaces it with the actual Isaac Lab host integration.
     """
+
+    @property
+    def provenance(self) -> IsaacRuntimeProvenance:
+        return IsaacRuntimeProvenance(
+            source=CONTRACT_RUNTIME_SOURCE,
+            simulator_version=CONTRACT_RUNTIME_VERSION,
+            admission_capable=False,
+        )
 
     def run(
         self,
@@ -228,6 +258,10 @@ class IsaacLabAdapter:
             raise ValueError("Isaac admission accepts only the named Golden Scene")
         self._scene = scene
         self._runtime = runtime
+
+    @property
+    def admission_capable(self) -> bool:
+        return self._runtime.provenance.admission_capable
 
     def run(self, replay: QualifiedReplay, *, seed: int) -> IsaacLabEpisode:
         """Run the frozen targets deterministically against one frozen scene."""
@@ -272,8 +306,8 @@ class IsaacLabAdapter:
             }
         )
         return IsaacLabEpisode(
-            source=ISAAC_LAB_SOURCE,
-            simulator_version=ISAAC_LAB_VERSION,
+            source=self._runtime.provenance.source,
+            simulator_version=self._runtime.provenance.simulator_version,
             scene_digest=self._scene.digest(),
             replay_digest=replay.digest(),
             seed=seed,
@@ -374,6 +408,8 @@ def admit_qualified_replay(
     if candidate.configuration_digest != replay.initial_state_envelope.configuration_digest:
         raise ValueError("the Candidate and replay name different configurations")
     episode = adapter.run(replay, seed=seed)
+    if not adapter.admission_capable or episode.source != ISAAC_LAB_SOURCE:
+        raise ValueError("Isaac admission evidence requires an Isaac Lab host runtime")
     return ledger.seal(
         IsaacLabEvidence(
             source=episode.source,
