@@ -128,11 +128,51 @@ class GateEvidenceReference:
 
 
 @dataclass(frozen=True)
+class GenerationPilotAnchor:
+    """The registered real-world evidence bound to one Generation."""
+
+    generation_id: str
+    batch_id: str
+    campaign_digest: str
+    candidate_digest: str
+    operational_run_id: str
+    registration_digest: str
+    episode_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "episode_ids", tuple(self.episode_ids))
+        if not all(
+            value.strip()
+            for value in (
+                self.generation_id,
+                self.batch_id,
+                self.campaign_digest,
+                self.candidate_digest,
+                self.operational_run_id,
+                self.registration_digest,
+            )
+        ) or not self.episode_ids or not all(self.episode_ids):
+            raise ValueError("a Generation anchor names its registered real episodes")
+
+    def as_payload(self) -> dict[str, object]:
+        return {
+            "generation_id": self.generation_id,
+            "batch_id": self.batch_id,
+            "campaign_digest": self.campaign_digest,
+            "candidate_digest": self.candidate_digest,
+            "operational_run_id": self.operational_run_id,
+            "registration_digest": self.registration_digest,
+            "episode_ids": list(self.episode_ids),
+        }
+
+
+@dataclass(frozen=True)
 class SealedGenerationResult:
     generation_id: str
     candidate: CandidateBundle
     gate_evidence: tuple[GateEvidenceReference, ...]
     sealed_at: datetime
+    real_anchor: GenerationPilotAnchor | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "gate_evidence", tuple(self.gate_evidence))
@@ -146,6 +186,12 @@ class SealedGenerationResult:
             item.candidate_digest != candidate_digest for item in self.gate_evidence
         ):
             raise ValueError("Generation evidence cannot mix Candidate identities")
+        if self.real_anchor is not None and (
+            self.real_anchor.generation_id != self.generation_id
+            or self.real_anchor.candidate_digest != candidate_digest
+            or self.real_anchor.episode_ids != self.gate_evidence[-1].episode_ids
+        ):
+            raise ValueError("a Generation anchor must match its sealed pilot evidence")
 
     @property
     def refusals(self) -> Mapping[str, tuple[str, ...]]:
@@ -170,6 +216,11 @@ class SealedGenerationResult:
                 "candidate_digest": self.candidate.digest(),
                 "gate_evidence": [item.as_payload() for item in self.gate_evidence],
                 "sealed_at": self.sealed_at.isoformat(),
+                "real_anchor": (
+                    None
+                    if self.real_anchor is None
+                    else self.real_anchor.as_payload()
+                ),
             }
         )
 

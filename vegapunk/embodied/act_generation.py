@@ -1,4 +1,4 @@
-"""The single promotion seam for one end-to-end ACT Generation."""
+"""ACT's private execution adapter for the shared Generation promotion seam."""
 
 from __future__ import annotations
 
@@ -14,16 +14,25 @@ from vegapunk.embodied.generation_result import (
     GATE_MUJOCO,
     GATE_OBSERVATION_SHADOW,
     GATE_OFFLINE_REPLAY,
+    SOURCE_HARDWARE_PILOT,
     BoundedWorkOrder,
     GateEvidenceReference,
+    GenerationPilotAnchor,
     GenerationResultLedger,
     SealedGenerationResult,
+)
+from vegapunk.embodied.pilot import (
+    PILOT_SOURCE_OPERATIONAL,
+    HardwarePilotApproval,
+    OperationalRunRegistration,
+    PilotBatchEvidence,
 )
 from vegapunk.embodied.promotion import (
     GATE_CONTRACT_VALIDATION,
     GATE_EVIDENCE_SEALING,
     GATE_HARDWARE_APPROVAL,
     PROMOTION_GATE_ORDER,
+    PromotionSubmission,
 )
 
 ACT_GENERATION_GATE_ORDER = PROMOTION_GATE_ORDER
@@ -31,8 +40,6 @@ ACT_GENERATION_GATE_ORDER = PROMOTION_GATE_ORDER
 
 class ACTEvidenceGates(Protocol):
     """The owned evidence gates; none exposes a second actuator path."""
-
-    def contract_validation(self) -> bool: ...
 
     def offline_replay(self) -> GateEvidenceReference: ...
 
@@ -42,9 +49,9 @@ class ACTEvidenceGates(Protocol):
 
     def observation_shadow(self) -> GateEvidenceReference: ...
 
-    def hardware_approval(self) -> bool: ...
+    def hardware_approval(self) -> HardwarePilotApproval: ...
 
-    def hardware_pilot(self) -> GateEvidenceReference: ...
+    def hardware_pilot(self) -> tuple[PilotBatchEvidence, OperationalRunRegistration]: ...
 
 
 @dataclass(frozen=True)
@@ -60,7 +67,6 @@ class ACTGenerationPromotion:
 
     result: SealedGenerationResult
     work_order: BoundedWorkOrder
-    real_anchor_episode_ids: tuple[str, ...]
     executed_gates: tuple[str, ...]
     previous_result: SealedGenerationResult | None = None
 
@@ -70,66 +76,107 @@ class ACTGenerationPromotion:
             return None
         return (self.previous_result.candidate.digest(), self.result.candidate.digest())
 
+    @property
+    def real_anchor_episode_ids(self) -> tuple[str, ...]:
+        return self.real_anchor.episode_ids
 
-class ACTGenerationPromoter:
-    """Promote one ACT Candidate through the only complete evidence ladder."""
+    @property
+    def real_anchor(self) -> GenerationPilotAnchor:
+        anchor = self.result.real_anchor
+        if anchor is None:
+            raise AssertionError("an ACT promotion must seal its real pilot anchor")
+        return anchor
 
-    def promote(
-        self,
-        *,
-        generation_id: str,
-        candidate: EndToEndACTCandidate,
-        gates: ACTEvidenceGates,
-        ledger: GenerationResultLedger,
-        work_order_from: Callable[[SealedGenerationResult], BoundedWorkOrder],
-        now: datetime,
-        previous_result_digest: str | None = None,
-    ) -> ACTGenerationPromotion | PromotionFailure:
-        if not isinstance(candidate, EndToEndACTCandidate):
-            raise TypeError("ACT promotion needs an end-to-end ACT Candidate")
-        previous_result = (
-            None if previous_result_digest is None else ledger.result_for(previous_result_digest)
+
+def _execute_act_generation(
+    submission: PromotionSubmission,
+    *,
+    generation_id: str,
+    candidate: EndToEndACTCandidate,
+    gates: ACTEvidenceGates,
+    result_ledger: GenerationResultLedger,
+    work_order_from: Callable[[SealedGenerationResult], BoundedWorkOrder],
+    now: datetime,
+    previous_result_digest: str | None = None,
+) -> ACTGenerationPromotion | PromotionFailure:
+    """Run ACT's evidence ladder after ``promote_generation`` admits it."""
+    if not isinstance(candidate, EndToEndACTCandidate):
+        raise TypeError("ACT promotion needs an end-to-end ACT Candidate")
+    if submission.candidate != candidate.bundle:
+        raise ValueError("ACT promotion submission must name its exact Candidate")
+    previous_result = (
+        None
+        if previous_result_digest is None
+        else result_ledger.result_for(previous_result_digest)
+    )
+    if previous_result_digest is not None and previous_result is None:
+        raise ValueError("a comparison names a sealed previous Generation")
+
+    executed = [GATE_CONTRACT_VALIDATION]
+    evidence: list[GateEvidenceReference] = []
+    for gate, run in (
+        (GATE_OFFLINE_REPLAY, gates.offline_replay),
+        (GATE_ISAAC_LAB, gates.isaac_lab),
+        (GATE_MUJOCO, gates.mujoco),
+        (GATE_OBSERVATION_SHADOW, gates.observation_shadow),
+    ):
+        record = run()
+        executed.append(gate)
+        if not _passes(record, gate, candidate):
+            return PromotionFailure(generation_id, gate, tuple(executed))
+        evidence.append(result_ledger.record_gate_evidence(record))
+
+    executed.append(GATE_HARDWARE_APPROVAL)
+    approval = gates.hardware_approval()
+    plan = submission.plan
+    assert plan is not None
+    campaign_digest = plan.digest()
+    if not approval.covers(submission, campaign_digest):
+        return PromotionFailure(generation_id, GATE_HARDWARE_APPROVAL, tuple(executed))
+
+    pilot, registration = gates.hardware_pilot()
+    executed.append(GATE_HARDWARE_PILOT)
+    if not pilot.is_operational_success_for(submission, approval, registration):
+        return PromotionFailure(generation_id, GATE_HARDWARE_PILOT, tuple(executed))
+    anchor = GenerationPilotAnchor(
+        generation_id=generation_id,
+        batch_id=pilot.batch_id,
+        campaign_digest=pilot.campaign_digest,
+        candidate_digest=pilot.candidate_digest,
+        operational_run_id=pilot.source.operational_run_id,
+        registration_digest=pilot.source.registration_digest,
+        episode_ids=tuple(episode.episode_id for episode in pilot.episodes),
+    )
+    if pilot.source.source != PILOT_SOURCE_OPERATIONAL:
+        raise AssertionError("operational pilot validation accepted a non-operational source")
+    evidence.append(
+        result_ledger.record_gate_evidence(
+            GateEvidenceReference(
+                GATE_HARDWARE_PILOT,
+                SOURCE_HARDWARE_PILOT,
+                pilot.digest(),
+                candidate.bundle.digest(),
+                episode_ids=anchor.episode_ids,
+            )
         )
-        if previous_result_digest is not None and previous_result is None:
-            raise ValueError("a comparison names a sealed previous Generation")
-        if not gates.contract_validation():
-            return PromotionFailure(generation_id, GATE_CONTRACT_VALIDATION, ())
+    )
 
-        executed = [GATE_CONTRACT_VALIDATION]
-        evidence: list[GateEvidenceReference] = []
-        for gate, run in (
-            (GATE_OFFLINE_REPLAY, gates.offline_replay),
-            (GATE_ISAAC_LAB, gates.isaac_lab),
-            (GATE_MUJOCO, gates.mujoco),
-            (GATE_OBSERVATION_SHADOW, gates.observation_shadow),
-        ):
-            record = run()
-            executed.append(gate)
-            if not _passes(record, gate, candidate):
-                return PromotionFailure(generation_id, gate, tuple(executed))
-            evidence.append(ledger.record_gate_evidence(record))
-
-        executed.append(GATE_HARDWARE_APPROVAL)
-        if not gates.hardware_approval():
-            return PromotionFailure(generation_id, GATE_HARDWARE_APPROVAL, tuple(executed))
-
-        pilot = gates.hardware_pilot()
-        executed.append(GATE_HARDWARE_PILOT)
-        if not _passes(pilot, GATE_HARDWARE_PILOT, candidate) or not pilot.episode_ids:
-            return PromotionFailure(generation_id, GATE_HARDWARE_PILOT, tuple(executed))
-        evidence.append(ledger.record_gate_evidence(pilot))
-
-        result = ledger.seal(
-            SealedGenerationResult(generation_id, candidate.bundle, tuple(evidence), now)
+    result = result_ledger.seal(
+        SealedGenerationResult(
+            generation_id,
+            candidate.bundle,
+            tuple(evidence),
+            now,
+            anchor,
         )
-        order = ledger.propose(work_order_from(result))
-        return ACTGenerationPromotion(
-            result,
-            order,
-            pilot.episode_ids,
-            tuple(executed + [GATE_EVIDENCE_SEALING]),
-            previous_result,
-        )
+    )
+    order = result_ledger.propose(work_order_from(result))
+    return ACTGenerationPromotion(
+        result,
+        order,
+        tuple(executed + [GATE_EVIDENCE_SEALING]),
+        previous_result,
+    )
 
 
 def _passes(

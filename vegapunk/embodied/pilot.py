@@ -13,14 +13,19 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from vegapunk.embodied.episode import Intervention
 from vegapunk.embodied.hardware import MotionAuthority
 from vegapunk.embodied.promotion import PromotionSubmission
 from vegapunk.operation.bridge import MotionGrant
-from vegapunk.operation.episode import EpisodeOutcome, EpisodeRecord
+from vegapunk.operation.episode import (
+    TERMINATION_COMPLETED,
+    TRANSFER_FULL,
+    EpisodeOutcome,
+    EpisodeRecord,
+)
 from vegapunk.operation.policy import Observation
 from vegapunk.operation.session import OperationSession
 
@@ -34,6 +39,7 @@ PILOT_INTERVENED = "intervened"
 PILOT_INDETERMINATE = "indeterminate"
 
 _SOURCES = frozenset({PILOT_SOURCE_TEST_DOUBLE, PILOT_SOURCE_OPERATIONAL})
+_PILOT_BATCH_SEAL = object()
 _DISPOSITIONS = frozenset(
     {
         PILOT_SUCCEEDED,
@@ -149,6 +155,19 @@ class OperationalRunRegistration:
     registered_by: str
     registered_at: datetime
 
+    def __post_init__(self) -> None:
+        if not all(
+            value.strip()
+            for value in (
+                self.operational_run_id,
+                self.batch_id,
+                self.campaign_digest,
+                self.approval_digest,
+                self.registered_by,
+            )
+        ):
+            raise ValueError("an operational run registration names its authority")
+
     def digest(self) -> str:
         return _digest(
             {
@@ -217,9 +236,14 @@ class PilotBatchEvidence:
     source: PilotRunProvenance
     episodes: tuple[PilotEpisodeEvidence, ...]
     sealed_at: datetime
+    _pilot_batch_seal: object = field(
+        default=None, repr=False, compare=False, hash=False
+    )
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "episodes", tuple(self.episodes))
+        if self._pilot_batch_seal is not _PILOT_BATCH_SEAL:
+            raise ValueError("pilot evidence must be sealed by SupervisedPilotBatch")
         if not self.batch_id.strip() or not self.campaign_digest.strip():
             raise ValueError("pilot evidence names its pre-registered batch")
         if not self.episodes:
@@ -240,6 +264,45 @@ class PilotBatchEvidence:
                 "episodes": [episode.as_payload() for episode in self.episodes],
                 "sealed_at": self.sealed_at.isoformat(),
             }
+        )
+
+    def is_operational_success_for(
+        self,
+        submission: PromotionSubmission,
+        approval: HardwarePilotApproval,
+        registration: OperationalRunRegistration,
+    ) -> bool:
+        """Whether this is a registered, measured success for one submission.
+
+        This is deliberately the only interpretation that can turn pilot facts
+        into a real-success claim.  CI doubles and testimony remain useful
+        records, but cannot satisfy this predicate.
+        """
+        candidate = submission.candidate
+        if candidate is None or self.source.source != PILOT_SOURCE_OPERATIONAL:
+            return False
+        if not approval.covers(submission, self.campaign_digest):
+            return False
+        if self.candidate_digest != candidate.digest():
+            return False
+        if (
+            registration.operational_run_id != self.source.operational_run_id
+            or registration.batch_id != self.batch_id
+            or registration.campaign_digest != self.campaign_digest
+            or registration.approval_digest != approval.digest()
+            or self.source.registration_digest != registration.digest()
+        ):
+            return False
+        return all(
+            episode.disposition == PILOT_SUCCEEDED
+            and episode.episode_id == episode.record.episode_id
+            and episode.intervention is None
+            and episode.record.reset.complete
+            and episode.record.outcome is not None
+            and episode.record.outcome.transfer == TRANSFER_FULL
+            and episode.record.outcome.termination == TERMINATION_COMPLETED
+            and episode.record.outcome.lid_closed_at_end
+            for episode in self.episodes
         )
 
 
@@ -320,6 +383,7 @@ class SupervisedPilotBatch:
             source=self._provenance,
             episodes=tuple(evidence),
             sealed_at=self._clock(),
+            _pilot_batch_seal=_PILOT_BATCH_SEAL,
         )
 
     def _run_episode(self, episode: PilotEpisode) -> PilotEpisodeEvidence:
