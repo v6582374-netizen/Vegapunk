@@ -42,6 +42,7 @@ from typing import Callable, Mapping, Optional
 
 from vegapunk.operation.bridge import (
     ACCEPTED,
+    MotionGrant,
     PublishResult,
     TargetBridge,
 )
@@ -59,6 +60,7 @@ from vegapunk.operation.episode import (
 from vegapunk.operation.monitor import InstrumentMonitor, PASS
 from vegapunk.operation.policy import Observation, PolicyServer
 from vegapunk.operation.target import WholeBodyTarget
+from vegapunk.operation.witness import WitnessVerdict
 
 RUNNING = "running"
 HELD = "held"
@@ -136,6 +138,14 @@ class OperationSession:
     def record(self) -> EpisodeRecord:
         return self._writer.record
 
+    def grant_motion_authority(self, grant: MotionGrant) -> None:
+        """Install the named human grant on this session's sole bridge."""
+        self._bridge.grant_authority(grant)
+
+    def preflight_witness(self) -> WitnessVerdict:
+        """Read the very witness this session will consult while moving."""
+        return self._monitor.preflight_witness()
+
     def _now_ns(self) -> int:
         """A positive timestamp, always.
 
@@ -169,9 +179,7 @@ class OperationSession:
         self._detail = detail
         self._held_at = self._ticks
 
-        self._writer.note(
-            SafetyEvent(time_ns=now_ns, kind=kind, detail=detail)
-        )
+        self._writer.note(SafetyEvent(time_ns=now_ns, kind=kind, detail=detail))
         if observation is not None and result.target is not None:
             self._record_frame(
                 observation=observation,

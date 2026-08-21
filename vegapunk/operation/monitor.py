@@ -160,6 +160,12 @@ class InstrumentMonitor:
     def last_lid(self) -> str:
         return "" if self._last is None else self._last.value
 
+    def preflight_witness(self) -> WitnessVerdict:
+        """Read the same Independent Witness before a supervised episode."""
+        verdict = self._witness.observe()
+        self._last = verdict
+        return verdict
+
     def evaluate(self, target: WholeBodyTarget) -> MonitorVerdict:
         """Judge one frame on its way to the bridge.
 
