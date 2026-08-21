@@ -235,6 +235,7 @@ class GenerationResultLedger:
     def __init__(self) -> None:
         self._evidence: dict[tuple[str, str], GateEvidenceReference] = {}
         self._results: dict[str, SealedGenerationResult] = {}
+        self._results_by_generation: dict[str, SealedGenerationResult] = {}
         self._orders: dict[str, BoundedWorkOrder] = {}
         self._orders_by_result: dict[str, BoundedWorkOrder] = {}
 
@@ -260,7 +261,12 @@ class GenerationResultLedger:
             for item in result.gate_evidence
         ):
             raise ValueError("a Generation Result references recorded Gate evidence")
-        return self._results.setdefault(result.digest(), result)
+        existing = self._results_by_generation.get(result.generation_id)
+        if existing is not None and existing != result:
+            raise ValueError("a Generation identity cannot be rewritten")
+        sealed = self._results.setdefault(result.digest(), result)
+        self._results_by_generation[result.generation_id] = sealed
+        return sealed
 
     def result_for(self, result_digest: str) -> SealedGenerationResult | None:
         """Read one sealed result without exposing any way to rewrite it."""
