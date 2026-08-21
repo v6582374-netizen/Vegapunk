@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from vegapunk.embodied.episode import (
     AbortRecord,
+    EpisodeTrainingManifest,
     InitialStateEnvelope,
     Intervention,
     TimeSynchronization,
-    TrainingManifest,
-    capture_training_episode,
+    TrainingEpisode,
     freeze_qualified_replay,
 )
 from vegapunk.embodied.promotion import (
@@ -93,6 +94,7 @@ def _frame(index: int = 0, *, lid: str = LID_CLOSED) -> Frame:
             body=(0.0,) * 34,
             left_hand=HAND_OPEN,
             right_hand=HAND_OPEN,
+            applied_target_sequence=index + 1,
         ),
         target=_target(index + 1),
         lid=lid,
@@ -153,15 +155,15 @@ def _sync() -> TimeSynchronization:
 def _episode(
     episode_id: str = "episode-001", *, transfer: str = TRANSFER_FULL,
     lid: str = LID_CLOSED, interventions: tuple[Intervention, ...] = (),
-    aborts: tuple[AbortRecord, ...] = (),
+    aborts: tuple[AbortRecord, ...] = (), frame: Frame | None = None,
 ):
-    return capture_training_episode(
+    return TrainingEpisode(
         record=_record(episode_id, transfer=transfer),
         skill=_skill(),
         embodiment=GOLDEN_EMBODIMENT,
         configuration=GOLDEN_PROMOTION_CONFIGURATION,
         synchronization=_sync(),
-        frames=(_frame(lid=lid),),
+        frames=(_frame(lid=lid) if frame is None else frame,),
         interventions=interventions,
         aborts=aborts,
     )
@@ -199,6 +201,24 @@ class TrainingEpisodeAcceptanceTest(unittest.TestCase):
         self.assertEqual(episode.interventions, (intervention,))
         self.assertEqual(episode.aborts, (abort,))
         self.assertEqual(episode.record.outcome.transfer, TRANSFER_FULL)
+        with self.assertRaises(TypeError):
+            episode.frames[0].images["head"] = "tampered.jpg"  # type: ignore[index]
+
+    def test_capture_refuses_unsynchronized_or_unaligned_observation_target_pairs(self) -> None:
+        frame = _frame()
+        wrong_target = replace(
+            frame,
+            state=replace(frame.state, applied_target_sequence=99),
+        )
+        delayed_state = replace(
+            frame,
+            state=replace(frame.state, state_time_ns=NOW + 3_000_000),
+        )
+
+        with self.assertRaisesRegex(ValueError, "applied to it"):
+            _episode(frame=wrong_target)
+        with self.assertRaisesRegex(ValueError, "synchronization bound"):
+            _episode(frame=delayed_state)
 
     def test_manifest_keeps_eligible_and_every_excluded_episode_with_its_reason(self) -> None:
         eligible = _episode("episode-eligible")
@@ -212,7 +232,7 @@ class TrainingEpisodeAcceptanceTest(unittest.TestCase):
             lid=LID_INDETERMINATE,
         )
 
-        manifest = TrainingManifest((eligible, failed, interrupted))
+        manifest = EpisodeTrainingManifest((eligible, failed, interrupted))
 
         self.assertEqual(manifest.eligible_episode_ids, ("episode-eligible",))
         self.assertEqual(set(manifest.excluded_episode_reasons), {

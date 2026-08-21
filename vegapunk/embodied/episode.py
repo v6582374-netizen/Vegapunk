@@ -162,6 +162,29 @@ class TrainingEpisode:
                 raise TypeError("replay targets must pass the WholeBodyTarget contract")
             if frame.lid not in {LID_OPEN, LID_CLOSED, LID_INDETERMINATE}:
                 raise ValueError("every frame records an Independent Witness fact")
+            if frame.state.applied_target_sequence != frame.target.sequence:
+                raise ValueError(
+                    "every observation must name the WholeBodyTarget applied to it"
+                )
+            synchronized_times = (
+                frame.time_ns,
+                frame.state.state_time_ns,
+                frame.target.source_time_ns,
+            )
+            if (
+                max(synchronized_times) - min(synchronized_times)
+                > self.synchronization.max_skew_ns
+            ):
+                raise ValueError(
+                    "observation, Independent Witness, state, and target exceed "
+                    "the declared synchronization bound"
+                )
+            camera_ids = {camera.identity for camera in self.record.cameras}
+            if set(frame.images) != camera_ids:
+                raise ValueError(
+                    "every frame must carry exactly the observations named by "
+                    "the record"
+                )
         sequences = tuple(frame.target.sequence for frame in self.frames)
         if sequences != tuple(sorted(sequences)) or len(set(sequences)) != len(sequences):
             raise ValueError("episode targets must preserve strict target ordering")
@@ -204,32 +227,8 @@ class TrainingEpisode:
         return not reasons, "; ".join(reasons)
 
 
-def capture_training_episode(
-    *,
-    record: EpisodeRecord,
-    skill: GoldenSkillRevision,
-    embodiment: EmbodimentProfile,
-    configuration: PromotionConfiguration,
-    synchronization: TimeSynchronization,
-    frames: tuple[Frame, ...],
-    interventions: tuple[Intervention, ...] = (),
-    aborts: tuple[AbortRecord, ...] = (),
-) -> TrainingEpisode:
-    """The Campaign Operator's sole capture seam for a Training Episode."""
-    return TrainingEpisode(
-        record=record,
-        skill=skill,
-        embodiment=embodiment,
-        configuration=configuration,
-        synchronization=synchronization,
-        frames=frames,
-        interventions=interventions,
-        aborts=aborts,
-    )
-
-
 @dataclass(frozen=True)
-class TrainingManifest:
+class EpisodeTrainingManifest:
     """The full training decision: eligible episodes and every exclusion."""
 
     episodes: tuple[TrainingEpisode, ...]

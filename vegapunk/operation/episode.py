@@ -46,10 +46,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Mapping, Optional, Sequence
+from types import MappingProxyType
 
 from vegapunk.operation.target import WholeBodyTarget
 from vegapunk.operation.tracker import TrackerState
@@ -183,7 +184,7 @@ class Frame:
                 "'indeterminate'; a blank lid field is indistinguishable from "
                 "a witness that was never consulted"
             )
-        object.__setattr__(self, "images", dict(self.images))
+        object.__setattr__(self, "images", MappingProxyType(dict(self.images)))
 
     def as_payload(self) -> Mapping[str, object]:
         return {
@@ -220,7 +221,7 @@ class ResetRecord:
     vessel_restored: bool
     floor_and_tether_restored: bool
     cup_filled: bool = True
-    cup_volume_ml: Optional[float] = None
+    cup_volume_ml: float | None = None
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -289,8 +290,8 @@ class EpisodeOutcome:
     lid_closed_at_end: bool
     termination: str
     method: str = JUDGED_BY_EYE
-    delivered_mass_g: Optional[float] = None
-    balance_resolution_g: Optional[float] = None
+    delivered_mass_g: float | None = None
+    balance_resolution_g: float | None = None
     detail: str = ""
 
     def __post_init__(self) -> None:
@@ -336,7 +337,7 @@ class EpisodeOutcome:
         return self.delivered_mass_g is not None
 
     @property
-    def within_resolution(self) -> Optional[bool]:
+    def within_resolution(self) -> bool | None:
         """Whether a weighed pour exceeded the balance's own noise.
 
         ``None`` when nobody weighed it, because "not measured" and "measured
@@ -421,7 +422,7 @@ class EpisodeRecord:
     witness_identity: str
     reset: ResetRecord
     frame_count: int = 0
-    outcome: Optional[EpisodeOutcome] = None
+    outcome: EpisodeOutcome | None = None
     safety_events: tuple[SafetyEvent, ...] = ()
     testimony: tuple[HumanTestimony, ...] = ()
     operator: str = ""
@@ -466,8 +467,10 @@ class EpisodeRecord:
         if self.outcome.transfer == TRANSFER_NONE:
             return (
                 False,
-                "outcome is 'none': kept as a record of the behaviour, "
-                "excluded from imitation by label rather than deleted",
+                (
+                    "outcome is 'none': kept as a record of the behaviour, "
+                    "excluded from imitation by label rather than deleted"
+                ),
             )
         return True, ""
 
