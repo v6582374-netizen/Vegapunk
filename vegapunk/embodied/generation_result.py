@@ -262,6 +262,10 @@ class GenerationResultLedger:
             raise ValueError("a Generation Result references recorded Gate evidence")
         return self._results.setdefault(result.digest(), result)
 
+    def result_for(self, result_digest: str) -> SealedGenerationResult | None:
+        """Read one sealed result without exposing any way to rewrite it."""
+        return self._results.get(result_digest)
+
     def propose(self, order: BoundedWorkOrder) -> BoundedWorkOrder:
         result = self._results.get(order.result_digest)
         if result is None:
@@ -284,3 +288,7 @@ class GenerationResultLedger:
         self._orders[order.order_id] = order
         self._orders_by_result[order.result_digest] = order
         return order
+
+    def work_order_for(self, order_id: str) -> BoundedWorkOrder | None:
+        """Read one approved-for-review Work Order without mutating its ledger."""
+        return self._orders.get(order_id)

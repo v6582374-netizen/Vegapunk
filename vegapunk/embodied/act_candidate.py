@@ -17,6 +17,7 @@ from vegapunk.operation.target import ROOT_YAW_RATE, WholeBodyTarget
 
 ACT_MODEL_FAMILY = "action_chunking_transformer"
 _ACT_TRAINING_SEAL = object()
+_ACT_CANDIDATE_SEAL = object()
 
 
 def _digest(payload: object) -> str:
@@ -420,6 +421,26 @@ class EndToEndACTCandidate:
     split: EpisodeSplit
     training_output: ACTTrainingOutput
     evaluation: ACTOfflineEvaluation
+    _issued_bundle_digest: str = field(default="", repr=False, compare=False)
+    _act_candidate_seal: object = field(
+        default=None, repr=False, compare=False, hash=False
+    )
+
+    def __post_init__(self) -> None:
+        if self._act_candidate_seal is not _ACT_CANDIDATE_SEAL:
+            raise ValueError("an end-to-end ACT Candidate must be issued by ACTPolicyEngineer")
+        if (
+            self._issued_bundle_digest != self.bundle.digest()
+            or self.bundle.candidate_id != self.training_output.candidate_id
+            or self.bundle.policy_artifact_digest != self.training_output.checkpoint_digest
+            or self.bundle.data_manifest_digest
+            != self.training_output.training_manifest_digest
+            or self.bundle.training_recipe_digest
+            != self.training_output.training_recipe_digest
+            or self.bundle.observation_schema_digest != self.recipe.observation_schema_digest
+            or self.bundle.action_schema_digest != self.recipe.action_schema_digest
+        ):
+            raise ValueError("an end-to-end ACT Candidate cannot replace its sealed bundle")
 
 
 class ACTTrainer:
@@ -527,8 +548,7 @@ class ACTPolicyEngineer:
                 for episode_id in split.test_episode_ids
             )
         )
-        return EndToEndACTCandidate(
-            bundle=CandidateBundle(
+        bundle = CandidateBundle(
                 candidate_id=output.candidate_id,
                 policy_artifact_digest=output.checkpoint_digest,
                 data_manifest_digest=manifest.digest(),
@@ -539,11 +559,15 @@ class ACTPolicyEngineer:
                 skill_revision_digest=reference.skill.digest(),
                 embodiment_digest=reference.embodiment.digest(),
                 configuration_digest=reference.configuration.digest(),
-            ),
+            )
+        return EndToEndACTCandidate(
+            bundle=bundle,
             recipe=recipe,
             split=split,
             training_output=output,
             evaluation=evaluation,
+            _issued_bundle_digest=bundle.digest(),
+            _act_candidate_seal=_ACT_CANDIDATE_SEAL,
         )
 
 

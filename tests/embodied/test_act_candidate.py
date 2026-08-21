@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from vegapunk.embodied.act_candidate import (
@@ -466,6 +467,33 @@ class ACTCandidateAcceptanceTest(unittest.TestCase):
                 (ACTObservationContext((0.0, 0.0, 0.0), "image-reference-digest"),),
                 ((),),
                 (),
+            )
+
+    def test_a_packaged_act_candidate_cannot_replace_its_bundle(self) -> None:
+        train, validation, held_out = (
+            _episode("episode-train"),
+            _episode("episode-validation"),
+            _episode("episode-held-out"),
+        )
+        manifest = EpisodeTrainingManifest((train, validation, held_out))
+        recipe = _recipe()
+        split = _split(train, validation, held_out)
+        candidate = ACTPolicyEngineer().package(
+            manifest,
+            split,
+            recipe,
+            _training_output(
+                manifest,
+                split,
+                recipe,
+                {held_out.record.episode_id: 12.5},
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "sealed bundle"):
+            replace(
+                candidate,
+                bundle=replace(candidate.bundle, skill_revision_digest="other-skill"),
             )
 
 
