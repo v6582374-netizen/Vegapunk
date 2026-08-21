@@ -122,6 +122,20 @@ capture artifact, and carries only validated Whole-Body Targets for the existing
 Target Bridge.
 _Avoid_: action dump, direct joint playback, actuator shortcut
 
+**Isaac Lab Golden Scene**:
+The minimal simulator-scoped representation of the Golden Skill: G1 with Dex3,
+the policy camera, the instrument, cup and receiving vessel, their critical
+contacts, and visibility of the Independent Witness. It is a task-relevant
+admission world, not a general digital twin.
+_Avoid_: full laboratory replica, generic robot scene, benchmark world
+
+**Isaac Admission Evidence**:
+The sealed verdict from running one Qualified Replay in one named Isaac Lab
+Golden Scene with one seed. It always identifies its simulator source, version,
+scene, Candidate and Replay, and can never be presented as real Episode Outcome
+or written to a real evidence ledger.
+_Avoid_: real result, hardware evidence, simulator success rate
+
 **Intervention / Abort Record**:
 Separate named facts that a normal run was interrupted or ended. They may make
 an Episode ineligible, but they never erase its observations, witness readings,
