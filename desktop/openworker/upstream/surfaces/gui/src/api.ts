@@ -2193,6 +2193,14 @@ export interface YouTubeStatus {
   video_count: number;
 }
 
+export interface YouTubeOAuthSettings {
+  configured: boolean;
+  client_id: string;
+  has_client_secret: boolean;
+  redirect_uri: string;
+  source: "environment" | "local" | "none" | string;
+}
+
 export interface YouTubeVideo {
   video_id: string;
   channel_id: string;
@@ -2212,6 +2220,25 @@ export interface YouTubeVideo {
     source: string;
   } | null;
   caption_body?: string | null;
+  translation_status: "pending" | "translating" | "ready" | "error" | string;
+  translation_error: string | null;
+  translation?: {
+    language_code: string;
+    model: string;
+    translated_at: number;
+  } | null;
+  translation_body?: string | null;
+}
+
+export interface YouTubeTranslationSettings {
+  configured: boolean;
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  prompt: string;
+  last_test_at?: number | null;
+  last_test_ok?: boolean | null;
+  last_test_error?: string | null;
 }
 
 export async function getYouTubeStatus(): Promise<YouTubeStatus> {
@@ -2219,32 +2246,56 @@ export async function getYouTubeStatus(): Promise<YouTubeStatus> {
   return res.json();
 }
 
-export async function startYouTubeOAuth(): Promise<{ ok: boolean; authorization_url?: string; error?: string }> {
-  const res = await fetch(`${httpBase()}/v1/youtube/oauth/start`);
+export async function getYouTubeOAuthSettings(): Promise<YouTubeOAuthSettings> {
+  const res = await fetch(`${httpBase()}/v1/youtube/oauth/settings`);
   return res.json();
 }
 
-export async function disconnectYouTube(): Promise<{ ok: boolean }> {
-  const res = await fetch(`${httpBase()}/v1/youtube/disconnect`, { method: "POST" });
-  return res.json();
-}
-
-export async function refreshYouTubeSubscriptions() {
-  const res = await fetch(`${httpBase()}/v1/youtube/subscriptions/refresh`, { method: "POST" });
-  return res.json();
-}
-
-export async function createYouTubeAutomation(payload?: { title?: string }): Promise<{ ok: boolean; error?: string; task?: Automation }> {
-  const res = await fetch(`${httpBase()}/v1/youtube/automations`, {
-    method: "POST",
+export async function saveYouTubeOAuthSettings(settings: {
+  client_id: string;
+  client_secret: string;
+  redirect_uri: string;
+}): Promise<YouTubeOAuthSettings & { ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/oauth/settings`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify(settings),
   });
   return res.json();
 }
 
-export async function runYouTubeAutomation(taskId: string) {
-  const res = await fetch(`${httpBase()}/v1/youtube/automations/${encodeURIComponent(taskId)}/run`, { method: "POST" });
+export async function startYouTubeOAuth(
+  redirectUri: string,
+): Promise<{ ok: boolean; authorization_url?: string; error?: string }> {
+  const params = new URLSearchParams({ redirect_uri: redirectUri });
+  const res = await fetch(`${httpBase()}/v1/youtube/oauth/start?${params}`);
+  return res.json();
+}
+
+export async function disconnectYouTube(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/disconnect`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function refreshYouTubeSubscriptions() {
+  const res = await fetch(`${httpBase()}/v1/youtube/subscriptions/refresh`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function fetchYouTubeUpdates(): Promise<{
+  ok: boolean;
+  discovered?: number;
+  channel_failures?: string[];
+  scan_finished_at?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${httpBase()}/v1/youtube/updates`, {
+    method: "POST",
+  });
   return res.json();
 }
 
@@ -2253,22 +2304,92 @@ export async function getYouTubeVideos(): Promise<{ videos: YouTubeVideo[] }> {
   return res.json();
 }
 
-export async function getYouTubeVideo(videoId: string): Promise<{ video: YouTubeVideo }> {
-  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`);
+export async function getYouTubeVideo(
+  videoId: string,
+): Promise<{ video: YouTubeVideo }> {
+  const res = await fetch(
+    `${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`,
+  );
   return res.json();
 }
 
-export async function setYouTubeVideoSelected(videoId: string, selected: boolean) {
-  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`, {
-    method: "PATCH",
+export async function fetchYouTubeVideoCaption(videoId: string): Promise<{
+  ok: boolean;
+  video?: YouTubeVideo;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}/caption`,
+    {
+      method: "POST",
+    },
+  );
+  return res.json();
+}
+
+export async function getYouTubeTranslationSettings(): Promise<YouTubeTranslationSettings> {
+  const res = await fetch(`${httpBase()}/v1/youtube/translation/settings`);
+  return res.json();
+}
+
+export async function saveYouTubeTranslationSettings(settings: {
+  base_url: string;
+  model: string;
+  api_key: string;
+  prompt: string;
+  clear_api_key?: boolean;
+}): Promise<YouTubeTranslationSettings & { ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/youtube/translation/settings`, {
+    method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ selected }),
+    body: JSON.stringify(settings),
   });
   return res.json();
 }
 
+export async function testYouTubeTranslation(): Promise<{
+  ok: boolean;
+  checked_at?: number;
+  error?: string;
+}> {
+  const res = await fetch(`${httpBase()}/v1/youtube/translation/test`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
+export async function translateYouTubeVideo(videoId: string): Promise<{
+  ok: boolean;
+  video?: YouTubeVideo;
+  error?: string;
+}> {
+  const res = await fetch(
+    `${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}/translate`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
+export async function setYouTubeVideoSelected(
+  videoId: string,
+  selected: boolean,
+) {
+  const res = await fetch(
+    `${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selected }),
+    },
+  );
+  return res.json();
+}
+
 export async function deleteYouTubeVideo(videoId: string) {
-  const res = await fetch(`${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`, { method: "DELETE" });
+  const res = await fetch(
+    `${httpBase()}/v1/youtube/videos/${encodeURIComponent(videoId)}`,
+    { method: "DELETE" },
+  );
   return res.json();
 }
 

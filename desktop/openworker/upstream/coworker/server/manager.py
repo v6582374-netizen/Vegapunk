@@ -89,7 +89,12 @@ from ..providers import (
 from ..secrets import SecretStore, state_dir
 from ..sessions import SessionRecord
 from ..skills import SkillLoader
-from ..youtube import YouTubeAutomationService, YouTubeClient, YouTubeStore
+from ..youtube import (
+    YouTubeAutomationService,
+    YouTubeClient,
+    YouTubeStore,
+    YouTubeTranslationService,
+)
 from .discovery_preferences import DiscoveryLaunchPreferences
 
 _SCOPES = {s.value for s in Scope}
@@ -202,6 +207,14 @@ class SessionManager:
         self.youtube_store = YouTubeStore(base / "youtube.db")
         self.youtube_client = YouTubeClient(self.secrets)
         self.youtube = YouTubeAutomationService(self.youtube_store, self.youtube_client)
+        self.youtube_translation = YouTubeTranslationService(self.youtube_store, self.secrets)
+        # YouTube moved from scheduled automation to a manually refreshed local library.
+        # Preserve legacy task records for auditability, but never let an old daily task keep
+        # fetching content after the product boundary changed.
+        for task in self.task_store.list():
+            if task.kind == "youtube" and task.enabled:
+                task.enabled = False
+                self.task_store.save(task)
         self.scheduler = Scheduler(
             self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
         )
@@ -2886,19 +2899,8 @@ class SessionManager:
         return run
 
     async def run_youtube_now(self, task_id: str) -> dict[str, Any]:
-        task = self.task_store.get(task_id)
-        if task is None:
-            return {"ok": False, "error": "not found"}
-        if task.kind != "youtube":
-            return {"ok": False, "error": "not a YouTube automation"}
-        run = await self._run_youtube_task(task, "manual")
-        fresh = self.task_store.get(task_id)
-        if fresh is not None:
-            fresh.run_count += 1
-            fresh.last_run = run.started_at
-            fresh.last_status = run.status
-            self.task_store.save(fresh)
-        return {"ok": True, "run": run.to_dict()}
+        del task_id
+        return {"ok": False, "error": "YouTube updates are fetched manually from the YouTube library."}
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
@@ -2987,7 +2989,7 @@ class SessionManager:
             return {"ok": False, "error": "title is required"}
         if not instructions:
             return {"ok": False, "error": "instructions are required"}
-        if kind not in {"agent", "youtube"}:
+        if kind != "agent":
             return {"ok": False, "error": f"unsupported automation kind: {kind}"}
         if not cron and not fire_at:
             return {
@@ -3024,17 +3026,8 @@ class SessionManager:
         return {"ok": True, "task": task.public()}
 
     def create_youtube_automation(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Create a YouTube automation with the fixed daily Beijing schedule."""
-        body = dict(payload or {})
-        body.setdefault("title", "YouTube subscription updates")
-        body.setdefault(
-            "instructions",
-            "Fetch subscribed-channel updates, retrieve the best available raw captions, and save them locally.",
-        )
-        body["kind"] = "youtube"
-        body["cron"] = "0 0 * * *"
-        body["timezone"] = "Asia/Shanghai"
-        return self.create_automation(body)
+        del payload
+        return {"ok": False, "error": "YouTube updates are fetched manually from the YouTube library."}
 
     def update_automation(
         self, task_id: str, changes: dict[str, Any]
@@ -3042,6 +3035,8 @@ class SessionManager:
         task = self.task_store.get(task_id)
         if task is None:
             return {"ok": False, "error": "not found"}
+        if task.kind == "youtube":
+            return {"ok": False, "error": "YouTube updates are fetched manually from the YouTube library."}
         if "enabled" in changes:
             task.enabled = bool(changes["enabled"])
         if changes.get("instructions") is not None:

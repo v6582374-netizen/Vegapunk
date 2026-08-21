@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -21,6 +21,7 @@ AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 API_BASE = "https://www.googleapis.com/youtube/v3"
 RSS_BASE = "https://www.youtube.com/feeds/videos.xml"
+OAUTH_CLIENT_PROFILE = "youtube:oauth_client"
 
 
 class YouTubeClientError(RuntimeError):
@@ -77,8 +78,13 @@ class YouTubeClient:
         client_secret: Optional[str] = None,
     ) -> None:
         self.secrets = secrets
-        self.client_id = client_id or os.environ.get("YOUTUBE_CLIENT_ID", "").strip()
-        self.client_secret = client_secret or os.environ.get("YOUTUBE_CLIENT_SECRET", "").strip()
+        self._client_id = (
+            client_id or os.environ.get("YOUTUBE_CLIENT_ID", "")
+        ).strip()
+        self._client_secret = (
+            client_secret or os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+        ).strip()
+        self._redirect_uri = os.environ.get("YOUTUBE_REDIRECT_URI", "").strip()
         self.transport = transport
         self._http: Optional[httpx.AsyncClient] = None
 
@@ -103,8 +109,89 @@ class YouTubeClient:
             await self._http.aclose()
             self._http = None
 
+    def _stored_oauth_settings(self) -> dict[str, Any]:
+        return dict(self.secrets.get(OAUTH_CLIENT_PROFILE) or {})
+
+    def oauth_credentials(self) -> tuple[str, str, str]:
+        if self._client_id and self._client_secret:
+            return self._client_id, self._client_secret, "environment"
+        stored = self._stored_oauth_settings()
+        client_id = str(stored.get("client_id") or "").strip()
+        client_secret = str(stored.get("client_secret") or "").strip()
+        return (
+            client_id,
+            client_secret,
+            "local" if client_id and client_secret else "none",
+        )
+
+    def oauth_redirect_uri(self, default_redirect_uri: str) -> str:
+        stored = self._stored_oauth_settings()
+        return (
+            self._redirect_uri
+            or str(stored.get("redirect_uri") or "").strip()
+            or default_redirect_uri
+        )
+
+    def authorization_redirect_uri(
+        self, *, requested_redirect_uri: str, default_redirect_uri: str
+    ) -> str:
+        return (
+            self._redirect_uri
+            or requested_redirect_uri.strip()
+            or self.oauth_redirect_uri(default_redirect_uri)
+        )
+
+    def oauth_settings(self, *, default_redirect_uri: str) -> dict[str, Any]:
+        client_id, client_secret, source = self.oauth_credentials()
+        return {
+            "configured": bool(client_id and client_secret),
+            "client_id": client_id,
+            "has_client_secret": bool(client_secret),
+            "redirect_uri": self.oauth_redirect_uri(default_redirect_uri),
+            "source": source,
+        }
+
+    def save_oauth_settings(
+        self,
+        *,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+    ) -> dict[str, Any]:
+        existing = self._stored_oauth_settings()
+        next_client_id = client_id.strip()
+        next_client_secret = (
+            client_secret.strip()
+            or str(existing.get("client_secret") or "").strip()
+        )
+        next_redirect_uri = redirect_uri.strip()
+        parsed_redirect = urlsplit(next_redirect_uri)
+        if not next_client_id:
+            raise YouTubeAuthError("Google OAuth Client ID is required.")
+        if not next_client_secret:
+            raise YouTubeAuthError("Google OAuth Client Secret is required.")
+        if (
+            parsed_redirect.scheme not in {"http", "https"}
+            or not parsed_redirect.netloc
+            or parsed_redirect.fragment
+        ):
+            raise YouTubeAuthError(
+                "OAuth redirect URI must be a complete HTTP or HTTPS URL without a fragment."
+            )
+        self.secrets.put(
+            OAUTH_CLIENT_PROFILE,
+            {
+                "type": "oauth_client",
+                "client_id": next_client_id,
+                "client_secret": next_client_secret,
+                "redirect_uri": next_redirect_uri,
+            },
+        )
+        return self.oauth_settings(default_redirect_uri=next_redirect_uri)
+
     def configured(self) -> bool:
-        return bool(self.client_id and self.client_secret)
+        client_id, client_secret, _source = self.oauth_credentials()
+        return bool(client_id and client_secret)
 
     def profile(self) -> dict[str, Any]:
         return dict(self.secrets.get("youtube:default") or {})
@@ -129,12 +216,13 @@ class YouTubeClient:
         }
 
     def authorization_url(self, *, state: str, redirect_uri: str) -> str:
-        if not self.configured():
+        client_id, client_secret, _source = self.oauth_credentials()
+        if not client_id or not client_secret:
             raise YouTubeAuthError(
                 "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET before connecting YouTube."
             )
         params = {
-            "client_id": self.client_id,
+            "client_id": client_id,
             "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": YOUTUBE_SCOPE,
@@ -145,14 +233,15 @@ class YouTubeClient:
         return f"{AUTH_ENDPOINT}?{urlencode(params)}"
 
     async def exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
-        if not self.configured():
+        client_id, client_secret, _source = self.oauth_credentials()
+        if not client_id or not client_secret:
             raise YouTubeAuthError("YouTube OAuth client is not configured.")
         response = await (await self._client()).post(
             TOKEN_ENDPOINT,
             data={
                 "code": code,
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -195,13 +284,14 @@ class YouTubeClient:
     async def refresh_access_token(self) -> str:
         profile = self.profile()
         refresh_token = profile.get("refresh_token")
-        if not refresh_token or not self.configured():
+        client_id, client_secret, _source = self.oauth_credentials()
+        if not refresh_token or not client_id or not client_secret:
             raise YouTubeAuthError("YouTube authorization is not available.")
         response = await (await self._client()).post(
             TOKEN_ENDPOINT,
             data={
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             },
@@ -323,59 +413,17 @@ class YouTubeClient:
         return entries
 
     async def fetch_caption(self, video_id: str) -> CaptionResult:
-        errors: list[str] = []
-        try:
-            tracks = await self._api_caption_tracks(video_id)
-            if tracks:
-                for track in sorted(tracks, key=lambda item: _caption_rank(item["language_code"], item["track_kind"])):
-                    try:
-                        body = await self._download_caption(track["id"])
-                    except YouTubeAuthError:
-                        raise
-                    except YouTubeClientError as exc:
-                        errors.append(str(exc))
-                        continue
-                    if body.strip():
-                        return CaptionResult(
-                            language_code=track["language_code"],
-                            language_name=track["language_name"],
-                            track_kind=track["track_kind"],
-                            source="youtube_api",
-                            body=body,
-                        )
-        except YouTubeAuthError:
-            raise
-        except YouTubeClientError as exc:
-            errors.append(str(exc))
-
         try:
             result = await self._transcript_api_caption(video_id)
             if result:
                 return result
         except Exception as exc:  # optional dependency has several release shapes
-            errors.append(str(exc))
+            detail = str(exc)
+            raise CaptionUnavailable(
+                detail or "No accessible captions were found."
+            ) from exc
 
-        detail = "; ".join(dict.fromkeys(errors))
-        raise CaptionUnavailable(detail or "No accessible captions were found.")
-
-    async def _api_caption_tracks(self, video_id: str) -> list[dict[str, Any]]:
-        payload = await self.api_json("/captions", {"part": "snippet", "videoId": video_id})
-        tracks: list[dict[str, Any]] = []
-        for item in payload.get("items") or []:
-            snippet = item.get("snippet") or {}
-            tracks.append(
-                {
-                    "id": item.get("id"),
-                    "language_code": snippet.get("language", ""),
-                    "language_name": snippet.get("name", ""),
-                    "track_kind": snippet.get("trackKind", "standard"),
-                }
-            )
-        return [track for track in tracks if track.get("id") and track.get("language_code")]
-
-    async def _download_caption(self, caption_id: str) -> str:
-        payload = await self.api_text(f"/captions/{caption_id}", {"tfmt": "vtt"})
-        return _strip_vtt(payload)
+        raise CaptionUnavailable("No accessible captions were found.")
 
     async def _transcript_api_caption(self, video_id: str) -> Optional[CaptionResult]:
         def fetch() -> Optional[CaptionResult]:
@@ -441,25 +489,6 @@ class YouTubeClient:
             )
         return payload
 
-    async def api_text(self, path: str, params: dict[str, Any]) -> str:
-        token = await self.access_token()
-        response = await (await self._client()).get(
-            API_BASE + path,
-            params=params,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if response.status_code == 401:
-            profile = self.profile()
-            profile["needs_authorization"] = True
-            self.secrets.put("youtube:default", profile)
-            raise YouTubeAuthError("YouTube authorization has expired. Connect YouTube again.")
-        if response.status_code >= 400:
-            raise YouTubeApiError(
-                f"YouTube caption download failed ({response.status_code})",
-                status_code=response.status_code,
-            )
-        return response.text
-
     @staticmethod
     def _json_or_empty(response: httpx.Response) -> dict[str, Any]:
         try:
@@ -467,15 +496,3 @@ class YouTubeClient:
         except ValueError:
             return {}
         return value if isinstance(value, dict) else {}
-
-
-def _strip_vtt(value: str) -> str:
-    lines: list[str] = []
-    for raw in value.splitlines():
-        line = raw.strip()
-        if not line or line == "WEBVTT" or line.startswith("NOTE"):
-            continue
-        if "-->" in line or line.isdigit():
-            continue
-        lines.append(html.unescape(line))
-    return "\n\n".join(lines)

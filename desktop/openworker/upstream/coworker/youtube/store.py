@@ -6,8 +6,9 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 
 def _now() -> float:
@@ -71,6 +72,18 @@ class YouTubeStore:
                     source TEXT NOT NULL,
                     body TEXT NOT NULL,
                     fetched_at REAL NOT NULL,
+                    FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS youtube_translations (
+                    video_id TEXT PRIMARY KEY,
+                    language_code TEXT NOT NULL DEFAULT 'zh-CN',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    body TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    prompt TEXT NOT NULL DEFAULT '',
+                    error TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
                     FOREIGN KEY(video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
                 );
                 CREATE TABLE IF NOT EXISTS youtube_deleted_videos (
@@ -138,6 +151,29 @@ class YouTubeStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def prune_unsubscribed_unprocessed_videos(self) -> int:
+        """Remove disposable discoveries that are outside the current subscription snapshot.
+
+        Chosen videos and caption assets are library history, so they survive an unsubscribe.
+        Unchosen videos without a caption are only discovery candidates and may be rebuilt if
+        the channel is subscribed again later.
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                DELETE FROM youtube_videos AS v
+                WHERE v.selected = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM youtube_captions c WHERE c.video_id = v.video_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM youtube_channels ch WHERE ch.channel_id = v.channel_id
+                  )
+                """
+            )
+            self._conn.commit()
+        return cur.rowcount
+
     # -- videos ------------------------------------------------------------
     def upsert_video(self, video: dict[str, Any]) -> bool:
         video_id = str(video.get("video_id") or "").strip()
@@ -185,23 +221,32 @@ class YouTubeStore:
             rows = self._conn.execute(
                 f"""
                 SELECT v.*, c.language_code, c.language_name, c.track_kind, c.source AS caption_source,
-                       c.body AS caption_body
+                       c.body AS caption_body, t.status AS translation_status,
+                       t.language_code AS translation_language_code, t.model AS translation_model,
+                       t.error AS translation_error, t.body AS translation_body,
+                       t.updated_at AS translated_at
                 FROM youtube_videos v
                 LEFT JOIN youtube_captions c ON c.video_id = v.video_id
+                LEFT JOIN youtube_translations t ON t.video_id = v.video_id
                 {where}
                 ORDER BY COALESCE(v.published_ts, 0) DESC, v.discovered_at DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_video(self, video_id: str) -> Optional[dict[str, Any]]:
+    def get_video(self, video_id: str) -> dict[str, Any] | None:
         with self._lock:
             row = self._conn.execute(
                 """
                 SELECT v.*, c.language_code, c.language_name, c.track_kind,
-                       c.source AS caption_source, c.body AS caption_body
+                       c.source AS caption_source, c.body AS caption_body,
+                       t.status AS translation_status,
+                       t.language_code AS translation_language_code,
+                       t.model AS translation_model, t.error AS translation_error,
+                       t.body AS translation_body, t.updated_at AS translated_at
                 FROM youtube_videos v
                 LEFT JOIN youtube_captions c ON c.video_id=v.video_id
+                LEFT JOIN youtube_translations t ON t.video_id=v.video_id
                 WHERE v.video_id=? AND v.deleted_at IS NULL
                 """,
                 (video_id,),
@@ -240,6 +285,7 @@ class YouTubeStore:
                 "UPDATE youtube_videos SET caption_status='ready', caption_error=NULL WHERE video_id=?",
                 (video_id,),
             )
+            self._conn.execute("DELETE FROM youtube_translations WHERE video_id=?", (video_id,))
             self._conn.commit()
 
     def set_caption_error(self, video_id: str, error: str) -> None:
@@ -247,6 +293,62 @@ class YouTubeStore:
             self._conn.execute(
                 "UPDATE youtube_videos SET caption_status='error', caption_error=? WHERE video_id=?",
                 (error[:1000], video_id),
+            )
+            self._conn.commit()
+
+    def set_translation_running(self, video_id: str, model: str, prompt: str) -> None:
+        now = _now()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO youtube_translations
+                    (video_id, status, body, model, prompt, error, created_at, updated_at)
+                VALUES (?, 'translating', NULL, ?, ?, NULL, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    status='translating', body=NULL, model=excluded.model,
+                    prompt=excluded.prompt, error=NULL, updated_at=excluded.updated_at
+                """,
+                (video_id, model, prompt, now, now),
+            )
+            self._conn.commit()
+
+    def set_translation(
+        self,
+        video_id: str,
+        *,
+        language_code: str,
+        body: str,
+        model: str,
+        prompt: str,
+    ) -> None:
+        now = _now()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO youtube_translations
+                    (video_id, language_code, status, body, model, prompt, error, created_at, updated_at)
+                VALUES (?, ?, 'ready', ?, ?, ?, NULL, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    language_code=excluded.language_code, status='ready', body=excluded.body,
+                    model=excluded.model, prompt=excluded.prompt, error=NULL,
+                    updated_at=excluded.updated_at
+                """,
+                (video_id, language_code, body, model, prompt, now, now),
+            )
+            self._conn.commit()
+
+    def set_translation_error(self, video_id: str, error: str) -> None:
+        now = _now()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO youtube_translations
+                    (video_id, status, error, created_at, updated_at)
+                VALUES (?, 'error', ?, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    status='error', body=NULL, error=excluded.error, updated_at=excluded.updated_at
+                """,
+                (video_id, error[:1000], now, now),
             )
             self._conn.commit()
 
@@ -264,6 +366,7 @@ class YouTubeStore:
                 (video_id, now),
             )
             self._conn.execute("DELETE FROM youtube_captions WHERE video_id=?", (video_id,))
+            self._conn.execute("DELETE FROM youtube_translations WHERE video_id=?", (video_id,))
             self._conn.execute("DELETE FROM youtube_videos WHERE video_id=?", (video_id,))
             self._conn.commit()
         return True

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   createAutomation,
-  createYouTubeAutomation,
   deleteAutomation,
   getAutomation,
   getAutomations,
@@ -14,8 +13,6 @@ import {
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { AutomationQuickstart } from "./AutomationQuickstart";
-import { YouTubeView } from "./YouTubeView";
-import { BrandIcon } from "./brandIcons";
 
 // Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
@@ -120,14 +117,10 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     );
   }
 
-  const empty = tasks.length === 0;
-  const youtubeTask = tasks.find((task) => task.kind === "youtube") || null;
-  const openTask = openId ? tasks.find((task) => task.id === openId) : null;
-
-  if (openTask?.kind === "youtube") {
-    return <YouTubeView automationId={openTask.id} onBack={() => { setOpenId(null); refresh(); }} />;
-  }
-
+  // YouTube is a manual library now.  Older local scheduled entries remain stored rather than
+  // being deleted behind the user's back, but they no longer belong in this surface.
+  const visibleTasks = tasks.filter((task) => task.kind !== "youtube");
+  const empty = visibleTasks.length === 0;
   return (
     <Shell>
       <div className="flex items-start gap-3">
@@ -158,36 +151,6 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
         />
       )}
 
-      {!youtubeTask && (
-        <div className={CARD + " yt-automation-entry px-4 py-3 mb-4"}>
-          <span className="yt-automation-entry-mark" aria-hidden><BrandIcon name="youtube" size={23} /></span>
-          <div className="min-w-0 flex-1">
-            <strong className="block text-[13.5px] font-semibold">YouTube subscription updates</strong>
-            <span className="block text-[12px] text-muted mt-0.5">Watch your subscriptions every day at 00:00 Beijing and keep the best available raw captions locally.</span>
-          </div>
-          <button
-            className="btn sm shrink-0"
-            type="button"
-            disabled={busy === "youtube"}
-            onClick={async () => {
-              setBusy("youtube");
-              try {
-                const result = await createYouTubeAutomation();
-                if (result.ok && result.task) {
-                  announceAutomationsChanged();
-                  await refresh();
-                  setOpenId(result.task.id);
-                } else if (result.error) {
-                  alert(result.error);
-                }
-              } finally {
-                setBusy(null);
-              }
-            }}
-          >{busy === "youtube" ? "Creating…" : "Set up"}</button>
-        </div>
-      )}
-
       {/* The quickstart (§29): ONE template system — role recipes + generic templates, each
           card with §27 connector dots; picking one expands the configure card. */}
       {(empty || showForm) && <AutomationQuickstart busy={busy !== null} onCreate={create} />}
@@ -201,7 +164,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
         )
       ) : (
         <div className="flex flex-col gap-2.5">
-          {tasks.map((t) => (
+          {visibleTasks.map((t) => (
             <div
               className={CARD + " sched-card px-4 py-3 cursor-pointer hover:border-lineStrong transition-colors"}
               key={t.id}
@@ -209,7 +172,6 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
             >
               <div className="flex items-center justify-between gap-2.5 mb-1">
                 <span className="flex items-center gap-2 min-w-0 text-[13.5px] font-semibold truncate">
-                  {t.kind === "youtube" && <BrandIcon name="youtube" size={16} />}
                   <span className="truncate">{t.title}</span>
                 </span>
                 <button

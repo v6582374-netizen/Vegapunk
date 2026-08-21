@@ -197,6 +197,7 @@ from ..engine import ApprovalOutcome
 from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
 from ..permissions import Mode
 from ..providers import AssistantTurn
+from ..youtube.client import YouTubeAuthError
 from .discovery import (
     DiscoveryConfigurationError,
     DiscoveryConversionError,
@@ -363,7 +364,7 @@ def create_app(
         allow_headers=["*"],
     )
     app.state.manager = manager
-    youtube_oauth_states: dict[str, float] = {}
+    youtube_oauth_states: dict[str, tuple[float, str]] = {}
     default_library_root, default_baseline_root = default_prompt_roots()
     app.state.prompt_library = DesktopPromptLibrary(
         PromptLibrary(
@@ -1831,9 +1832,19 @@ def create_app(
             }
             if video.get("language_code")
             else None,
+            "translation_status": video.get("translation_status") or "pending",
+            "translation_error": video.get("translation_error"),
+            "translation": {
+                "language_code": video.get("translation_language_code"),
+                "model": video.get("translation_model"),
+                "translated_at": video.get("translated_at"),
+            }
+            if video.get("translation_status") == "ready"
+            else None,
         }
         if include_body:
             result["caption_body"] = video.get("caption_body")
+            result["translation_body"] = video.get("translation_body")
         return result
 
     @app.get("/v1/youtube/status")
@@ -1846,18 +1857,72 @@ def create_app(
             "video_count": len(manager.youtube_store.list_videos()),
         }
 
-    @app.get("/v1/youtube/oauth/start")
-    def youtube_oauth_start(request: Request) -> dict[str, Any]:
-        state = secrets.token_urlsafe(32)
-        youtube_oauth_states[state] = time.time() + 600
-        redirect_uri = os.environ.get("YOUTUBE_REDIRECT_URI") or str(
-            request.url_for("youtube_oauth_callback")
+    def youtube_redirect_uri(request: Request) -> str:
+        return manager.youtube_client.oauth_redirect_uri(
+            str(request.url_for("youtube_oauth_callback"))
         )
+
+    def youtube_authorization_redirect_uri(
+        request: Request, requested_redirect_uri: str
+    ) -> str:
+        requested = requested_redirect_uri.strip()
+        if requested:
+            parsed = urlsplit(requested)
+            callback_path = request.url_for("youtube_oauth_callback").path
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.netloc
+                or parsed.path != callback_path
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise YouTubeAuthError(
+                    "OAuth redirect URI must use the current YouTube callback path without a query or fragment."
+                )
+        return manager.youtube_client.authorization_redirect_uri(
+            requested_redirect_uri=requested,
+            default_redirect_uri=str(request.url_for("youtube_oauth_callback")),
+        )
+
+    @app.get("/v1/youtube/oauth/settings")
+    def youtube_oauth_settings(request: Request) -> dict[str, Any]:
+        return manager.youtube_client.oauth_settings(
+            default_redirect_uri=str(request.url_for("youtube_oauth_callback"))
+        )
+
+    @app.put("/v1/youtube/oauth/settings")
+    def youtube_oauth_settings_save(
+        request: Request, body: dict | None = None
+    ) -> dict[str, Any]:
+        payload = body if isinstance(body, dict) else {}
         try:
-            url = manager.youtube_client.authorization_url(state=state, redirect_uri=redirect_uri)
-        except Exception as exc:
-            youtube_oauth_states.pop(state, None)
+            settings = manager.youtube_client.save_oauth_settings(
+                client_id=str(payload.get("client_id") or ""),
+                client_secret=str(payload.get("client_secret") or ""),
+                redirect_uri=str(
+                    payload.get("redirect_uri") or youtube_redirect_uri(request)
+                ),
+            )
+        except YouTubeAuthError as exc:
             return {"ok": False, "error": str(exc)}
+        manager.secrets.delete("youtube:default")
+        return {"ok": True, **settings}
+
+    @app.get("/v1/youtube/oauth/start")
+    def youtube_oauth_start(
+        request: Request, redirect_uri: str = ""
+    ) -> dict[str, Any]:
+        state = secrets.token_urlsafe(32)
+        try:
+            resolved_redirect_uri = youtube_authorization_redirect_uri(
+                request, redirect_uri
+            )
+            url = manager.youtube_client.authorization_url(
+                state=state, redirect_uri=resolved_redirect_uri
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        youtube_oauth_states[state] = (time.time() + 600, resolved_redirect_uri)
         return {"ok": True, "authorization_url": url}
 
     @app.get("/v1/youtube/oauth/callback", name="youtube_oauth_callback")
@@ -1865,6 +1930,7 @@ def create_app(
         request: Request, code: str = "", state: str = "", error: str = ""
     ) -> HTMLResponse:
         if error:
+            youtube_oauth_states.pop(state, None)
             return HTMLResponse(
                 _browser_page(
                     "YouTube sign-in failed",
@@ -1875,8 +1941,8 @@ def create_app(
                 ),
                 status_code=400,
             )
-        expires = youtube_oauth_states.pop(state, 0)
-        if not code or not state or expires < time.time():
+        pending = youtube_oauth_states.pop(state, None)
+        if not code or not state or pending is None or pending[0] < time.time():
             return HTMLResponse(
                 _browser_page(
                     "Nothing waiting for this sign-in",
@@ -1886,9 +1952,7 @@ def create_app(
                 ),
                 status_code=400,
             )
-        redirect_uri = os.environ.get("YOUTUBE_REDIRECT_URI") or str(
-            request.url_for("youtube_oauth_callback")
-        )
+        redirect_uri = pending[1]
         try:
             await manager.youtube_client.exchange_code(code=code, redirect_uri=redirect_uri)
             if manager.youtube_store.get_state("authorized_at") is None:
@@ -1926,6 +1990,45 @@ def create_app(
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
+    @app.get("/v1/youtube/translation/settings")
+    def youtube_translation_settings() -> dict[str, Any]:
+        return manager.youtube_translation.settings()
+
+    @app.put("/v1/youtube/translation/settings")
+    def youtube_translation_settings_save(body: dict | None = None) -> dict[str, Any]:
+        payload = body if isinstance(body, dict) else {}
+        try:
+            return {
+                "ok": True,
+                **manager.youtube_translation.save_settings(
+                    base_url=str(payload.get("base_url") or ""),
+                    model=str(payload.get("model") or ""),
+                    api_key=payload.get("api_key"),
+                    prompt=str(payload.get("prompt") or ""),
+                    clear_api_key=bool(payload.get("clear_api_key")),
+                ),
+            }
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    @app.post("/v1/youtube/translation/test")
+    async def youtube_translation_test() -> dict[str, Any]:
+        return await manager.youtube_translation.test_connection()
+
+    @app.post("/v1/youtube/updates")
+    async def youtube_updates_fetch() -> dict[str, Any]:
+        """Refresh the current subscriptions and discover their new videos."""
+        try:
+            result = await manager.youtube.scan()
+            return {
+                "ok": True,
+                "discovered": result.discovered,
+                "channel_failures": result.channel_failures,
+                "scan_finished_at": result.scan_finished_at,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     @app.post("/v1/youtube/automations")
     def youtube_automation_create(body: dict | None = None) -> dict[str, Any]:
         return manager.create_youtube_automation(body or {})
@@ -1944,6 +2047,33 @@ def create_app(
         if video is None:
             raise HTTPException(status_code=404, detail="video not found")
         return {"video": _youtube_video_public(video, include_body=True)}
+
+    @app.post("/v1/youtube/videos/{video_id}/caption")
+    async def youtube_video_caption(video_id: str) -> dict[str, Any]:
+        if manager.youtube_store.get_video(video_id) is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        try:
+            result = await manager.youtube.fetch_caption(video_id)
+        except YouTubeAuthError as exc:
+            return {"ok": False, "error": str(exc)}
+        video = result.get("video") or {}
+        return {
+            "ok": bool(result.get("ok")),
+            "error": result.get("error"),
+            "video": _youtube_video_public(video, include_body=True),
+        }
+
+    @app.post("/v1/youtube/videos/{video_id}/translate")
+    async def youtube_video_translate(video_id: str) -> dict[str, Any]:
+        if manager.youtube_store.get_video(video_id) is None:
+            raise HTTPException(status_code=404, detail="video not found")
+        result = await manager.youtube_translation.translate(video_id)
+        video = result.get("video") or manager.youtube_store.get_video(video_id) or {}
+        return {
+            "ok": bool(result.get("ok")),
+            "error": result.get("error"),
+            "video": _youtube_video_public(video, include_body=True),
+        }
 
     @app.patch("/v1/youtube/videos/{video_id}")
     def youtube_video_update(video_id: str, body: dict | None = None) -> dict[str, Any]:

@@ -164,22 +164,11 @@ export function App() {
   if (prototype === "babeldoc") return <BabelDocPrototype />;
   if (prototype === "babeldoc-settings") return <BabelDocSettingsPrototype />;
   if (prototype === "embodied") return <EmbodiedPrototype />;
-  if (prototype === "youtube") {
-    return (
-      <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">
-        <VegapunkApp initialSurface="youtube-prototype" />
-      </div>
-    );
-  }
   const app = <VegapunkApp />;
   return <div className="ui-surface-hierarchy ui-surface-hierarchy--ma">{app}</div>;
 }
 
-function VegapunkApp({
-  initialSurface = "session",
-}: {
-  initialSurface?: "session" | "youtube-prototype";
-}) {
+function VegapunkApp() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
   const [showGate, setShowGate] = useState(false);
@@ -265,8 +254,8 @@ function VegapunkApp({
     | "agents-md-editor"
     | "discovery"
     | "translation"
-    | "youtube-prototype"
-  >(initialSurface);
+    | "youtube"
+  >("session");
   const [agentsMdTarget, setAgentsMdTarget] = useState<AgentsMdFileTarget | null>(null);
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
@@ -1349,6 +1338,7 @@ function VegapunkApp({
         }}
         onManagePersonas={() => openSettings("personas")}
         onOpenScheduled={() => setSurface("scheduled")}
+        onOpenYouTube={() => setSurface("youtube")}
         onOpenAutomation={(id) => {
           setScheduledOpenId(id);
           setSurface("scheduled");
@@ -1365,7 +1355,8 @@ function VegapunkApp({
         onOpenTranslation={() => setSurface("translation")}
         onOpenCamera={() => setSurface("camera")}
         onOpenEmbodied={() => setSurface("embodied")}
-        scheduledActive={surface === "scheduled" || surface === "youtube-prototype"}
+        scheduledActive={surface === "scheduled"}
+        youtubeActive={surface === "youtube"}
         discoveryActive={surface === "discovery"}
         translationActive={surface === "translation"}
         cameraActive={surface === "camera"}
@@ -1379,7 +1370,7 @@ function VegapunkApp({
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
       />
-      {surface === "youtube-prototype" ? (
+      {surface === "youtube" ? (
         <YouTubeView />
       ) : surface === "scheduled" ? (
         <ScheduledView

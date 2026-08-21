@@ -16,6 +16,7 @@ import type { SessionInfo } from "../types";
 import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { Icon, type IconName } from "./Icon";
+import { BrandIcon } from "./brandIcons";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
 import { SearchModal } from "./SearchModal";
 import { baseName } from "../paths";
@@ -125,6 +126,7 @@ interface Props {
   onOpenPersona: (id: string) => void;
   onManagePersonas: () => void;
   onOpenScheduled: () => void;
+  onOpenYouTube?: () => void;
   // Scheduled-band row click: open the Automations surface ON that automation (UX-023).
   onOpenAutomation: (id: string) => void;
   onOpenDiscovery?: () => void;
@@ -137,6 +139,7 @@ interface Props {
   onOpenSkillsManager: () => void;
   onOpenAgentsMd: () => void;
   scheduledActive: boolean;
+  youtubeActive?: boolean;
   discoveryActive?: boolean;
   translationActive?: boolean;
   cameraActive?: boolean;
@@ -673,14 +676,15 @@ export function Sidebar(props: Props) {
   // UX-023: the Scheduled band — ONE entry per automation (never per run): name +
   // cadence, with the unseen-runs badge. Runs themselves never enter Recent (run
   // sessions are __run__-prefixed and hidden from the sessions list).
+  const scheduledAutomations = automations.filter((automation) => automation.kind !== "youtube");
   const scheduledBand = () =>
-    automations.length > 0 ? (
+    scheduledAutomations.length > 0 ? (
       <div data-testid="scheduled-band">
         <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
           Scheduled
         </div>
         <div className="space-y-0.5">
-          {automations.map((a) => (
+          {scheduledAutomations.map((a) => (
             <button
               key={a.id}
               className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left hover:bg-paper"
@@ -1069,6 +1073,22 @@ export function Sidebar(props: Props) {
         >
           <Icon name="clock" size={15} className="shrink-0" />
           <span className="flex-1">Automations</span>
+        </button>
+      </div>
+
+      {/* YouTube is a first-class local library, separate from recurring automations. */}
+      <div className="px-2.5 mt-1">
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.youtubeActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-youtube"
+          aria-current={props.youtubeActive ? "page" : undefined}
+          onClick={() => props.onOpenYouTube?.()}
+        >
+          <BrandIcon name="youtube" size={15} />
+          <span className="flex-1">YouTube</span>
         </button>
       </div>
 

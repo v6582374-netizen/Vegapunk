@@ -13,8 +13,14 @@ from .client import (
 )
 from .service import YouTubeAutomationService, YouTubeRunResult
 from .store import YouTubeStore
+from .translation import (
+    DEFAULT_TRANSLATION_PROMPT,
+    YouTubeTranslationError,
+    YouTubeTranslationService,
+)
 
 __all__ = [
+    "DEFAULT_TRANSLATION_PROMPT",
     "CaptionUnavailable",
     "YouTubeAuthError",
     "YouTubeAutomationService",
@@ -22,4 +28,6 @@ __all__ = [
     "YouTubeClientError",
     "YouTubeRunResult",
     "YouTubeStore",
+    "YouTubeTranslationError",
+    "YouTubeTranslationService",
 ]
